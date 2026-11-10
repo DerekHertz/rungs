@@ -18,7 +18,8 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\
  */
 export function appears(description: string, kind: "path" | "file" | "name", needle: string): boolean {
   const body = escape(needle);
-  const word = "\\p{L}\\p{N}\\p{M}_";
+  // Everything that can continue a JavaScript identifier, joiners included.
+  const word = "\\p{ID_Continue}\\u200C\\u200D_";
   const pattern =
     kind === "path"
       ? `(?<![${word}./-])${body}(?![${word}/-]|\\.[${word}])`

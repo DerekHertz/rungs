@@ -174,5 +174,7 @@ test("a Unicode letter beside a needle is part of a longer name", () => {
   expect(appears("Fix \u00e9parse()", "name", "parse")).toBe(false);
   expect(appears("Fix parse\u00e9()", "name", "parse")).toBe(false);
   expect(appears("x/\u00e9a.ts", "path", "a.ts")).toBe(false);
+  expect(appears("Fix foo\u200Cbar()", "name", "foo")).toBe(false);
+  expect(appears("Fix foo\u200Dbar()", "name", "foo")).toBe(false);
   expect(appears("Fix parse()", "name", "parse")).toBe(true);
 });
