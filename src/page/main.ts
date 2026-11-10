@@ -1,6 +1,6 @@
 import { isCodeNode, lineCount } from "../graph.ts";
 import type { Graph, ModuleNode, NodeId, Role } from "../graph.ts";
-import { GENERATED_WEIGHT, LABEL_BAND, layout, reservesLabelBand } from "../layout.ts";
+import { LABEL_BAND, layout, leafWeight, reservesLabelBand } from "../layout.ts";
 import type { Rect } from "../layout.ts";
 import { indexGraph, trail, zoomOut, zoomTarget } from "../zoom.ts";
 
@@ -118,7 +118,7 @@ function tallyRoles(): void {
   for (const node of graph.nodes) {
     if (node.level !== "file") continue;
     roleByPath.set(node.path, node.role);
-    const weight = node.role === "generated" ? Math.min(node.lines, GENERATED_WEIGHT) : node.lines;
+    const weight = leafWeight(node);
     for (let id: NodeId | null = node.parent; id !== null; id = nodes.get(id)!.parent) {
       const byRole = totals.get(id) ?? new Map<Role | "none", number>();
       byRole.set(roleKey(node.role), (byRole.get(roleKey(node.role)) ?? 0) + weight);
