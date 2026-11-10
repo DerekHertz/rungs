@@ -30,7 +30,7 @@ import { namedDistricts, regionTop } from "../focus.ts";
 import type { NodeId, ResourceKind } from "../graph.ts";
 import { occluders, visibleNames } from "../screen.ts";
 import type { Name, Projected } from "../screen.ts";
-import { BACKGROUND, EFFECT_COLOR, onBackground, roleColor } from "./palette.ts";
+import { BACKGROUND, EFFECT_COLOR, FAIL_COLOR, onBackground, roleColor } from "./palette.ts";
 
 interface Point {
   readonly x: number;
@@ -98,6 +98,7 @@ const EFFECT = EFFECT_COLOR;
 const EFFECT_OLD = 0.4;
 const BEAM = { fresh: 2.4, old: 1.4 };
 const MAST = { height: 14, share: 0.2, least: 3 };
+const FLAG = { pole: 1.2, height: 22, cloth: 9, drop: 6 };
 const PLATE = { fill: "#c9ced6", rest: "#c9ced6", chosen: "#ffffff" };
 
 /** Where the camera looks and how: turning, tilt, pixels per plan unit, and the ground point centred. */
@@ -137,6 +138,8 @@ interface Building3D extends Entry {
   readonly cap: Mesh | undefined;
   /** Under a comparison, a slim post on the roof of a building with a new effect edge. */
   readonly mast: Mesh | undefined;
+  /** A pole and pennant on the roof of a file with a test that failed when run: an observed fact. */
+  readonly flag: readonly Mesh[];
   readonly reach: Reach;
   readonly color: string;
   /** Just above the roof, where the file's name floats. */
@@ -244,7 +247,8 @@ function basis(az: number): { right: [number, number]; up: [number, number] } {
   return { right: [Math.cos(az), -Math.sin(az)], up: [-Math.sin(az), -Math.cos(az)] };
 }
 
-export function createCityView(host: HTMLElement, handlers: CityHandlers): CityView {
+/** `failing` is the files holding a test that failed when the tests were run; each gets a flag. */
+export function createCityView(host: HTMLElement, handlers: CityHandlers, failing: ReadonlySet<NodeId> = new Set()): CityView {
   const renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   const canvas = renderer.domElement;
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
@@ -426,12 +430,28 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
       pickable.push(mast);
       idOf.set(mast, building.id);
     }
+    const flag: Mesh[] = [];
+    if (failing.has(building.id)) {
+      const pole = new Mesh(box, capMaterial(FAIL_COLOR));
+      pole.scale.set(FLAG.pole, FLAG.height, FLAG.pole);
+      pole.position.set(worldX(building.x + FLAG.pole), roof + FLAG.height / 2, worldZ(building.y + building.d - FLAG.pole));
+      const cloth = new Mesh(box, capMaterial(FAIL_COLOR));
+      cloth.scale.set(FLAG.cloth, FLAG.drop, FLAG.pole);
+      cloth.position.set(worldX(building.x + FLAG.pole + FLAG.cloth / 2), roof + FLAG.height - FLAG.drop / 2, worldZ(building.y + building.d - FLAG.pole));
+      for (const part of [pole, cloth]) {
+        group.add(part);
+        pickable.push(part);
+        idOf.set(part, building.id);
+        flag.push(part);
+      }
+    }
     buildings.set(building.id, {
       ...entry,
       ghost,
       edgeLooks,
       cap,
       mast,
+      flag,
       reach: building.reach,
       roof: new Vector3(worldX(building.x + building.w / 2), roof, worldZ(building.y + building.d / 2)),
       name: building.name,
@@ -505,6 +525,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     entry.edges.material = entry.edgeLooks[chosen ? "selected" : state];
     if (entry.cap !== undefined) entry.cap.visible = state !== "faded";
     if (entry.mast !== undefined) entry.mast.visible = state !== "faded";
+    for (const part of entry.flag) part.visible = state !== "faded";
     dirty = true;
   }
 

@@ -6,6 +6,9 @@ export const BACKGROUND = "#10141a";
 /** Reddish purple, the one Okabe-Ito hue no role uses: lines and posts that reach outside the code. */
 export const EFFECT_COLOR = "#CC79A7";
 
+/** Orange, the other Okabe-Ito hue no role uses: the flag on a file whose test failed when run. */
+export const FAIL_COLOR = "#E69F00";
+
 // Okabe-Ito, so the picture stays readable with any colour vision. Colour means one thing here,
 // a file's role.
 const ROLE_COLORS: Readonly<Record<Role | "none", string>> = {

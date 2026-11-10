@@ -4,9 +4,8 @@ import { isCodeNode } from "./graph.ts";
 import type { FileTree, Graph, NodeId } from "./graph.ts";
 import { runIsolated } from "./sandbox.ts";
 import type { Isolation, Places } from "./sandbox.ts";
+import type { ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest } from "./observed-types.ts";
 
-export type Outcome = "pass" | "fail" | "skip";
-export type Runner = "node" | "vitest";
 
 /** One test as its runner reported it: the titles of its suites, then its own. */
 export interface TestReport {
@@ -49,61 +48,6 @@ export type TestRun =
       readonly exitCode: number;
       readonly reports: readonly TestReport[];
     };
-
-export interface ObservedTest {
-  /** The suite titles and the test's own, joined with " > ". */
-  readonly name: string;
-  readonly outcome: Outcome;
-  readonly ms: number;
-  readonly message?: string;
-}
-
-export interface UnmatchedTest extends ObservedTest {
-  readonly file: string;
-  readonly why: string;
-}
-
-export interface Counts {
-  readonly pass: number;
-  readonly fail: number;
-  readonly skip: number;
-}
-
-/**
- * Observed facts, served at /observed.json: one run of one tree, keyed by the tree's digest and
- * kept apart from the graph. `tests` attaches results to test function nodes by id; a result no
- * single test function matches is listed in `unmatched` with why.
- */
-export type ObservedDocument = { readonly tier: "observed"; readonly tree: string } & (
-  | { readonly status: "refused" | "unsupported"; readonly why: string }
-  | {
-      readonly status: "failed";
-      readonly why: string;
-      readonly runner: Runner;
-      readonly sandbox: Isolation["kind"];
-      readonly seconds: number;
-      readonly output: string;
-    }
-  | {
-      /** The run's results contradict the runner or each other: none is served, only why. */
-      readonly status: "unreliable";
-      readonly why: string;
-      readonly runner: Runner;
-      readonly sandbox: Isolation["kind"];
-      readonly seconds: number;
-      readonly exitCode: number;
-    }
-  | {
-      readonly status: "ran";
-      readonly runner: Runner;
-      readonly sandbox: Isolation["kind"];
-      readonly seconds: number;
-      readonly exitCode: number;
-      readonly counts: Counts;
-      readonly tests: Readonly<Record<string, readonly ObservedTest[]>>;
-      readonly unmatched: readonly UnmatchedTest[];
-    }
-);
 
 export type Detection = { readonly runner: Runner; readonly args: readonly string[]; readonly install: boolean } | { readonly unsupported: string };
 
