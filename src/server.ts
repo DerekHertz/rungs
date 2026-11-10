@@ -72,7 +72,7 @@ export async function serve(
     ["/main.js", { contentType: "text/javascript; charset=utf-8", body: script }],
     ["/graph.json", { contentType: "application/json; charset=utf-8", body: serializeGraph(graph) }],
   ]);
-  if (base !== undefined && comparison !== undefined) {
+  if (base !== undefined && baseGraph !== undefined && comparison !== undefined) {
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
     const claims = splitClaims(description ?? "");
@@ -89,7 +89,7 @@ export async function serve(
       link: how,
     };
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
-    const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison) }, null, 2)}\n`;
+    const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison, baseGraph, graph) }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
   }
 

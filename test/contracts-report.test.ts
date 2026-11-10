@@ -9,9 +9,10 @@ const tree = (files: Record<string, string>): FileTree => new Map(Object.entries
 
 function report(base: Record<string, string>, head: Record<string, string>, description = "") {
   const headGraph = extract(tree(head));
-  const comparison = compare(extract(tree(base)), headGraph);
+  const baseGraph = extract(tree(base));
+  const comparison = compare(baseGraph, headGraph);
   const claims = unmentioned(comparison, pictureOf(headGraph, comparison).graph, description);
-  return contractsReport(comparison, contractsMoved(comparison), unmentionedIds(claims));
+  return contractsReport(comparison, contractsMoved(comparison, baseGraph, headGraph), unmentionedIds(claims));
 }
 
 const exp = (name: string, params = "", body = 1): string => `export function ${name}(${params}) {\n  return ${body};\n}\n`;
@@ -36,7 +37,7 @@ test("changed signatures come first, then removed and unexported, then exposed a
     "moved mover",
     "added fresh",
   ]);
-  expect(result.counts).toEqual({ changed: 1, removed: 1, unexported: 1, exposed: 1, moved: 1, added: 1 });
+  expect(result.counts).toEqual({ changed: 1, effects: 0, removed: 1, unexported: 1, exposed: 1, moved: 1, added: 1 });
 });
 
 test("a row names its file, its kind and both signatures", () => {

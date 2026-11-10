@@ -6,6 +6,7 @@ import type { NodeId } from "../graph.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   changed: "~",
+  effects: "≈",
   added: "+",
   removed: "−",
   exposed: "↑",

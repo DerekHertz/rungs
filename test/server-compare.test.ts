@@ -152,3 +152,28 @@ test("links stay out of the graph and the comparison", async () => {
   expect(await (await get(linkedServer, "graph.json")).text()).toBe(await (await get(comparing, "graph.json")).text());
   expect(await (await get(linkedServer, "comparison.json")).text()).toBe(await (await get(comparing, "comparison.json")).text());
 });
+
+test("/comparison.json lists the effect edges that appeared and /contracts.json says which exported function reaches more", async () => {
+  const imports = 'import { spawn } from "node:child_process";\n';
+  const before: FileTree = new Map([["package.json", "{}\n"], ["src/run.mjs", `${imports}export function run() {\n  return 1;\n}\n`]]);
+  const after: FileTree = new Map([["package.json", "{}\n"], ["src/run.mjs", `${imports}export function run() {\n  spawn("git");\n}\n`]]);
+  const server = await serve(after, 0, { ref: "main", commit: "3f2a9c1d00000000000000000000000000000000", tree: before });
+  try {
+    const comparison = (await (await get(server, "comparison.json")).json()) as { effects: { kind: string; edge: { from: string; operation: string; target: unknown } }[] };
+    expect(comparison.effects.map((change) => [change.kind, change.edge.from, change.edge.operation, change.edge.target])).toEqual([
+      ["added", "function:src/run.mjs#run", "child_process spawn", { literal: "git" }],
+    ]);
+    const contracts = (await (await get(server, "contracts.json")).json()) as { moves: unknown[] };
+    expect(contracts.moves).toEqual([
+      {
+        kind: "effects",
+        id: "function:src/run.mjs#run",
+        before: "()",
+        after: "()",
+        effects: { added: ['process child_process spawn "git"'], removed: [] },
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});

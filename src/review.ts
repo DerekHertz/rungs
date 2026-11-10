@@ -253,7 +253,7 @@ export interface ContractsReport {
 export const ROLLUP_OVER = 3;
 
 /** Changed first, since only a changed signature can break a caller; then what went; then what appeared. */
-const CONTRACT_ORDER: readonly ContractMoveKind[] = ["changed", "removed", "unexported", "exposed", "moved", "added"];
+const CONTRACT_ORDER: readonly ContractMoveKind[] = ["changed", "effects", "removed", "unexported", "exposed", "moved", "added"];
 
 /**
  * The contracts that moved as rows to show, in the order a reviewer must read them: changed,
@@ -267,7 +267,7 @@ export function contractsReport(
   unmentionedSet: ReadonlySet<NodeId>,
 ): ContractsReport {
   const nodeOf = new Map<NodeId, ModuleNode>(comparison.changes.map((change) => [change.node.id, change.node]));
-  const counts: Record<ContractMoveKind, number> = { changed: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 };
+  const counts: Record<ContractMoveKind, number> = { changed: 0, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 };
   const rows: ContractRow[] = [];
   for (const move of moves) {
     const node = nodeOf.get(move.id);

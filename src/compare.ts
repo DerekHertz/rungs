@@ -1,4 +1,6 @@
-import { canonicalNode, compareIds, isCodeNode, nodeId } from "./graph.ts";
+import { canonicalEdge, canonicalNode, compareIds, isCodeNode, nodeId } from "./graph.ts";
+import { diffEffects, effectSets } from "./effects.ts";
+import type { EffectChange } from "./effects.ts";
 import type { CodeNode, ContainerNode, FileNode, Graph, ModuleNode, NodeId } from "./graph.ts";
 
 export type ChangeKind = "added" | "altered" | "removed" | "moved";
@@ -21,6 +23,8 @@ export interface Comparison {
   readonly extractorVersion: string;
   /** Sorted by node.id, at most one entry per id. An unchanged module has no entry. */
   readonly changes: readonly ModuleChange[];
+  /** The effect edges that appeared or went away, sorted; see diffEffects in src/effects.ts. */
+  readonly effects: readonly EffectChange[];
 }
 
 export class ExtractorVersionMismatch extends Error {
@@ -76,7 +80,9 @@ export function compare(base: Graph, head: Graph): Comparison {
   }
 
   const paired = new Set<NodeId>();
+  const movedTo = new Map<NodeId, NodeId>();
   const pair = (from: Body, node: Body): void => {
+    movedTo.set(from.id, node.id);
     paired.add(from.id);
     paired.add(node.id);
     changes.push({ kind: "moved", node, from });
@@ -152,10 +158,10 @@ export function compare(base: Graph, head: Graph): Comparison {
     if (!isBody(node) && !baseDirs.has(node.path)) changes.push({ kind: "added", node });
   }
   changes.sort((a, b) => compareIds(a.node.id, b.node.id));
-  return { extractorVersion: head.extractorVersion, changes };
+  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo) };
 }
 
-export type ContractMoveKind = "changed" | "added" | "removed" | "exposed" | "unexported" | "moved";
+export type ContractMoveKind = "changed" | "effects" | "added" | "removed" | "exposed" | "unexported" | "moved";
 
 /** One exported class or function whose place in the file's contract changed. */
 export interface ContractMove {
@@ -168,49 +174,75 @@ export interface ContractMove {
   readonly before: string | null;
   /** The exported signature after; null when the node is gone or is no longer exported. */
   readonly after: string | null;
+  /** The effects the node's set gained and lost, as labels; absent when its set did not change.
+   *  "effects" moves are exactly the ones where only this moved. */
+  readonly effects?: { readonly added: readonly string[]; readonly removed: readonly string[] };
 }
 
 /**
  * The exported classes and functions whose contract moved, sorted by id: a signature changed
- * ("changed"), an exported node appeared or went away ("added", "removed"), a node became
- * exported or stopped being ("exposed", "unexported"), or an exported node moved to another path,
- * which changes how it is imported ("moved"). A body edit that leaves the signature alone is not
- * a move. Exports that are not functions or classes are not recorded yet, so not reported.
+ * ("changed"), the effects its code reaches changed under the same signature ("effects"), an
+ * exported node appeared or went away ("added", "removed"), a node became exported or stopped
+ * being ("exposed", "unexported"), or an exported node moved to another path, which changes how
+ * it is imported ("moved"). A body edit that leaves the signature and the effects alone is not a
+ * move. A move of any kind carries the effects its set gained and lost when those differ: an
+ * added or exposed node gains its whole set, a removed or unexported one loses it. Exports that
+ * are not functions or classes are not recorded yet, so not reported. Effect sets are direct
+ * only; see effectSets.
  */
-export function contractsMoved(comparison: Comparison): ContractMove[] {
+export function contractsMoved(comparison: Comparison, base: Graph, head: Graph): ContractMove[] {
   const side = (node: CodeNode): string | null => (node.exported ? node.signature : null);
+  const baseSets = effectSets(base);
+  const headSets = effectSets(head);
+  const effectsBetween = (before: NodeId | null, after: NodeId | null): Pick<ContractMove, "effects"> => {
+    const was = (before === null ? undefined : baseSets.get(before)) ?? new Set<string>();
+    const now = (after === null ? undefined : headSets.get(after)) ?? new Set<string>();
+    const added = [...now].filter((label) => !was.has(label)).sort();
+    const removed = [...was].filter((label) => !now.has(label)).sort();
+    return added.length === 0 && removed.length === 0 ? {} : { effects: { added, removed } };
+  };
   const moves: ContractMove[] = [];
   for (const change of comparison.changes) {
     const node = change.node;
     if (!isCodeNode(node)) continue;
     switch (change.kind) {
       case "added":
-        if (node.exported) moves.push({ kind: "added", id: node.id, before: null, after: node.signature });
+        if (node.exported) moves.push({ kind: "added", id: node.id, before: null, after: node.signature, ...effectsBetween(null, node.id) });
         break;
       case "removed":
-        if (node.exported) moves.push({ kind: "removed", id: node.id, before: node.signature, after: null });
+        if (node.exported) moves.push({ kind: "removed", id: node.id, before: node.signature, after: null, ...effectsBetween(node.id, null) });
         break;
       case "altered": {
         const before = change.before as CodeNode;
         if (before.exported && node.exported) {
           if (before.signature !== node.signature) {
-            moves.push({ kind: "changed", id: node.id, before: before.signature, after: node.signature });
+            moves.push({ kind: "changed", id: node.id, before: before.signature, after: node.signature, ...effectsBetween(node.id, node.id) });
           }
         } else if (before.exported) {
-          moves.push({ kind: "unexported", id: node.id, before: before.signature, after: null });
+          moves.push({ kind: "unexported", id: node.id, before: before.signature, after: null, ...effectsBetween(node.id, null) });
         } else if (node.exported) {
-          moves.push({ kind: "exposed", id: node.id, before: null, after: node.signature });
+          moves.push({ kind: "exposed", id: node.id, before: null, after: node.signature, ...effectsBetween(null, node.id) });
         }
         break;
       }
       case "moved": {
         const from = change.from as CodeNode;
         if (from.exported || node.exported) {
-          moves.push({ kind: "moved", id: node.id, from: from.id, before: side(from), after: side(node) });
+          moves.push({ kind: "moved", id: node.id, from: from.id, before: side(from), after: side(node), ...effectsBetween(from.id, node.id) });
         }
         break;
       }
     }
+  }
+  const moved = new Set(moves.map((move) => move.id));
+  const baseExported = new Map<NodeId, CodeNode>();
+  for (const node of base.nodes) if (isCodeNode(node) && node.exported) baseExported.set(node.id, node);
+  for (const node of head.nodes) {
+    if (!isCodeNode(node) || !node.exported || moved.has(node.id)) continue;
+    const before = baseExported.get(node.id);
+    if (before === undefined || before.signature !== node.signature) continue;
+    const { effects } = effectsBetween(node.id, node.id);
+    if (effects !== undefined) moves.push({ kind: "effects", id: node.id, before: before.signature, after: node.signature, effects });
   }
   return moves.sort((a, b) => compareIds(a.id, b.id));
 }
@@ -262,7 +294,8 @@ export function serializeComparison(comparison: Comparison): string {
         return { kind: change.kind, node: canonicalNode(change.node), from: canonicalNode(change.from) };
     }
   });
-  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes }, null, 2)}\n`;
+  const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge) }));
+  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects }, null, 2)}\n`;
 }
 
 export type Change = ChangeKind | "unchanged";
