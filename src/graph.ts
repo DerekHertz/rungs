@@ -105,9 +105,50 @@ export function qualifiedName(parent: string, text: string, ordinal: number): st
   return parent === "" ? segment : `${parent}.${segment}`;
 }
 
+export type ResourceKind = "process" | "network" | "file system" | "queue" | "timer";
+
+/** The order a reviewer reads resources in: what reaches furthest out first. */
+export const RESOURCE_ORDER: readonly ResourceKind[] = ["process", "network", "queue", "file system", "timer"];
+
+export type ResourceId = string & { readonly __brand: "ResourceId" };
+
+/** One id per kind. Resources are derived from edges, never nodes, so no layout or pairing sees them. */
+export function resourceId(kind: ResourceKind): ResourceId {
+  return `resource:${kind}` as ResourceId;
+}
+
+/** What an effect names: a literal in the source, "unknown" for any other argument, "none" for an API with no target. */
+export type EffectTarget = { readonly literal: string } | "unknown" | "none";
+
+/** A call that reaches a resource, pinned to the call's lines. */
+export interface EffectEdge {
+  readonly kind: "effect";
+  /** The innermost class or function containing the call, or the file for module top level. */
+  readonly from: NodeId;
+  readonly to: ResourceId;
+  /** The catalog key: "child_process execFileSync", or "fetch" for a global. */
+  readonly operation: string;
+  readonly target: EffectTarget;
+  readonly range: LineRange;
+}
+
+export type Edge = EffectEdge;
+
 export interface Graph {
   readonly extractorVersion: string;
   readonly nodes: readonly ModuleNode[];
+  /** Sorted by compareEdges. */
+  readonly edges: readonly Edge[];
+}
+
+/** The resources some edge reaches, in RESOURCE_ORDER. */
+export function resourcesOf(graph: Graph): ResourceKind[] {
+  const reached = new Set<string>(graph.edges.map((edge) => edge.to));
+  return RESOURCE_ORDER.filter((kind) => reached.has(resourceId(kind)));
+}
+
+export function targetText(target: EffectTarget): string {
+  return typeof target === "string" ? target : `"${target.literal}"`;
 }
 
 export type FileTree = ReadonlyMap<string, string>;
@@ -121,6 +162,28 @@ export function rootOf(graph: Graph): NodeId {
 
 export function compareIds(a: NodeId, b: NodeId): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+export function compareEdges(a: Edge, b: Edge): number {
+  return (
+    compareIds(a.from, b.from) ||
+    a.range.start - b.range.start ||
+    a.range.end - b.range.end ||
+    (a.operation < b.operation ? -1 : a.operation > b.operation ? 1 : 0) ||
+    (a.to < b.to ? -1 : a.to > b.to ? 1 : 0) ||
+    (targetText(a.target) < targetText(b.target) ? -1 : targetText(a.target) > targetText(b.target) ? 1 : 0)
+  );
+}
+
+export function canonicalEdge(edge: Edge): object {
+  return {
+    kind: edge.kind,
+    from: edge.from,
+    to: edge.to,
+    operation: edge.operation,
+    target: edge.target,
+    range: { start: edge.range.start, end: edge.range.end },
+  };
 }
 
 export function canonicalNode(node: ModuleNode): object {
@@ -146,5 +209,6 @@ export function canonicalNode(node: ModuleNode): object {
 
 export function serializeGraph(graph: Graph): string {
   const nodes = [...graph.nodes].sort((a, b) => compareIds(a.id, b.id)).map(canonicalNode);
-  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes }, null, 2)}\n`;
+  const edges = [...graph.edges].sort(compareEdges).map(canonicalEdge);
+  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges }, null, 2)}\n`;
 }

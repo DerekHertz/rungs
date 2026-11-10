@@ -105,9 +105,9 @@ describe("tally", () => {
 
   test("counts changed files by kind in every container above them, at their head location", () => {
     expect(counts).toEqual({
-      "package:": "+7 ~2 -3 >1",
+      "package:": "+7 ~3 -3 >1",
       "folder:docs": "+2 ~0 -1 >0",
-      "folder:src": "+3 ~2 -1 >1",
+      "folder:src": "+3 ~3 -1 >1",
       "package:src/util": "+2 ~1 -0 >0",
       "folder:src/compat": "+0 ~0 -0 >1",
       "folder:packages": "+2 ~0 -0 >0",
@@ -192,6 +192,7 @@ describe("pairing", () => {
         },
         node,
       ],
+      edges: [],
     });
     const result = compare(graphOf("a".repeat(32), code("class", "x")), graphOf("b".repeat(32), code("function", "y")));
     expect(summarize(result.changes)).toEqual([
@@ -220,6 +221,7 @@ describe("refusing graphs from different extractor versions", () => {
     get nodes(): never {
       throw new Error("read a node");
     },
+    edges: [],
   });
 
   test("throws before reading any node, naming both versions", () => {

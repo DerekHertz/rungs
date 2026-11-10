@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "8",
+  "extractorVersion": "9",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -135,6 +135,28 @@
       "digest": "6c914e9a0655bdc1ed04c9bdb612b51b"
     },
     {
+      "id": "file:src/effects.cjs",
+      "level": "file",
+      "path": "src/effects.cjs",
+      "name": "effects.cjs",
+      "parent": "folder:src",
+      "lines": 7,
+      "analysis": "analysed",
+      "role": "source",
+      "digest": "ac77050f3324e6546a80f5182d568844"
+    },
+    {
+      "id": "file:src/effects.mjs",
+      "level": "file",
+      "path": "src/effects.mjs",
+      "name": "effects.mjs",
+      "parent": "folder:src",
+      "lines": 42,
+      "analysis": "analysed",
+      "role": "source",
+      "digest": "5f37fb85de8baea81d217c3ed30f0dbd"
+    },
+    {
       "id": "file:src/index.ts",
       "level": "file",
       "path": "src/index.ts",
@@ -249,7 +271,7 @@
       "path": "src",
       "name": "src",
       "parent": "package:",
-      "lines": 96
+      "lines": 145
     },
     {
       "id": "folder:src/util",
@@ -341,6 +363,186 @@
       "digest": "cb961554ba5009432e9adec6c35ff6e5",
       "exported": false,
       "signature": "(n)"
+    },
+    {
+      "id": "function:src/effects.cjs#\"module.exports.load\"",
+      "level": "function",
+      "path": "src/effects.cjs",
+      "name": "module.exports.load",
+      "parent": "file:src/effects.cjs",
+      "qualifiedName": "\"module.exports.load\"",
+      "range": {
+        "start": 5,
+        "end": 5
+      },
+      "digest": "5e020687f2a07c2bf9d995c165b5d4d9",
+      "exported": true,
+      "signature": "()"
+    },
+    {
+      "id": "function:src/effects.cjs#\"module.exports.which\"",
+      "level": "function",
+      "path": "src/effects.cjs",
+      "name": "module.exports.which",
+      "parent": "file:src/effects.cjs",
+      "qualifiedName": "\"module.exports.which\"",
+      "range": {
+        "start": 6,
+        "end": 6
+      },
+      "digest": "723b0562955d3f8cb34ea3381d16da52",
+      "exported": true,
+      "signature": "(name)"
+    },
+    {
+      "id": "function:src/effects.mjs#\"setTimeout() callback\"",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "setTimeout() callback",
+      "parent": "file:src/effects.mjs",
+      "qualifiedName": "\"setTimeout() callback\"",
+      "range": {
+        "start": 8,
+        "end": 8
+      },
+      "digest": "5fa8c711247d70f5c653bac436acb6b2",
+      "exported": false,
+      "signature": "()"
+    },
+    {
+      "id": "function:src/effects.mjs#aliased",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "aliased",
+      "parent": "file:src/effects.mjs",
+      "qualifiedName": "aliased",
+      "range": {
+        "start": 35,
+        "end": 38
+      },
+      "digest": "e351c0c50115b3965fc4af8881d8d325",
+      "exported": true,
+      "signature": "()"
+    },
+    {
+      "id": "function:src/effects.mjs#build",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "build",
+      "parent": "file:src/effects.mjs",
+      "qualifiedName": "build",
+      "range": {
+        "start": 27,
+        "end": 29
+      },
+      "digest": "d7dbda446b2c60450cf9dc0963b1eefe",
+      "exported": true,
+      "signature": "async ()"
+    },
+    {
+      "id": "function:src/effects.mjs#computed",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "computed",
+      "parent": "file:src/effects.mjs",
+      "qualifiedName": "computed",
+      "range": {
+        "start": 40,
+        "end": 42
+      },
+      "digest": "e7fea4b66a254ce32b3b94b53f90c6c5",
+      "exported": true,
+      "signature": "(fs, name)"
+    },
+    {
+      "id": "function:src/effects.mjs#save",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "save",
+      "parent": "file:src/effects.mjs",
+      "qualifiedName": "save",
+      "range": {
+        "start": 14,
+        "end": 17
+      },
+      "digest": "6550a4357f8dfe6f65c2a4f7fb4cd474",
+      "exported": true,
+      "signature": "async (path, data)"
+    },
+    {
+      "id": "function:src/effects.mjs#serve",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "serve",
+      "parent": "file:src/effects.mjs",
+      "qualifiedName": "serve",
+      "range": {
+        "start": 19,
+        "end": 25
+      },
+      "digest": "bd93b03f1fef262fc99760463e30ae45",
+      "exported": true,
+      "signature": "(port)"
+    },
+    {
+      "id": "function:src/effects.mjs#serve.\"createServer() callback\"",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "createServer() callback",
+      "parent": "function:src/effects.mjs#serve",
+      "qualifiedName": "serve.\"createServer() callback\"",
+      "range": {
+        "start": 21,
+        "end": 23
+      },
+      "digest": "b889f74a3f02052bb0eb789c996a6a70",
+      "exported": false,
+      "signature": "(req, res)"
+    },
+    {
+      "id": "function:src/effects.mjs#serve.\"createServer() callback\".\"then() callback\"",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "then() callback",
+      "parent": "function:src/effects.mjs#serve.\"createServer() callback\"",
+      "qualifiedName": "serve.\"createServer() callback\".\"then() callback\"",
+      "range": {
+        "start": 22,
+        "end": 22
+      },
+      "digest": "e5b01c6766377c011ce91fcb9164e92a",
+      "exported": false,
+      "signature": "(page)"
+    },
+    {
+      "id": "function:src/effects.mjs#shadowed",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "shadowed",
+      "parent": "file:src/effects.mjs",
+      "qualifiedName": "shadowed",
+      "range": {
+        "start": 31,
+        "end": 33
+      },
+      "digest": "f1e8c88b064a0b52ac418de4303c7b85",
+      "exported": true,
+      "signature": "(run)"
+    },
+    {
+      "id": "function:src/effects.mjs#version",
+      "level": "function",
+      "path": "src/effects.mjs",
+      "name": "version",
+      "parent": "file:src/effects.mjs",
+      "qualifiedName": "version",
+      "range": {
+        "start": 10,
+        "end": 12
+      },
+      "digest": "e3e6dcea719d087b043408a9bc15d8bb",
+      "exported": true,
+      "signature": "()"
     },
     {
       "id": "function:src/index.ts#main",
@@ -738,7 +940,7 @@
       "path": "",
       "name": "",
       "parent": null,
-      "lines": 123
+      "lines": 172
     },
     {
       "id": "package:packages/widget",
@@ -747,6 +949,106 @@
       "name": "widget",
       "parent": "folder:packages",
       "lines": 8
+    }
+  ],
+  "edges": [
+    {
+      "kind": "effect",
+      "from": "file:src/effects.mjs",
+      "to": "resource:timer",
+      "operation": "setTimeout",
+      "target": "none",
+      "range": {
+        "start": 8,
+        "end": 8
+      }
+    },
+    {
+      "kind": "effect",
+      "from": "function:src/effects.cjs#\"module.exports.load\"",
+      "to": "resource:file system",
+      "operation": "fs readFileSync",
+      "target": {
+        "literal": "config.json"
+      },
+      "range": {
+        "start": 5,
+        "end": 5
+      }
+    },
+    {
+      "kind": "effect",
+      "from": "function:src/effects.cjs#\"module.exports.which\"",
+      "to": "resource:process",
+      "operation": "child_process spawnSync",
+      "target": {
+        "literal": "which"
+      },
+      "range": {
+        "start": 6,
+        "end": 6
+      }
+    },
+    {
+      "kind": "effect",
+      "from": "function:src/effects.mjs#build",
+      "to": "resource:process",
+      "operation": "child_process spawn",
+      "target": {
+        "literal": "tar"
+      },
+      "range": {
+        "start": 28,
+        "end": 28
+      }
+    },
+    {
+      "kind": "effect",
+      "from": "function:src/effects.mjs#save",
+      "to": "resource:file system",
+      "operation": "fs/promises writeFile",
+      "target": "unknown",
+      "range": {
+        "start": 15,
+        "end": 15
+      }
+    },
+    {
+      "kind": "effect",
+      "from": "function:src/effects.mjs#serve",
+      "to": "resource:network",
+      "operation": "http createServer",
+      "target": "none",
+      "range": {
+        "start": 20,
+        "end": 23
+      }
+    },
+    {
+      "kind": "effect",
+      "from": "function:src/effects.mjs#serve.\"createServer() callback\"",
+      "to": "resource:file system",
+      "operation": "fs/promises readFile",
+      "target": {
+        "literal": "index.html"
+      },
+      "range": {
+        "start": 22,
+        "end": 22
+      }
+    },
+    {
+      "kind": "effect",
+      "from": "function:src/effects.mjs#version",
+      "to": "resource:process",
+      "operation": "child_process execFileSync",
+      "target": {
+        "literal": "git"
+      },
+      "range": {
+        "start": 11,
+        "end": 11
+      }
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "8",
+  "extractorVersion": "9",
   "changes": [
     {
       "kind": "added",
@@ -94,6 +94,31 @@
         "analysis": "analysed",
         "role": "source",
         "digest": "77542bd88a5777b8f7375f2b29a12dcc"
+      }
+    },
+    {
+      "kind": "altered",
+      "node": {
+        "id": "file:src/effects.mjs",
+        "level": "file",
+        "path": "src/effects.mjs",
+        "name": "effects.mjs",
+        "parent": "folder:src",
+        "lines": 46,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "b02cf2a42a9ace766f67744c0c84c174"
+      },
+      "before": {
+        "id": "file:src/effects.mjs",
+        "level": "file",
+        "path": "src/effects.mjs",
+        "name": "effects.mjs",
+        "parent": "folder:src",
+        "lines": 42,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "5f37fb85de8baea81d217c3ed30f0dbd"
       }
     },
     {
@@ -298,6 +323,90 @@
         "digest": "4726333faa03d21d74696b722e265659",
         "exported": true,
         "signature": "()"
+      }
+    },
+    {
+      "kind": "altered",
+      "node": {
+        "id": "function:src/effects.mjs#save",
+        "level": "function",
+        "path": "src/effects.mjs",
+        "name": "save",
+        "parent": "file:src/effects.mjs",
+        "qualifiedName": "save",
+        "range": {
+          "start": 14,
+          "end": 16
+        },
+        "digest": "d968824e6bd58fce6e66666945afc002",
+        "exported": true,
+        "signature": "async (path, data)"
+      },
+      "before": {
+        "id": "function:src/effects.mjs#save",
+        "level": "function",
+        "path": "src/effects.mjs",
+        "name": "save",
+        "parent": "file:src/effects.mjs",
+        "qualifiedName": "save",
+        "range": {
+          "start": 14,
+          "end": 17
+        },
+        "digest": "6550a4357f8dfe6f65c2a4f7fb4cd474",
+        "exported": true,
+        "signature": "async (path, data)"
+      }
+    },
+    {
+      "kind": "altered",
+      "node": {
+        "id": "function:src/effects.mjs#serve",
+        "level": "function",
+        "path": "src/effects.mjs",
+        "name": "serve",
+        "parent": "file:src/effects.mjs",
+        "qualifiedName": "serve",
+        "range": {
+          "start": 18,
+          "end": 25
+        },
+        "digest": "032dfd5d737f7581329c41993275ad64",
+        "exported": true,
+        "signature": "(port)"
+      },
+      "before": {
+        "id": "function:src/effects.mjs#serve",
+        "level": "function",
+        "path": "src/effects.mjs",
+        "name": "serve",
+        "parent": "file:src/effects.mjs",
+        "qualifiedName": "serve",
+        "range": {
+          "start": 19,
+          "end": 25
+        },
+        "digest": "bd93b03f1fef262fc99760463e30ae45",
+        "exported": true,
+        "signature": "(port)"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "function:src/effects.mjs#tag",
+        "level": "function",
+        "path": "src/effects.mjs",
+        "name": "tag",
+        "parent": "file:src/effects.mjs",
+        "qualifiedName": "tag",
+        "range": {
+          "start": 44,
+          "end": 46
+        },
+        "digest": "b714079a4c56f5fdfefaec0f790f5a0a",
+        "exported": true,
+        "signature": "(name)"
       }
     },
     {

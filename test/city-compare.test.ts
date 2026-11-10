@@ -54,7 +54,7 @@ describe("a city that is comparing", () => {
   });
 
   test("gives districts the tally of the files below and buildings the tally of their code", () => {
-    expect(district(root).tally).toEqual({ added: 7, altered: 2, removed: 3, moved: 1 });
+    expect(district(root).tally).toEqual({ added: 7, altered: 3, removed: 3, moved: 1 });
     expect(district("folder:test").tally).toEqual({ added: 0, altered: 0, removed: 1, moved: 0 });
     expect(building("src/util/math.ts").tally).toEqual({ added: 1, altered: 1, removed: 0, moved: 0 });
     expect(building("README.md").tally).toEqual({ added: 0, altered: 0, removed: 0, moved: 0 });
