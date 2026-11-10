@@ -314,7 +314,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     if (entry === undefined) return;
     const state = id !== undefined && faded.has(id) ? "faded" : id === selected ? "selected" : id === hovered ? "hover" : "rest";
     entry.mesh.material = entry.looks[state];
-    entry.edges.material = edgeMaterials[state];
+    entry.edges.material = edgeMaterials[id === selected ? "selected" : state];
     dirty = true;
   }
 
