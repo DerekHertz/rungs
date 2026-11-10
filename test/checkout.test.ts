@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
@@ -32,4 +32,20 @@ test("reads committed, modified and untracked files, skipping ignored and delete
     "src/committed.ts": "committed\nthen edited\n",
     "untracked.ts": "untracked\n",
   });
+});
+
+test("reads a symlink as its target path, as git stores it, never following it", async () => {
+  const outside = mkdtempSync(join(tmpdir(), "rungs-outside-"));
+  writeFileSync(join(outside, "secret.txt"), "outside\nthe\ncheckout\n");
+  const links = join(repo, "links");
+  mkdirSync(links);
+  symlinkSync(join(outside, "secret.txt"), join(links, "outside"));
+  symlinkSync("missing.ts", join(links, "dangling"));
+  try {
+    const tree = await readCheckout(repo);
+    expect(tree.get("links/outside")).toBe(join(outside, "secret.txt"));
+    expect(tree.get("links/dangling")).toBe("missing.ts");
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
 });

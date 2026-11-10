@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { lstat, readFile, readlink } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { FileTree } from "./graph.ts";
@@ -30,9 +30,10 @@ async function listFiles(dir: string): Promise<string> {
 }
 
 // The index still lists files deleted from the working tree, and submodules are listed as
-// directories; neither has text to read.
+// directories; neither has text to read. A symlink's text is its target, as git stores it.
 async function readWorkingFile(path: string): Promise<string | undefined> {
   try {
+    if ((await lstat(path)).isSymbolicLink()) return await readlink(path, "utf8");
     return await readFile(path, "utf8");
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
