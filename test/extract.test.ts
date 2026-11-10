@@ -244,6 +244,10 @@ describe("class and function nodes", () => {
 
   test("a function inside a namespace is named through the namespace", () => {
     expect(codeOf("namespace N.M {\n  export function f() {}\n}\n")).toEqual(['function "N.M.f" 2-2']);
+    expect(codeOf("namespace N {\n  export const { f = () => {} } = {};\n}\n")).toEqual([
+      'function "N.f" 2-2',
+    ]);
+    expect(codeOf("function g({ f = () => {} }) {}\n")).toEqual(["function g 1-1", "function g.f 1-1"]);
   });
 
   test("only syntax with a body is a node", () => {

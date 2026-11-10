@@ -112,8 +112,15 @@ function accessPath(expression: ts.Node, file: ts.SourceFile): string | undefine
   if (ts.isVariableDeclaration(parent) && parent.initializer === site && ts.isIdentifier(parent.name)) {
     return inNamespace(parent, parent.name.text);
   }
-  if ((ts.isParameter(parent) || ts.isBindingElement(parent)) && parent.initializer === site) {
+  if (ts.isParameter(parent) && parent.initializer === site) {
     return ts.isIdentifier(parent.name) ? parent.name.text : undefined;
+  }
+  if (ts.isBindingElement(parent) && parent.initializer === site) {
+    if (!ts.isIdentifier(parent.name)) return undefined;
+    const declaration = ts.walkUpBindingElementsAndPatterns(parent);
+    return ts.isVariableDeclaration(declaration)
+      ? inNamespace(declaration, parent.name.text)
+      : parent.name.text;
   }
   if (ts.isPropertyDeclaration(parent) && parent.initializer === site) return keyText(parent.name, file);
   if (ts.isPropertyAssignment(parent) && parent.initializer === site) {
