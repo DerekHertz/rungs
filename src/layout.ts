@@ -12,6 +12,7 @@ export interface Rect {
 
 const INSET = 2;
 export const LABEL_BAND = 14;
+export const GENERATED_WEIGHT = 40;
 
 export function reservesLabelBand(rect: { readonly w: number; readonly h: number }): boolean {
   return rect.w > 3 * LABEL_BAND && rect.h > 3 * LABEL_BAND;
@@ -29,6 +30,11 @@ interface Weighted {
   readonly weight: number;
 }
 
+function leafWeight(node: ModuleNode): number {
+  const lines = Math.max(node.lines, 1);
+  return node.level === "file" && node.generated ? Math.min(lines, GENERATED_WEIGHT) : lines;
+}
+
 export function layout(graph: Graph, width: number, height: number): Rect[] {
   const children = new Map<NodeId | null, ModuleNode[]>();
   for (const node of graph.nodes) {
@@ -44,7 +50,7 @@ export function layout(graph: Graph, width: number, height: number): Rect[] {
     const below = children.get(node.id);
     const weight =
       node.level === "file" || below === undefined
-        ? Math.max(node.lines, 1)
+        ? leafWeight(node)
         : below.reduce((sum, child) => sum + weightOf(child), 0);
     weights.set(node.id, weight);
     return weight;

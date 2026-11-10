@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import type { Graph, ModuleNode, NodeId } from "../src/graph.ts";
-import { layout } from "../src/layout.ts";
+import { GENERATED_WEIGHT, layout } from "../src/layout.ts";
 import type { Rect } from "../src/layout.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
 
@@ -24,7 +24,9 @@ const graphs: [string, Graph][] = [
 ];
 
 function fileWeight(graph: Graph, node: ModuleNode): number {
-  if (node.level === "file") return Math.max(node.lines, 1);
+  if (node.level === "file") {
+    return node.generated ? Math.min(Math.max(node.lines, 1), GENERATED_WEIGHT) : Math.max(node.lines, 1);
+  }
   return graph.nodes
     .filter((child) => child.parent === node.id)
     .reduce((sum, child) => sum + fileWeight(graph, child), 0);
@@ -96,5 +98,32 @@ describe.each(graphs)("layout of %s", (_, graph) => {
     const reordered: Graph = { ...graph, nodes: [...graph.nodes].reverse() };
     expect(layout(reordered, width, height)).toEqual(rects);
     expect(layout(graph, width, height)).toEqual(rects);
+  });
+});
+
+describe("layout of generated files", () => {
+  const tree = new Map<string, string>([
+    ["package.json", "{}\n"],
+    ["package-lock.json", "x\n".repeat(5000)],
+    ["yarn.lock", "x\n".repeat(3)],
+    ["written.ts", "x\n".repeat(GENERATED_WEIGHT)],
+  ]);
+  const graph = extract(tree);
+  const rects = layout(graph, 1200, 800);
+  const areaOf = (path: string) => {
+    const node = graph.nodes.find((n) => n.level === "file" && n.path === path)!;
+    return area(rects.find((rect) => rect.id === node.id)!);
+  };
+
+  test("caps a long generated file at the weight of GENERATED_WEIGHT lines", () => {
+    expect(areaOf("package-lock.json")).toBeCloseTo(areaOf("written.ts"), 6);
+  });
+
+  test("leaves a short generated file at its line count", () => {
+    expect(areaOf("yarn.lock") / areaOf("written.ts")).toBeCloseTo(3 / GENERATED_WEIGHT, 9);
+  });
+
+  test("keeps the true line count in the graph", () => {
+    expect(graph.nodes.find((n) => n.path === "package-lock.json")?.lines).toBe(5000);
   });
 });
