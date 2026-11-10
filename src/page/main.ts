@@ -11,8 +11,14 @@ import type { EffectRow, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
 import { EFFECT_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
+import { markRange } from "./mark.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
+import { renderWalkthrough } from "./walkthrough-panel.ts";
+import type { Walk } from "./walkthrough-panel.ts";
+import { NOT_RUN, stopFacts } from "../stops.ts";
+import type { WalkNote } from "../stops.ts";
+import type { Stop } from "../tour.ts";
 
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
@@ -235,19 +241,7 @@ function closePanel(): void {
 
 /** Bands the lines of `range` in the source panel and scrolls them into view; clears the band without one. */
 function markLines(node: ModuleNode, range: LineRange | undefined): void {
-  const first = isCodeNode(node) ? node.range.start : 1;
-  if (range === undefined || range.end < first) {
-    panelMark.hidden = true;
-    return;
-  }
-  const style = getComputedStyle(panelCode);
-  const lineHeight = Number.parseFloat(style.lineHeight);
-  const top = Number.parseFloat(style.paddingTop) + (Math.max(range.start, first) - first) * lineHeight;
-  panelMark.style.top = `${top}px`;
-  panelMark.style.height = `${(range.end - Math.max(range.start, first) + 1) * lineHeight}px`;
-  panelMark.style.width = `${panelBody.scrollWidth}px`;
-  panelMark.hidden = false;
-  panelBody.scrollTop = Math.max(0, top - panelBody.clientHeight / 3);
+  markRange({ code: panelCode, body: panelBody, mark: panelMark }, isCodeNode(node) ? node.range.start : 1, range);
 }
 
 function showSource(node: ModuleNode, text: string): void {
@@ -369,6 +363,18 @@ function pickClaim(claim: ClaimRow): void {
   if (district !== undefined) focusOn(district);
 }
 
+/** A stop of the walkthrough: outline its nodes' files and fly to the district holding them all. Closing the tour clears the outline. */
+function visitStop(stop: Stop | undefined): void {
+  cancelPending();
+  closePanel();
+  const places = [...new Set((stop?.ids ?? []).map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  view.highlight(places);
+  const district = commonDistrict(tree, places);
+  if (district !== undefined) focusOn(district);
+}
+
+let walk: Walk | undefined;
+
 function cyclePixel(): void {
   const divisor = view.cyclePixel();
   pixelButton.textContent = `Pixel: ${divisor === 1 ? "off" : `1/${divisor}`} (P)`;
@@ -385,6 +391,8 @@ window.addEventListener("keydown", (event) => {
     else if (focus !== cityRoot) focusOn(zoomOut(tree, focus));
   } else if (event.key === "r" || event.key === "R") resetView();
   else if (event.key === "p" || event.key === "P") cyclePixel();
+  else if (event.key === "ArrowRight") walk?.step(1);
+  else if (event.key === "ArrowLeft") walk?.step(-1);
 });
 
 if (comparison !== null) {
@@ -405,6 +413,27 @@ if (comparison !== null) {
     pick: pickEntry,
     pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
     pickNode,
+  });
+
+  const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
+  const host = document.querySelector<HTMLElement>("#walk")!;
+  host.hidden = false;
+  walk = renderWalkthrough(host, {
+    note: tour.walkthrough,
+    stops: tour.stops,
+    claims: claims.claims,
+    facts: (stop) => stopFacts(stop, comparison, picture.graph, moves),
+    observed: () => NOT_RUN,
+    describe(id) {
+      const node = nodes.get(id) ?? changed.get(id);
+      if (node === undefined) return { label: id, first: 1 };
+      return isCodeNode(node) ? { label: `${node.qualifiedName} in ${node.path}`, first: node.range.start } : { label: node.path, first: 1 };
+    },
+    async source(id) {
+      const response = await fetch(`/source?id=${encodeURIComponent(id)}`);
+      return response.ok ? response.text() : undefined;
+    },
+    visit: visitStop,
   });
 }
 showCity(cityRoot);

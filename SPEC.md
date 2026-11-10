@@ -94,6 +94,15 @@ A panel answers the three questions, and each entry selects places on the pictur
 - **Contracts moved:** every change to an exported signature, type, case, effect set or linked
   property.
 
+**Walkthrough.** On request, an agent tours the change as an ordered list of stops. A stop points
+at changed modules of the comparison, names the claims it says it fulfils, and narrates in
+sentences, each anchored to lines of one of its modules. Whatever points nowhere is dropped and
+counted. The agent sees names, signatures, line ranges and effect labels, never source text. At
+each stop the reviewer reads four things side by side: what the description expects (claimed),
+what the agent says (claimed), the source lines with the contract moves and new effect edges there
+(derived), and what a run recorded (observed, "not run" until one is). What the narration leaves
+out of the derived facts is noted by code, never by the agent.
+
 Narration in plain English sits beside the pseudocode as a claimed fact, anchored to the lines it
 describes and marked stale when the function changes. It is written on request, and ahead of
 time only for functions in "contracts moved".
