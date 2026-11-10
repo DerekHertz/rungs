@@ -1,0 +1,159 @@
+{
+  "extractorVersion": "1",
+  "nodes": [
+    {
+      "id": "file:README.md",
+      "level": "file",
+      "path": "README.md",
+      "name": "README.md",
+      "parent": "package:",
+      "lines": 3,
+      "analysis": "not analysed"
+    },
+    {
+      "id": "file:docs/notes.md",
+      "level": "file",
+      "path": "docs/notes.md",
+      "name": "notes.md",
+      "parent": "folder:docs",
+      "lines": 1,
+      "analysis": "not analysed"
+    },
+    {
+      "id": "file:package.json",
+      "level": "file",
+      "path": "package.json",
+      "name": "package.json",
+      "parent": "package:",
+      "lines": 4,
+      "analysis": "not analysed"
+    },
+    {
+      "id": "file:packages/widget/assets/theme.json",
+      "level": "file",
+      "path": "packages/widget/assets/theme.json",
+      "name": "theme.json",
+      "parent": "folder:packages/widget/assets",
+      "lines": 3,
+      "analysis": "not analysed"
+    },
+    {
+      "id": "file:packages/widget/package.json",
+      "level": "file",
+      "path": "packages/widget/package.json",
+      "name": "package.json",
+      "parent": "package:packages/widget",
+      "lines": 4,
+      "analysis": "not analysed"
+    },
+    {
+      "id": "file:packages/widget/src/widget.tsx",
+      "level": "file",
+      "path": "packages/widget/src/widget.tsx",
+      "name": "widget.tsx",
+      "parent": "folder:packages/widget/src",
+      "lines": 1,
+      "analysis": "analysed"
+    },
+    {
+      "id": "file:src/index.ts",
+      "level": "file",
+      "path": "src/index.ts",
+      "name": "index.ts",
+      "parent": "folder:src",
+      "lines": 5,
+      "analysis": "analysed"
+    },
+    {
+      "id": "file:src/legacy.js",
+      "level": "file",
+      "path": "src/legacy.js",
+      "name": "legacy.js",
+      "parent": "folder:src",
+      "lines": 3,
+      "analysis": "analysed"
+    },
+    {
+      "id": "file:src/util/empty.ts",
+      "level": "file",
+      "path": "src/util/empty.ts",
+      "name": "empty.ts",
+      "parent": "folder:src/util",
+      "lines": 0,
+      "analysis": "analysed"
+    },
+    {
+      "id": "file:src/util/math.ts",
+      "level": "file",
+      "path": "src/util/math.ts",
+      "name": "math.ts",
+      "parent": "folder:src/util",
+      "lines": 3,
+      "analysis": "analysed"
+    },
+    {
+      "id": "folder:docs",
+      "level": "folder",
+      "path": "docs",
+      "name": "docs",
+      "parent": "package:",
+      "lines": 1
+    },
+    {
+      "id": "folder:packages",
+      "level": "folder",
+      "path": "packages",
+      "name": "packages",
+      "parent": "package:",
+      "lines": 8
+    },
+    {
+      "id": "folder:packages/widget/assets",
+      "level": "folder",
+      "path": "packages/widget/assets",
+      "name": "assets",
+      "parent": "package:packages/widget",
+      "lines": 3
+    },
+    {
+      "id": "folder:packages/widget/src",
+      "level": "folder",
+      "path": "packages/widget/src",
+      "name": "src",
+      "parent": "package:packages/widget",
+      "lines": 1
+    },
+    {
+      "id": "folder:src",
+      "level": "folder",
+      "path": "src",
+      "name": "src",
+      "parent": "package:",
+      "lines": 11
+    },
+    {
+      "id": "folder:src/util",
+      "level": "folder",
+      "path": "src/util",
+      "name": "util",
+      "parent": "folder:src",
+      "lines": 3
+    },
+    {
+      "id": "package:",
+      "level": "package",
+      "path": "",
+      "name": "",
+      "parent": null,
+      "lines": 27
+    },
+    {
+      "id": "package:packages/widget",
+      "level": "package",
+      "path": "packages/widget",
+      "name": "widget",
+      "parent": "folder:packages",
+      "lines": 8
+    }
+  ]
+}
