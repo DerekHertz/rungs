@@ -5,6 +5,7 @@ import { serializeGraph } from "../src/graph.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
 import { candidatesOf } from "../src/link.ts";
 import { serve } from "../src/server.ts";
+import { placesOf } from "../src/tour.ts";
 
 const base: FileTree = new Map([
   ["package.json", "{}\n"],
@@ -34,7 +35,22 @@ const linkedServer = await serve(head, 0, against, "Fresh numbers.\n- Trims keep
   };
 });
 const failedServer = await serve(head, 0, against, "Fresh numbers.\n", async () => ({ status: "failed", message: "claude CLI not found" }));
+const toured: { texts: string[]; places: string[] }[] = [];
+const tourServer = await serve(head, 0, against, "Fresh numbers.\n", undefined, async (comparison, claims, graph) => {
+  toured.push({ texts: claims.map((claim) => claim.text), places: placesOf(comparison, graph).map((place) => place.id) });
+  return {
+    status: "ok",
+    stops: [{ title: "New <b>numbers</b>", ids: ["file:src/new.ts" as NodeId], claims: [0], sentences: [{ text: "Adds fresh.", id: "file:src/new.ts" as NodeId, range: { start: 1, end: 1 } }] }],
+    dropped: { stops: 1, ids: 2, claims: 0, sentences: 3 },
+    model: "m",
+    promptVersion: "t1",
+    cached: false,
+  };
+});
+const lostServer = await serve(head, 0, against, undefined, undefined, async () => ({ status: "failed", message: "claude CLI timed out after 600s" }));
 afterAll(async () => {
+  await tourServer.close();
+  await lostServer.close();
   await linkedServer.close();
   await failedServer.close();
   await comparing.close();
@@ -176,4 +192,27 @@ test("/comparison.json lists the effect edges that appeared and /contracts.json 
   } finally {
     await server.close();
   }
+});
+
+test("/walkthrough.json carries the tour as claimed, with how it was made and what was dropped", async () => {
+  const body = (await (await get(tourServer, "walkthrough.json")).json()) as Record<string, unknown>;
+  expect(body).toEqual({
+    tier: "claimed",
+    walkthrough: { status: "ok", model: "m", promptVersion: "t1", dropped: { stops: 1, ids: 2, claims: 0, sentences: 3 }, cached: false },
+    stops: [{ title: "New <b>numbers</b>", ids: ["file:src/new.ts"], claims: [0], sentences: [{ text: "Adds fresh.", id: "file:src/new.ts", range: { start: 1, end: 1 } }] }],
+  });
+  expect(toured).toEqual([{ texts: ["Fresh numbers."], places: expect.arrayContaining(["file:src/new.ts", "file:src/keep.ts", "function:src/keep.ts#gone"]) }]);
+});
+
+test("/walkthrough.json says off when no tour was asked for, failed with the reason when it failed, and is 404 without a base", async () => {
+  expect(await (await get(comparing, "walkthrough.json")).json()).toEqual({ tier: "claimed", walkthrough: { status: "off" }, stops: [] });
+  expect(await (await get(lostServer, "walkthrough.json")).json()).toEqual({ tier: "claimed", walkthrough: { status: "failed", message: "claude CLI timed out after 600s" }, stops: [] });
+  expect((await get(plain, "walkthrough.json")).status).toBe(404);
+});
+
+test("a tour stays out of the graph, the comparison and the claims", async () => {
+  expect(await (await get(tourServer, "graph.json")).text()).toBe(await (await get(comparing, "graph.json")).text());
+  expect(await (await get(tourServer, "comparison.json")).text()).toBe(await (await get(comparing, "comparison.json")).text());
+  expect(await (await get(tourServer, "contracts.json")).text()).toBe(await (await get(comparing, "contracts.json")).text());
+  expect(((await (await get(tourServer, "claims.json")).json()) as { link: unknown }).link).toEqual({ status: "off" });
 });

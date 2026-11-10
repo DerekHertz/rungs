@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink] [--port <n>] [--no-open]";
+export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink] [--walkthrough] [--rewalk] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
@@ -15,6 +15,10 @@ export interface Options {
   readonly link: boolean;
   /** Set by `--relink`: ask again even when the cache holds an answer. Implies `link`. */
   readonly relink: boolean;
+  /** Set by `--walkthrough`: ask an agent for a tour of the change, stop by stop. */
+  readonly walkthrough: boolean;
+  /** Set by `--rewalk`: ask again even when the cache holds a tour. Implies `walkthrough`. */
+  readonly rewalk: boolean;
 }
 
 /** The options, or a one-line usage error. */
@@ -29,6 +33,8 @@ export function parseOptions(argv: readonly string[]): Options | string {
         description: { type: "string" },
         link: { type: "boolean", default: false },
         relink: { type: "boolean", default: false },
+        walkthrough: { type: "boolean", default: false },
+        rewalk: { type: "boolean", default: false },
       },
     });
     const port = Number(values.port);
@@ -42,8 +48,10 @@ export function parseOptions(argv: readonly string[]): Options | string {
     const link = values.link || values.relink;
     if (link && !comparing) return "--link needs compare: rungs compare <base> --description <file> --link";
     if (link && values.description === undefined) return "--link needs a description: rungs compare <base> --description <file> --link";
+    const walkthrough = values.walkthrough || values.rewalk;
+    if (walkthrough && !comparing) return "--walkthrough needs compare: rungs compare <base> --walkthrough";
     if (rest.length > 1) return "expected at most one directory";
-    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink };
+    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, walkthrough, rewalk: values.rewalk };
   } catch (error) {
     return (error as Error).message;
   }
