@@ -16,12 +16,16 @@ import {
   RepeatWrapping,
   Scene,
   Vector2,
+  Vector3,
   WebGLRenderer,
 } from "three";
 import type { Object3D } from "three";
 import { PLATE_HEIGHT } from "../city.ts";
 import type { Building, City, District } from "../city.ts";
+import { namedDistricts, regionTop } from "../focus.ts";
 import type { NodeId } from "../graph.ts";
+import { occluders, visibleNames } from "../screen.ts";
+import type { Name, Projected } from "../screen.ts";
 import { BACKGROUND, onBackground, roleColor } from "./palette.ts";
 
 interface Point {
@@ -29,19 +33,28 @@ interface Point {
   readonly y: number;
 }
 
+/** What a double-click landed on: a building, or the plate of a district. */
+export interface Hit {
+  readonly kind: "building" | "district";
+  readonly id: NodeId;
+}
+
 export interface CityHandlers {
   /** The building under the pointer, or undefined; fires as the pointer or the camera moves. */
   hover(id: NodeId | undefined, at: Point): void;
   /** `clicks` is 1 for a single click and counts up with a double-click. */
   click(id: NodeId | undefined, clicks: number): void;
-  doubleClick(id: NodeId | undefined): void;
+  /** `hit` is undefined on empty ground. */
+  doubleClick(hit: Hit | undefined): void;
 }
 
 export interface CityView {
   show(city: City): void;
   /** Outlines this building as the selected one. */
   select(id: NodeId | undefined): void;
-  /** Returns to the isometric view of the whole city. */
+  /** Flies the camera to frame this district, keeping the turn, and names the districts below it. */
+  flyTo(id: NodeId): void;
+  /** Returns to the isometric view of the whole city, named from the top. */
   reset(): void;
   /** Steps pixel mode through off, 1/2 and 1/3 resolution; returns the divisor now in force. */
   cyclePixel(): 1 | 2 | 3;
@@ -59,6 +72,10 @@ const CLICK_SLOP = 4;
 // Neither outline is a role colour, so a selected docs (yellow) building still stands out.
 const EDGE = { rest: "#0a0d12", hover: "#9aa6b5", selected: "#ffffff" };
 const GLOW = { hover: 0.3, selected: 0.18 };
+/** What a building in front of the hovered one keeps of its opacity. */
+const FADED = 0.25;
+const FADED_EDGE = "#9aa6b5";
+const NAME_LIFT = 3;
 
 /** Where the camera looks and how: turning, tilt, pixels per plan unit, and the ground point centred. */
 interface Pose {
@@ -75,6 +92,7 @@ interface Looks {
   readonly rest: MeshLambertMaterial;
   readonly hover: MeshLambertMaterial;
   readonly selected: MeshLambertMaterial;
+  readonly faded: MeshLambertMaterial;
 }
 
 interface Entry {
@@ -83,7 +101,35 @@ interface Entry {
 }
 
 interface Building3D extends Entry {
+  readonly name: string;
+  readonly color: string;
+  /** Just above the roof, where the file's name floats. */
+  readonly anchor: Vector3;
   readonly looks: Looks;
+  readonly corners: readonly Vector3[];
+  readonly center: Vector3;
+}
+
+interface District3D {
+  readonly district: District;
+  readonly anchor: Vector3;
+  readonly corners: readonly Vector3[];
+}
+
+interface Label {
+  readonly el: HTMLElement;
+  readonly w: number;
+  readonly h: number;
+}
+
+/** A region of the ground plan, in world units, and the heights its framing must clear. */
+interface Region {
+  readonly left: number;
+  readonly right: number;
+  readonly near: number;
+  readonly far: number;
+  readonly floor: number;
+  readonly top: number;
 }
 
 // Diagonal stripes mark a file no language adapter read: texture, so hue keeps meaning role.
@@ -118,10 +164,15 @@ function flat(hex: string, glow: number, striped = false): MeshLambertMaterial {
 }
 
 function looksOf(hex: string, striped: boolean): Looks {
+  const faded = flat(hex, 0, striped);
+  faded.transparent = true;
+  faded.opacity = FADED;
+  faded.depthWrite = false;
   return {
     rest: flat(hex, 0, striped),
     hover: flat(hex, GLOW.hover, striped),
     selected: flat(hex, GLOW.selected, striped),
+    faded,
   };
 }
 
@@ -136,6 +187,10 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
   canvas.setAttribute("aria-label", "City of the repository");
   host.prepend(canvas);
+  // After the canvas and before the page's own controls, so nothing covers them and geometry never covers a name.
+  const names = document.createElement("div");
+  names.style.cssText = "position:absolute;inset:0;overflow:hidden;pointer-events:none";
+  canvas.after(names);
 
   const scene = new Scene();
   scene.background = new Color(BACKGROUND);
@@ -150,6 +205,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     rest: new LineBasicMaterial({ color: EDGE.rest }),
     hover: new LineBasicMaterial({ color: EDGE.hover }),
     selected: new LineBasicMaterial({ color: EDGE.selected }),
+    faded: new LineBasicMaterial({ color: FADED_EDGE, transparent: true, opacity: FADED, depthWrite: false }),
   };
   const plateMaterials = new Map<string, MeshLambertMaterial>();
   const plateMaterial = (hex: string): MeshLambertMaterial => {
@@ -174,6 +230,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   let group = new Group();
   let city: City | undefined;
   const buildings = new Map<NodeId, Building3D>();
+  const districts = new Map<NodeId, District3D>();
   const idOf = new Map<Object3D, NodeId>();
   let pickable: Mesh[] = [];
 
@@ -187,6 +244,9 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
 
   let hovered: NodeId | undefined;
   let selected: NodeId | undefined;
+  let focus: NodeId | undefined;
+  const faded = new Set<NodeId>();
+  const labels = new Map<string, Label>();
   let pointer: Point | undefined;
   let pickPending = false;
 
@@ -206,6 +266,12 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     return { mesh, edges };
   }
 
+  function corners(x: number, y: number, w: number, d: number, floor: number, top: number): Vector3[] {
+    return [x, x + w].flatMap((across) =>
+      [y, y + d].flatMap((down) => [floor, top].map((up) => new Vector3(worldX(across), up, worldZ(down)))),
+    );
+  }
+
   function addDistrict(district: District): void {
     const color = roleColor(district.role);
     const entry = place(
@@ -219,34 +285,92 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
       plateEdge(onBackground(color, 0.55)),
     );
     idOf.set(entry.mesh, district.id);
+    const roof = district.base + PLATE_HEIGHT;
+    districts.set(district.id, {
+      district,
+      anchor: new Vector3(worldX(district.x + district.w / 2), regionTop(city!, district) + NAME_LIFT, worldZ(district.y + district.d / 2)),
+      corners: corners(district.x, district.y, district.w, district.d, roof, roof),
+    });
   }
 
   function addBuilding(building: Building): void {
     const looks = looksFor(roleColor(building.role), !building.analysed);
     const entry = place(building.x, building.y, building.w, building.d, building.base, building.height, looks.rest, edgeMaterials.rest);
     idOf.set(entry.mesh, building.id);
-    buildings.set(building.id, { ...entry, looks });
+    const roof = building.base + building.height;
+    buildings.set(building.id, {
+      ...entry,
+      name: building.name,
+      color: roleColor(building.role),
+      anchor: new Vector3(worldX(building.x + building.w / 2), roof + NAME_LIFT, worldZ(building.y + building.d / 2)),
+      looks,
+      corners: corners(building.x, building.y, building.w, building.d, building.base, roof),
+      center: new Vector3(worldX(building.x + building.w / 2), (building.base + roof) / 2, worldZ(building.y + building.d / 2)),
+    });
   }
 
   function paint(id: NodeId | undefined): void {
     const entry = id === undefined ? undefined : buildings.get(id);
     if (entry === undefined) return;
-    const state = id === selected ? "selected" : id === hovered ? "hover" : "rest";
+    const state = id !== undefined && faded.has(id) ? "faded" : id === selected ? "selected" : id === hovered ? "hover" : "rest";
     entry.mesh.material = entry.looks[state];
     entry.edges.material = edgeMaterials[state];
     dirty = true;
   }
 
+  const projecting = new Vector3();
+  const forward = new Vector3();
+  function onScreen(point: Vector3): Point {
+    projecting.copy(point).project(camera);
+    return { x: (projecting.x * 0.5 + 0.5) * width, y: (-projecting.y * 0.5 + 0.5) * height };
+  }
+
+  function seen(id: NodeId, entry: Building3D): Projected {
+    return { id, corners: entry.corners.map(onScreen), depth: entry.center.clone().sub(camera.position).dot(forward) };
+  }
+
+  /** Fades the buildings that stand between the camera and the hovered one, and restores the rest. */
+  function refade(): void {
+    const next = new Set<NodeId>();
+    const target = hovered === undefined ? undefined : buildings.get(hovered);
+    if (hovered !== undefined && target !== undefined) {
+      camera.getWorldDirection(forward);
+      const projected = [...buildings].map(([id, entry]) => seen(id, entry));
+      for (const id of occluders(seen(hovered, target), projected)) next.add(id as NodeId);
+    }
+    const changed = [...faded, ...next].filter((id) => faded.has(id) !== next.has(id));
+    faded.clear();
+    next.forEach((id) => faded.add(id));
+    changed.forEach(paint);
+  }
+
   function setHovered(id: NodeId | undefined): void {
     const before = hovered;
     hovered = id;
+    refade();
     paint(before);
     paint(id);
   }
 
-  /** The pose that fits the whole city in the window, keeping the turn and tilt given. */
-  function framing(from: Pose): Pose {
-    if (city === undefined) return from;
+  function wholeCity(): Region | undefined {
+    if (city === undefined) return undefined;
+    return { left: worldX(0), right: worldX(city.width), near: worldZ(0), far: worldZ(city.depth), floor: 0, top: city.top };
+  }
+
+  function regionOf(district: District): Region {
+    return {
+      left: worldX(district.x),
+      right: worldX(district.x + district.w),
+      near: worldZ(district.y),
+      far: worldZ(district.y + district.d),
+      floor: district.base,
+      top: regionTop(city!, district),
+    };
+  }
+
+  /** The pose that fits `region` in the window, keeping the turn and tilt given. */
+  function framing(from: Pose, region: Region | undefined = wholeCity()): Pose {
+    if (region === undefined) return from;
     const { right, up } = basis(from.az);
     const sin = Math.sin(from.tilt);
     const cos = Math.cos(from.tilt);
@@ -254,9 +378,9 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     let rightmost = -Infinity;
     let low = Infinity;
     let high = -Infinity;
-    for (const x of [worldX(0), worldX(city.width)]) {
-      for (const z of [worldZ(0), worldZ(city.depth)]) {
-        for (const y of [0, city.top]) {
+    for (const x of [region.left, region.right]) {
+      for (const z of [region.near, region.far]) {
+        for (const y of [region.floor, region.top]) {
           const across = x * right[0] + z * right[1];
           const rising = (x * up[0] + z * up[1]) * sin + y * cos;
           left = Math.min(left, across);
@@ -307,9 +431,20 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     dirty = true;
   }
 
+  const rootOf = (): NodeId | undefined => city?.districts.find((district) => district.level === 0)?.id;
+
   function reset(): void {
     Object.assign(target, framing({ ...target, az: ISOMETRIC.az, tilt: ISOMETRIC.tilt }));
     fit = target.ppu;
+    focus = rootOf();
+    dirty = true;
+  }
+
+  function flyTo(id: NodeId): void {
+    const entry = districts.get(id);
+    if (entry === undefined) return;
+    Object.assign(target, framing(target, regionOf(entry.district)));
+    focus = id;
     dirty = true;
   }
 
@@ -317,10 +452,15 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     group.removeFromParent();
     group = new Group();
     buildings.clear();
+    districts.clear();
+    faded.clear();
     idOf.clear();
+    labels.forEach(({ el }) => el.remove());
+    labels.clear();
     pickable = [];
     hovered = selected = undefined;
     city = next;
+    focus = rootOf();
     next.districts.forEach(addDistrict);
     next.buildings.forEach(addBuilding);
     group.updateMatrixWorld(true);
@@ -331,20 +471,85 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     dirty = true;
   }
 
+  function labelFor(id: string, text: string, kind: "near" | "far" | "file", color: string): Label {
+    const known = labels.get(id);
+    if (known !== undefined) return known;
+    const el = document.createElement("div");
+    el.className = `name name-${kind}`;
+    el.textContent = text;
+    el.style.borderLeftColor = color;
+    el.style.visibility = "hidden";
+    names.append(el);
+    const made = { el, w: el.offsetWidth, h: el.offsetHeight };
+    labels.set(id, made);
+    return made;
+  }
+
+  /** Projects every name from its 3D anchor, then hides the ones that collide or don't fit. */
+  function updateNames(): void {
+    const wanted: Name[] = [];
+    if (city !== undefined && focus !== undefined) {
+      for (const { district, below } of namedDistricts(city.districts, focus)) {
+        const entry = districts.get(district.id)!;
+        const label = labelFor(district.id, district.name, below === 1 ? "near" : "far", roleColor(district.role));
+        const centre = onScreen(entry.anchor);
+        const xs = entry.corners.map((corner) => onScreen(corner).x);
+        wanted.push({
+          id: district.id,
+          box: { x: centre.x - label.w / 2, y: centre.y - label.h / 2, w: label.w, h: label.h },
+          weight: district.w * district.d,
+          region: Math.max(...xs) - Math.min(...xs),
+        });
+      }
+      for (const id of new Set([selected, hovered])) {
+        const entry = id === undefined ? undefined : buildings.get(id);
+        if (id === undefined || entry === undefined) continue;
+        const label = labelFor(id, entry.name, "file", entry.color);
+        const centre = onScreen(entry.anchor);
+        wanted.push({
+          id,
+          box: { x: centre.x - label.w / 2, y: centre.y - label.h, w: label.w, h: label.h },
+          weight: Infinity,
+          region: Infinity,
+        });
+      }
+    }
+    const shown = visibleNames(wanted, { x: 0, y: 0, w: width, h: height });
+    const boxes = new Map(wanted.map((name) => [name.id, name.box]));
+    for (const [id, { el }] of labels) {
+      const box = shown.has(id) ? boxes.get(id) : undefined;
+      el.style.visibility = box === undefined ? "hidden" : "visible";
+      if (box !== undefined) el.style.transform = `translate(${Math.round(box.x)}px,${Math.round(box.y)}px)`;
+    }
+  }
+
   const ray = new Raycaster();
   const ndc = new Vector2();
-  function pickBuilding(): NodeId | undefined {
+  /** The nearest thing under the pointer that is not faded, so a faded building can't steal the hover. */
+  function pickThing(): Hit | undefined {
     if (pointer === undefined) return undefined;
     const bounds = canvas.getBoundingClientRect();
     ndc.set(((pointer.x - bounds.left) / bounds.width) * 2 - 1, -((pointer.y - bounds.top) / bounds.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects(pickable, false)[0];
-    const id = hit === undefined ? undefined : idOf.get(hit.object);
-    return id !== undefined && buildings.has(id) ? id : undefined;
+    for (const hit of ray.intersectObjects(pickable, false)) {
+      const id = idOf.get(hit.object);
+      if (id === undefined || faded.has(id)) continue;
+      return { kind: buildings.has(id) ? "building" : "district", id };
+    }
+    return undefined;
+  }
+
+  function pickBuilding(): NodeId | undefined {
+    const hit = pickThing();
+    return hit?.kind === "building" ? hit.id : undefined;
+  }
+
+  function pointAt(event: MouseEvent): void {
+    pointer = { x: event.clientX, y: event.clientY };
   }
 
   function pickAt(event: MouseEvent): NodeId | undefined {
-    pointer = { x: event.clientX, y: event.clientY };
+    pointAt(event);
     return pickBuilding();
   }
 
@@ -441,7 +646,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   });
   canvas.addEventListener("dblclick", (event) => {
     if (travelled >= CLICK_SLOP || turning) return;
-    handlers.doubleClick(pickAt(event));
+    pointAt(event);
+    handlers.doubleClick(pickThing());
   });
   new ResizeObserver(applyResolution).observe(host);
 
@@ -469,7 +675,9 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     }
     if (moving || dirty) {
       updateCamera();
+      if (moving && hovered !== undefined) refade();
       renderer.render(scene, camera);
+      updateNames();
       dirty = false;
     }
     requestAnimationFrame(frame);
@@ -485,6 +693,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
       paint(before);
       paint(id);
     },
+    flyTo,
     reset,
     cyclePixel() {
       divisor = (divisor + 1) % PIXEL_DIVISORS.length;
