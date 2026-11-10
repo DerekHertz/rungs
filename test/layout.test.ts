@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
-import { lineCount } from "../src/graph.ts";
+import { isCodeNode, lineCount } from "../src/graph.ts";
 import type { Graph, ModuleNode, NodeId } from "../src/graph.ts";
 import { GENERATED_WEIGHT, layout } from "../src/layout.ts";
 import type { Rect } from "../src/layout.ts";
@@ -13,7 +13,7 @@ function syntheticTree(): Map<string, string> {
   const tree = new Map<string, string>([["package.json", "{}\n"]]);
   for (let i = 0; i < 40; i++) {
     const dir = ["src", "src/deep/er", "lib", "pkg"][i % 4];
-    tree.set(`${dir}/file${i}.ts`, "x\n".repeat((i * 37) % 23));
+    tree.set(`${dir}/file${i}.ts`, "const f = () => 1;\n".repeat((i * 37) % 23));
   }
   tree.set("pkg/package.json", "{}");
   return tree;
@@ -48,17 +48,18 @@ describe.each(graphs)("layout of %s", (_, graph) => {
   const width = 1200;
   const height = 800;
   const rects = layout(graph, width, height);
+  const drawn = graph.nodes.filter((node) => !isCodeNode(node));
   const rectOf = new Map<NodeId, Rect>(rects.map((rect) => [rect.id, rect]));
   const viewport: Rect = { id: "viewport" as NodeId, x: 0, y: 0, w: width, h: height, depth: -1 };
 
-  test("gives every node exactly one rect, the root filling the viewport", () => {
-    expect(rects.map((rect) => rect.id).sort()).toEqual(graph.nodes.map((node) => node.id).sort());
+  test("gives every package, folder and file exactly one rect, the root filling the viewport", () => {
+    expect(rects.map((rect) => rect.id).sort()).toEqual(drawn.map((node) => node.id).sort());
     const root = graph.nodes.find((node) => node.parent === null);
     expect(root && rectOf.get(root.id)).toMatchObject({ x: 0, y: 0, w: width, h: height, depth: 0 });
   });
 
   test("keeps every rect inside the viewport and inside its parent, one level deeper", () => {
-    for (const node of graph.nodes) {
+    for (const node of drawn) {
       const rect = rectOf.get(node.id)!;
       expect(contains(viewport, rect), node.id).toBe(true);
       if (node.parent === null) continue;
@@ -69,8 +70,8 @@ describe.each(graphs)("layout of %s", (_, graph) => {
   });
 
   test("sizes siblings in proportion to their line counts, at least one line each", () => {
-    for (const parent of graph.nodes) {
-      const siblings = graph.nodes.filter((node) => node.parent === parent.id);
+    for (const parent of drawn) {
+      const siblings = drawn.filter((node) => node.parent === parent.id);
       if (siblings.length === 0) continue;
       const totalArea = siblings.reduce((sum, node) => sum + area(rectOf.get(node.id)!), 0);
       const totalWeight = siblings.reduce((sum, node) => sum + fileWeight(graph, node), 0);
@@ -93,6 +94,11 @@ describe.each(graphs)("layout of %s", (_, graph) => {
         }
       }
     }
+  });
+
+  test("is the same with or without classes and functions in the graph", () => {
+    expect(drawn.length).toBeLessThan(graph.nodes.length);
+    expect(layout({ ...graph, nodes: drawn }, width, height)).toEqual(rects);
   });
 
   test("depends only on the graph and the viewport", () => {

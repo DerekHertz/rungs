@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { EXTRACTOR_VERSION, extract } from "../src/extract/extract.ts";
-import { lineCount, serializeGraph } from "../src/graph.ts";
+import { isCodeNode, lineCount, serializeGraph } from "../src/graph.ts";
+import type { CodeNode, Graph } from "../src/graph.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
 
 const fixture = fileURLToPath(new URL("fixtures/small", import.meta.url));
@@ -104,5 +105,217 @@ describe("extract", () => {
   test("does not depend on the order of the file tree", () => {
     const tree = readFixtureTree(fixture);
     expect(extract(new Map([...tree].reverse()))).toEqual(extract(tree));
+  });
+});
+
+const codeNodes = (graph: Graph): CodeNode[] => graph.nodes.filter(isCodeNode);
+
+/** The class and function nodes of one file, as "level qualifiedName start-end", in id order. */
+function codeOf(source: string, path = "a.ts"): string[] {
+  return codeNodes(extract(new Map([[path, source]]))).map(
+    (node) => `${node.level} ${node.qualifiedName} ${node.range.start}-${node.range.end}`,
+  );
+}
+
+describe("class and function nodes", () => {
+  test("a function or class is named by its own name", () => {
+    expect(codeOf("function f() {}\nclass C {}\nconst a = function b() {};\n")).toEqual([
+      "class C 2-2",
+      "function b 3-3",
+      "function f 1-1",
+    ]);
+    expect(codeOf("module.exports = function legacy() {};", "a.js")).toEqual(["function legacy 1-1"]);
+  });
+
+  test("a class element is named by its key, with static, get and set as written", () => {
+    const source = [
+      "class A {",
+      "  constructor() {}",
+      "  get x() { return 1; }",
+      "  set x(v) {}",
+      "  static x() {}",
+      "  static get y() { return 2; }",
+      "  #p() {}",
+      "  [Symbol.iterator]() {}",
+      '  "a b"() {}',
+      "  async *gen() {}",
+      "}",
+    ].join("\n");
+    expect(codeOf(source)).toEqual([
+      "class A 1-11",
+      'function A."[Symbol.iterator]" 8-8',
+      'function A."\\u0023p" 7-7',
+      'function A."a b" 9-9',
+      'function A."get x" 3-3',
+      'function A."set x" 4-4',
+      'function A."static get y" 6-6',
+      'function A."static x" 5-5',
+      "function A.constructor 2-2",
+      "function A.gen 10-10",
+    ]);
+  });
+
+  test("an initializer is named by what it is bound to", () => {
+    const source = [
+      "const f = () => 1;",
+      "function g(cb = () => {}) {}",
+      "const { h = () => 1 } = {};",
+      "class A { onResize = () => {}; static #tick = function () {}; }",
+      "const C = class {};",
+      "const p = (() => 1) as () => number;",
+    ].join("\n");
+    expect(codeOf(source)).toEqual([
+      "class A 4-4",
+      "class C 5-5",
+      'function A."\\u0023tick" 4-4',
+      "function A.onResize 4-4",
+      "function f 1-1",
+      "function g 2-2",
+      "function g.cb 2-2",
+      "function h 3-3",
+      "function p 6-6",
+    ]);
+  });
+
+  test("an object literal member is named by the literal's access path and its key", () => {
+    const source = [
+      "const handlers = {",
+      "  open() {},",
+      "  close: () => 0,",
+      "  nested: { reset: function () {} },",
+      "  get size() { return 1; },",
+      "};",
+      "module.exports = { foo() {} };",
+      "use({ bare() {} });",
+    ].join("\n");
+    expect(codeOf(source, "a.js")).toEqual([
+      'function "get handlers.size" 5-5',
+      'function "handlers.close" 3-3',
+      'function "handlers.nested.reset" 4-4',
+      'function "handlers.open" 2-2',
+      'function "module.exports.foo" 7-7',
+      "function bare 8-8",
+    ]);
+  });
+
+  test("an assigned function is named by the assignment target", () => {
+    const source = "Foo.prototype.bar = function () {};\nexports.helper = () => {};\nthis.run = () => {};\n";
+    expect(codeOf(source, "a.js")).toEqual([
+      'function "Foo.prototype.bar" 1-1',
+      'function "exports.helper" 2-2',
+      'function "this.run" 3-3',
+    ]);
+  });
+
+  test("an anonymous default export is named default", () => {
+    expect(codeOf("export default function () {}")).toEqual(["function default 1-1"]);
+    expect(codeOf("export default class {}")).toEqual(["class default 1-1"]);
+    expect(codeOf("export default () => 1;")).toEqual(["function default 1-1"]);
+  });
+
+  test("a callback is named by its callee and a string first argument", () => {
+    const source = [
+      'describe("parser", () => {',
+      '  test("nests", () => {});',
+      "});",
+      "[1].map((n) => n).filter((n) => n);",
+      "new Promise((resolve) => resolve(1));",
+      "a.b.c(() => 1);",
+    ].join("\n");
+    expect(codeOf(source)).toEqual([
+      'function "Promise() callback" 5-5',
+      'function "c() callback" 6-6',
+      'function "describe(\\"parser\\") callback" 1-3',
+      'function "describe(\\"parser\\") callback"."test(\\"nests\\") callback" 2-2',
+      'function "filter() callback" 4-4',
+      'function "map() callback" 4-4',
+    ]);
+  });
+
+  test("anything else is <function> or <class>", () => {
+    const source = "(function () {})();\nconst list = [() => 1, class {}];\nf()(() => 1);\n";
+    expect(codeOf(source)).toEqual([
+      'class "<class>" 2-2',
+      'function "<function>" 1-1',
+      'function "<function>"@2 2-2',
+      'function "<function>"@3 3-3',
+    ]);
+  });
+
+  test("a function inside a namespace is named through the namespace", () => {
+    expect(codeOf("namespace N.M {\n  export function f() {}\n}\n")).toEqual(['function "N.M.f" 2-2']);
+  });
+
+  test("only syntax with a body is a node", () => {
+    const source = [
+      "function over(a: number): void;",
+      "function over(a: string): void;",
+      "function over(a: unknown) {}",
+      "declare function ambient(): void;",
+      "declare class Ambient { m(): void; }",
+      "abstract class B { abstract m(): void; static { const x = 1; } }",
+      "interface I { m(): void; }",
+      "type F = () => void;",
+    ].join("\n");
+    expect(codeOf(source)).toEqual(["class B 6-6", "function over 3-3"]);
+    expect(codeOf("export declare class D { m(): void; }\nexport function f(): void;\n", "a.d.ts")).toEqual([]);
+  });
+
+  test("siblings with the same text get ordinals in source order, across levels", () => {
+    expect(codeOf("function f() {}\nfunction f() {}\nclass A {}\nfunction A() {}\n")).toEqual([
+      "class A 3-3",
+      "function A@2 4-4",
+      "function f 1-1",
+      "function f@2 2-2",
+    ]);
+    const graph = extract(new Map([["a.ts", "function f() {}\nfunction f() {}\n"]]));
+    expect(codeNodes(graph).map((node) => node.name)).toEqual(["f", "f (2)"]);
+  });
+
+  test("a range runs from the first decorator or modifier to the end of the body, without JSDoc", () => {
+    const source = "/**\n * Doc.\n */\n@sealed\nexport class A {\n  @log\n  static m() {\n  }\n}\n";
+    expect(codeOf(source)).toEqual(["class A 4-9", 'function A."static m" 6-8']);
+  });
+
+  test("lines end at \\n only, whatever the TypeScript compiler counts", () => {
+    expect(codeOf("function f() {\r\n}\r\nfunction g() {}\r\n")).toEqual(["function f 1-2", "function g 3-3"]);
+    expect(codeOf('const s = "\u2028";\nfunction f() {}')).toEqual(["function f 2-2"]);
+    expect(codeOf("const s = 1;\u2029function f() {}")).toEqual(["function f 1-1"]);
+  });
+
+  test("a node's parent is its file or the code node that contains it", () => {
+    const graph = extract(readFixtureTree(fixture));
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    for (const node of codeNodes(graph)) {
+      const parent = byId.get(node.parent)!;
+      expect(parent.path, node.id).toBe(node.path);
+      if (isCodeNode(parent)) {
+        expect(node.qualifiedName.startsWith(`${parent.qualifiedName}.`), node.id).toBe(true);
+        expect(node.range.start).toBeGreaterThanOrEqual(parent.range.start);
+        expect(node.range.end).toBeLessThanOrEqual(parent.range.end);
+      } else {
+        expect(parent.level, node.id).toBe("file");
+        expect(node.range.end).toBeLessThanOrEqual(lineCount(parent));
+      }
+    }
+  });
+
+  describe("identities survive unrelated edits", () => {
+    const shapes = readFileSync(new URL("fixtures/small/src/shapes.ts", import.meta.url), "utf8");
+    const idsOf = (text: string) => new Set(codeNodes(extract(new Map([["shapes.ts", text]]))).map((node) => node.id));
+    const before = idsOf(shapes);
+
+    test("inserting a function and editing every body adds one id and changes none", () => {
+      const after = idsOf(`function inserted() {}\n${shapes.replaceAll("return", "void 0;\n    return")}`);
+      expect([...after].filter((id) => !before.has(id))).toEqual(["function:shapes.ts#inserted"]);
+      expect([...before].filter((id) => !after.has(id))).toEqual([]);
+    });
+
+    test("inserting a same-text callback renumbers only callbacks with that text", () => {
+      const after = idsOf(`[0].map((n) => n);\n${shapes}`);
+      const others = (ids: Set<string>) => [...ids].filter((id) => !id.startsWith('function:shapes.ts#"map() callback"'));
+      expect(others(after)).toEqual(others(before));
+      expect(after.size).toBe(before.size + 1);
+    });
   });
 });

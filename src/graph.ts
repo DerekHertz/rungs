@@ -106,7 +106,11 @@ function canonicalNode(node: ModuleNode): object {
       return { ...base, lines: node.lines, analysis: node.analysis, generated: node.generated };
     case "class":
     case "function":
-      return { ...base, qualifiedName: node.qualifiedName, range: { start: node.range.start, end: node.range.end } };
+      return {
+        ...base,
+        qualifiedName: node.qualifiedName,
+        range: { start: node.range.start, end: node.range.end },
+      };
   }
 }
 

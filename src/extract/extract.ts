@@ -1,11 +1,11 @@
 import { posix } from "node:path";
-import { compareIds, nodeId } from "../graph.ts";
-import type { FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
-import { countLines } from "../lines.ts";
+import { compareIds, nodeId, qualifiedName } from "../graph.ts";
+import type { CodeNode, FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
+import { countLines, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
-import type { LanguageAdapter, SourceFile } from "./adapters.ts";
+import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "2";
+export const EXTRACTOR_VERSION = "3";
 
 const GENERATED_BASENAMES: ReadonlySet<string> = new Set([
   "package-lock.json",
@@ -35,8 +35,11 @@ export function extract(tree: FileTree): Graph {
   const analysed = new Set<string>();
   for (const [adapter, files] of filesByAdapter) {
     files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    nodes.push(...adapter.analyse(files));
-    for (const file of files) analysed.add(file.path);
+    const outlines = adapter.analyse(files);
+    for (const file of files) {
+      analysed.add(file.path);
+      nodes.push(...codeNodes(file.path, file.text, outlines.get(file.path) ?? []));
+    }
   }
 
   const directoryLines = new Map<string, number>([["", 0]]);
@@ -69,6 +72,34 @@ export function extract(tree: FileTree): Graph {
   }
   nodes.sort((a, b) => compareIds(a.id, b.id));
   return { extractorVersion: EXTRACTOR_VERSION, nodes };
+}
+
+// The only place code identity is decided: ordinals among siblings with the same text in source
+// order, qualified names, and line ranges through lines.ts.
+function codeNodes(path: string, text: string, declarations: readonly Declaration[]): CodeNode[] {
+  const starts = lineStarts(text);
+  const nodes: CodeNode[] = [];
+  const visit = (siblings: readonly Declaration[], parent: NodeId, parentName: string): void => {
+    const seen = new Map<string, number>();
+    for (const declaration of [...siblings].sort((a, b) => a.start - b.start)) {
+      const ordinal = (seen.get(declaration.text) ?? 0) + 1;
+      seen.set(declaration.text, ordinal);
+      const name = qualifiedName(parentName, declaration.text, ordinal);
+      const id = nodeId(declaration.level, path, name);
+      nodes.push({
+        id,
+        level: declaration.level,
+        path,
+        name: ordinal > 1 ? `${declaration.text} (${ordinal})` : declaration.text,
+        parent,
+        qualifiedName: name,
+        range: lineRangeOf(starts, declaration.start, declaration.end),
+      });
+      visit(declaration.children, id, name);
+    }
+  };
+  visit(declarations, nodeId("file", path, ""), "");
+  return nodes;
 }
 
 function directoryOf(path: string): string {
