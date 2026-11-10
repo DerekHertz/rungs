@@ -18,6 +18,7 @@ let hostDir: string;
 
 beforeAll(async () => {
   process.env.RUNGS_PROBE_SECRET = SECRET;
+  process.env.npm_config_git = "/tmp/payload.sh";
   server = createServer((socket) => socket.on("error", () => {}).end("hello\n"));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   port = (server.address() as AddressInfo).port;
@@ -26,6 +27,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   delete process.env.RUNGS_PROBE_SECRET;
+  delete process.env.npm_config_git;
   await new Promise((resolve) => server.close(resolve));
   await rm(hostDir, { recursive: true, force: true });
 });
@@ -58,6 +60,7 @@ test("the environment holds no secret", () => {
   assert.equal(process.env.RUNGS_PROBE_SECRET, undefined);
   assert.equal(process.env.SSH_AUTH_SOCK, undefined);
   assert.equal(process.env.GH_TOKEN, undefined);
+  assert.deepEqual(Object.keys(process.env).filter((name) => /^npm_config_/i.test(name)), []);
   assert.notEqual(process.env.HOME, ${JSON.stringify(process.env.HOME)});
 });
 `;
@@ -68,7 +71,7 @@ test("the environment holds no secret", () => {
 }
 
 const nodeTest = (places: Places): Step[] => [
-  { argv: [places.node, "--test", "--test-reporter=tap", "probe.test.mjs"], network: false },
+  { argv: [places.node, "--test", "--test-reporter=tap", "probe.test.mjs"] },
 ];
 
 const limits = { timeoutMs: 60_000, outputBytes: 1 << 20 };
@@ -102,18 +105,17 @@ test("unsandboxed, the same probes reach the host: they are not vacuous", async 
   expect(existsSync(run.root)).toBe(false);
 });
 
-test("a step given the network reaches the host, so only install steps get it", async () => {
+test("only the install gets the network: it reaches the host, and no step ever does", async () => {
   const connect = `require("net").connect(${port}, "127.0.0.1").on("data", (d) => process.stdout.write(d)).on("error", (e) => console.log(e.code))`;
   const run = await runIsolated({
     tree: new Map(),
     isolation: bwrap,
-    steps: (places) => [
-      { argv: [places.node, "-e", connect], network: true },
-      { argv: [places.node, "-e", connect], network: false },
-    ],
+    install: { files: new Map(), argv: (places) => [places.node, "-e", connect] },
+    steps: (places) => [{ argv: [places.node, "-e", connect] }],
     ...limits,
   });
-  expect(run.steps.map((step) => step.output.trim())).toEqual(["hello", "ECONNREFUSED"]);
+  expect(run.install?.output.trim()).toBe("hello");
+  expect(run.steps.map((step) => step.output.trim())).toEqual(["ECONNREFUSED"]);
 });
 
 for (const isolation of [bwrap, unsandboxed]) {
@@ -123,8 +125,8 @@ for (const isolation of [bwrap, unsandboxed]) {
       tree: new Map(),
       isolation,
       steps: (places) => [
-        { argv: ["/bin/sh", "-c", `"${places.node}" -e "setInterval(() => {}, 1000)" & wait`], network: false },
-        { argv: [places.node, "-e", "console.log('never')"], network: false },
+        { argv: ["/bin/sh", "-c", `"${places.node}" -e "setInterval(() => {}, 1000)" & wait`] },
+        { argv: [places.node, "-e", "console.log('never')"] },
       ],
       timeoutMs: 500,
       outputBytes: 1024,
@@ -140,7 +142,7 @@ for (const isolation of [bwrap, unsandboxed]) {
       tree: new Map([["a/b.txt", "text\n"]]),
       isolation,
       steps: (places) => [
-        { argv: ["/bin/sh", "-c", `"${places.node}" -e "process.stdout.write('x'.repeat(100000))"; chmod 000 a`], network: false },
+        { argv: ["/bin/sh", "-c", `"${places.node}" -e "process.stdout.write('x'.repeat(100000))"; chmod 000 a`] },
       ],
       timeoutMs: 30_000,
       outputBytes: 1000,
@@ -155,8 +157,8 @@ for (const isolation of [bwrap, unsandboxed]) {
       tree: new Map([["src/one.txt", "one\n"], ["two.txt", "two\n"]]),
       isolation,
       steps: (places) => [
-        { argv: ["/bin/sh", "-c", "cat src/one.txt two.txt; exit 3"], network: false },
-        { argv: [places.node, "-e", "console.log('never')"], network: false },
+        { argv: ["/bin/sh", "-c", "cat src/one.txt two.txt; exit 3"] },
+        { argv: [places.node, "-e", "console.log('never')"] },
       ],
       ...limits,
     });
@@ -168,7 +170,7 @@ for (const isolation of [bwrap, unsandboxed]) {
       tree: new Map(),
       isolation,
       steps: (places) => [
-        { argv: ["/bin/sh", "-c", `printf small > "${places.out}/a.json"; head -c 5000 /dev/zero > "${places.out}/b.json"`], network: false },
+        { argv: ["/bin/sh", "-c", `printf small > "${places.out}/a.json"; head -c 5000 /dev/zero > "${places.out}/b.json"`] },
       ],
       collect: ["a.json", "b.json", "c.json"],
       ...limits,
@@ -204,7 +206,6 @@ for (const isolation of [bwrap, unsandboxed]) {
       steps: (places) => [
         {
           argv: ["/bin/sh", "-c", `cd "${places.out}" && printf real > a.json && rm a.json && ln -s "${secret}" a.json && ln -s /proc/self/environ b.json && ln -s /nowhere c.json`],
-          network: false,
         },
       ],
       collect: ["a.json", "b.json", "c.json"],
@@ -222,7 +223,7 @@ for (const isolation of [bwrap, unsandboxed]) {
     const run = await runIsolated({
       tree: new Map(),
       isolation,
-      steps: (places) => [{ argv: ["/bin/sh", "-c", `cd "${places.out}" && mkfifo a.json && mkdir b.json`], network: false }],
+      steps: (places) => [{ argv: ["/bin/sh", "-c", `cd "${places.out}" && mkfifo a.json && mkdir b.json`] }],
       collect: ["a.json", "b.json"],
       ...limits,
     });
@@ -246,7 +247,7 @@ test("unsandboxed: an out folder swapped for a link to a host folder is unreadab
   const run = await runIsolated({
     tree: new Map(),
     isolation: unsandboxed,
-    steps: (places) => [{ argv: ["/bin/sh", "-c", `rmdir "${places.out}" && ln -s "${hostDir}" "${places.out}"`], network: false }],
+    steps: (places) => [{ argv: ["/bin/sh", "-c", `rmdir "${places.out}" && ln -s "${hostDir}" "${places.out}"`] }],
     collect: ["a.json", "b.json"],
     ...limits,
   });
@@ -259,7 +260,7 @@ test("unsandboxed: an out folder replaced by another real folder is unreadable",
   const run = await runIsolated({
     tree: new Map(),
     isolation: unsandboxed,
-    steps: (places) => [{ argv: ["/bin/sh", "-c", `mkdir "${places.out}2" && printf x > "${places.out}2/a.json" && rmdir "${places.out}" && mv "${places.out}2" "${places.out}"`], network: false }],
+    steps: (places) => [{ argv: ["/bin/sh", "-c", `mkdir "${places.out}2" && printf x > "${places.out}2/a.json" && rmdir "${places.out}" && mv "${places.out}2" "${places.out}"`] }],
     collect: ["a.json"],
     ...limits,
   });
@@ -271,7 +272,7 @@ test("unsandboxed: a result that is a second name for a host file is unreadable"
   const run = await runIsolated({
     tree: new Map(),
     isolation: unsandboxed,
-    steps: (places) => [{ argv: ["/bin/sh", "-c", `ln "${secret}" "${places.out}/a.json"`], network: false }],
+    steps: (places) => [{ argv: ["/bin/sh", "-c", `ln "${secret}" "${places.out}/a.json"`] }],
     collect: ["a.json"],
     ...limits,
   });
@@ -284,7 +285,7 @@ test("a result one byte past the limit is too large, not read", async () => {
   const run = await runIsolated({
     tree: new Map(),
     isolation: unsandboxed,
-    steps: (places) => [{ argv: ["/bin/sh", "-c", `head -c 1001 /dev/zero > "${places.out}/a.json"`], network: false }],
+    steps: (places) => [{ argv: ["/bin/sh", "-c", `head -c 1001 /dev/zero > "${places.out}/a.json"`] }],
     collect: ["a.json"],
     ...limits,
     collectBytes: 1000,
@@ -313,7 +314,7 @@ test("unsandboxed: a process a step leaves behind holding its output is killed a
   const run = await runIsolated({
     tree: new Map(),
     isolation: unsandboxed,
-    steps: (places) => [{ argv: [places.node, "-e", stray("")], network: false }, { argv: [places.node, "-e", "console.log('next')"], network: false }],
+    steps: (places) => [{ argv: [places.node, "-e", stray("")] }, { argv: [places.node, "-e", "console.log('next')"] }],
     timeoutMs: 30_000,
     outputBytes: 1024,
   });
@@ -329,7 +330,7 @@ test("unsandboxed: a step past the limit with a process left behind is a timeout
   const run = await runIsolated({
     tree: new Map(),
     isolation: unsandboxed,
-    steps: (places) => [{ argv: [places.node, "-e", stray("", " setInterval(() => {}, 1000);")], network: false }],
+    steps: (places) => [{ argv: [places.node, "-e", stray("", " setInterval(() => {}, 1000);")] }],
     timeoutMs: 1000,
     outputBytes: 1024,
   });
@@ -344,7 +345,7 @@ test("unsandboxed: a left-behind process that hid itself still cannot hold the r
   const run = await runIsolated({
     tree: new Map(),
     isolation: unsandboxed,
-    steps: (places) => [{ argv: [places.node, "-e", stray(', env: {}, cwd: "/"')], network: false }],
+    steps: (places) => [{ argv: [places.node, "-e", stray(', env: {}, cwd: "/"')] }],
     timeoutMs: 30_000,
     outputBytes: 1024,
   });
@@ -363,7 +364,7 @@ test("in the sandbox a process left behind dies with its step: the namespace end
   const run = await runIsolated({
     tree: new Map(),
     isolation: bwrap,
-    steps: (places) => [{ argv: [places.node, "-e", stray("")], network: false }, { argv: ["/bin/sh", "-c", "ps -e -o comm= | grep -c node || true"], network: false }],
+    steps: (places) => [{ argv: [places.node, "-e", stray("")] }, { argv: ["/bin/sh", "-c", "ps -e -o comm= | grep -c node || true"] }],
     timeoutMs: 30_000,
     outputBytes: 1024,
   });
@@ -381,7 +382,7 @@ for (const isolation of [bwrap, unsandboxed]) {
 await runIsolated({
   tree: new Map(),
   isolation: ${JSON.stringify(isolation)},
-  steps: () => [{ argv: ["/bin/sh", "-c", "mkdir -p locked/inner && echo x > locked/inner/file && chmod 000 locked && sleep 60"], network: false }],
+  steps: () => [{ argv: ["/bin/sh", "-c", "mkdir -p locked/inner && echo x > locked/inner/file && chmod 000 locked && sleep 60"] }],
   timeoutMs: 60000,
   outputBytes: 1024,
 });
@@ -410,10 +411,109 @@ test("files marked executable keep their mode in the copy", async () => {
     tree: new Map([["run.sh", "#!/bin/sh\necho ran\n"], ["plain.sh", "#!/bin/sh\necho ran\n"]]),
     executable: new Set(["run.sh"]),
     isolation: bwrap,
-    steps: () => [{ argv: ["/bin/sh", "-c", "./run.sh; ./plain.sh 2>/dev/null || echo refused"], network: false }],
+    steps: () => [{ argv: ["/bin/sh", "-c", "./run.sh; ./plain.sh 2>/dev/null || echo refused"] }],
     ...limits,
   });
   expect(run.steps[0]?.output).toBe("ran\nrefused\n");
+});
+
+// Fetching dependencies is the one thing that gets the network, so it is kept away from the tree.
+const SHA = "0123456789abcdef0123456789abcdef01234567";
+const GIT_URL = `git+ssh://git@127.0.0.1:1/none/none.git#${SHA}`;
+const gitLock = JSON.stringify({
+  name: "probe",
+  version: "1.0.0",
+  lockfileVersion: 3,
+  requires: true,
+  packages: {
+    "": { name: "probe", version: "1.0.0", dependencies: { dep: GIT_URL } },
+    "node_modules/dep": { version: "1.0.0", resolved: GIT_URL },
+  },
+});
+const gitManifest = `{"name":"probe","version":"1.0.0","dependencies":{"dep":"${GIT_URL}"}}\n`;
+
+for (const isolation of [bwrap, unsandboxed]) {
+  test(`${isolation.kind}: the install runs before the steps, in a folder that holds only its own files`, async () => {
+    const run = await runIsolated({
+      tree: new Map([[".npmrc", "git=/work/payload.sh\n"], ["payload.sh", "#!/bin/sh\n"], ["package.json", "{}\n"]]),
+      executable: new Set(["payload.sh"]),
+      isolation,
+      install: {
+        files: new Map([["package.json", "{}\n"], ["package-lock.json", "{}\n"]]),
+        argv: (places) => ["/bin/sh", "-c", `pwd; ls -A; test "$PWD" = "${places.install}" && mkdir -p node_modules/dep && echo 42 > node_modules/dep/index.js`],
+      },
+      steps: () => [{ argv: ["/bin/sh", "-c", "ls -A; cat node_modules/dep/index.js"] }],
+      ...limits,
+    });
+    expect(run.install).toMatchObject({ exitCode: 0, timedOut: false });
+    expect(run.install?.output).toBe(`${run.places.install}\npackage-lock.json\npackage.json\n`);
+    expect(run.steps.map((step) => step.output)).toEqual([".npmrc\nnode_modules\npackage.json\npayload.sh\n42\n"]);
+  });
+
+  test(`${isolation.kind}: a failed install runs no step and moves nothing`, async () => {
+    const run = await runIsolated({
+      tree: new Map(),
+      isolation,
+      install: { files: new Map(), argv: () => ["/bin/sh", "-c", "mkdir node_modules; exit 7"] },
+      steps: () => [{ argv: ["/bin/sh", "-c", "echo never"] }],
+      ...limits,
+    });
+    expect(run.install).toMatchObject({ exitCode: 7 });
+    expect(run.steps).toEqual([]);
+  });
+}
+
+test("in the sandbox the install cannot see the copy, the out folder or the user's files", async () => {
+  const run = await runIsolated({
+    tree: new Map([["secret.txt", "tree text\n"]]),
+    isolation: bwrap,
+    install: {
+      files: new Map(),
+      argv: () => ["/bin/sh", "-c", `ls /work /out ${JSON.stringify(outsideFile)} 2>&1; ls /`],
+    },
+    steps: () => [],
+    ...limits,
+  });
+  expect(run.install?.output).toMatch(/\/work.*No such file/);
+  expect(run.install?.output).toMatch(/\/out.*No such file/);
+  expect(run.install?.output).toMatch(/sandbox\.test\.ts.*No such file/);
+  expect(run.install?.output).not.toContain("tree text");
+});
+
+test("a tree's .npmrc naming its own program as git never runs it: npm installs where the tree is not", async () => {
+  let reached = 0;
+  const beacon = createServer((socket) => {
+    reached += 1;
+    socket.on("error", () => {}).end();
+  });
+  await new Promise<void>((resolve) => beacon.listen(0, "127.0.0.1", resolve));
+  const beaconPort = (beacon.address() as AddressInfo).port;
+  try {
+    const run = await runIsolated({
+      tree: new Map([
+        [".npmrc", "git=/work/payload.sh\n"],
+        ["payload.sh", `#!/bin/sh\n/rungs/bin/node -e 'require("net").connect(${beaconPort}, "127.0.0.1")'\necho pwned > /out/marker\nexit 1\n`],
+        ["package.json", gitManifest],
+        ["package-lock.json", gitLock],
+      ]),
+      executable: new Set(["payload.sh"]),
+      isolation: bwrap,
+      // Plain npm, with none of the pinned settings: only the folder keeps the tree's program away.
+      install: {
+        files: new Map([["package.json", gitManifest], ["package-lock.json", gitLock]]),
+        argv: (places) => [places.node, places.npm, "ci", "--ignore-scripts", "--fetch-retries=0"],
+      },
+      steps: () => [],
+      collect: ["marker"],
+      ...limits,
+    });
+    expect(run.install?.exitCode).not.toBe(0);
+    expect(run.install?.output).not.toContain("payload.sh");
+    expect(reached).toBe(0);
+    expect(run.collected.get("marker")).toEqual({ kind: "missing" });
+  } finally {
+    await new Promise((resolve) => beacon.close(resolve));
+  }
 });
 
 test("a tree path that climbs out of the copy is refused before anything runs", async () => {

@@ -153,3 +153,16 @@ test("the tree digest changes with any path or text and nothing else", () => {
   expect(treeDigest(new Map([["a", "1"], ["c", "2"]]))).not.toBe(one);
   expect(treeDigest(new Map([["a", "1\u0000b"]]))).not.toBe(treeDigest(new Map([["a", "1"], ["b", ""]])));
 });
+
+test("results that are not what the runner writes are named unreadable without repeating their text", () => {
+  const secret = "SSH_AUTH_SOCK=/tmp/agent GH_TOKEN=ghp_secretvalue";
+  for (const parse of [() => parseVitestJson(secret, "/work"), () => parseNodeEvents(secret), () => parseNodeEvents(JSON.stringify({ type: secret }))]) {
+    let message = "nothing thrown";
+    try {
+      parse();
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/^(vitest's report is not valid JSON|unreadable test event on line 1)$/);
+  }
+});

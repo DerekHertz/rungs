@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { chmodSync, constants, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
 import type { Stats } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, open, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, normalize } from "node:path";
 import { promisify } from "node:util";
@@ -27,15 +27,27 @@ export interface Places {
   readonly out: string;
   /** Files `tools` gave the run, read-only. */
   readonly tools: string;
+  /** The install's own folder; the steps never see it. */
+  readonly install: string;
   readonly node: string;
   /** npm's command-line script, run with `node`. */
   readonly npm: string;
 }
 
+/** A command run in the copy. It never gets the network: only the install does. */
 export interface Step {
   readonly argv: readonly string[];
-  /** Only an install step should get the network; the run's own code never should. */
-  readonly network: boolean;
+}
+
+/**
+ * Fetching dependencies is the one command that gets the network, so it is kept away from the
+ * tree. It runs before the steps in a folder that holds only `files`: the copy and the out folder
+ * are not there, so nothing the tree wrote can be read as settings or run. When it exits 0 its
+ * `node_modules` moves into the copy.
+ */
+export interface Install {
+  readonly files: FileTree;
+  readonly argv: (places: Places) => readonly string[];
 }
 
 export interface StepResult {
@@ -64,6 +76,8 @@ export type Collected =
   | { readonly kind: "unreadable"; readonly why: string };
 
 export interface Run {
+  /** The install, when one was asked for. No step runs unless it exited 0 in time. */
+  readonly install?: StepResult;
   /** The steps that ran: each one after the first ran because the one before exited 0 in time. */
   readonly steps: readonly StepResult[];
   readonly collected: ReadonlyMap<string, Collected>;
@@ -78,6 +92,7 @@ export interface RunRequest {
   /** Paths of the tree written executable; a file tree holds text, not modes. */
   readonly executable?: ReadonlySet<string>;
   readonly isolation: Isolation;
+  readonly install?: Install;
   readonly steps: (places: Places) => readonly Step[];
   /** Files given to the steps at `places.tools`. */
   readonly tools?: FileTree;
@@ -95,6 +110,7 @@ const INSIDE: Places = {
   work: "/work",
   out: "/out",
   tools: "/rungs/tools",
+  install: "/install",
   node: "/rungs/bin/node",
   npm: "/rungs/npm/bin/npm-cli.js",
 };
@@ -127,7 +143,7 @@ export function chooseIsolation(sandbox: Sandbox, allowUnsandboxed: boolean): { 
  * only when the one before it exited 0 within the time left.
  */
 export async function runIsolated(request: RunRequest): Promise<Run> {
-  for (const path of request.tree.keys()) {
+  for (const path of [...request.tree.keys(), ...(request.install?.files.keys() ?? [])]) {
     const normal = normalize(path);
     if (isAbsolute(path) || normal === ".." || normal.startsWith("../")) {
       throw new Error(`the tree holds a path outside itself: ${JSON.stringify(path)}`);
@@ -149,21 +165,20 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
   };
   process.once("SIGINT", interrupted).once("SIGTERM", interrupted);
   try {
-    const host = { work: join(root, "work"), out: join(root, "out"), tools: join(root, "tools") };
+    const host = { work: join(root, "work"), out: join(root, "out"), tools: join(root, "tools"), install: join(root, "install") };
     await writeTree(host.work, request.tree, request.executable ?? new Set());
     await writeTree(host.tools, request.tools ?? new Map(), new Set());
+    await writeTree(host.install, request.install?.files ?? new Map(), new Set());
     for (const dir of [host.out, join(root, "home"), join(root, "tmp")]) await mkdir(dir);
     const outMade = await lstat(host.out);
     const node = process.execPath;
     const npm = join(dirname(node), "..", "lib", "node_modules", "npm");
     const { isolation } = request;
     const places: Places = isolation.kind === "bwrap" ? INSIDE : { ...host, node, npm: join(npm, "bin", "npm-cli.js") };
-    const steps = request.steps(places);
     const deadline = Date.now() + request.timeoutMs;
-    const results: StepResult[] = [];
-    for (const step of steps) {
-      const argv = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, step.network), "--", ...step.argv] : [...step.argv];
-      const { open, ...finished } = await runStep(argv, host.work, deadline, request.outputBytes, isolation, root, (spawned) => {
+    const run = async (argv: readonly string[], room: Room): Promise<StepResult> => {
+      const command = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, room), "--", ...argv] : [...argv];
+      const { open, ...finished } = await runStep(command, host[room], deadline, request.outputBytes, isolation, root, (spawned) => {
         child = spawned;
       });
       // In bwrap the namespace dies with the step. Outside it a process can leave the step's group.
@@ -174,16 +189,25 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
           : open
             ? "something the step started kept its output open, and no process could be found to kill"
             : undefined;
-      const result: StepResult = leftover === undefined ? finished : { ...finished, leftover };
-      results.push(result);
-      if (result.exitCode !== 0 || result.timedOut) break;
+      return leftover === undefined ? finished : { ...finished, leftover };
+    };
+    const succeeded = (result: StepResult) => result.exitCode === 0 && !result.timedOut;
+    const install = request.install === undefined ? undefined : await run(request.install.argv(places), "install");
+    const results: StepResult[] = [];
+    if (install === undefined || succeeded(install)) {
+      if (install !== undefined) await moveModules(host.install, host.work);
+      for (const step of request.steps(places)) {
+        const result = await run(step.argv, "work");
+        results.push(result);
+        if (!succeeded(result)) break;
+      }
     }
     const collected = new Map<string, Collected>();
     const swapped = outFolderSwapped(outMade, await lstat(host.out).catch(() => undefined));
     for (const name of collect) {
       collected.set(name, swapped === undefined ? await collectFile(join(host.out, name), request.collectBytes ?? 64 << 20) : { kind: "unreadable", why: swapped });
     }
-    return { steps: results, collected, root, places };
+    return { ...(install === undefined ? {} : { install }), steps: results, collected, root, places };
   } finally {
     process.off("SIGINT", interrupted).off("SIGTERM", interrupted);
     if (request.isolation.kind !== "bwrap") killStrays(root);
@@ -191,17 +215,32 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
   }
 }
 
-function bwrapArgs(host: { work: string; out: string; tools: string }, node: string, npm: string, network: boolean): string[] {
+/** Where a command runs: the install's folder, with the network, or the copy, with none. */
+type Room = "install" | "work";
+
+function bwrapArgs(host: Record<Room | "out" | "tools", string>, node: string, npm: string, room: Room): string[] {
   const args = ["--unshare-all", "--die-with-parent", "--new-session", "--clearenv"];
-  if (network) args.push("--share-net");
   for (const dir of SYSTEM) args.push("--ro-bind-try", dir, dir);
   for (const name of ETC) args.push("--ro-bind-try", `/etc/${name}`, `/etc/${name}`);
   args.push("--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", ENV.HOME);
   args.push("--ro-bind", node, INSIDE.node, "--ro-bind-try", npm, dirname(dirname(INSIDE.npm)));
-  args.push("--ro-bind", host.tools, INSIDE.tools, "--bind", host.work, INSIDE.work, "--bind", host.out, INSIDE.out);
-  args.push("--chdir", INSIDE.work);
+  args.push("--ro-bind", host.tools, INSIDE.tools);
+  // The network and the tree's files are never in the same room.
+  if (room === "install") args.push("--share-net", "--bind", host.install, INSIDE.install, "--chdir", INSIDE.install);
+  else args.push("--bind", host.work, INSIDE.work, "--bind", host.out, INSIDE.out, "--chdir", INSIDE.work);
   for (const [name, value] of Object.entries({ ...ENV, PATH: `${dirname(INSIDE.node)}:/usr/bin:/bin` })) args.push("--setenv", name, value);
   return args;
+}
+
+// Moving a name never follows a link, and only a real folder is moved: whatever else the install
+// left behind stays where no step can see it.
+async function moveModules(install: string, work: string): Promise<void> {
+  const from = join(install, "node_modules");
+  const info = await lstat(from).catch(() => undefined);
+  if (info === undefined || !info.isDirectory()) return;
+  const to = join(work, "node_modules");
+  await rm(to, { recursive: true, force: true });
+  await rename(from, to);
 }
 
 function runStep(

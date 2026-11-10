@@ -3,7 +3,7 @@ import { relative } from "node:path";
 import { isCodeNode } from "./graph.ts";
 import type { FileTree, Graph, NodeId } from "./graph.ts";
 import { runIsolated } from "./sandbox.ts";
-import type { Isolation, Places, Step } from "./sandbox.ts";
+import type { Isolation, Places } from "./sandbox.ts";
 
 export type Outcome = "pass" | "fail" | "skip";
 export type Runner = "node" | "vitest";
@@ -149,45 +149,215 @@ export default async function* reporter(source) {
 
 const RESULTS: Record<Runner, string> = { node: "node.jsonl", vitest: "vitest.json" };
 
-function stepsOf(detection: Extract<Detection, { runner: Runner }>, places: Places): Step[] {
-  const install: Step[] = detection.install
-    ? [{ argv: [places.node, places.npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], network: true }]
-    : [];
+/** Where dependencies come from unless a caller names another registry. */
+export const NPM_REGISTRY = "https://registry.npmjs.org/";
+
+const DEPENDENCY_TABLES = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
+/** The parts of a lockfile entry npm needs to place a registry package; nothing else is passed on. */
+const ENTRY_KEYS = [
+  "name", "version", "resolved", "integrity", "dev", "optional", "devOptional", "peer", "inBundle", "hasInstallScript", "license",
+  "bin", "engines", "os", "cpu", "libc", "dependencies", "optionalDependencies", "peerDependencies", "peerDependenciesMeta", "bundleDependencies",
+] as const;
+const PLAIN_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const SHA512 = /^sha512-[A-Za-z0-9+/]{86}==$/;
+const NAME = String.raw`(?:@[a-z0-9~][a-z0-9._~-]*/)?[a-z0-9~][a-z0-9._~-]*`;
+const INSTALLED = new RegExp(`^node_modules/${NAME}(?:/node_modules/${NAME})*$`, "i");
+const ALIAS = new RegExp(`^npm:${NAME}(?:@|$)`, "i");
+
+class Refusal extends Error {}
+
+const quoted = (value: unknown): string => {
+  const text = JSON.stringify(value) ?? "nothing";
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text;
+};
+
+const isTable = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * True for what npm fetches from the registry alone: a version, a range or a tag, perhaps of
+ * another registry name. Anything with a scheme or a path (git, GitHub, a URL, a file, a folder)
+ * is not, because npm would go and fetch it, and for git run a program to do so.
+ */
+function isRegistrySpec(spec: unknown): spec is string {
+  return typeof spec === "string" && /^[\w.+~^<>=|* -]*$/.test(spec.replace(ALIAS, ""));
+}
+
+/** A table of dependencies, each asked for from the registry. */
+function registryTable(value: unknown, what: string, whose: string): Record<string, string> {
+  if (!isTable(value)) throw new Refusal(`${whose}'s ${what} are not a table of names and versions`);
+  for (const [name, spec] of Object.entries(value)) {
+    if (!isRegistrySpec(spec)) throw new Refusal(`${whose} asks for ${quoted(name)} from ${quoted(spec)}, which is not a registry version`);
+  }
+  return value as Record<string, string>;
+}
+
+function registryOverrides(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (!value.startsWith("$") && !isRegistrySpec(value)) throw new Refusal(`package.json overrides a dependency with ${quoted(value)}, which is not a registry version`);
+    return value;
+  }
+  if (!isTable(value)) throw new Refusal("package.json's overrides are not a table of names and versions");
+  for (const [key, inner] of Object.entries(value)) {
+    const at = key.lastIndexOf("@");
+    const [name, spec] = at > 0 ? [key.slice(0, at), key.slice(at + 1)] : [key, ""];
+    if (!isRegistrySpec(spec)) throw new Refusal(`package.json asks for ${quoted(name)} from ${quoted(spec)}, which is not a registry version`);
+    if (typeof inner === "string" && !inner.startsWith("$") && !isRegistrySpec(inner)) {
+      throw new Refusal(`package.json asks for ${quoted(name)} from ${quoted(inner)}, which is not a registry version`);
+    }
+    registryOverrides(inner);
+  }
+  return value;
+}
+
+/** The one lockfile entry as npm needs it, or a refusal when it is anything but a registry tarball with a hash. */
+function registryEntry(file: string, key: string, entry: unknown, registry: string): Record<string, unknown> {
+  if (key !== "" && !INSTALLED.test(key)) throw new Refusal(`${file}: ${quoted(key)} is a folder in the tree, not a package in node_modules`);
+  const where = `${file}: ${key === "" ? "the root" : key}`;
+  if (!isTable(entry)) throw new Refusal(`${where} is not an entry`);
+  if (key !== "") {
+    const { resolved, integrity, version } = entry;
+    if (entry.link !== undefined && entry.link !== false) throw new Refusal(`${where} is a link to a folder`);
+    if (resolved !== undefined || entry.inBundle !== true) {
+      if (resolved === undefined) throw new Refusal(`${where} has no registry address`);
+      if (typeof resolved !== "string" || !isRegistryTarball(resolved, registry)) {
+        const kind = typeof resolved !== "string" ? "has an unreadable address" : /^git[+:]|^github:|\.git(?:#|$)/.test(resolved) ? "is a git dependency" : resolved.startsWith("file:") ? "is a file dependency" : "comes from outside the registry";
+        throw new Refusal(`${where} ${kind} (${quoted(resolved)})`);
+      }
+      if (typeof integrity !== "string" || !SHA512.test(integrity)) throw new Refusal(`${where} has no sha512 integrity hash`);
+    }
+    if (typeof version !== "string" || !PLAIN_VERSION.test(version)) throw new Refusal(`${where} has no plain version`);
+  }
+  const kept: Record<string, unknown> = {};
+  for (const name of key === "" ? (["name", "version", ...DEPENDENCY_TABLES, "peerDependenciesMeta", "bundleDependencies"] as const) : ENTRY_KEYS) {
+    if (entry[name] === undefined) continue;
+    kept[name] = (DEPENDENCY_TABLES as readonly string[]).includes(name) ? registryTable(entry[name], name, where) : entry[name];
+  }
+  return kept;
+}
+
+function isRegistryTarball(resolved: string, registry: string): boolean {
+  if (!resolved.startsWith(registry)) return false;
+  try {
+    const url = new URL(resolved);
+    return url.origin === new URL(registry).origin && url.username === "" && url.password === "" && url.pathname.endsWith(".tgz");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The only two files the install is given, written by Rungs from what it checked: the tree's
+ * dependencies and its lockfile's entries, each a registry tarball with a sha512 hash. Nothing
+ * else of the tree goes near the network: no scripts, no settings, no program. A lockfile that
+ * names anything npm would fetch another way (git, a file, a link, a folder, another server) is
+ * refused, because npm runs a program to fetch from git.
+ */
+export function installFiles(tree: FileTree, registry: string = NPM_REGISTRY): { files: FileTree } | { refused: string } {
+  const lockName = tree.has("npm-shrinkwrap.json") ? "npm-shrinkwrap.json" : "package-lock.json";
+  try {
+    const manifest = parseTable(tree.get("package.json"), "package.json");
+    const asked: Record<string, unknown> = {};
+    for (const name of ["name", "version"] as const) if (typeof manifest[name] === "string") asked[name] = manifest[name];
+    for (const name of DEPENDENCY_TABLES) if (manifest[name] !== undefined) asked[name] = registryTable(manifest[name], name, "package.json");
+    if (manifest.peerDependenciesMeta !== undefined) asked.peerDependenciesMeta = manifest.peerDependenciesMeta;
+    if (manifest.overrides !== undefined) asked.overrides = registryOverrides(manifest.overrides);
+    const lock = parseTable(tree.get(lockName), lockName);
+    if (lock.lockfileVersion !== 2 && lock.lockfileVersion !== 3) {
+      throw new Refusal(`${lockName} has lockfileVersion ${quoted(lock.lockfileVersion)}; Rungs installs only from versions 2 and 3`);
+    }
+    if (!isTable(lock.packages)) throw new Refusal(`${lockName} lists no packages`);
+    const packages: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(lock.packages)) packages[key] = registryEntry(lockName, key, entry, registry);
+    // The older `dependencies` table of a version 2 lockfile is left out: npm reads `packages`, and only that was checked.
+    const checked = { name: lock.name, version: lock.version, lockfileVersion: 3, requires: true, packages };
+    return { files: new Map([["package.json", `${JSON.stringify(asked, null, 2)}\n`], [lockName, `${JSON.stringify(checked, null, 2)}\n`]]) };
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    return { refused: error.message };
+  }
+}
+
+function parseTable(text: string | undefined, name: string): Record<string, unknown> {
+  let value: unknown;
+  try {
+    value = JSON.parse(text ?? "");
+  } catch {
+    throw new Refusal(`${name} is not valid JSON`);
+  }
+  if (!isTable(value)) throw new Refusal(`${name} is not valid JSON`);
+  return value;
+}
+
+/**
+ * `npm ci` with every setting that could name a program or a place given here, so none is read
+ * from a file or the environment: both config files are an empty file of ours, the registry is
+ * the one the lockfile was checked against, and git, the shell and the script shell are a program
+ * that does nothing. No package script runs, and a git dependency that slipped through fails.
+ */
+export function installArgv(places: Places, registry: string): string[] {
+  const nothing = "/usr/bin/false";
+  return [
+    places.node,
+    places.npm,
+    "ci",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    `--userconfig=${places.tools}/npmrc-user`,
+    `--globalconfig=${places.tools}/npmrc-global`,
+    `--registry=${registry}`,
+    `--git=${nothing}`,
+    `--shell=${nothing}`,
+    `--script-shell=${nothing}`,
+  ];
+}
+
+function testArgv(detection: Extract<Detection, { runner: Runner }>, places: Places): string[] {
   const results = `${places.out}/${RESULTS[detection.runner]}`;
   const test =
     detection.runner === "node"
       ? [places.node, "--test", `--test-reporter=${places.tools}/reporter.mjs`, `--test-reporter-destination=${results}`, "--test-reporter=spec", "--test-reporter-destination=stdout"]
       : ["node_modules/.bin/vitest", "run", "--reporter=json", `--outputFile.json=${results}`, "--reporter=default"];
-  return [...install, { argv: [...test, ...detection.args], network: false }];
+  return [...test, ...detection.args];
 }
 
 const OUTPUT_TAIL = 8000;
 
 /**
- * Runs the tree's tests once under `isolation`: dependencies from the lockfile with the network
- * and with install scripts off, then the tests with no network at all.
+ * Runs the tree's tests once under `isolation`. Dependencies are fetched first, with the network,
+ * by npm alone in a folder the tree is not in; then the tests run in the copy with no network.
  */
-export async function runTests(tree: FileTree, executable: ReadonlySet<string>, isolation: Isolation, timeoutMs: number): Promise<TestRun> {
+export async function runTests(
+  tree: FileTree,
+  executable: ReadonlySet<string>,
+  isolation: Isolation,
+  timeoutMs: number,
+  registry: string = NPM_REGISTRY,
+): Promise<TestRun> {
   const detection = detectRunner(tree);
   if ("unsupported" in detection) return { status: "unsupported", why: detection.unsupported };
+  const install = detection.install ? installFiles(tree, registry) : undefined;
+  if (install !== undefined && "refused" in install) return { status: "refused", why: install.refused };
   const started = Date.now();
   const run = await runIsolated({
     tree,
     executable,
     isolation,
-    tools: new Map([["reporter.mjs", NODE_REPORTER]]),
-    steps: (places) => stepsOf(detection, places),
+    tools: new Map([["reporter.mjs", NODE_REPORTER], ["npmrc-user", ""], ["npmrc-global", ""]]),
+    ...(install === undefined ? {} : { install: { files: install.files, argv: (places: Places) => installArgv(places, registry) } }),
+    steps: (places) => [{ argv: testArgv(detection, places) }],
     collect: [RESULTS[detection.runner]],
     timeoutMs,
     outputBytes: 1 << 20,
   });
   const seconds = Math.round((Date.now() - started) / 100) / 10;
-  const output = run.steps.map((step) => step.output).join("").slice(-OUTPUT_TAIL);
+  const ran = [...(run.install === undefined ? [] : [run.install]), ...run.steps];
+  const output = ran.map((step) => step.output).join("").slice(-OUTPUT_TAIL);
   const failed = (why: string): TestRun => ({ status: "failed", why, runner: detection.runner, isolation: isolation.kind, seconds, output });
-  const last = run.steps.at(-1);
+  const last = ran.at(-1);
   if (last === undefined) return failed("nothing ran");
   if (last.timedOut) return failed(`the run passed its limit of ${Math.round(timeoutMs / 1000)} seconds`);
-  if (detection.install && run.steps.length === 1) return failed(`npm ci --ignore-scripts exited ${last.exitCode}`);
+  if (run.steps.length === 0) return failed(`npm ci --ignore-scripts exited ${last.exitCode}`);
   const results = run.collected.get(RESULTS[detection.runner]);
   if (results === undefined || results.kind === "missing") return failed(`the runner wrote no results (exit ${last.exitCode})`);
   if (results.kind === "too large") return failed(`the runner's results are too large to read (${results.bytes} bytes)`);
@@ -278,8 +448,14 @@ const VITEST_OUTCOME: Readonly<Record<string, Outcome>> = { passed: "pass", fail
 
 /** The tests in vitest's JSON report, with paths relative to `root`, the folder it ran in. */
 export function parseVitestJson(text: string, root: string): TestReport[] {
-  const json = JSON.parse(text) as { testResults?: unknown };
-  if (!Array.isArray(json.testResults)) throw new Error("vitest's report has no testResults");
+  let json: { testResults?: unknown } | null;
+  try {
+    json = JSON.parse(text) as { testResults?: unknown } | null;
+  } catch {
+    // The parser's own message quotes the text, which may not be the runner's.
+    throw new Error("vitest's report is not valid JSON");
+  }
+  if (!Array.isArray(json?.testResults)) throw new Error("vitest's report has no testResults");
   const reports: TestReport[] = [];
   for (const file of json.testResults as VitestFile[]) {
     if (typeof file?.name !== "string" || !Array.isArray(file.assertionResults)) throw new Error("vitest's report holds an unreadable file entry");

@@ -97,8 +97,13 @@ A panel answers the three questions, and each entry selects places on the pictur
 **Observed.** `rungs compare <base> --run-tests` runs the head tree's tests once, never by
 default, because they are the change's own untrusted code. They run in a sandbox (bubblewrap): a
 temporary copy of the tree, no network, none of the user's files, a stripped environment, a
-wall-clock limit. Dependencies install from the lockfile with the network and with install scripts
-off; the tests then run with no network. The runner is read from the `test` script, `node --test`
+wall-clock limit. The network and the tree's code are never together. Dependencies are fetched
+first, with the network, by npm alone in a folder that holds only two files Rungs wrote: the
+dependencies asked for and the lockfile's entries. npm reads no settings from the tree, the user or
+the environment, runs no script, and has no git. Every lockfile entry must be a registry tarball
+with a sha512 hash; a git, file, link, folder or other-server dependency refuses the run. The
+installed packages then move into the copy and the tests run with no network. What the run leaves
+behind is read as plain files under their expected names, never followed as links. The runner is read from the `test` script, `node --test`
 or vitest; any other is named as unsupported. Each result attaches to its test function by file
 and name; a result no single test function matches is listed, never dropped. With no sandbox the
 run is refused, and the page says so, unless `--run-tests-unsandboxed` is given.
