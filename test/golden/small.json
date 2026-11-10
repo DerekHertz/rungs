@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "4",
+  "extractorVersion": "5",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -11,7 +11,8 @@
       "range": {
         "start": 64,
         "end": 68
-      }
+      },
+      "digest": "0eed4facbb58a5b147f9286d867088ea"
     },
     {
       "id": "class:src/shapes.ts#Polygon",
@@ -23,7 +24,8 @@
       "range": {
         "start": 5,
         "end": 10
-      }
+      },
+      "digest": "af32f1680c29e866fb952087e05582e6"
     },
     {
       "id": "class:src/shapes.ts#Square",
@@ -35,7 +37,8 @@
       "range": {
         "start": 12,
         "end": 45
-      }
+      },
+      "digest": "ea4ad4c31628236aeba0f272f97d6d2f"
     },
     {
       "id": "file:README.md",
@@ -45,7 +48,8 @@
       "parent": "package:",
       "lines": 3,
       "analysis": "not analysed",
-      "role": "docs"
+      "role": "docs",
+      "digest": "465635f0cde844e8d963231eaa073b88"
     },
     {
       "id": "file:docs/notes.md",
@@ -55,7 +59,8 @@
       "parent": "folder:docs",
       "lines": 1,
       "analysis": "not analysed",
-      "role": "docs"
+      "role": "docs",
+      "digest": "5b913cae6aee479e5c53ed062ee36666"
     },
     {
       "id": "file:package-lock.json",
@@ -65,7 +70,8 @@
       "parent": "package:",
       "lines": 5,
       "analysis": "not analysed",
-      "role": "generated"
+      "role": "generated",
+      "digest": "3db9426be731271ed829f6fa5c1b1777"
     },
     {
       "id": "file:package.json",
@@ -75,7 +81,8 @@
       "parent": "package:",
       "lines": 4,
       "analysis": "not analysed",
-      "role": "config"
+      "role": "config",
+      "digest": "5ea9f172caa641905608d4d7887171fc"
     },
     {
       "id": "file:packages/widget/assets/theme.json",
@@ -85,7 +92,8 @@
       "parent": "folder:packages/widget/assets",
       "lines": 3,
       "analysis": "not analysed",
-      "role": null
+      "role": null,
+      "digest": "a9da6a1dd6658b60c52820c1507eb538"
     },
     {
       "id": "file:packages/widget/package.json",
@@ -95,7 +103,8 @@
       "parent": "package:packages/widget",
       "lines": 4,
       "analysis": "not analysed",
-      "role": "config"
+      "role": "config",
+      "digest": "e916f5207a2e4de376e307d5798099f3"
     },
     {
       "id": "file:packages/widget/src/widget.tsx",
@@ -105,7 +114,8 @@
       "parent": "folder:packages/widget/src",
       "lines": 1,
       "analysis": "analysed",
-      "role": "source"
+      "role": "source",
+      "digest": "5ec221ebfcc161f28af09eda2f8499e9"
     },
     {
       "id": "file:src/default.js",
@@ -115,7 +125,8 @@
       "parent": "folder:src",
       "lines": 9,
       "analysis": "analysed",
-      "role": "source"
+      "role": "source",
+      "digest": "6c914e9a0655bdc1ed04c9bdb612b51b"
     },
     {
       "id": "file:src/index.ts",
@@ -125,7 +136,8 @@
       "parent": "folder:src",
       "lines": 5,
       "analysis": "analysed",
-      "role": "source"
+      "role": "source",
+      "digest": "765ddbf1ab032a7769f07249dbed9e85"
     },
     {
       "id": "file:src/legacy.js",
@@ -135,7 +147,8 @@
       "parent": "folder:src",
       "lines": 3,
       "analysis": "analysed",
-      "role": "source"
+      "role": "source",
+      "digest": "77542bd88a5777b8f7375f2b29a12dcc"
     },
     {
       "id": "file:src/shapes.ts",
@@ -145,7 +158,8 @@
       "parent": "folder:src",
       "lines": 76,
       "analysis": "analysed",
-      "role": "source"
+      "role": "source",
+      "digest": "11911883b8a118d33e71552719cd8cbc"
     },
     {
       "id": "file:src/util/empty.ts",
@@ -155,7 +169,8 @@
       "parent": "folder:src/util",
       "lines": 0,
       "analysis": "analysed",
-      "role": "source"
+      "role": "source",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb924"
     },
     {
       "id": "file:src/util/math.ts",
@@ -165,7 +180,8 @@
       "parent": "folder:src/util",
       "lines": 3,
       "analysis": "analysed",
-      "role": "source"
+      "role": "source",
+      "digest": "445deb8dc986398848dfa385a0b10fbe"
     },
     {
       "id": "file:test/helpers.ts",
@@ -175,7 +191,8 @@
       "parent": "folder:test",
       "lines": 3,
       "analysis": "analysed",
-      "role": "tests"
+      "role": "tests",
+      "digest": "a425de060a2c61d06b946b601ec50577"
     },
     {
       "id": "file:vitest.config.ts",
@@ -185,7 +202,8 @@
       "parent": "package:",
       "lines": 3,
       "analysis": "analysed",
-      "role": "config"
+      "role": "config",
+      "digest": "3ee4514493e0809c783075c5f9aa77ef"
     },
     {
       "id": "folder:docs",
@@ -253,7 +271,8 @@
       "range": {
         "start": 1,
         "end": 1
-      }
+      },
+      "digest": "e360190997659002045e5e0bb2072cf7"
     },
     {
       "id": "function:src/default.js#\"<function>\"",
@@ -265,7 +284,8 @@
       "range": {
         "start": 7,
         "end": 9
-      }
+      },
+      "digest": "f2ca89e40d427a56d9c6571407c9d64d"
     },
     {
       "id": "function:src/default.js#\"<function>\".\"exports.helper\"",
@@ -277,7 +297,8 @@
       "range": {
         "start": 8,
         "end": 8
-      }
+      },
+      "digest": "0abd0fa0113dc647be5f186f6dcb99f7"
     },
     {
       "id": "function:src/default.js#default",
@@ -289,7 +310,8 @@
       "range": {
         "start": 1,
         "end": 5
-      }
+      },
+      "digest": "4b79e5a9fe4ac58eca5ae7039e232967"
     },
     {
       "id": "function:src/default.js#default.\"map() callback\"",
@@ -301,7 +323,8 @@
       "range": {
         "start": 2,
         "end": 4
-      }
+      },
+      "digest": "cb961554ba5009432e9adec6c35ff6e5"
     },
     {
       "id": "function:src/index.ts#main",
@@ -313,7 +336,8 @@
       "range": {
         "start": 3,
         "end": 5
-      }
+      },
+      "digest": "6f6182f080fc5be91a28fab1cd026f75"
     },
     {
       "id": "function:src/legacy.js#legacy",
@@ -325,7 +349,8 @@
       "range": {
         "start": 1,
         "end": 3
-      }
+      },
+      "digest": "4726333faa03d21d74696b722e265659"
     },
     {
       "id": "function:src/shapes.ts#\"describeShapes(\\\"squares\\\") callback\"",
@@ -337,7 +362,8 @@
       "range": {
         "start": 70,
         "end": 72
-      }
+      },
+      "digest": "b5d8c00e36c8dc40a5661128878166ca"
     },
     {
       "id": "function:src/shapes.ts#\"describeShapes(\\\"squares\\\") callback\".\"describeShapes(\\\"area\\\") callback\"",
@@ -349,7 +375,8 @@
       "range": {
         "start": 71,
         "end": 71
-      }
+      },
+      "digest": "5fa8c711247d70f5c653bac436acb6b2"
     },
     {
       "id": "function:src/shapes.ts#\"filter() callback\"",
@@ -361,7 +388,8 @@
       "range": {
         "start": 53,
         "end": 53
-      }
+      },
+      "digest": "572d2134494c8be2dc366064d002bb9f"
     },
     {
       "id": "function:src/shapes.ts#\"handlers.close\"",
@@ -373,7 +401,8 @@
       "range": {
         "start": 60,
         "end": 60
-      }
+      },
+      "digest": "e13d84a4b1bf0a4c92a3ac515c651bbf"
     },
     {
       "id": "function:src/shapes.ts#\"handlers.nested.reset\"",
@@ -385,7 +414,8 @@
       "range": {
         "start": 61,
         "end": 61
-      }
+      },
+      "digest": "0abd0fa0113dc647be5f186f6dcb99f7"
     },
     {
       "id": "function:src/shapes.ts#\"handlers.open\"",
@@ -397,7 +427,8 @@
       "range": {
         "start": 57,
         "end": 59
-      }
+      },
+      "digest": "0e42775fadd5c77b9026412f29072f03"
     },
     {
       "id": "function:src/shapes.ts#\"map() callback\"",
@@ -409,7 +440,8 @@
       "range": {
         "start": 53,
         "end": 53
-      }
+      },
+      "digest": "29119db9ed8a93246c35aad37719bb43"
     },
     {
       "id": "function:src/shapes.ts#\"map() callback\"@2",
@@ -421,7 +453,8 @@
       "range": {
         "start": 54,
         "end": 54
-      }
+      },
+      "digest": "29119db9ed8a93246c35aad37719bb43"
     },
     {
       "id": "function:src/shapes.ts#Circle.radius",
@@ -433,7 +466,8 @@
       "range": {
         "start": 65,
         "end": 67
-      }
+      },
+      "digest": "48abf559209da32ddcd219df12443fa1"
     },
     {
       "id": "function:src/shapes.ts#Polygon.\"static from\"",
@@ -445,7 +479,8 @@
       "range": {
         "start": 7,
         "end": 9
-      }
+      },
+      "digest": "37654b88c8c94cd3d4602c816c302929"
     },
     {
       "id": "function:src/shapes.ts#Square.\"\\u0023grow\"",
@@ -457,7 +492,8 @@
       "range": {
         "start": 35,
         "end": 40
-      }
+      },
+      "digest": "6368ebf00bd15ee7141eed3d80295947"
     },
     {
       "id": "function:src/shapes.ts#Square.\"\\u0023grow\".clamp",
@@ -469,7 +505,8 @@
       "range": {
         "start": 36,
         "end": 38
-      }
+      },
+      "digest": "15b9e17c264a2c42cb70f57cbce3564c"
     },
     {
       "id": "function:src/shapes.ts#Square.\"get side\"",
@@ -481,7 +518,8 @@
       "range": {
         "start": 22,
         "end": 24
-      }
+      },
+      "digest": "515c2c05f11f1edc116822f33ab47923"
     },
     {
       "id": "function:src/shapes.ts#Square.\"half.size\\u0023x\"",
@@ -493,7 +531,8 @@
       "range": {
         "start": 41,
         "end": 43
-      }
+      },
+      "digest": "70b1c805f27dcf2d12b03f752a3f12fe"
     },
     {
       "id": "function:src/shapes.ts#Square.\"set side\"",
@@ -505,7 +544,8 @@
       "range": {
         "start": 25,
         "end": 27
-      }
+      },
+      "digest": "d227c91f770e60c3f785990267554557"
     },
     {
       "id": "function:src/shapes.ts#Square.\"static area\"",
@@ -517,7 +557,8 @@
       "range": {
         "start": 32,
         "end": 34
-      }
+      },
+      "digest": "4a05b0988ba8167360ad2083cf1bdfcb"
     },
     {
       "id": "function:src/shapes.ts#Square.area",
@@ -529,7 +570,8 @@
       "range": {
         "start": 28,
         "end": 31
-      }
+      },
+      "digest": "3ae227a07f82f71cad8054dd6e3a0837"
     },
     {
       "id": "function:src/shapes.ts#Square.area.squared",
@@ -541,7 +583,8 @@
       "range": {
         "start": 29,
         "end": 29
-      }
+      },
+      "digest": "53728a91530f0ac40dd3ed750cb4abd4"
     },
     {
       "id": "function:src/shapes.ts#Square.constructor",
@@ -553,7 +596,8 @@
       "range": {
         "start": 18,
         "end": 21
-      }
+      },
+      "digest": "08a7ab15df0718af4ade6f02ce6303f8"
     },
     {
       "id": "function:src/shapes.ts#Square.onResize",
@@ -565,7 +609,8 @@
       "range": {
         "start": 44,
         "end": 44
-      }
+      },
+      "digest": "209cb66f5850ad9254694fdb8c5fa1a8"
     },
     {
       "id": "function:src/shapes.ts#describeShapes",
@@ -577,7 +622,8 @@
       "range": {
         "start": 74,
         "end": 76
-      }
+      },
+      "digest": "fe7f7b274d43d02e79093d6ae1c622d2"
     },
     {
       "id": "function:src/shapes.ts#scale",
@@ -589,7 +635,8 @@
       "range": {
         "start": 49,
         "end": 51
-      }
+      },
+      "digest": "1cd72f792e5315ca5603c2cd9bbd976a"
     },
     {
       "id": "function:src/util/math.ts#add",
@@ -601,7 +648,8 @@
       "range": {
         "start": 1,
         "end": 3
-      }
+      },
+      "digest": "445deb8dc986398848dfa385a0b10fbe"
     },
     {
       "id": "function:test/helpers.ts#double",
@@ -613,7 +661,8 @@
       "range": {
         "start": 1,
         "end": 3
-      }
+      },
+      "digest": "114b279c606006a7d6314947da1a94d0"
     },
     {
       "id": "package:",

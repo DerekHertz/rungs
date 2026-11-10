@@ -43,6 +43,8 @@ export interface FileNode extends NodeBase {
   readonly analysis: Analysis;
   /** Null when no rule in the extractor's table matches; never a guess. */
   readonly role: Role | null;
+  /** sha256 of the file's whole text as UTF-8, first 32 hex digits. Equal digests, equal text. */
+  readonly digest: string;
 }
 
 /**
@@ -56,6 +58,12 @@ export interface CodeNode extends NodeBase {
   /** Never empty and never contains "#"; see qualifiedName. */
   readonly qualifiedName: string;
   readonly range: LineRange;
+  /**
+   * sha256 of the declaration's text, from its first token to the end of its body (children
+   * included), first 32 hex digits. Lines shifting above it, or its leading comment changing,
+   * leave it alone.
+   */
+  readonly digest: string;
 }
 
 export type ModuleNode = ContainerNode | FileNode | CodeNode;
@@ -114,13 +122,14 @@ function canonicalNode(node: ModuleNode): object {
     case "folder":
       return { ...base, lines: node.lines };
     case "file":
-      return { ...base, lines: node.lines, analysis: node.analysis, role: node.role };
+      return { ...base, lines: node.lines, analysis: node.analysis, role: node.role, digest: node.digest };
     case "class":
     case "function":
       return {
         ...base,
         qualifiedName: node.qualifiedName,
         range: { start: node.range.start, end: node.range.end },
+        digest: node.digest,
       };
   }
 }
