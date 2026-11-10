@@ -1,0 +1,1 @@
+Notes without a trailing newline
