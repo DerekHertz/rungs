@@ -61,6 +61,8 @@ Each rung is computed from the one below it. Only the graph is stored; the rest 
   identical.
 - **Properties** are invariants written in the repo that name a symbol: assertions, runtime
   schemas, specification files. Rungs records and links them. It does not prove them.
+- **Generated files** (lockfiles, to start) stay in the graph, marked generated with their true
+  line count. The picture gives them a small fixed size so they never crowd out written code.
 
 ## Review
 
