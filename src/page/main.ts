@@ -1,7 +1,8 @@
-import { isCodeNode } from "../graph.ts";
-import type { ContainerNode, FileNode, Graph, NodeId } from "../graph.ts";
+import { isCodeNode, lineCount } from "../graph.ts";
+import type { Graph, ModuleNode, NodeId } from "../graph.ts";
 import { LABEL_BAND, layout, reservesLabelBand } from "../layout.ts";
 import type { Rect } from "../layout.ts";
+import { indexGraph, trail, zoomOut, zoomTarget } from "../zoom.ts";
 
 interface Style {
   readonly fill: string;
@@ -9,7 +10,7 @@ interface Style {
   readonly text: string;
 }
 
-type Look = "package" | "folder" | "analysed" | "not analysed" | "generated";
+type Look = "package" | "folder" | "analysed" | "not analysed" | "generated" | "class" | "function";
 
 const STYLES: Readonly<Record<Look, Style>> = {
   package: { fill: "#1d3b2a", edge: "#3f7a55", text: "#b9e4c6" },
@@ -17,28 +18,28 @@ const STYLES: Readonly<Record<Look, Style>> = {
   analysed: { fill: "#2f6f8f", edge: "#173a4b", text: "#eaf6fc" },
   "not analysed": { fill: "#3a3a3a", edge: "#232323", text: "#a8a8a8" },
   generated: { fill: "#2c2733", edge: "#1c1921", text: "#9a92a8" },
+  class: { fill: "#8a5a2b", edge: "#47301a", text: "#fbefdc" },
+  function: { fill: "#6b5aa8", edge: "#352d55", text: "#f1eefb" },
 };
 
-// Layout places no classes or functions yet, so only containers and files are drawn.
-type DrawnNode = ContainerNode | FileNode;
-
-function lookOf(node: DrawnNode): Look {
+function lookOf(node: ModuleNode): Look {
   if (node.level !== "file") return node.level;
   return node.generated ? "generated" : node.analysis;
 }
 
-function displayName(node: DrawnNode): string {
+function displayName(node: ModuleNode): string {
   return node.path === "" ? "/" : node.name;
 }
 
 const canvas = document.querySelector<HTMLCanvasElement>("#picture")!;
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
+const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
 const context = canvas.getContext("2d")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
-const nodes = new Map<NodeId, DrawnNode>(
-  graph.nodes.filter((node) => !isCodeNode(node)).map((node) => [node.id, node]),
-);
+const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+const tree = indexGraph(graph);
+let zoomRoot = tree.root;
 let rects: Rect[] = [];
 
 function hatch(): CanvasPattern {
@@ -72,9 +73,40 @@ function label(lines: readonly string[], rect: Rect, color: string): void {
   });
 }
 
+function zoomTo(id: NodeId): void {
+  if (id === zoomRoot) return;
+  zoomRoot = id;
+  tooltip.style.display = "none";
+  draw();
+}
+
+function showTrail(): void {
+  const steps = trail(tree, zoomRoot).map((node, index, all) => {
+    const name = displayName(node);
+    if (index === all.length - 1) {
+      const here = document.createElement("span");
+      here.textContent = name;
+      return here;
+    }
+    const step = document.createElement("button");
+    step.textContent = name;
+    step.addEventListener("click", () => zoomTo(node.id));
+    return step;
+  });
+  breadcrumbs.replaceChildren(
+    ...steps.flatMap((step, index) => {
+      if (index === 0) return [step];
+      const arrow = document.createElement("i");
+      arrow.textContent = "\u203A";
+      return [arrow, step];
+    }),
+  );
+}
+
 function draw(): void {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
+  showTrail();
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
   const scale = window.devicePixelRatio;
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(height * scale);
@@ -83,7 +115,8 @@ function draw(): void {
   context.textBaseline = "top";
   const pattern = hatch();
 
-  rects = layout(graph, width, height);
+  rects = layout(graph, zoomRoot, width, height);
+  const hasPlacedChildren = new Set(rects.map((rect) => nodes.get(rect.id)!.parent));
   for (const rect of rects) {
     const node = nodes.get(rect.id)!;
     const look = lookOf(node);
@@ -101,28 +134,35 @@ function draw(): void {
     context.strokeStyle = style.edge;
     context.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 
-    if (node.level !== "file") {
+    if (node.level === "package" || node.level === "folder") {
       if (reservesLabelBand(rect)) label([displayName(node)], { ...rect, h: LABEL_BAND }, style.text);
-    } else {
+    } else if (hasPlacedChildren.has(node.id)) {
+      label([displayName(node)], { ...rect, h: LABEL_BAND }, style.text);
+    } else if (node.level === "file") {
       label(look === "analysed" ? [node.name] : [node.name, look], rect, style.text);
+    } else {
+      label([displayName(node)], rect, style.text);
     }
   }
 }
 
+function rectAt(event: MouseEvent): Rect | undefined {
+  const bounds = canvas.getBoundingClientRect();
+  const x = event.clientX - bounds.left;
+  const y = event.clientY - bounds.top;
+  return rects.findLast((rect) => x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h);
+}
+
 canvas.addEventListener("mousemove", (event) => {
-  const hit = rects.findLast(
-    (rect) =>
-      event.clientX >= rect.x &&
-      event.clientX < rect.x + rect.w &&
-      event.clientY >= rect.y &&
-      event.clientY < rect.y + rect.h,
-  );
+  const hit = rectAt(event);
   const node = hit && nodes.get(hit.id);
   if (node === undefined) {
     tooltip.style.display = "none";
     return;
   }
-  const facts = [`${node.level} ${node.path === "" ? "/" : node.path}`, `${node.lines} lines`];
+  const facts = isCodeNode(node)
+    ? [`${node.level} ${node.name}`, node.path, `${lineCount(node)} lines`, `lines ${node.range.start}-${node.range.end}`]
+    : [`${node.level} ${node.path === "" ? "/" : node.path}`, `${lineCount(node)} lines`];
   if (node.level === "file") facts.push(node.generated ? "generated" : node.analysis);
   tooltip.textContent = facts.join("\n");
   tooltip.style.display = "block";
@@ -131,6 +171,14 @@ canvas.addEventListener("mousemove", (event) => {
 });
 canvas.addEventListener("mouseleave", () => {
   tooltip.style.display = "none";
+});
+canvas.addEventListener("dblclick", (event) => {
+  const hit = rectAt(event);
+  const target = hit && zoomTarget(tree, zoomRoot, hit.id);
+  if (target !== undefined) zoomTo(target);
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") zoomTo(zoomOut(tree, zoomRoot));
 });
 window.addEventListener("resize", draw);
 draw();

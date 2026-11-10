@@ -92,6 +92,13 @@ export interface Graph {
 
 export type FileTree = ReadonlyMap<string, string>;
 
+/** The id of the root package, the node with no parent: the whole repository. */
+export function rootOf(graph: Graph): NodeId {
+  const root = graph.nodes.find((node) => node.parent === null);
+  if (root === undefined) throw new Error("the graph has no root package");
+  return root.id;
+}
+
 export function compareIds(a: NodeId, b: NodeId): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }

@@ -1,5 +1,5 @@
 import { compareIds, isCodeNode, lineCount } from "./graph.ts";
-import type { Graph, ModuleNode, NodeId } from "./graph.ts";
+import type { Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 
 export interface Rect {
   readonly id: NodeId;
@@ -10,7 +10,7 @@ export interface Rect {
   readonly depth: number;
 }
 
-const INSET = 2;
+export const INSET = 2;
 export const LABEL_BAND = 14;
 export const GENERATED_WEIGHT = 40;
 
@@ -25,8 +25,9 @@ interface Box {
   readonly h: number;
 }
 
+/** A node to place, or null for lines no child covers: placed, never emitted. */
 interface Weighted {
-  readonly node: ModuleNode;
+  readonly node: ModuleNode | null;
   readonly weight: number;
 }
 
@@ -35,41 +36,85 @@ function leafWeight(node: ModuleNode): number {
   return node.level === "file" && node.generated ? Math.min(lines, GENERATED_WEIGHT) : lines;
 }
 
-// Classes and functions are not placed yet, so the picture is exactly the files and containers.
-export function layout(graph: Graph, width: number, height: number): Rect[] {
-  const children = new Map<NodeId | null, ModuleNode[]>();
+/** The lines of `range` that lie in none of `children`; a line two children share counts once. */
+export function ownLines(range: LineRange, children: readonly LineRange[]): number {
+  let covered = 0;
+  let reached = range.start - 1;
+  for (const child of [...children].sort((a, b) => a.start - b.start || a.end - b.end)) {
+    const start = Math.max(child.start, reached + 1);
+    const end = Math.min(child.end, range.end);
+    if (end >= start) covered += end - start + 1;
+    reached = Math.max(reached, end);
+  }
+  return range.end - range.start + 1 - covered;
+}
+
+function rangeOf(node: ModuleNode): LineRange | undefined {
+  if (isCodeNode(node)) return node.range;
+  return node.level === "file" ? { start: 1, end: node.lines } : undefined;
+}
+
+/**
+ * Squarified treemap of `root` and everything below it, filling the viewport at depth 0. The
+ * positions depend only on the arguments. A package or folder places all its children. A file,
+ * class or function places its classes and functions only when its box reserves a label band, and
+ * gives the lines they do not cover a share of the box that is left empty, so the node's own fill
+ * shows through and nothing is drawn that is not a node.
+ */
+export function layout(graph: Graph, root: NodeId, width: number, height: number): Rect[] {
+  const nodes = new Map<NodeId, ModuleNode>();
+  const children = new Map<NodeId, ModuleNode[]>();
   for (const node of graph.nodes) {
-    if (isCodeNode(node)) continue;
+    nodes.set(node.id, node);
+    if (node.parent === null) continue;
     const siblings = children.get(node.parent) ?? [];
     siblings.push(node);
     children.set(node.parent, siblings);
   }
+  const top = nodes.get(root);
+  if (top === undefined) throw new Error(`layout root is not in the graph: ${root}`);
 
   const weights = new Map<NodeId, number>();
   const weightOf = (node: ModuleNode): number => {
     const known = weights.get(node.id);
     if (known !== undefined) return known;
-    const below = children.get(node.id);
+    const below = children.get(node.id)?.filter((child) => !isCodeNode(child));
     const weight =
-      node.level === "file" || below === undefined
+      isCodeNode(node) || node.level === "file" || below === undefined || below.length === 0
         ? leafWeight(node)
         : below.reduce((sum, child) => sum + weightOf(child), 0);
     weights.set(node.id, weight);
     return weight;
   };
 
+  const itemsBelow = (node: ModuleNode, box: Box): Weighted[] => {
+    const below = children.get(node.id) ?? [];
+    const range = rangeOf(node);
+    if (range === undefined) return below.map((child) => ({ node: child, weight: weightOf(child) }));
+    if (!reservesLabelBand(box)) return [];
+    const items: Weighted[] = below.map((child) => ({ node: child, weight: weightOf(child) }));
+    const own = ownLines(range, below.filter(isCodeNode).map((child) => child.range));
+    if (items.length > 0 && own > 0) items.push({ node: null, weight: own });
+    return items;
+  };
+
   const rects: Rect[] = [];
   const place = (node: ModuleNode, box: Box, depth: number): void => {
     rects.push({ id: node.id, ...box, depth });
-    const below = children.get(node.id);
-    if (below === undefined) return;
-    const ordered = below
-      .map((child) => ({ node: child, weight: weightOf(child) }))
-      .sort((a, b) => b.weight - a.weight || compareIds(a.node.id, b.node.id));
-    for (const [child, childBox] of squarify(ordered, inner(box))) place(child, childBox, depth + 1);
+    const items = itemsBelow(node, box);
+    if (items.length === 0) return;
+    items.sort(
+      (a, b) =>
+        b.weight - a.weight ||
+        Number(a.node === null) - Number(b.node === null) ||
+        (a.node && b.node ? compareIds(a.node.id, b.node.id) : 0),
+    );
+    for (const [child, childBox] of squarify(items, inner(box))) {
+      if (child !== null) place(child, childBox, depth + 1);
+    }
   };
 
-  for (const root of children.get(null) ?? []) place(root, { x: 0, y: 0, w: width, h: height }, 0);
+  place(top, { x: 0, y: 0, w: width, h: height }, 0);
   return rects;
 }
 
@@ -81,12 +126,12 @@ function inner(box: Box): Box {
 
 // Squarified treemap (Bruls, Huizing and van Wijk, 2000): fill rows along the shorter side of
 // the remaining box while adding an item does not worsen the row's worst aspect ratio.
-function squarify(items: readonly Weighted[], box: Box): [ModuleNode, Box][] {
+function squarify(items: readonly Weighted[], box: Box): [ModuleNode | null, Box][] {
   const total = items.reduce((sum, item) => sum + item.weight, 0);
   const scale = (box.w * box.h) / total;
-  const placed: [ModuleNode, Box][] = [];
+  const placed: [ModuleNode | null, Box][] = [];
   let remaining = box;
-  let row: { node: ModuleNode; area: number }[] = [];
+  let row: { node: ModuleNode | null; area: number }[] = [];
 
   const worst = (areas: readonly number[], side: number): number => {
     const sum = areas.reduce((a, b) => a + b, 0);
