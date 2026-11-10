@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { lstat, readFile, readlink } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { promisify } from "node:util";
 import type { FileTree } from "./graph.ts";
 
@@ -10,7 +10,17 @@ export async function readCheckout(dir: string): Promise<FileTree> {
   const listed = await listFiles(dir);
   const paths = [...new Set(listed.split("\0").filter((path) => path !== ""))].sort();
   const tree = new Map<string, string>();
+  const linkedFolders = new Map<string, Promise<boolean>>();
+  const isLinkedFolder = (folder: string): Promise<boolean> => {
+    let linked = linkedFolders.get(folder);
+    if (linked === undefined) {
+      linked = isSymbolicLink(join(dir, folder));
+      linkedFolders.set(folder, linked);
+    }
+    return linked;
+  };
   for (const path of paths) {
+    if (await isBehindSymbolicLink(path, isLinkedFolder)) continue;
     const text = await readWorkingFile(join(dir, path));
     if (text !== undefined) tree.set(path, text);
   }
@@ -38,6 +48,27 @@ async function readWorkingFile(path: string): Promise<string | undefined> {
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "EISDIR") return undefined;
+    throw error;
+  }
+}
+
+// Git treats an indexed file whose folder was replaced by a symlink as deleted.
+async function isBehindSymbolicLink(
+  path: string,
+  isLinkedFolder: (folder: string) => Promise<boolean>,
+): Promise<boolean> {
+  const parts = path.split("/").slice(0, -1);
+  for (let depth = 1; depth <= parts.length; depth++) {
+    if (await isLinkedFolder(posix.join(...parts.slice(0, depth)))) return true;
+  }
+  return false;
+}
+
+async function isSymbolicLink(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isSymbolicLink();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
   }
 }

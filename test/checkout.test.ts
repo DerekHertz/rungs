@@ -49,3 +49,21 @@ test("reads a symlink as its target path, as git stores it, never following it",
     rmSync(outside, { recursive: true, force: true });
   }
 });
+
+test("skips indexed files whose folder was replaced by a symlink, as git does", async () => {
+  const outside = mkdtempSync(join(tmpdir(), "rungs-outside-"));
+  writeFileSync(join(outside, "inner.ts"), "outside\n");
+  mkdirSync(join(repo, "swapped"));
+  writeFileSync(join(repo, "swapped/inner.ts"), "inside\n");
+  git("add", "swapped");
+  git("commit", "--quiet", "-m", "swapped");
+  rmSync(join(repo, "swapped"), { recursive: true });
+  symlinkSync(outside, join(repo, "swapped"));
+  try {
+    const tree = await readCheckout(repo);
+    expect(tree.has("swapped/inner.ts")).toBe(false);
+    expect(tree.get("swapped")).toBe(outside);
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
