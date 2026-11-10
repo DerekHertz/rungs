@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { parseOptions } from "../src/options.ts";
 
 test("a bare invocation plots the current folder", () => {
-  expect(parseOptions([])).toEqual({ dir: resolve("."), port: 0, open: true, base: undefined });
+  expect(parseOptions([])).toEqual({ dir: resolve("."), port: 0, open: true, base: undefined, description: undefined });
 });
 
 test("a directory, a port and --no-open", () => {
@@ -12,16 +12,18 @@ test("a directory, a port and --no-open", () => {
     port: 8080,
     open: false,
     base: undefined,
+    description: undefined,
   });
 });
 
 test("compare takes the base first and the folder after it", () => {
-  expect(parseOptions(["compare", "main"])).toEqual({ dir: resolve("."), port: 0, open: true, base: "main" });
+  expect(parseOptions(["compare", "main"])).toEqual({ dir: resolve("."), port: 0, open: true, base: "main", description: undefined });
   expect(parseOptions(["compare", "origin/main", "../x", "--port", "9"])).toEqual({
     dir: resolve("../x"),
     port: 9,
     open: true,
     base: "origin/main",
+    description: undefined,
   });
 });
 
@@ -35,11 +37,20 @@ test("compare with too many arguments is a usage error", () => {
 });
 
 test("a folder named compare is reached as ./compare", () => {
-  expect(parseOptions(["./compare"])).toEqual({ dir: resolve("compare"), port: 0, open: true, base: undefined });
+  expect(parseOptions(["./compare"])).toEqual({ dir: resolve("compare"), port: 0, open: true, base: undefined, description: undefined });
 });
 
 test("rejects a bad port and an unknown flag", () => {
   expect(parseOptions(["--port", "70000"])).toBe("invalid port: 70000");
   expect(parseOptions(["--nope"])).toMatch(/--nope/);
   expect(parseOptions(["a", "b"])).toBe("expected at most one directory");
+});
+
+test("compare takes --description with a file or - for stdin", () => {
+  expect(parseOptions(["compare", "main", "--description", "pr.md"])).toMatchObject({ base: "main", description: "pr.md" });
+  expect(parseOptions(["compare", "main", "--description", "-"])).toMatchObject({ description: "-" });
+});
+
+test("--description without compare is a usage error", () => {
+  expect(parseOptions(["--description", "pr.md"])).toBe("--description needs compare: rungs compare <base> --description <file>");
 });

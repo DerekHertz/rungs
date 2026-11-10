@@ -33,10 +33,17 @@ interface Resource {
  * which answers with exactly the lines of the node with that id from the same snapshot. Packages,
  * folders and unknown ids have no source and get 404.
  *
- * Given `base`, it also serves `GET /comparison.json` (404 otherwise), and a module the comparison
- * lists as removed has its source read from the base tree, not the head.
+ * Given `base`, it also serves `GET /comparison.json` and `GET /claims.json` (404 otherwise), and a
+ * module the comparison lists as removed has its source read from the base tree, not the head.
+ * The claims are the person's `description` as a claimed fact, kept apart from the graph and the
+ * comparison; `description` is null in them when none was given.
  */
-export async function serve(given: FileTree, port: number, base?: Against): Promise<RunningServer> {
+export async function serve(
+  given: FileTree,
+  port: number,
+  base?: Against,
+  description?: string,
+): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
   const baseTree = base === undefined ? undefined : new Map(base.tree);
@@ -59,6 +66,8 @@ export async function serve(given: FileTree, port: number, base?: Against): Prom
   if (base !== undefined && comparison !== undefined) {
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
+    const claims = `${JSON.stringify({ tier: "claimed", description: description ?? null }, null, 2)}\n`;
+    resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: claims });
   }
 
   function sourceOf(id: string | null): string | undefined {

@@ -19,9 +19,11 @@ const against = { ref: "main", commit: "3f2a9c1d00000000000000000000000000000000
 
 const comparing = await serve(head, 0, against);
 const plain = await serve(head, 0);
+const claimed = await serve(head, 0, against, "Adds <b>src/new.ts</b>.\n");
 afterAll(async () => {
   await comparing.close();
   await plain.close();
+  await claimed.close();
 });
 
 const get = (server: { url: string }, path: string) => fetch(new URL(path, server.url));
@@ -71,4 +73,21 @@ test("a removed id is 404 without a base, and a removed folder is 404 with one",
   expect((await source(plain, "file:src/old.ts")).status).toBe(404);
   expect((await source(comparing, "folder:src")).status).toBe(404);
   expect((await source(comparing, "file:nothing.ts")).status).toBe(404);
+});
+
+test("/claims.json carries the description as claimed text, and null when none was given", async () => {
+  const given = await get(claimed, "claims.json");
+  expect(given.status).toBe(200);
+  expect(given.headers.get("content-type")).toMatch(/^application\/json/);
+  expect(await given.json()).toEqual({ tier: "claimed", description: "Adds <b>src/new.ts</b>.\n" });
+  expect(await (await get(comparing, "claims.json")).json()).toEqual({ tier: "claimed", description: null });
+});
+
+test("the description never reaches the graph or the comparison", async () => {
+  expect(await (await get(claimed, "graph.json")).text()).toBe(await (await get(comparing, "graph.json")).text());
+  expect(await (await get(claimed, "comparison.json")).text()).toBe(await (await get(comparing, "comparison.json")).text());
+});
+
+test("without a base there are no claims", async () => {
+  expect((await get(plain, "claims.json")).status).toBe(404);
 });
