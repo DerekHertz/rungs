@@ -4,10 +4,10 @@ import { pictureOf, tallyText } from "../compare.ts";
 import type { Comparison, ContractMove } from "../compare.ts";
 import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
-import type { FileNode, Graph, ModuleNode, NodeId } from "../graph.ts";
+import type { FileNode, Graph, LineRange, ModuleNode, NodeId } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
-import { contractsReport, unmentioned, unmentionedIds } from "../review.ts";
-import type { ReviewEntry } from "../review.ts";
+import { contractsReport, newEffects, unmentioned, unmentionedIds } from "../review.ts";
+import type { EffectRow, ReviewEntry } from "../review.ts";
 import { createCityView } from "./city-view.ts";
 import { LEGEND_ROLES, roleColor } from "./palette.ts";
 import { renderReview } from "./review-panel.ts";
@@ -25,6 +25,7 @@ const panelFacts = document.querySelector<HTMLElement>("#source-facts")!;
 const panelGutter = document.querySelector<HTMLElement>("#source-gutter")!;
 const panelCode = document.querySelector<HTMLElement>("#source-code")!;
 const panelBody = document.querySelector<HTMLElement>("#source-body")!;
+const panelMark = document.querySelector<HTMLElement>("#source-mark")!;
 const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
@@ -197,6 +198,23 @@ function closePanel(): void {
   view.select(undefined);
 }
 
+/** Bands the lines of `range` in the source panel and scrolls them into view; clears the band without one. */
+function markLines(node: ModuleNode, range: LineRange | undefined): void {
+  const first = isCodeNode(node) ? node.range.start : 1;
+  if (range === undefined || range.end < first) {
+    panelMark.hidden = true;
+    return;
+  }
+  const style = getComputedStyle(panelCode);
+  const lineHeight = Number.parseFloat(style.lineHeight);
+  const top = Number.parseFloat(style.paddingTop) + (Math.max(range.start, first) - first) * lineHeight;
+  panelMark.style.top = `${top}px`;
+  panelMark.style.height = `${(range.end - Math.max(range.start, first) + 1) * lineHeight}px`;
+  panelMark.style.width = `${panelBody.scrollWidth}px`;
+  panelMark.hidden = false;
+  panelBody.scrollTop = Math.max(0, top - panelBody.clientHeight / 3);
+}
+
 function showSource(node: ModuleNode, text: string): void {
   const first = isCodeNode(node) ? node.range.start : 1;
   const lines = text.split("\n");
@@ -211,12 +229,16 @@ function showSource(node: ModuleNode, text: string): void {
   panelGutter.textContent = lines.map((_, index) => first + index).join("\n");
   panelCode.textContent = text;
   panelBody.scrollTop = panelBody.scrollLeft = 0;
+  panelMark.hidden = true;
   panel.hidden = false;
 }
 
 /** Selects `node`, showing its source and outlining `outline` on the picture. */
-async function select(node: ModuleNode, ticket: number, outline: NodeId = node.id): Promise<void> {
-  if (node.id === selected) return;
+async function select(node: ModuleNode, ticket: number, outline: NodeId = node.id, marked?: LineRange): Promise<void> {
+  if (node.id === selected) {
+    markLines(node, marked);
+    return;
+  }
   const response = await fetch(`/source?id=${encodeURIComponent(node.id)}`);
   if (ticket !== requested) return;
   if (!response.ok) return closePanel();
@@ -224,6 +246,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   if (ticket !== requested) return;
   selected = node.id;
   showSource(node, text);
+  markLines(node, marked);
   view.select(outline);
 }
 
@@ -239,7 +262,7 @@ function pickEntry(entry: ReviewEntry): void {
 }
 
 /** A node by id, a ghost or a module removed from a surviving file included: fly to its file, select it. */
-function pickNode(id: NodeId): void {
+function pickNode(id: NodeId, marked?: LineRange): void {
   cancelPending();
   const ticket = requested;
   const node = nodes.get(id) ?? changed.get(id);
@@ -247,7 +270,7 @@ function pickNode(id: NodeId): void {
   const place = nodes.get(node.level === "file" ? node.id : (`file:${node.path}` as NodeId));
   if (place === undefined || place.parent === null) return;
   focusOn(place.parent);
-  void select(node, ticket, place.id);
+  void select(node, ticket, place.id, marked);
 }
 
 /** The file a linked module stands in on the picture, if it has a place. */
@@ -299,8 +322,10 @@ if (comparison !== null) {
     link: claims.link,
     pickClaim,
     unmentioned: claimed,
-    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed)),
+    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed), picture.graph),
+    effects: newEffects(comparison, picture.graph, claims.description ?? "", linked),
     pick: pickEntry,
+    pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
     pickNode,
   });
 }

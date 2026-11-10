@@ -280,6 +280,9 @@
         border: 1px solid #e6b85c;
         border-radius: 2px;
       }
+      .review-mark.contract-effects {
+        color: #6cb6ff;
+      }
       .review-mark.contract-changed {
         color: #ffd84a;
       }
@@ -294,6 +297,38 @@
         color: #7ee787;
       }
       .review-mark.contract-moved {
+        color: #9aa6b5;
+      }
+      .review-effects {
+        margin-bottom: 6px;
+      }
+      .review-note {
+        margin: 0 0 4px;
+        padding: 0 10px;
+        color: #5b6b7e;
+        font-size: 11px;
+      }
+      .effect-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+      }
+      .effect-chip {
+        font-size: 10px;
+        padding: 0 4px;
+        border-radius: 2px;
+        border: 1px solid #263140;
+        white-space: nowrap;
+      }
+      .effect-chip.added {
+        color: #7ee787;
+        border-color: #1f4a2c;
+      }
+      .effect-chip.removed {
+        color: #ff7b72;
+        border-color: #5a2a2a;
+      }
+      .effect-chip.more {
         color: #9aa6b5;
       }
       .contract-text {
@@ -385,7 +420,20 @@
         background: #1f2a3a;
         color: #e8edf2;
       }
+      #source-mark {
+        position: absolute;
+        left: 0;
+        z-index: 2;
+        background: #ffd84a2e;
+        border-top: 1px solid #ffd84a99;
+        border-bottom: 1px solid #ffd84a99;
+        pointer-events: none;
+      }
+      #source-mark[hidden] {
+        display: none;
+      }
       #source-body {
+        position: relative;
         flex: 1;
         min-height: 0;
         display: flex;
@@ -465,7 +513,7 @@
           <div id="source-facts"></div>
           <button id="source-close" type="button" aria-label="Close source">&times;</button>
         </header>
-        <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre></div>
+        <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre><div id="source-mark" hidden></div></div>
       </aside>
     </div>
     </div>

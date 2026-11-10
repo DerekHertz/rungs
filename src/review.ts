@@ -1,5 +1,6 @@
-import { isCodeNode, lineCount } from "./graph.ts";
-import type { CodeLevel, Graph, ModuleNode, NodeId } from "./graph.ts";
+import { RESOURCE_ORDER, isCodeNode, lineCount, targetText } from "./graph.ts";
+import type { CodeLevel, EffectTarget, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
+import { resourceKindOf } from "./effects.ts";
 import type { ChangeKind, Comparison, ContractMove, ContractMoveKind, ModuleChange, Tally } from "./compare.ts";
 
 /** Most urgent first: a removed or altered module changed what already stood, a moved one is the same text. */
@@ -17,6 +18,8 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\
  * - `name`: a class or function name on identifier boundaries, a qualified name whole.
  */
 export function appears(description: string, kind: "path" | "file" | "name", needle: string): boolean {
+  // Nothing, or only white space, names nothing.
+  if (needle.trim() === "") return false;
   const body = escape(needle);
   // Everything that can continue a JavaScript identifier, joiners included.
   const word = "\\p{ID_Continue}\\u200C\\u200D_";
@@ -83,6 +86,29 @@ function bySeverity(a: ReviewEntry, b: ReviewEntry): number {
 }
 
 /**
+ * What "mentioned" means for one comparison and description: a file by its path (or its base
+ * name when no other changed file shares it, a moved file under its old path too), a class or
+ * function by its qualified name or an enclosing name.
+ */
+function mentionRules(comparison: Comparison, description: string) {
+  const shared = new Map<string, number>();
+  for (const change of comparison.changes) {
+    if (change.node.level !== "file") continue;
+    for (const name of new Set(pathsOf(change).map(baseName))) shared.set(name, (shared.get(name) ?? 0) + 1);
+  }
+  const pathMentioned = (path: string): boolean =>
+    appears(description, "path", path) || (shared.get(baseName(path)) === 1 && appears(description, "file", baseName(path)));
+  return {
+    pathMentioned,
+    fileMentioned: (change: ModuleChange): boolean => pathsOf(change).some(pathMentioned),
+    nameCovered(qualifiedName: string): boolean {
+      const parts = qualifiedName.split(".");
+      return parts.some((_, index) => appears(description, "name", parts.slice(0, index + 1).join(".")));
+    },
+  };
+}
+
+/**
  * The changed files, and the classes and functions under them, that no claim covers, rolled up.
  *
  * A file is mentioned when its path appears in `description`, or its base name does and no other
@@ -108,21 +134,13 @@ export function unmentioned(
   linked: ReadonlySet<NodeId> = new Set(),
 ): Unmentioned {
   const fileChanges = comparison.changes.filter((change) => change.node.level === "file");
-  const shared = new Map<string, number>();
-  for (const change of fileChanges) {
-    for (const name of new Set(pathsOf(change).map(baseName))) shared.set(name, (shared.get(name) ?? 0) + 1);
-  }
-  const pathMentioned = (path: string): boolean =>
-    appears(description, "path", path) || (shared.get(baseName(path)) === 1 && appears(description, "file", baseName(path)));
-  const fileMentioned = (change: ModuleChange): boolean => pathsOf(change).some(pathMentioned);
+  const { pathMentioned, fileMentioned, nameCovered } = mentionRules(comparison, description);
 
   const codeBy = new Map<string, ReviewEntry[]>();
   for (const change of comparison.changes) {
     const node = change.node;
     if (!isCodeNode(node) || pathsOf(change).some(pathMentioned)) continue;
-    const parts = node.qualifiedName.split(".");
-    const covered = parts.some((_, index) => appears(description, "name", parts.slice(0, index + 1).join(".")));
-    if (covered) continue;
+    if (nameCovered(node.qualifiedName)) continue;
     const entry: ReviewEntry = { id: node.id, level: node.level, label: node.qualifiedName, change: change.kind, lines: sizeOf(node), children: [] };
     codeBy.set(node.path, [...(codeBy.get(node.path) ?? []), entry]);
   }
@@ -257,7 +275,7 @@ const CONTRACT_ORDER: readonly ContractMoveKind[] = ["changed", "effects", "remo
 
 /**
  * The contracts that moved as rows to show, in the order a reviewer must read them: changed,
- * removed, unexported, exposed, moved, added. Within a kind, by id, with a file's rollup after
+ * effects, removed, unexported, exposed, moved, added. Within a kind, by id, with a file's rollup after
  * the single rows of its kind. Only added and moved exports roll up, since a new or relocated
  * file can bring hundreds; a changed, removed, unexported or exposed export is always its own row.
  */
@@ -265,8 +283,11 @@ export function contractsReport(
   comparison: Comparison,
   moves: readonly ContractMove[],
   unmentionedSet: ReadonlySet<NodeId>,
+  graph: Graph,
 ): ContractsReport {
-  const nodeOf = new Map<NodeId, ModuleNode>(comparison.changes.map((change) => [change.node.id, change.node]));
+  // An effects move can be for a node whose text did not change, so it has no change to read.
+  const nodeOf = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+  for (const change of comparison.changes) nodeOf.set(change.node.id, change.node);
   const counts: Record<ContractMoveKind, number> = { changed: 0, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 };
   const rows: ContractRow[] = [];
   for (const move of moves) {
@@ -329,4 +350,130 @@ export function signatureDiff(before: string, after: string): SignatureDiff {
     added: after.slice(start, after.length - end),
     suffix: before.slice(before.length - end),
   };
+}
+
+export interface EffectRow {
+  /** The class or function the call is in, or the file for module top level. */
+  readonly id: NodeId;
+  readonly label: string;
+  readonly path: string;
+  readonly operation: string;
+  /** The call's own lines, in the file. */
+  readonly range: LineRange;
+}
+
+/** The calls of one resource that name one target, or the same unknown or absent one. */
+export interface EffectGroup {
+  readonly resource: ResourceKind;
+  readonly target: EffectTarget;
+  readonly rows: readonly EffectRow[];
+}
+
+export interface EffectsBlock {
+  /** New calls outside tests. */
+  readonly edges: number;
+  /** The classes, functions and files that hold them. */
+  readonly functions: number;
+  readonly groups: readonly EffectGroup[];
+  /** Calls in files whose role is tests, apart so they do not bury the rest. */
+  readonly tests: { readonly edges: number; readonly groups: readonly EffectGroup[] };
+}
+
+export interface NewEffects {
+  /** No claim covers the module that makes the call, and the description does not name its target. */
+  readonly none: EffectsBlock;
+  /** Not mentioned either, but an agent linked a claim to the module or its file. A claimed fact. */
+  readonly byAgent: EffectsBlock;
+}
+
+/**
+ * The effect edges the change added that the description does not cover. A call is covered when
+ * the module that makes it is mentioned (by the rules of `unmentioned`) or the description names
+ * its literal target as a name. A call whose module, or an enclosing module or file, an agent
+ * linked is in `byAgent`. Calls in generated files are left out. Groups run in RESOURCE_ORDER,
+ * then literal targets alphabetically, then unknown, then none; rows by path and line.
+ * `graph` is the picture's graph.
+ */
+export function newEffects(
+  comparison: Comparison,
+  graph: Graph,
+  description: string,
+  linked: ReadonlySet<NodeId> = new Set(),
+): NewEffects {
+  const { pathMentioned, fileMentioned, nameCovered } = mentionRules(comparison, description);
+  const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+  const fileChanges = new Map<NodeId, ModuleChange>();
+  for (const change of comparison.changes) if (change.node.level === "file") fileChanges.set(change.node.id, change);
+  const linkedAbove = (start: NodeId): boolean => {
+    for (let id: NodeId | null | undefined = start; id !== null && id !== undefined; id = nodes.get(id)?.parent) {
+      if (linked.has(id)) return true;
+    }
+    return false;
+  };
+
+  type Bucket = { rows: [EffectGroup["resource"], EffectTarget, EffectRow][]; owners: Set<NodeId> };
+  const fresh = (): { source: Bucket; tests: Bucket } => ({ source: { rows: [], owners: new Set() }, tests: { rows: [], owners: new Set() } });
+  const none = fresh();
+  const byAgent = fresh();
+  for (const change of comparison.effects) {
+    if (change.kind !== "added") continue;
+    const edge = change.edge;
+    const owner = nodes.get(edge.from);
+    const file = owner === undefined ? undefined : nodes.get(`file:${owner.path}` as NodeId);
+    if (owner === undefined || file?.level !== "file" || file.role === "generated") continue;
+    const fileChange = fileChanges.get(file.id);
+    const covered =
+      (fileChange === undefined ? pathMentioned(file.path) : fileMentioned(fileChange)) ||
+      (isCodeNode(owner) && nameCovered(owner.qualifiedName)) ||
+      (typeof edge.target === "object" && appears(description, "name", edge.target.literal));
+    if (covered) continue;
+    const row: EffectRow = {
+      id: owner.id,
+      label: isCodeNode(owner) ? owner.qualifiedName : owner.path,
+      path: owner.path,
+      operation: edge.operation,
+      range: edge.range,
+    };
+    const side = linkedAbove(owner.id) ? byAgent : none;
+    const bucket = file.role === "tests" ? side.tests : side.source;
+    bucket.rows.push([resourceKindOf(edge), edge.target, row]);
+    bucket.owners.add(owner.id);
+  }
+
+  const group = (bucket: Bucket): EffectGroup[] => {
+    const groups = new Map<string, { resource: ResourceKind; target: EffectTarget; rows: EffectRow[] }>();
+    for (const [resource, target, row] of bucket.rows) {
+      const key = `${RESOURCE_ORDER.indexOf(resource)}\0${targetText(target)}`;
+      const found = groups.get(key) ?? { resource, target, rows: [] };
+      found.rows.push(row);
+      groups.set(key, found);
+    }
+    const targetRank = (target: EffectTarget): number => (typeof target === "object" ? 0 : target === "unknown" ? 1 : 2);
+    return [...groups.values()]
+      .map((found) => ({ ...found, rows: found.rows.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0) || a.range.start - b.range.start || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0)) }))
+      .sort(
+        (a, b) =>
+          RESOURCE_ORDER.indexOf(a.resource) - RESOURCE_ORDER.indexOf(b.resource) ||
+          targetRank(a.target) - targetRank(b.target) ||
+          (targetText(a.target) < targetText(b.target) ? -1 : targetText(a.target) > targetText(b.target) ? 1 : 0),
+      );
+  };
+  const block = ({ source, tests }: { source: Bucket; tests: Bucket }): EffectsBlock => ({
+    edges: source.rows.length,
+    functions: source.owners.size,
+    groups: group(source),
+    tests: { edges: tests.rows.length, groups: group(tests) },
+  });
+  return { none: block(none), byAgent: block(byAgent) };
+}
+
+/** A contract row's chip for one effect label: the resource and the literal it names, else the API's name. */
+export function effectChip(label: string): string {
+  const resource = RESOURCE_ORDER.find((kind) => label.startsWith(`${kind} `));
+  const rest = resource === undefined ? label : label.slice(resource.length + 1);
+  const at = rest.search(/ ("|\(target unknown\))/);
+  const operation = at === -1 ? rest : rest.slice(0, at);
+  const literal = at !== -1 && rest[at + 1] === '"' ? rest.slice(at + 2, -1) : undefined;
+  const name = operation.slice(operation.lastIndexOf(" ") + 1);
+  return `${resource ?? ""} ${literal ?? name}`.trim();
 }
