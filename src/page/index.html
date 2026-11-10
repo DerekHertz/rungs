@@ -57,6 +57,79 @@
         width: 100%;
         height: 100%;
       }
+      #source {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 40%;
+        display: flex;
+        flex-direction: column;
+        background: #0b0f14;
+        color: #d6dee8;
+        border-left: 1px solid #263140;
+        box-shadow: -8px 0 16px #0008;
+      }
+      #source[hidden] {
+        display: none;
+      }
+      #source header {
+        flex: none;
+        position: relative;
+        padding: 8px 32px 8px 10px;
+        border-bottom: 1px solid #263140;
+      }
+      #source-title {
+        color: #ffd84a;
+        overflow-wrap: anywhere;
+      }
+      #source-facts {
+        color: #8a9bb0;
+        overflow-wrap: anywhere;
+      }
+      #source-close {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        font: inherit;
+        color: #8fb4d9;
+        background: none;
+        border: 0;
+        padding: 2px 6px;
+        cursor: pointer;
+      }
+      #source-close:hover {
+        background: #1f2a3a;
+        color: #e8edf2;
+      }
+      #source-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        overflow: auto;
+        line-height: 1.5;
+      }
+      #source-body pre {
+        margin: 0;
+        font: inherit;
+        line-height: inherit;
+      }
+      #source-gutter {
+        flex: none;
+        position: sticky;
+        left: 0;
+        padding: 6px 8px;
+        text-align: right;
+        color: #5b6b7e;
+        background: #0b0f14;
+        border-right: 1px solid #1c2531;
+        user-select: none;
+      }
+      #source-code {
+        flex: none;
+        padding: 6px 10px;
+        tab-size: 2;
+      }
       #tooltip {
         position: fixed;
         pointer-events: none;
@@ -70,7 +143,16 @@
   </head>
   <body>
     <nav id="trail" aria-label="Zoom trail"></nav>
-    <div id="stage"><canvas id="picture"></canvas></div>
+    <div id="stage"><canvas id="picture"></canvas>
+      <aside id="source" aria-label="Source" hidden>
+        <header>
+          <div id="source-title"></div>
+          <div id="source-facts"></div>
+          <button id="source-close" type="button" aria-label="Close source">&times;</button>
+        </header>
+        <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre></div>
+      </aside>
+    </div>
     <div id="tooltip"></div>
     <script type="module" src="/main.js"></script>
   </body>

@@ -3,8 +3,7 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { readCheckout } from "./checkout.ts";
-import { extract } from "./extract/extract.ts";
-import { serveGraph } from "./server.ts";
+import { serve } from "./server.ts";
 
 const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]";
 
@@ -56,7 +55,7 @@ if (typeof options === "string") {
 
 try {
   const tree = await readCheckout(options.dir);
-  const server = await serveGraph(extract(tree), options.port);
+  const server = await serve(tree, options.port);
   console.log(`Rungs is showing ${tree.size} files from ${options.dir} at ${server.url}`);
   if (options.open) openBrowser(server.url);
 } catch (error) {
