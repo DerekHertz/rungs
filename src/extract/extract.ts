@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 import { compareIds, nodeId } from "../graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
+import { countLines } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
 import type { LanguageAdapter, SourceFile } from "./adapters.ts";
 
@@ -73,10 +74,4 @@ export function extract(tree: FileTree): Graph {
 function directoryOf(path: string): string {
   const dir = posix.dirname(path);
   return dir === "." ? "" : dir;
-}
-
-function countLines(text: string): number {
-  if (text === "") return 0;
-  const newlines = text.split("\n").length - 1;
-  return text.endsWith("\n") ? newlines : newlines + 1;
 }

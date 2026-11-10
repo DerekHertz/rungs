@@ -9,6 +9,12 @@ export function nodeId(level: Level, path: string, qualifiedName: string): NodeI
   return `${level}:${path}${suffix}` as NodeId;
 }
 
+/** 1-based and inclusive, start <= end, in lines as src/lines.ts defines them. */
+export interface LineRange {
+  readonly start: number;
+  readonly end: number;
+}
+
 export type Analysis = "analysed" | "not analysed";
 
 interface NodeBase {
