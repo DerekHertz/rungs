@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { CodeLevel } from "../graph.ts";
+import type { CodeLevel, EffectTarget, ResourceKind } from "../graph.ts";
 import { javaScriptAndTypeScript } from "./javascript.ts";
 
 export interface SourceFile {
@@ -29,10 +29,29 @@ export interface Declaration {
   readonly children: readonly Declaration[];
 }
 
+/**
+ * One call that reaches a resource. Like a Declaration it carries UTF-16 offsets and no ids; the
+ * extractor decides which node owns it and which lines it covers.
+ */
+export interface EffectSite {
+  readonly resource: ResourceKind;
+  /** The catalog key, such as "child_process execFileSync". */
+  readonly operation: string;
+  readonly target: EffectTarget;
+  /** The whole call expression, end exclusive. */
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface FileOutline {
+  readonly declarations: readonly Declaration[];
+  readonly effects: readonly EffectSite[];
+}
+
 // The language seam in SPEC.md: files of one language in, an outline of each file out.
 export interface LanguageAdapter {
   readonly language: string;
-  analyse(files: readonly SourceFile[]): ReadonlyMap<string, readonly Declaration[]>;
+  analyse(files: readonly SourceFile[]): ReadonlyMap<string, FileOutline>;
 }
 
 const ADAPTERS_BY_EXTENSION: ReadonlyMap<string, LanguageAdapter> = new Map([

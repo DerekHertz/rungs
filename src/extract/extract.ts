@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { compareIds, nodeId, qualifiedName } from "../graph.ts";
-import type { CodeNode, FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
+import { compareEdges, compareIds, nodeId, qualifiedName, resourceId } from "../graph.ts";
+import type { CodeNode, Edge, FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
 import { countLines, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
 import { roleOf } from "./roles.ts";
-import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
+import type { Declaration, EffectSite, LanguageAdapter, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "8";
+export const EXTRACTOR_VERSION = "9";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -26,13 +26,17 @@ export function extract(tree: FileTree): Graph {
     filesByAdapter.set(adapter, files);
   }
   const nodes: ModuleNode[] = [];
+  const edges: Edge[] = [];
   const analysed = new Set<string>();
   for (const [adapter, files] of filesByAdapter) {
     files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const outlines = adapter.analyse(files);
     for (const file of files) {
       analysed.add(file.path);
-      nodes.push(...codeNodes(file.path, file.text, outlines.get(file.path) ?? []));
+      const outline = outlines.get(file.path);
+      const code = codeNodes(file.path, file.text, outline?.declarations ?? []);
+      nodes.push(...code.nodes);
+      edges.push(...effectEdges(file.path, file.text, outline?.effects ?? [], code.spans));
     }
   }
 
@@ -66,15 +70,17 @@ export function extract(tree: FileTree): Graph {
     });
   }
   nodes.sort((a, b) => compareIds(a.id, b.id));
-  return { extractorVersion: EXTRACTOR_VERSION, nodes };
+  edges.sort(compareEdges);
+  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges };
 }
 
 // The only place code identity is decided: ordinals among siblings with the same text in source
 // order, qualified names, and line ranges through lines.ts.
-function codeNodes(path: string, text: string, declarations: readonly Declaration[]): CodeNode[] {
+function codeNodes(path: string, text: string, declarations: readonly Declaration[]): CodeNodes {
   const starts = lineStarts(text);
   const nodes: CodeNode[] = [];
-  const visit = (siblings: readonly Declaration[], parent: NodeId, parentName: string): void => {
+  const spans: Span[] = [];
+  const visit = (siblings: readonly Declaration[], parent: NodeId, parentName: string, depth: number): void => {
     const seen = new Map<string, number>();
     for (const declaration of [...siblings].sort((a, b) => a.start - b.start)) {
       const ordinal = (seen.get(declaration.text) ?? 0) + 1;
@@ -93,11 +99,46 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
         exported: declaration.exported,
         signature: declaration.signature,
       });
-      visit(declaration.children, id, name);
+      spans.push({ id, start: declaration.start, end: declaration.end, depth });
+      visit(declaration.children, id, name, depth + 1);
     }
   };
-  visit(declarations, nodeId("file", path, ""), "");
-  return nodes;
+  visit(declarations, nodeId("file", path, ""), "", 1);
+  return { nodes, spans };
+}
+
+interface Span {
+  readonly id: NodeId;
+  readonly start: number;
+  readonly end: number;
+  readonly depth: number;
+}
+
+interface CodeNodes {
+  readonly nodes: CodeNode[];
+  readonly spans: readonly Span[];
+}
+
+// An effect belongs to the innermost class or function whose text contains the whole call, and
+// to the file when none does: module top level, which runs when the file is imported.
+function effectEdges(path: string, text: string, sites: readonly EffectSite[], spans: readonly Span[]): Edge[] {
+  const starts = lineStarts(text);
+  return sites.map((site) => {
+    let owner: Span | undefined;
+    for (const span of spans) {
+      if (span.start <= site.start && site.end <= span.end && (owner === undefined || span.depth > owner.depth)) {
+        owner = span;
+      }
+    }
+    return {
+      kind: "effect",
+      from: owner?.id ?? nodeId("file", path, ""),
+      to: resourceId(site.resource),
+      operation: site.operation,
+      target: site.target,
+      range: lineRangeOf(starts, site.start, site.end),
+    };
+  });
 }
 
 // node:crypto stays here, out of graph.ts, which the page bundles.

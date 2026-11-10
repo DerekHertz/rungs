@@ -396,3 +396,38 @@ describe("digests", () => {
     expect(after.get("file:a.ts")).not.toBe(before.get("file:a.ts"));
   });
 });
+
+describe("effect edges on the small fixture", () => {
+  const graph = extract(readFixtureTree(fixture));
+  const shown = graph.edges.map((edge) => {
+    const owner = edge.from.slice(edge.from.indexOf(":") + 1);
+    const target = typeof edge.target === "string" ? edge.target : JSON.stringify(edge.target.literal);
+    return `${owner} ${edge.operation} ${target} ${edge.range.start}-${edge.range.end}`;
+  });
+
+  test("finds each resolvable call, and none of the unresolvable ones", () => {
+    expect(shown).toEqual([
+      "src/effects.mjs setTimeout none 8-8",
+      'src/effects.cjs#"module.exports.load" fs readFileSync "config.json" 5-5',
+      'src/effects.cjs#"module.exports.which" child_process spawnSync "which" 6-6',
+      'src/effects.mjs#build child_process spawn "tar" 28-28',
+      "src/effects.mjs#save fs/promises writeFile unknown 15-15",
+      "src/effects.mjs#serve http createServer none 20-23",
+      'src/effects.mjs#serve."createServer() callback" fs/promises readFile "index.html" 22-22',
+      'src/effects.mjs#version child_process execFileSync "git" 11-11',
+    ]);
+  });
+});
+
+test("extraction stays fast on a 300-file tree", () => {
+  const tree = new Map<string, string>();
+  for (let i = 0; i < 300; i++) {
+    const calls = Array.from({ length: 30 }, (_, j) => `  fs.readFileSync(path.join(dir, "f${j}"));\n  helper${j}(a, b);`);
+    tree.set(`src/m${i}.mjs`, `import fs from "node:fs";\nimport path from "node:path";\nexport function run${i}(dir, a, b) {\n${calls.join("\n")}\n}\n`);
+  }
+  const started = performance.now();
+  const graph = extract(tree);
+  const seconds = (performance.now() - started) / 1000;
+  expect(graph.edges).toHaveLength(300 * 30);
+  expect(seconds).toBeLessThan(4);
+});

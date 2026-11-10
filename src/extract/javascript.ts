@@ -1,18 +1,56 @@
 import { posix } from "node:path";
 import ts from "typescript";
-import type { Declaration, LanguageAdapter } from "./adapters.ts";
+import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
+import { effectSites } from "./javascript-effects.ts";
 import { exportedNodes, renderSignature, signatureTokens } from "./javascript-contract.ts";
+
+// Built over the tree's own files and nothing else, with no default library and no module
+// resolution, so the binder's answers cannot depend on what is installed on this machine.
+function programOver(files: readonly SourceFile[]): ts.Program {
+  const byName = new Map(files.map((file) => [`/${file.path}`, file]));
+  const host: ts.CompilerHost = {
+    getSourceFile: (name, languageVersion) => {
+      const file = byName.get(name);
+      return file === undefined
+        ? undefined
+        : ts.createSourceFile(name, file.text, languageVersion, true, scriptKind(file.path));
+    },
+    getDefaultLibFileName: () => "/lib.d.ts",
+    writeFile: () => {},
+    getCurrentDirectory: () => "/",
+    getCanonicalFileName: (name) => name,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => "\n",
+    fileExists: (name) => byName.has(name),
+    readFile: (name) => byName.get(name)?.text,
+  };
+  return ts.createProgram({
+    rootNames: [...byName.keys()],
+    host,
+    options: {
+      allowJs: true,
+      noLib: true,
+      noResolve: true,
+      types: [],
+      noEmit: true,
+      target: ts.ScriptTarget.Latest,
+      jsx: ts.JsxEmit.Preserve,
+    },
+  });
+}
 
 export const javaScriptAndTypeScript: LanguageAdapter = {
   language: "JavaScript and TypeScript",
   analyse(files) {
+    const program = programOver(files);
+    const checker = program.getTypeChecker();
     return new Map(
-      files.map((file) => [
-        file.path,
-        outline(
-          ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true, scriptKind(file.path)),
-        ),
-      ]),
+      files.map((file) => {
+        const source =
+          program.getSourceFile(`/${file.path}`) ??
+          ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true, scriptKind(file.path));
+        return [file.path, { declarations: outline(source), effects: effectSites(source, checker) }];
+      }),
     );
   },
 };
