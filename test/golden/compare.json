@@ -558,5 +558,53 @@
         "lines": 4
       }
     }
+  ],
+  "effects": [
+    {
+      "kind": "removed",
+      "edge": {
+        "kind": "effect",
+        "from": "function:src/effects.mjs#save",
+        "to": "resource:file system",
+        "operation": "fs/promises writeFile",
+        "target": "unknown",
+        "range": {
+          "start": 15,
+          "end": 15
+        }
+      }
+    },
+    {
+      "kind": "added",
+      "edge": {
+        "kind": "effect",
+        "from": "function:src/effects.mjs#serve",
+        "to": "resource:network",
+        "operation": "fetch",
+        "target": {
+          "literal": "https://example.com/hook"
+        },
+        "range": {
+          "start": 19,
+          "end": 19
+        }
+      }
+    },
+    {
+      "kind": "added",
+      "edge": {
+        "kind": "effect",
+        "from": "function:src/effects.mjs#tag",
+        "to": "resource:process",
+        "operation": "child_process spawn",
+        "target": {
+          "literal": "git"
+        },
+        "range": {
+          "start": 45,
+          "end": 45
+        }
+      }
+    }
   ]
 }

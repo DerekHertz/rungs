@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { compare, contractsMoved, ExtractorVersionMismatch, serializeComparison, tally } from "../src/compare.ts";
+import { effectLabel } from "../src/effects.ts";
 import type { Comparison, ModuleChange } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import { compareIds } from "../src/graph.ts";
@@ -32,6 +33,13 @@ function summarize(changes: readonly ModuleChange[]): string[] {
 const treeOf = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
 const compareTrees = (before: Record<string, string>, after: Record<string, string>): Comparison =>
   compare(extract(treeOf(before)), extract(treeOf(after)));
+const withGraphs = (before: Record<string, string>, after: Record<string, string>) => {
+  const baseGraph = extract(treeOf(before));
+  const headGraph = extract(treeOf(after));
+  return [compare(baseGraph, headGraph), baseGraph, headGraph] as const;
+};
+const IMPORT = 'import { spawn } from "node:child_process";\n';
+const withImport = (code: string): string => IMPORT + code;
 
 describe("comparing the small fixture with the small-head fixture", () => {
   test("matches the committed golden comparison (UPDATE_GOLDEN=1 rewrites it)", () => {
@@ -333,7 +341,7 @@ describe("properties over generated trees", () => {
 
 describe("contractsMoved", () => {
   const moved = (before: Record<string, string>, after: Record<string, string>) =>
-    contractsMoved(compareTrees(before, after)).map((move) => {
+    contractsMoved(...withGraphs(before, after)).map((move) => {
       const sides = `${move.before ?? "-"} => ${move.after ?? "-"}`;
       return `${move.kind} ${move.id}${move.from === undefined ? "" : ` <- ${move.from}`}: ${sides}`;
     });
@@ -398,13 +406,13 @@ describe("contractsMoved", () => {
 
   test("is sorted by id, and empty when nothing exported moved", () => {
     const result = contractsMoved(
-      compareTrees(
+      ...withGraphs(
         { "b.js": "export function z() {}\n", "a.js": "export function y() {}\n" },
         { "b.js": "export function z(q) {}\n", "a.js": "export function y(q) {}\n" },
       ),
     );
     expect(result.map((move) => move.id)).toEqual(["function:a.js#y", "function:b.js#z"]);
-    expect(contractsMoved(compareTrees({ "a.js": "export function f() {}\n" }, { "a.js": "export function f() {}\n" }))).toEqual([]);
+    expect(contractsMoved(...withGraphs({ "a.js": "export function f() {}\n" }, { "a.js": "export function f() {}\n" }))).toEqual([]);
   });
 
   test("CommonJS exports count the same way", () => {
@@ -414,5 +422,146 @@ describe("contractsMoved", () => {
         { "a.js": "function f(a, b) {}\nmodule.exports = { f };\n" },
       ),
     ).toEqual(["changed function:a.js#f: (a) => (a, b)"]);
+  });
+});
+
+describe("effect changes", () => {
+  const effects = (before: Record<string, string>, after: Record<string, string>) =>
+    compareTrees(before, after).effects.map((change) => {
+      const owner = change.edge.from.slice(change.edge.from.indexOf(":") + 1);
+      return `${change.kind} ${owner} ${effectLabel(change.edge)}`;
+    });
+
+  test("a new call in an altered function is added, and a dropped one is removed", () => {
+    expect(
+      effects(
+        { "a.mjs": withImport("export function f() {\n  return 1;\n}\n") },
+        { "a.mjs": withImport('export function f() {\n  spawn("git");\n}\n') },
+      ),
+    ).toEqual(['added a.mjs#f process child_process spawn "git"']);
+    expect(
+      effects(
+        { "a.mjs": withImport('export function f() {\n  spawn("git");\n}\n') },
+        { "a.mjs": withImport("export function f() {\n  return 1;\n}\n") },
+      ),
+    ).toEqual(['removed a.mjs#f process child_process spawn "git"']);
+  });
+
+  test("a line shift alone changes nothing", () => {
+    const code = 'export function f() {\n  spawn("git");\n}\n';
+    expect(effects({ "a.mjs": withImport(code) }, { "a.mjs": `// new\n${withImport(code)}` })).toEqual([]);
+  });
+
+  test("a function moved with its body keeps its edges, at top level too", () => {
+    const code = 'spawn("top");\nexport function f() {\n  spawn("git");\n}\n';
+    expect(effects({ "a.mjs": withImport(code) }, { "lib/b.mjs": withImport(code) })).toEqual([]);
+  });
+
+  test("the same call twice then three times is one new edge", () => {
+    const call = '  spawn("git");\n';
+    expect(
+      effects(
+        { "a.mjs": withImport(`export function f() {\n${call}${call}}\n`) },
+        { "a.mjs": withImport(`export function f() {\n${call}${call}${call}}\n`) },
+      ),
+    ).toEqual(['added a.mjs#f process child_process spawn "git"']);
+  });
+
+  test("an import that starts to resolve adds the edge though the function's text is the same", () => {
+    const fn = 'export function f() {\n  spawn("git");\n}\n';
+    const result = compareTrees(
+      { "a.mjs": `import { spawn } from "./local.js";\n${fn}` },
+      { "a.mjs": `import { spawn } from "node:child_process";\n${fn}` },
+    );
+    expect(result.changes.map((change) => change.node.id)).toEqual(["file:a.mjs"]);
+    expect(result.effects.map((change) => `${change.kind} ${effectLabel(change.edge)}`)).toEqual([
+      'added process child_process spawn "git"',
+    ]);
+  });
+
+  test("an added file's top-level effect is added to the file, a removed file's is removed", () => {
+    expect(effects({ "x.js": "1\n" }, { "x.js": "1\n", "a.mjs": withImport('spawn("git");\n') })).toEqual([
+      'added a.mjs process child_process spawn "git"',
+    ]);
+    expect(effects({ "x.js": "1\n", "a.mjs": withImport('spawn("git");\n') }, { "x.js": "1\n" })).toEqual([
+      'removed a.mjs process child_process spawn "git"',
+    ]);
+  });
+
+  test("the comparison's effects are sorted and serialized with the changes", () => {
+    const result = compareTrees({ "x.js": "1\n" }, { "x.js": "1\n", "b.mjs": withImport('spawn("b");\n'), "a.mjs": withImport('spawn("a");\n') });
+    expect(result.effects.map((change) => change.edge.from)).toEqual(["file:a.mjs", "file:b.mjs"]);
+    const parsed = JSON.parse(serializeComparison(result)) as { effects: { kind: string; edge: { operation: string } }[] };
+    expect(parsed.effects.map((change) => `${change.kind} ${change.edge.operation}`)).toEqual([
+      "added child_process spawn",
+      "added child_process spawn",
+    ]);
+  });
+});
+
+describe("contractsMoved with effects", () => {
+  const moves = (before: Record<string, string>, after: Record<string, string>) => {
+    const baseGraph = extract(treeOf(before));
+    const headGraph = extract(treeOf(after));
+    return contractsMoved(compare(baseGraph, headGraph), baseGraph, headGraph).map((move) => {
+      const e = move.effects;
+      const effects = e === undefined ? "" : ` +[${e.added.join("; ")}] -[${e.removed.join("; ")}]`;
+      return `${move.kind} ${move.id}${effects}`;
+    });
+  };
+  const exported = (call: string): string => `export function f(a) {\n  ${call}\n}\n`;
+
+  test("an exported function whose effect set changed under the same signature is an effects move", () => {
+    expect(moves({ "a.mjs": withImport(exported("return 1;")) }, { "a.mjs": withImport(exported('spawn("git");')) })).toEqual([
+      'effects function:a.mjs#f +[process child_process spawn "git"] -[]',
+    ]);
+    expect(moves({ "a.mjs": withImport(exported('spawn("git");')) }, { "a.mjs": withImport(exported("return 1;")) })).toEqual([
+      'effects function:a.mjs#f +[] -[process child_process spawn "git"]',
+    ]);
+  });
+
+  test("a changed signature carries the effect difference", () => {
+    expect(
+      moves(
+        { "a.mjs": withImport(exported('spawn("a");')) },
+        { "a.mjs": withImport(exported('spawn("b");').replace("(a)", "(a, b)")) },
+      ),
+    ).toEqual(['changed function:a.mjs#f +[process child_process spawn "b"] -[process child_process spawn "a"]']);
+  });
+
+  test("an unchanged set is no move, a closure inside counts, a private function and top level do not", () => {
+    const same = withImport(exported('spawn("a");'));
+    expect(moves({ "a.mjs": same }, { "a.mjs": same.replace("a)", "a) /* x */") })).toEqual([]);
+    expect(
+      moves(
+        { "a.mjs": withImport("export function f() {\n  return () => 1;\n}\n") },
+        { "a.mjs": withImport('export function f() {\n  return () => spawn("c");\n}\n') },
+      ),
+    ).toEqual(['effects function:a.mjs#f +[process child_process spawn "c"] -[]']);
+    expect(
+      moves(
+        { "a.mjs": withImport("function p() {}\nexport function q() {}\n") },
+        { "a.mjs": withImport('spawn("t");\nfunction p() { spawn("x"); }\nexport function q() {}\n') },
+      ),
+    ).toEqual([]);
+  });
+
+  test("an added exported function brings its set as added, a removed one as removed", () => {
+    expect(moves({ "a.mjs": "export const x = 1;\n" }, { "a.mjs": withImport(exported('spawn("g");')) })).toEqual([
+      'added function:a.mjs#f +[process child_process spawn "g"] -[]',
+    ]);
+    expect(moves({ "a.mjs": withImport(exported('spawn("g");')) }, { "a.mjs": "export const x = 1;\n" })).toEqual([
+      'removed function:a.mjs#f +[] -[process child_process spawn "g"]',
+    ]);
+  });
+
+  test("an import that starts to resolve moves the effect set of an exported function with the same text", () => {
+    const fn = 'export function f() {\n  spawn("git");\n}\n';
+    expect(
+      moves(
+        { "a.mjs": `import { spawn } from "./local.js";\n${fn}` },
+        { "a.mjs": `import { spawn } from "node:child_process";\n${fn}` },
+      ),
+    ).toEqual(['effects function:a.mjs#f +[process child_process spawn "git"] -[]']);
   });
 });
