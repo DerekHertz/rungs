@@ -24,15 +24,21 @@ const CONFIG_BASENAMES: ReadonlySet<string> = new Set([
   ".editorconfig",
 ]);
 
+const VENDOR_DIRECTORIES = ["vendor", "vendors", "third_party", "third-party"];
+
 const base = (path: string): string => posix.basename(path);
 const inDirectory = (path: string, ...names: string[]): boolean =>
   posix.dirname(path).split("/").some((segment) => names.includes(segment));
 
 // The order is the table: the first rule that matches decides, so a test under docs/ is tests.
+// Vendored and minified files come first with the lockfiles: they are not written here, whatever
+// else their path says.
 // Versioned with the extractor: a change to any rule changes the output, so it bumps
 // EXTRACTOR_VERSION.
 const ROLE_RULES: readonly RoleRule[] = [
   { role: "generated", matches: (path) => LOCKFILES.has(base(path)) },
+  { role: "generated", matches: (path) => /\.min\.(js|css)$/.test(base(path)) },
+  { role: "generated", matches: (path) => inDirectory(path, ...VENDOR_DIRECTORIES) },
   { role: "tests", matches: (path) => inDirectory(path, "test", "tests", "__tests__") },
   { role: "tests", matches: (path) => /\.(test|spec)\./.test(base(path)) },
   { role: "docs", matches: (path) => posix.extname(path) === ".md" },

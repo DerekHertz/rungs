@@ -51,6 +51,24 @@ describe("the role of a file", () => {
     ["test/package-lock.json", false, "generated"],
     [".github/package-lock.json", false, "generated"],
     ["vitest.config.ts", true, "config"],
+    ["extension/vendor/mermaid.min.js", true, "generated"],
+    ["dist/app.min.js", true, "generated"],
+    ["site/style.min.css", false, "generated"],
+    ["vendor/lib.js", true, "generated"],
+    ["vendors/lib.js", true, "generated"],
+    ["a/third_party/x/y.ts", true, "generated"],
+    ["third-party/x.js", true, "generated"],
+    ["vendor/README.md", false, "generated"],
+    // A vendored file stays generated whatever else it would be.
+    ["vendor/pkg/test/a.test.js", true, "generated"],
+    ["vendor/pkg/package.json", false, "generated"],
+    ["docs/vendor/a.js", true, "generated"],
+    ["src/a.min.js.map", false, null],
+    ["src/admin.js", true, "source"],
+    ["src/vendor.ts", true, "source"],
+    ["src/vendored/a.ts", true, "source"],
+    ["src/min.js", true, "source"],
+    ["src/a.min.ts", true, "source"],
   ];
 
   test.each(cases)("%s (analysed: %s) is %s", (path, analysed, role) => {

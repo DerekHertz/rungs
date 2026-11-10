@@ -67,7 +67,7 @@ export interface Building {
   readonly tally: Tally | null;
 }
 
-/** The smallest and largest number of classes and functions in a file of the repository. */
+/** The smallest and largest number of classes and functions in a file of the repository, generated files left out. */
 export interface CountRange {
   readonly fewest: number;
   readonly most: number;
@@ -95,7 +95,8 @@ export interface City {
 /**
  * Height grows with the square root of a file's classes and functions, measured from the
  * repository's fewest to its most, so one huge file leaves the rest distinguishable. When every
- * file has the same count there is nothing to compare and all sit at the minimum.
+ * file has the same count there is nothing to compare and all sit at the minimum. Generated files
+ * are not part of the measure: the caller leaves them out of `counts` and draws them at MIN_HEIGHT.
  */
 export function heightScale(counts: readonly number[]): HeightScale {
   let fewest = counts.length === 0 ? 0 : Infinity;
@@ -145,7 +146,10 @@ export function buildCity(picture: Picture, rects: readonly Rect[]): City {
 
   const roles = dominantRoles(files.map((rect) => nodes.get(rect.id)!), nodes);
   const countOf = (path: string): number => (classes.get(path) ?? 0) + (functions.get(path) ?? 0);
-  const scale = heightScale(files.map((rect) => countOf(nodes.get(rect.id)!.path)));
+  const isGenerated = (file: ModuleNode): boolean => file.level === "file" && file.role === "generated";
+  const scale = heightScale(
+    files.filter((rect) => !isGenerated(nodes.get(rect.id)!)).map((rect) => countOf(nodes.get(rect.id)!.path)),
+  );
 
   const districts: District[] = [];
   for (const rect of lots) {
@@ -180,7 +184,7 @@ export function buildCity(picture: Picture, rects: readonly Rect[]): City {
       w: rect.w - 2 * inset,
       d: rect.h - 2 * inset,
       base: parentLevel === undefined ? 0 : (parentLevel + 1) * PLATE_HEIGHT,
-      height: scale.height(countOf(file.path)),
+      height: isGenerated(file) ? MIN_HEIGHT : scale.height(countOf(file.path)),
       role: file.level === "file" ? file.role : null,
       analysed: file.level === "file" && file.analysis === "analysed",
       classes: classes.get(file.path) ?? 0,
