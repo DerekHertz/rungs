@@ -118,6 +118,7 @@ function showTrail(): void {
 }
 
 function closePanel(): void {
+  clearTimeout(pendingClick);
   requested++;
   selected = undefined;
   panel.hidden = true;
