@@ -33,7 +33,7 @@ Each rung is computed from the one below it. Only the graph is stored; the rest 
 | Graph | Source, by the extractor | Nothing directly. Every rung above is a view of it |
 | Pseudocode | One function's control structure, through a fixed template | An outline of the function, each line linked to its source lines, rendered when the function is opened |
 | Logic | The graph | Each module's interface; each function's case form (`guard ⇒ outcome`); properties written in the repo |
-| Picture | The graph, through a treemap layout and a theme | The whole system first, then package, folder, file, class, function |
+| Picture | The graph, drawn as a city (see The picture) and a theme | The whole system first, then package, folder, file, class, function |
 
 ## Rules
 
@@ -63,6 +63,22 @@ Each rung is computed from the one below it. Only the graph is stored; the rest 
   schemas, specification files. Rungs records and links them. It does not prove them.
 - **Generated files** (lockfiles, to start) stay in the graph, marked generated with their true
   line count. The picture gives them a small fixed size so they never crowd out written code.
+- **Role** of a file is one of source, tests, config and build, docs or generated, from a fixed,
+  versioned table of path conventions. A file the table doesn't recognise has no role and is
+  drawn neutral, never guessed.
+
+## The picture
+
+The picture is a city. Its ground plan is a squarified treemap of the graph: packages and folders
+are districts, files are buildings on their lots. The camera is orthographic. It pans, zooms and
+turns around the vertical axis, with its tilt held between a low and a steep angle, and it never
+changes the layout. Colour means one thing, a file's role. Height means one fact, the number of
+classes and functions in a file, on a square-root scale between the repository's smallest and
+largest, with a visible minimum. Names float above the city and are never hidden by buildings,
+and buildings in front of the one you point at fade.
+
+- Double-clicking a building enters it: the file becomes its own city, with its classes and
+  functions as buildings on a ground plan rooted at that file. Esc or the trail leaves it.
 
 ## Review
 
@@ -84,10 +100,11 @@ time only for functions in "contracts moved".
 | Seam | Interface | First adapter | Next |
 |---|---|---|---|
 | Language | Files of one language in, nodes and edges out | JavaScript and TypeScript, using the TypeScript compiler | Undecided |
-| Theme | "What does this fact look like at this zoom, in this state" | Circuit board | House, then map |
+| Theme | "What does this fact look like at this zoom, in this state" | City | Circuit board, house, map |
 
 A theme is data: a table from graph concepts to sprites, plus a sprite sheet. All themes share
-one layout, so switching theme moves nothing.
+one layout, so switching theme moves nothing. The pixel-art look is a render mode of the city,
+not a separate theme.
 
 ## Cache
 
