@@ -3,8 +3,10 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { serializeGraph } from "./graph.ts";
-import type { Graph } from "./graph.ts";
+import { extract } from "./extract/extract.ts";
+import { isCodeNode, serializeGraph } from "./graph.ts";
+import type { FileTree, ModuleNode, NodeId } from "./graph.ts";
+import { sliceLines } from "./lines.ts";
 
 export interface RunningServer {
   readonly url: string;
@@ -16,7 +18,14 @@ interface Resource {
   readonly body: string;
 }
 
-export async function serveGraph(graph: Graph, port: number): Promise<RunningServer> {
+/**
+ * Serves one snapshot: the page, its script, the graph extracted from `tree`, and `GET /source?id=`,
+ * which answers with exactly the lines of the node with that id from the same snapshot. Packages,
+ * folders and unknown ids have no source and get 404.
+ */
+export async function serve(tree: FileTree, port: number): Promise<RunningServer> {
+  const graph = extract(tree);
+  const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
   const [html, script] = await Promise.all([
     readFile(new URL("page/index.html", import.meta.url), "utf8"),
     bundlePage(),
@@ -27,8 +36,23 @@ export async function serveGraph(graph: Graph, port: number): Promise<RunningSer
     ["/graph.json", { contentType: "application/json; charset=utf-8", body: serializeGraph(graph) }],
   ]);
 
+  function sourceOf(id: string | null): string | undefined {
+    const node = id === null ? undefined : nodes.get(id as NodeId);
+    if (node === undefined) return undefined;
+    const text = node.level === "package" || node.level === "folder" ? undefined : tree.get(node.path);
+    if (text === undefined) return undefined;
+    return isCodeNode(node) ? sliceLines(text, node.range) : text;
+  }
+
   const server = createServer((request, response) => {
-    const resource = resources.get(new URL(request.url ?? "/", "http://localhost").pathname);
+    const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname === "/source") {
+      const text = sourceOf(url.searchParams.get("id"));
+      if (text === undefined) response.writeHead(404).end();
+      else response.writeHead(200, { "content-type": "text/plain; charset=utf-8" }).end(text);
+      return;
+    }
+    const resource = resources.get(url.pathname);
     if (resource === undefined) {
       response.writeHead(404).end();
       return;
