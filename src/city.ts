@@ -1,3 +1,4 @@
+import type { Change, Picture, Tally } from "./compare.ts";
 import { isCodeNode } from "./graph.ts";
 import type { Graph, ModuleNode, NodeId, Role } from "./graph.ts";
 import { layout, leafWeight } from "./layout.ts";
@@ -38,6 +39,10 @@ export interface District {
   readonly base: number;
   /** The role covering the most lines below, or null when no file below has one. */
   readonly role: Role | null;
+  /** A district that stood in the base and is gone: drawn as an outline. */
+  readonly ghost: boolean;
+  /** The changed files below, by kind; null when the picture is not a comparison. */
+  readonly tally: Tally | null;
 }
 
 /** A file: a box on its lot, standing on its district's plate. */
@@ -56,6 +61,10 @@ export interface Building {
   readonly analysed: boolean;
   readonly classes: number;
   readonly functions: number;
+  /** Null when the picture is not a comparison. A removed file is a ghost building. */
+  readonly change: Change | null;
+  /** The file's changed classes and functions, by kind; null when not a comparison. */
+  readonly tally: Tally | null;
 }
 
 /** The smallest and largest number of classes and functions in a file of the repository. */
@@ -79,6 +88,8 @@ export interface City {
   readonly counts: CountRange;
   /** The height of the tallest building's roof. */
   readonly top: number;
+  /** True when the picture is a comparison. */
+  readonly compared: boolean;
 }
 
 /**
@@ -112,12 +123,13 @@ export function withoutCode(graph: Graph): Graph {
  * The city of everything below `root`. The ground plan is the squarified layout of the graph
  * without its classes and functions, which are not drawn here.
  */
-export function cityOf(graph: Graph, root: NodeId): City {
-  return buildCity(graph, layout(withoutCode(graph), root, PLAN_WIDTH, PLAN_DEPTH));
+export function cityOf(picture: Picture, root: NodeId): City {
+  return buildCity(picture, layout(withoutCode(picture.graph), root, PLAN_WIDTH, PLAN_DEPTH));
 }
 
-/** `rects` are a layout of `graph`; the rects of classes and functions are ignored. */
-export function buildCity(graph: Graph, rects: readonly Rect[]): City {
+/** `rects` are a layout of `picture.graph`; the rects of classes and functions are ignored. */
+export function buildCity(picture: Picture, rects: readonly Rect[]): City {
+  const { graph, overlay } = picture;
   const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
   const classes = new Map<string, number>();
   const functions = new Map<string, number>();
@@ -150,6 +162,8 @@ export function buildCity(graph: Graph, rects: readonly Rect[]): City {
       level: rect.depth,
       base: rect.depth * PLATE_HEIGHT,
       role: roles.get(rect.id) ?? null,
+      ghost: overlay?.change(rect.id) === "removed",
+      tally: overlay?.tally(rect.id) ?? null,
     });
   }
 
@@ -171,6 +185,8 @@ export function buildCity(graph: Graph, rects: readonly Rect[]): City {
       analysed: file.level === "file" && file.analysis === "analysed",
       classes: classes.get(file.path) ?? 0,
       functions: functions.get(file.path) ?? 0,
+      change: overlay?.change(rect.id) ?? null,
+      tally: overlay?.tally(rect.id) ?? null,
     });
   }
 
@@ -181,6 +197,7 @@ export function buildCity(graph: Graph, rects: readonly Rect[]): City {
     buildings,
     counts: { fewest: scale.fewest, most: scale.most },
     top: buildings.reduce((top, building) => Math.max(top, building.base + building.height), 0),
+    compared: overlay !== null,
   };
 }
 

@@ -7,6 +7,7 @@ import {
   EdgesGeometry,
   Group,
   LineBasicMaterial,
+  LineDashedMaterial,
   LineSegments,
   Mesh,
   MeshLambertMaterial,
@@ -22,6 +23,8 @@ import {
 import type { Object3D } from "three";
 import { PLATE_HEIGHT } from "../city.ts";
 import type { Building, City, District } from "../city.ts";
+import { tallyText } from "../compare.ts";
+import type { Change } from "../compare.ts";
 import { namedDistricts, regionTop } from "../focus.ts";
 import type { NodeId } from "../graph.ts";
 import { occluders, visibleNames } from "../screen.ts";
@@ -70,7 +73,15 @@ const ZOOM_RANGE = { min: 0.15, max: 40 };
 const FRAME_FILL = 0.86;
 const CLICK_SLOP = 4;
 // Neither outline is a role colour, so a selected docs (yellow) building still stands out.
-const EDGE = { rest: "#0a0d12", hover: "#9aa6b5", selected: "#ffffff" };
+const EDGE = { rest: "#0a0d12", dim: "#1b212b", hover: "#9aa6b5", selected: "#ffffff" };
+// Under a comparison, unchanged and moved files keep this share of their role colour.
+const DIM = 0.35;
+const GHOST_OPACITY = { rest: 0.12, hover: 0.3, selected: 0.3, faded: 0.05 };
+const GHOST_EDGE = "#c9ced6";
+const ADDED_CAP = "#ffffff";
+const MOVED_CAP = "#8a94a3";
+const CAP_INSET = 0.15;
+const CAP_THICKNESS = 1.5;
 const GLOW = { hover: 0.3, selected: 0.18 };
 /** What a building in front of the hovered one keeps of its opacity. */
 const FADED = 0.25;
@@ -100,8 +111,18 @@ interface Entry {
   readonly edges: LineSegments;
 }
 
+interface EdgeLooks {
+  readonly rest: LineBasicMaterial;
+  readonly hover: LineBasicMaterial;
+  readonly selected: LineBasicMaterial;
+  readonly faded: LineBasicMaterial;
+}
+
 interface Building3D extends Entry {
   readonly name: string;
+  readonly ghost: boolean;
+  readonly edgeLooks: EdgeLooks;
+  readonly cap: Mesh | undefined;
   readonly color: string;
   /** Just above the roof, where the file's name floats. */
   readonly anchor: Vector3;
@@ -164,6 +185,22 @@ function flat(hex: string, glow: number, striped = false): MeshLambertMaterial {
   });
 }
 
+function ghostLooksOf(hex: string): Looks {
+  const see = (opacity: number): MeshLambertMaterial => {
+    const material = flat(hex, 0);
+    material.transparent = true;
+    material.opacity = opacity;
+    material.depthWrite = false;
+    return material;
+  };
+  return {
+    rest: see(GHOST_OPACITY.rest),
+    hover: see(GHOST_OPACITY.hover),
+    selected: see(GHOST_OPACITY.selected),
+    faded: see(GHOST_OPACITY.faded),
+  };
+}
+
 function looksOf(hex: string, striped: boolean): Looks {
   const faded = flat(hex, 0, striped);
   faded.transparent = true;
@@ -220,10 +257,32 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     plateEdges.set(hex, known);
     return known;
   };
+  const dashed = (hex: string, opacity = 1): LineDashedMaterial =>
+    new LineDashedMaterial({ color: hex, dashSize: 3, gapSize: 2, transparent: opacity < 1, opacity, depthWrite: opacity === 1 });
+  const dashedEdges: EdgeLooks = {
+    rest: dashed(GHOST_EDGE),
+    hover: dashed("#ffffff"),
+    selected: dashed("#ffffff"),
+    faded: dashed(GHOST_EDGE, FADED),
+  };
+  const dimEdges: EdgeLooks = { ...edgeMaterials, rest: new LineBasicMaterial({ color: EDGE.dim }) };
+  const ghostPlate = new MeshLambertMaterial({ color: GHOST_EDGE, transparent: true, opacity: 0.04, depthWrite: false });
+  const capMaterials = new Map<string, MeshLambertMaterial>();
+  const capMaterial = (hex: string): MeshLambertMaterial => {
+    const known = capMaterials.get(hex) ?? new MeshLambertMaterial({ color: hex, emissive: new Color(hex).multiplyScalar(0.6) });
+    capMaterials.set(hex, known);
+    return known;
+  };
   const looksByColor = new Map<string, Looks>();
-  const looksFor = (hex: string, striped: boolean): Looks => {
-    const key = `${hex}${striped ? " striped" : ""}`;
-    const known = looksByColor.get(key) ?? looksOf(hex, striped);
+  const looksFor = (hex: string, striped: boolean, change: Change | null): Looks => {
+    const key = `${hex}${striped ? " striped" : ""} ${change === "removed" ? "ghost" : change === "unchanged" || change === "moved" ? "dim" : "full"}`;
+    const known =
+      looksByColor.get(key) ??
+      (change === "removed"
+        ? ghostLooksOf(hex)
+        : change === "unchanged" || change === "moved"
+          ? looksOf(onBackground(hex, DIM), striped)
+          : looksOf(hex, striped));
     looksByColor.set(key, known);
     return known;
   };
@@ -254,14 +313,23 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   const worldX = (x: number): number => x - (city?.width ?? 0) / 2;
   const worldZ = (y: number): number => y - (city?.depth ?? 0) / 2;
 
-  function place(x: number, y: number, w: number, d: number, base: number, thickness: number, material: MeshLambertMaterial, edge: LineBasicMaterial): Entry {
+  function place(x: number, y: number, w: number, d: number, base: number, thickness: number, material: MeshLambertMaterial, edge: LineBasicMaterial, dashedOutline = false): Entry {
     const mesh = new Mesh(box, material);
     mesh.scale.set(w, thickness, d);
     mesh.position.set(worldX(x + w / 2), base + thickness / 2, worldZ(y + d / 2));
     mesh.updateMatrix();
     mesh.matrixAutoUpdate = false;
-    const edges = new LineSegments(outline, edge);
-    mesh.add(edges);
+    let edges: LineSegments;
+    if (dashedOutline) {
+      // Dashes are measured in geometry units, so a dashed outline is built at its real size.
+      edges = new LineSegments(new EdgesGeometry(new BoxGeometry(w, thickness, d)), edge);
+      edges.computeLineDistances();
+      edges.position.copy(mesh.position);
+      group.add(edges);
+    } else {
+      edges = new LineSegments(outline, edge);
+      mesh.add(edges);
+    }
     group.add(mesh);
     pickable.push(mesh);
     return { mesh, edges };
@@ -275,16 +343,18 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
 
   function addDistrict(district: District): void {
     const color = roleColor(district.role);
-    const entry = place(
-      district.x,
-      district.y,
-      district.w,
-      district.d,
-      district.base,
-      PLATE_HEIGHT,
-      plateMaterial(onBackground(color, 0.3)),
-      plateEdge(onBackground(color, 0.55)),
-    );
+    const entry = district.ghost
+      ? place(district.x, district.y, district.w, district.d, district.base, PLATE_HEIGHT, ghostPlate, dashedEdges.rest, true)
+      : place(
+          district.x,
+          district.y,
+          district.w,
+          district.d,
+          district.base,
+          PLATE_HEIGHT,
+          plateMaterial(onBackground(color, 0.3)),
+          plateEdge(onBackground(color, 0.55)),
+        );
     idOf.set(entry.mesh, district.id);
     const roof = district.base + PLATE_HEIGHT;
     districts.set(district.id, {
@@ -295,12 +365,30 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   }
 
   function addBuilding(building: Building): void {
-    const looks = looksFor(roleColor(building.role), !building.analysed);
-    const entry = place(building.x, building.y, building.w, building.d, building.base, building.height, looks.rest, edgeMaterials.rest);
+    const ghost = building.change === "removed";
+    const dim = building.change === "unchanged" || building.change === "moved";
+    const looks = looksFor(roleColor(building.role), !building.analysed && !ghost, building.change);
+    const edgeLooks = ghost ? dashedEdges : dim ? dimEdges : edgeMaterials;
+    const entry = place(building.x, building.y, building.w, building.d, building.base, building.height, looks.rest, edgeLooks.rest, ghost);
     idOf.set(entry.mesh, building.id);
     const roof = building.base + building.height;
+    const capColor = building.change === "added" ? ADDED_CAP : building.change === "moved" ? MOVED_CAP : undefined;
+    let cap: Mesh | undefined;
+    if (capColor !== undefined) {
+      const sideways = CAP_INSET * building.w;
+      const lengthways = CAP_INSET * building.d;
+      cap = new Mesh(box, capMaterial(capColor));
+      cap.scale.set(building.w - 2 * sideways, CAP_THICKNESS, building.d - 2 * lengthways);
+      cap.position.set(worldX(building.x + building.w / 2), roof + CAP_THICKNESS / 2, worldZ(building.y + building.d / 2));
+      group.add(cap);
+      pickable.push(cap);
+      idOf.set(cap, building.id);
+    }
     buildings.set(building.id, {
       ...entry,
+      ghost,
+      edgeLooks,
+      cap,
       name: building.name,
       color: roleColor(building.role),
       anchor: new Vector3(worldX(building.x + building.w / 2), roof + NAME_LIFT, worldZ(building.y + building.d / 2)),
@@ -315,7 +403,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     if (entry === undefined) return;
     const state = id !== undefined && faded.has(id) ? "faded" : id === selected ? "selected" : id === hovered ? "hover" : "rest";
     entry.mesh.material = entry.looks[state];
-    entry.edges.material = edgeMaterials[id === selected ? "selected" : state];
+    entry.edges.material = entry.edgeLooks[id === selected ? "selected" : state];
+    if (entry.cap !== undefined) entry.cap.visible = state !== "faded";
     dirty = true;
   }
 
@@ -336,7 +425,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     const target = hovered === undefined ? undefined : buildings.get(hovered);
     if (hovered !== undefined && target !== undefined) {
       camera.getWorldDirection(forward);
-      const projected = [...buildings].map(([id, entry]) => seen(id, entry));
+      const projected = [...buildings].filter(([, entry]) => !entry.ghost).map(([id, entry]) => seen(id, entry));
       for (const id of occluders(seen(hovered, target), projected)) next.add(id as NodeId);
     }
     const changed = [...faded, ...next].filter((id) => faded.has(id) !== next.has(id));
@@ -494,7 +583,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     if (city !== undefined && focus !== undefined) {
       for (const { district, below } of namedDistricts(city.districts, focus)) {
         const entry = districts.get(district.id)!;
-        const label = labelFor(district.id, district.name, below === 1 ? "near" : "far", roleColor(district.role));
+        const text = district.tally === null ? "" : tallyText(district.tally);
+        const label = labelFor(district.id, text === "" ? district.name : `${district.name}  ${text}`, below === 1 ? "near" : "far", roleColor(district.role));
         const centre = onScreen(entry.anchor);
         const xs = entry.corners.map((corner) => onScreen(corner).x);
         wanted.push({

@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { cityOf } from "../src/city.ts";
 import type { Building, District } from "../src/city.ts";
-import { compare, pictureOf } from "../src/compare.ts";
+import { compare, pictureOf, tallyText } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import { rootOf } from "../src/graph.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
@@ -71,5 +71,13 @@ describe("a city that is comparing", () => {
       expect(b.x + b.w).toBeLessThanOrEqual(city.width + 1e-6);
       expect(b.y + b.d).toBeLessThanOrEqual(city.depth + 1e-6);
     }
+  });
+});
+
+describe("tallyText", () => {
+  test("lists only the kinds with files, added, altered, removed, moved", () => {
+    expect(tallyText({ added: 3, altered: 5, removed: 1, moved: 2 })).toBe("+3 ~5 −1 →2");
+    expect(tallyText({ added: 0, altered: 2, removed: 0, moved: 0 })).toBe("~2");
+    expect(tallyText({ added: 0, altered: 0, removed: 0, moved: 0 })).toBe("");
   });
 });

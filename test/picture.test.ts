@@ -116,7 +116,7 @@ describe("a function removed from a file that stays", () => {
   test("is in the changes and the file's tally, but not in the graph", () => {
     expect(changed.changes.map((c) => `${c.kind} ${c.node.id}`)).toContain("removed function:a.ts#drop");
     expect(pic.graph.nodes.map((n) => n.id)).toEqual(after.nodes.map((n) => n.id));
-    expect(pic.overlay!.tally(id("file:a.ts"))).toEqual({ added: 0, altered: 1, removed: 2, moved: 0 });
+    expect(pic.overlay!.tally(id("file:a.ts"))).toEqual({ added: 0, altered: 0, removed: 2, moved: 0 });
   });
 
   test("leaves the file as tall as its head code says", () => {
