@@ -31,9 +31,10 @@ interface Weighted {
   readonly weight: number;
 }
 
-function leafWeight(node: ModuleNode): number {
+/** A file's area in the picture: its lines, at least 1, with generated files capped. */
+export function leafWeight(node: ModuleNode): number {
   const lines = Math.max(lineCount(node), 1);
-  return node.level === "file" && node.generated ? Math.min(lines, GENERATED_WEIGHT) : lines;
+  return node.level === "file" && node.role === "generated" ? Math.min(lines, GENERATED_WEIGHT) : lines;
 }
 
 /** The lines of `range` that lie in none of `children`; a line two children share counts once. */

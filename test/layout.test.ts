@@ -35,7 +35,7 @@ function nodeOf(graph: Graph, id: string): ModuleNode {
 
 function weight(graph: Graph, node: ModuleNode): number {
   if (node.level === "file") {
-    return node.generated ? Math.min(Math.max(node.lines, 1), GENERATED_WEIGHT) : Math.max(node.lines, 1);
+    return node.role === "generated" ? Math.min(Math.max(node.lines, 1), GENERATED_WEIGHT) : Math.max(node.lines, 1);
   }
   if (isCodeNode(node)) return lineCount(node);
   return graph.nodes

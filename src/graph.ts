@@ -18,6 +18,9 @@ export interface LineRange {
 
 export type Analysis = "analysed" | "not analysed";
 
+/** What a file is for. A file the extractor's role table does not recognise has none. */
+export type Role = "source" | "tests" | "config" | "docs" | "generated";
+
 interface NodeBase {
   readonly id: NodeId;
   /** For a class or function, the path of the file it is written in. */
@@ -38,7 +41,8 @@ export interface FileNode extends NodeBase {
   readonly parent: NodeId;
   readonly lines: number;
   readonly analysis: Analysis;
-  readonly generated: boolean;
+  /** Null when no rule in the extractor's table matches; never a guess. */
+  readonly role: Role | null;
 }
 
 /**
@@ -110,7 +114,7 @@ function canonicalNode(node: ModuleNode): object {
     case "folder":
       return { ...base, lines: node.lines };
     case "file":
-      return { ...base, lines: node.lines, analysis: node.analysis, generated: node.generated };
+      return { ...base, lines: node.lines, analysis: node.analysis, role: node.role };
     case "class":
     case "function":
       return {

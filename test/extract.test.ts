@@ -19,6 +19,13 @@ describe("the extractor on the small fixture", () => {
     expect(serialized).toBe(readFileSync(goldenPath, "utf8"));
   });
 
+  test("the fixture holds a file of every role and one with none", () => {
+    const roles = new Set(
+      extract(readFixtureTree(fixture)).nodes.flatMap((node) => (node.level === "file" ? [node.role] : [])),
+    );
+    expect(roles).toEqual(new Set(["source", "tests", "config", "docs", "generated", null]));
+  });
+
   test("output is fixed for this extractor version", () => {
     const ledger = JSON.parse(readFileSync(ledgerPath, "utf8")) as Record<string, string>;
     const hash = createHash("sha256").update(serialized).digest("hex");
@@ -73,7 +80,7 @@ describe("extract", () => {
     expect(byPath("file", "package.json")).toMatchObject({ analysis: "not analysed" });
   });
 
-  test("marks lockfiles generated, wherever they sit, and nothing else", () => {
+  test("gives lockfiles the generated role, wherever they sit, and nothing else", () => {
     const locks = extract(
       new Map([
         ["package-lock.json", "{}\n".repeat(900)],
@@ -89,7 +96,7 @@ describe("extract", () => {
       ]),
     );
     const generated = locks.nodes
-      .filter((node) => node.level === "file" && node.generated)
+      .filter((node) => node.level === "file" && node.role === "generated")
       .map((node) => node.path);
     expect(generated).toEqual([
       "bun.lock",

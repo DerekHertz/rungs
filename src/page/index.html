@@ -18,16 +18,40 @@
         flex-direction: column;
       }
       #trail {
-        flex: none;
+        flex: 1;
+        min-width: 0;
         display: flex;
         align-items: center;
         gap: 6px;
-        height: 28px;
+        height: 100%;
         padding: 0 8px;
         overflow-x: auto;
         white-space: nowrap;
         color: #e8edf2;
+      }
+      #bar {
+        flex: none;
+        display: flex;
+        align-items: center;
+        height: 28px;
         border-bottom: 1px solid #263140;
+      }
+      #legend {
+        flex: none;
+        display: flex;
+        gap: 12px;
+        padding: 0 10px;
+        color: #b8c8de;
+      }
+      #legend span {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      #legend i {
+        width: 10px;
+        height: 10px;
+        border: 1px solid #0008;
       }
       #trail button {
         font: inherit;
@@ -142,7 +166,7 @@
     </style>
   </head>
   <body>
-    <nav id="trail" aria-label="Zoom trail"></nav>
+    <header id="bar"><nav id="trail" aria-label="Zoom trail"></nav><div id="legend" aria-label="Role colours"></div></header>
     <div id="stage"><canvas id="picture"></canvas>
       <aside id="source" aria-label="Source" hidden>
         <header>
