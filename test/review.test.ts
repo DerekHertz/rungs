@@ -228,3 +228,9 @@ test("an id that names no changed module links nothing", () => {
   const result = review(base, altered, "Nothing.", ["file:src/zzz.ts", "folder:src"]);
   expect(result.linkedFiles).toBe(0);
 });
+
+test("an empty needle never appears, whatever the kind", () => {
+  for (const kind of ["path", "file", "name"] as const) {
+    for (const text of ["x", "", " ", "a b"]) expect(appears(text, kind, "")).toBe(false);
+  }
+});

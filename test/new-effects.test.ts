@@ -84,3 +84,11 @@ test("a chip names the resource and what it reached", () => {
   expect(effectChip('file system fs/promises writeFile "a b.txt"')).toBe("file system a b.txt");
   expect(effectChip('network http createServer')).toBe("network createServer");
 });
+
+test("a call with an empty literal target is not covered by any description", () => {
+  const base = { "package.json": "{}\n", "a.mjs": "export function f() {}\n" };
+  const head = { "package.json": "{}\n", "a.mjs": 'export function f() {\n  fetch("");\n}\n' };
+  const { none } = effects(head, "", [], base);
+  expect(none.edges).toBe(1);
+  expect(effects(head, "Edits things.", [], base).none.edges).toBe(1);
+});
