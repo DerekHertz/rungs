@@ -50,21 +50,17 @@ describe("namedDistricts", () => {
 });
 
 describe("flyTarget", () => {
-  const from = (focus: string, hit: string): string => flyTarget(tree, id(focus), id(hit));
+  const from = (focus: string, hit: string): string | undefined => flyTarget(id(focus), id(hit));
 
-  test("flies to the district hit when it is one of the named levels below the focus", () => {
+  test("flies to the district double-clicked, however deep it lies", () => {
     expect(from(tree.root, "folder:src")).toBe("folder:src");
     expect(from(tree.root, "folder:src/util")).toBe("folder:src/util");
+    expect(from(tree.root, "folder:packages/widget/assets")).toBe("folder:packages/widget/assets");
   });
 
-  test("stops at the deepest named level when the hit is deeper", () => {
-    expect(from(tree.root, "folder:packages/widget/assets")).toBe("package:packages/widget");
-    expect(from("folder:packages", "folder:packages/widget/assets")).toBe("folder:packages/widget/assets");
-  });
-
-  test("stays put on the focus itself", () => {
-    expect(from("folder:src", "folder:src")).toBe("folder:src");
-    expect(from(tree.root, tree.root)).toBe(tree.root);
+  test("flies to a district outside the focus", () => {
+    expect(from("folder:src", "folder:packages/widget/src")).toBe("folder:packages/widget/src");
+    expect(from("folder:src", "folder:docs")).toBe("folder:docs");
   });
 
   test("flies out to a district around the focus", () => {
@@ -72,9 +68,9 @@ describe("flyTarget", () => {
     expect(from("folder:src/util", tree.root)).toBe(tree.root);
   });
 
-  test("counts from the top of the repository for a district outside the focus", () => {
-    expect(from("folder:src", "folder:packages/widget/src")).toBe("package:packages/widget");
-    expect(from("folder:src", "folder:docs")).toBe("folder:docs");
+  test("goes nowhere when the district is already the focus", () => {
+    expect(from("folder:src", "folder:src")).toBeUndefined();
+    expect(from(tree.root, tree.root)).toBeUndefined();
   });
 });
 

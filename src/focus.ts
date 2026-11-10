@@ -1,8 +1,6 @@
 import { PLATE_HEIGHT } from "./city.ts";
 import type { City, District } from "./city.ts";
 import type { NodeId } from "./graph.ts";
-import { trail } from "./zoom.ts";
-import type { Tree } from "./zoom.ts";
 
 /** Names float over the districts this many levels below the focus. */
 export const NAME_LEVELS = 2;
@@ -30,16 +28,9 @@ export function namedDistricts(districts: readonly District[], focus: NodeId): N
   return named;
 }
 
-/**
- * Where a double-click on the district `hit` flies while `focus` fills the window: the hit
- * district, or its ancestor that lies `NAME_LEVELS` below the focus if the hit is deeper, so the
- * camera lands on a district that is named. A hit outside the focus is counted from the top of
- * the repository.
- */
-export function flyTarget(tree: Tree, focus: NodeId, hit: NodeId): NodeId {
-  const chain = trail(tree, hit);
-  const from = Math.max(0, chain.findIndex((node) => node.id === focus));
-  return chain[Math.min(chain.length - 1, from + NAME_LEVELS)]!.id;
+/** Where a double-click on the district `hit` flies while `focus` fills the window: to `hit`, or nowhere if it already does. */
+export function flyTarget(focus: NodeId, hit: NodeId): NodeId | undefined {
+  return hit === focus ? undefined : hit;
 }
 
 const EPSILON = 1e-6;

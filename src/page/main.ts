@@ -70,7 +70,8 @@ const view = createCityView(stage, {
     // first click's selection.
     cancelPending();
     if (hit?.kind === "building") return;
-    focusOn(hit === undefined ? zoomOut(tree, focus) : flyTarget(tree, focus, hit.id));
+    const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
+    if (to !== undefined) focusOn(to);
   },
 });
 
