@@ -544,13 +544,27 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     return hit?.kind === "building" ? hit.id : undefined;
   }
 
+  /**
+   * Hovers what is under the pointer. What fades depends on what is hovered, and a faded building
+   * can't be picked, so a building that was faded for the last hover is missed on the first pick
+   * and found on the next; pick again until the hover stops changing.
+   */
+  function settleHover(): void {
+    for (let pass = 0; pass < 3; pass++) {
+      const next = pickBuilding();
+      if (next === hovered) return;
+      setHovered(next);
+    }
+  }
+
   function pointAt(event: MouseEvent): void {
     pointer = { x: event.clientX, y: event.clientY };
   }
 
   function pickAt(event: MouseEvent): NodeId | undefined {
     pointAt(event);
-    return pickBuilding();
+    settleHover();
+    return hovered;
   }
 
   const pressed = new Map<number, Point>();
@@ -647,6 +661,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   canvas.addEventListener("dblclick", (event) => {
     if (travelled >= CLICK_SLOP || turning) return;
     pointAt(event);
+    settleHover();
     handlers.doubleClick(pickThing());
   });
   new ResizeObserver(applyResolution).observe(host);
@@ -670,7 +685,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     if (moving && pointer !== undefined && pressed.size === 0) pickPending = true;
     if (pickPending) {
       pickPending = false;
-      setHovered(pressed.size === 0 ? pickBuilding() : undefined);
+      if (pressed.size === 0) settleHover();
+      else setHovered(undefined);
       handlers.hover(hovered, pointer ?? { x: 0, y: 0 });
     }
     if (moving || dirty) {
