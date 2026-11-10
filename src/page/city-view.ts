@@ -308,6 +308,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
 
   let hovered: NodeId | undefined;
   let selected = new Set<NodeId>();
+  /** A set was highlighted, so every other building is drawn faint, though still pickable. */
+  let muting = false;
   let focus: NodeId | undefined;
   const faded = new Set<NodeId>();
   const labels = new Map<string, Label>();
@@ -405,9 +407,10 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   function paint(id: NodeId | undefined): void {
     const entry = id === undefined ? undefined : buildings.get(id);
     if (entry === undefined) return;
-    const state = id !== undefined && faded.has(id) ? "faded" : id !== undefined && selected.has(id) ? "selected" : id === hovered ? "hover" : "rest";
+    const chosen = id !== undefined && selected.has(id);
+    const state = id !== undefined && faded.has(id) ? "faded" : chosen ? "selected" : id === hovered ? "hover" : muting ? "faded" : "rest";
     entry.mesh.material = entry.looks[state];
-    entry.edges.material = entry.edgeLooks[id !== undefined && selected.has(id) ? "selected" : state];
+    entry.edges.material = entry.edgeLooks[chosen ? "selected" : state];
     if (entry.cap !== undefined) entry.cap.visible = state !== "faded";
     dirty = true;
   }
@@ -534,11 +537,13 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     dirty = true;
   }
 
-  function highlight(ids: readonly NodeId[]): void {
+  function highlight(ids: readonly NodeId[], mute = ids.length > 1): void {
     const before = selected;
+    const wasMuting = muting;
     selected = new Set(ids);
-    for (const id of before) paint(id);
-    for (const id of selected) paint(id);
+    muting = mute;
+    const repaint = wasMuting || muting ? buildings.keys() : [...before, ...selected];
+    for (const id of repaint) paint(id);
   }
 
   function flyTo(id: NodeId): void {
@@ -563,6 +568,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     pickable = [];
     hovered = undefined;
     selected = new Set();
+    muting = false;
     city = next;
     focus = rootOf();
     next.districts.forEach(addDistrict);
@@ -812,9 +818,9 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   return {
     show,
     select(id) {
-      highlight(id === undefined ? [] : [id]);
+      highlight(id === undefined ? [] : [id], false);
     },
-    highlight,
+    highlight: (ids) => highlight(ids, ids.length > 0),
     flyTo,
     reset,
     cyclePixel() {
