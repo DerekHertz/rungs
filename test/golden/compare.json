@@ -1,0 +1,431 @@
+{
+  "extractorVersion": "5",
+  "changes": [
+    {
+      "kind": "added",
+      "node": {
+        "id": "file:docs/a.md",
+        "level": "file",
+        "path": "docs/a.md",
+        "name": "a.md",
+        "parent": "folder:docs",
+        "lines": 1,
+        "analysis": "not analysed",
+        "role": "docs",
+        "digest": "5b913cae6aee479e5c53ed062ee36666"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "file:docs/b.md",
+        "level": "file",
+        "path": "docs/b.md",
+        "name": "b.md",
+        "parent": "folder:docs",
+        "lines": 1,
+        "analysis": "not analysed",
+        "role": "docs",
+        "digest": "5b913cae6aee479e5c53ed062ee36666"
+      }
+    },
+    {
+      "kind": "removed",
+      "node": {
+        "id": "file:docs/notes.md",
+        "level": "file",
+        "path": "docs/notes.md",
+        "name": "notes.md",
+        "parent": "folder:docs",
+        "lines": 1,
+        "analysis": "not analysed",
+        "role": "docs",
+        "digest": "5b913cae6aee479e5c53ed062ee36666"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "file:packages/gadget/package.json",
+        "level": "file",
+        "path": "packages/gadget/package.json",
+        "name": "package.json",
+        "parent": "package:packages/gadget",
+        "lines": 3,
+        "analysis": "not analysed",
+        "role": "config",
+        "digest": "371bfc9f32fe3613f253092be0994a78"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "file:packages/gadget/src/gadget.ts",
+        "level": "file",
+        "path": "packages/gadget/src/gadget.ts",
+        "name": "gadget.ts",
+        "parent": "folder:packages/gadget/src",
+        "lines": 1,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "0893980a663b379edffaf703d1197006"
+      }
+    },
+    {
+      "kind": "moved",
+      "node": {
+        "id": "file:src/compat/legacy.js",
+        "level": "file",
+        "path": "src/compat/legacy.js",
+        "name": "legacy.js",
+        "parent": "folder:src/compat",
+        "lines": 3,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "77542bd88a5777b8f7375f2b29a12dcc"
+      },
+      "from": {
+        "id": "file:src/legacy.js",
+        "level": "file",
+        "path": "src/legacy.js",
+        "name": "legacy.js",
+        "parent": "folder:src",
+        "lines": 3,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "77542bd88a5777b8f7375f2b29a12dcc"
+      }
+    },
+    {
+      "kind": "removed",
+      "node": {
+        "id": "file:src/index.ts",
+        "level": "file",
+        "path": "src/index.ts",
+        "name": "index.ts",
+        "parent": "folder:src",
+        "lines": 5,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "765ddbf1ab032a7769f07249dbed9e85"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "file:src/main.ts",
+        "level": "file",
+        "path": "src/main.ts",
+        "name": "main.ts",
+        "parent": "folder:src",
+        "lines": 5,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "6f652db94f32367fa4e6d5e16d1465dd"
+      }
+    },
+    {
+      "kind": "altered",
+      "node": {
+        "id": "file:src/shapes.ts",
+        "level": "file",
+        "path": "src/shapes.ts",
+        "name": "shapes.ts",
+        "parent": "folder:src",
+        "lines": 77,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "0217521da9b5c718272737a2ad2d1ddd"
+      },
+      "before": {
+        "id": "file:src/shapes.ts",
+        "level": "file",
+        "path": "src/shapes.ts",
+        "name": "shapes.ts",
+        "parent": "folder:src",
+        "lines": 76,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "11911883b8a118d33e71552719cd8cbc"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "file:src/util/format.ts",
+        "level": "file",
+        "path": "src/util/format.ts",
+        "name": "format.ts",
+        "parent": "package:src/util",
+        "lines": 6,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "96c1ed6f64836ddd1aea30071e209b73"
+      }
+    },
+    {
+      "kind": "altered",
+      "node": {
+        "id": "file:src/util/math.ts",
+        "level": "file",
+        "path": "src/util/math.ts",
+        "name": "math.ts",
+        "parent": "package:src/util",
+        "lines": 6,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "6b611906b3ab1a7c9605575f10331aef"
+      },
+      "before": {
+        "id": "file:src/util/math.ts",
+        "level": "file",
+        "path": "src/util/math.ts",
+        "name": "math.ts",
+        "parent": "folder:src/util",
+        "lines": 3,
+        "analysis": "analysed",
+        "role": "source",
+        "digest": "445deb8dc986398848dfa385a0b10fbe"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "file:src/util/package.json",
+        "level": "file",
+        "path": "src/util/package.json",
+        "name": "package.json",
+        "parent": "package:src/util",
+        "lines": 3,
+        "analysis": "not analysed",
+        "role": "config",
+        "digest": "e72904cb80a7ae2c215b65a0f4856cee"
+      }
+    },
+    {
+      "kind": "removed",
+      "node": {
+        "id": "file:test/helpers.ts",
+        "level": "file",
+        "path": "test/helpers.ts",
+        "name": "helpers.ts",
+        "parent": "folder:test",
+        "lines": 3,
+        "analysis": "analysed",
+        "role": "tests",
+        "digest": "a425de060a2c61d06b946b601ec50577"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "folder:packages/gadget/src",
+        "level": "folder",
+        "path": "packages/gadget/src",
+        "name": "src",
+        "parent": "package:packages/gadget",
+        "lines": 1
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "folder:src/compat",
+        "level": "folder",
+        "path": "src/compat",
+        "name": "compat",
+        "parent": "folder:src",
+        "lines": 3
+      }
+    },
+    {
+      "kind": "removed",
+      "node": {
+        "id": "folder:test",
+        "level": "folder",
+        "path": "test",
+        "name": "test",
+        "parent": "package:",
+        "lines": 3
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "function:packages/gadget/src/gadget.ts#Gadget",
+        "level": "function",
+        "path": "packages/gadget/src/gadget.ts",
+        "name": "Gadget",
+        "parent": "file:packages/gadget/src/gadget.ts",
+        "qualifiedName": "Gadget",
+        "range": {
+          "start": 1,
+          "end": 1
+        },
+        "digest": "e899a2594bd5311cb7652bbc7f02ec7c"
+      }
+    },
+    {
+      "kind": "moved",
+      "node": {
+        "id": "function:src/compat/legacy.js#legacy",
+        "level": "function",
+        "path": "src/compat/legacy.js",
+        "name": "legacy",
+        "parent": "file:src/compat/legacy.js",
+        "qualifiedName": "legacy",
+        "range": {
+          "start": 1,
+          "end": 3
+        },
+        "digest": "4726333faa03d21d74696b722e265659"
+      },
+      "from": {
+        "id": "function:src/legacy.js#legacy",
+        "level": "function",
+        "path": "src/legacy.js",
+        "name": "legacy",
+        "parent": "file:src/legacy.js",
+        "qualifiedName": "legacy",
+        "range": {
+          "start": 1,
+          "end": 3
+        },
+        "digest": "4726333faa03d21d74696b722e265659"
+      }
+    },
+    {
+      "kind": "removed",
+      "node": {
+        "id": "function:src/index.ts#main",
+        "level": "function",
+        "path": "src/index.ts",
+        "name": "main",
+        "parent": "file:src/index.ts",
+        "qualifiedName": "main",
+        "range": {
+          "start": 3,
+          "end": 5
+        },
+        "digest": "6f6182f080fc5be91a28fab1cd026f75"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "function:src/main.ts#main",
+        "level": "function",
+        "path": "src/main.ts",
+        "name": "main",
+        "parent": "file:src/main.ts",
+        "qualifiedName": "main",
+        "range": {
+          "start": 3,
+          "end": 5
+        },
+        "digest": "0331b57eeaf75580e4be36f366f07f69"
+      }
+    },
+    {
+      "kind": "moved",
+      "node": {
+        "id": "function:src/util/format.ts#double",
+        "level": "function",
+        "path": "src/util/format.ts",
+        "name": "double",
+        "parent": "file:src/util/format.ts",
+        "qualifiedName": "double",
+        "range": {
+          "start": 1,
+          "end": 3
+        },
+        "digest": "114b279c606006a7d6314947da1a94d0"
+      },
+      "from": {
+        "id": "function:test/helpers.ts#double",
+        "level": "function",
+        "path": "test/helpers.ts",
+        "name": "double",
+        "parent": "file:test/helpers.ts",
+        "qualifiedName": "double",
+        "range": {
+          "start": 1,
+          "end": 3
+        },
+        "digest": "114b279c606006a7d6314947da1a94d0"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "function:src/util/format.ts#format",
+        "level": "function",
+        "path": "src/util/format.ts",
+        "name": "format",
+        "parent": "file:src/util/format.ts",
+        "qualifiedName": "format",
+        "range": {
+          "start": 4,
+          "end": 6
+        },
+        "digest": "adebcd9971b55e7b771448b123240b76"
+      }
+    },
+    {
+      "kind": "altered",
+      "node": {
+        "id": "function:src/util/math.ts#add",
+        "level": "function",
+        "path": "src/util/math.ts",
+        "name": "add",
+        "parent": "file:src/util/math.ts",
+        "qualifiedName": "add",
+        "range": {
+          "start": 1,
+          "end": 3
+        },
+        "digest": "8efccf5a62d0a8c95f65e002151799c6"
+      },
+      "before": {
+        "id": "function:src/util/math.ts#add",
+        "level": "function",
+        "path": "src/util/math.ts",
+        "name": "add",
+        "parent": "file:src/util/math.ts",
+        "qualifiedName": "add",
+        "range": {
+          "start": 1,
+          "end": 3
+        },
+        "digest": "445deb8dc986398848dfa385a0b10fbe"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "function:src/util/math.ts#sub",
+        "level": "function",
+        "path": "src/util/math.ts",
+        "name": "sub",
+        "parent": "file:src/util/math.ts",
+        "qualifiedName": "sub",
+        "range": {
+          "start": 4,
+          "end": 6
+        },
+        "digest": "5d4a11a2e4af6235826ccb82d6089787"
+      }
+    },
+    {
+      "kind": "added",
+      "node": {
+        "id": "package:packages/gadget",
+        "level": "package",
+        "path": "packages/gadget",
+        "name": "gadget",
+        "parent": "folder:packages",
+        "lines": 4
+      }
+    }
+  ]
+}
