@@ -106,7 +106,9 @@ export function compare(base: Graph, head: Graph): Comparison {
     if (before !== undefined && before.digest !== node.digest) changes.push({ kind: "altered", node, before });
   }
 
-  const pairUniques = (removed: readonly Body[], added: readonly Body[], keyOf: (node: Body) => string): void => {
+  /** Pairs each one-to-one group and reports whether anything paired. */
+  const pairUniques = (removed: readonly Body[], added: readonly Body[], keyOf: (node: Body) => string): boolean => {
+    let any = false;
     const groups = new Map<string, { removed: Body[]; added: Body[] }>();
     const group = (key: string) => {
       const found = groups.get(key) ?? { removed: [], added: [] };
@@ -122,14 +124,18 @@ export function compare(base: Graph, head: Graph): Comparison {
       if (paired.has(one.id) || paired.has(other.id)) continue;
       pair(one, other);
       pairDescendants(one, other);
+      any = true;
     }
+    return any;
   };
   const files = (nodes: Body[]) => nodes.filter((node) => node.level === "file");
   const code = (nodes: Body[]) => nodes.filter(isCodeNode);
   const baseOnly = () => unpaired(baseBodies, headBodies);
   const headOnly = () => unpaired(headBodies, baseBodies);
   pairUniques(files(baseOnly()), files(headOnly()), (node) => node.digest);
-  pairUniques(code(baseOnly()), code(headOnly()), (node) => `${node.level} ${node.digest}`);
+  // A pair's descendants pair with it, which can leave another group one-to-one, so regroup
+  // until nothing pairs.
+  while (pairUniques(code(baseOnly()), code(headOnly()), (node) => `${node.level} ${node.digest}`));
 
   for (const node of baseOnly()) changes.push({ kind: "removed", node });
   for (const node of headOnly()) changes.push({ kind: "added", node });

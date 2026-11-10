@@ -149,6 +149,18 @@ describe("pairing", () => {
     expect(summarize(result.changes).filter((line) => line.startsWith("moved"))).toEqual([]);
   });
 
+  test("a code node left alone once a pair takes its twin still pairs", () => {
+    const result = compareTrees(
+      { "old.ts": "// old\nclass A { m() {} }\n", "other.ts": "class B { m() {} }\n" },
+      { "new.ts": "// new\nclass A { m() {} }\n", "another.ts": "class C { m() {} }\n" },
+    );
+    expect(summarize(result.changes).filter((line) => line.startsWith("moved"))).toEqual([
+      "moved class:new.ts#A <- class:old.ts#A",
+      "moved function:another.ts#C.m <- function:other.ts#B.m",
+      "moved function:new.ts#A.m <- function:old.ts#A.m",
+    ]);
+  });
+
   test("a class never pairs with a function of the same digest", () => {
     const id = (text: string) => text as NodeId;
     const code = (level: "class" | "function", name: string): CodeNode => ({
