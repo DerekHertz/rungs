@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { parseOptions } from "../src/options.ts";
 
 test("a bare invocation plots the current folder", () => {
-  expect(parseOptions([])).toEqual({ dir: resolve("."), port: 0, open: true, base: undefined, description: undefined });
+  expect(parseOptions([])).toEqual({ dir: resolve("."), port: 0, open: true, base: undefined, description: undefined, link: false, relink: false });
 });
 
 test("a directory, a port and --no-open", () => {
@@ -13,17 +13,21 @@ test("a directory, a port and --no-open", () => {
     open: false,
     base: undefined,
     description: undefined,
+    link: false,
+    relink: false,
   });
 });
 
 test("compare takes the base first and the folder after it", () => {
-  expect(parseOptions(["compare", "main"])).toEqual({ dir: resolve("."), port: 0, open: true, base: "main", description: undefined });
+  expect(parseOptions(["compare", "main"])).toEqual({ dir: resolve("."), port: 0, open: true, base: "main", description: undefined, link: false, relink: false });
   expect(parseOptions(["compare", "origin/main", "../x", "--port", "9"])).toEqual({
     dir: resolve("../x"),
     port: 9,
     open: true,
     base: "origin/main",
     description: undefined,
+    link: false,
+    relink: false,
   });
 });
 
@@ -37,7 +41,7 @@ test("compare with too many arguments is a usage error", () => {
 });
 
 test("a folder named compare is reached as ./compare", () => {
-  expect(parseOptions(["./compare"])).toEqual({ dir: resolve("compare"), port: 0, open: true, base: undefined, description: undefined });
+  expect(parseOptions(["./compare"])).toEqual({ dir: resolve("compare"), port: 0, open: true, base: undefined, description: undefined, link: false, relink: false });
 });
 
 test("rejects a bad port and an unknown flag", () => {
@@ -53,4 +57,12 @@ test("compare takes --description with a file or - for stdin", () => {
 
 test("--description without compare is a usage error", () => {
   expect(parseOptions(["--description", "pr.md"])).toBe("--description needs compare: rungs compare <base> --description <file>");
+});
+
+test("--link and --relink need compare and a description; --relink implies --link", () => {
+  expect(parseOptions(["compare", "main", "--description", "pr.md", "--link"])).toMatchObject({ link: true, relink: false });
+  expect(parseOptions(["compare", "main", "--description", "pr.md", "--relink"])).toMatchObject({ link: true, relink: true });
+  expect(parseOptions(["compare", "main", "--link"])).toBe("--link needs a description: rungs compare <base> --description <file> --link");
+  expect(parseOptions(["--link"])).toBe("--link needs compare: rungs compare <base> --description <file> --link");
+  expect(parseOptions(["compare", "main", "--relink"])).toBe("--link needs a description: rungs compare <base> --description <file> --link");
 });

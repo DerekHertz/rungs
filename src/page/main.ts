@@ -5,12 +5,13 @@ import type { Comparison } from "../compare.ts";
 import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
 import type { FileNode, Graph, ModuleNode, NodeId } from "../graph.ts";
-import { indexGraph, trail, zoomOut } from "../zoom.ts";
+import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
 import { unmentioned } from "../review.ts";
 import type { ReviewEntry } from "../review.ts";
 import { createCityView } from "./city-view.ts";
 import { LEGEND_ROLES, roleColor } from "./palette.ts";
 import { renderReview } from "./review-panel.ts";
+import type { ClaimRow, LinkNote } from "./review-panel.ts";
 
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
@@ -243,6 +244,24 @@ function pickEntry(entry: ReviewEntry): void {
   void select(node, ticket, place.id);
 }
 
+/** The file a linked module stands in on the picture, if it has a place. */
+function placeOf(id: string): NodeId | undefined {
+  const node = nodes.get(id as NodeId) ?? changed.get(id as NodeId);
+  if (node === undefined) return undefined;
+  const place = node.level === "file" ? node.id : (`file:${node.path}` as NodeId);
+  return nodes.has(place) ? place : undefined;
+}
+
+/** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
+function pickClaim(claim: ClaimRow): void {
+  cancelPending();
+  closePanel();
+  const places = [...new Set(claim.ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  view.highlight(places);
+  const district = commonDistrict(tree, places);
+  if (district !== undefined) focusOn(district);
+}
+
 function cyclePixel(): void {
   const divisor = view.cyclePixel();
   pixelButton.textContent = `Pixel: ${divisor === 1 ? "off" : `1/${divisor}`} (P)`;
@@ -262,12 +281,16 @@ window.addEventListener("keydown", (event) => {
 });
 
 if (comparison !== null) {
-  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null };
+  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; link: LinkNote };
+  const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
   renderReview(review, {
     description: claims.description,
-    unmentioned: claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description),
+    claims: claims.claims,
+    link: claims.link,
+    pickClaim,
+    unmentioned: claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked),
     pick: pickEntry,
   });
 }

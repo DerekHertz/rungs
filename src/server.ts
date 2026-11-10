@@ -10,6 +10,9 @@ import { extract } from "./extract/extract.ts";
 import { isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, ModuleNode, NodeId } from "./graph.ts";
 import { sliceLines } from "./lines.ts";
+import { splitClaims } from "./claims.ts";
+import type { Claim } from "./claims.ts";
+import type { LinkOutcome } from "./link.ts";
 
 /** What the checkout is compared against: the merge base's tree and commit, and the ref the user wrote. */
 export interface Against extends Base {
@@ -36,13 +39,17 @@ interface Resource {
  * Given `base`, it also serves `GET /comparison.json` and `GET /claims.json` (404 otherwise), and a
  * module the comparison lists as removed has its source read from the base tree, not the head.
  * The claims are the person's `description` as a claimed fact, kept apart from the graph and the
- * comparison; `description` is null in them when none was given.
+ * comparison; `description` is null in them when none was given. The description is split into
+ * claims by rules, and `link`, when given, is asked once for the agent's links from each claim to
+ * the modules it describes; they are served beside the claims as claimed facts, and a failure is
+ * served as a failure with no links.
  */
 export async function serve(
   given: FileTree,
   port: number,
   base?: Against,
   description?: string,
+  link?: (comparison: Comparison, claims: readonly Claim[]) => Promise<LinkOutcome>,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
@@ -66,8 +73,20 @@ export async function serve(
   if (base !== undefined && comparison !== undefined) {
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
-    const claims = `${JSON.stringify({ tier: "claimed", description: description ?? null }, null, 2)}\n`;
-    resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: claims });
+    const claims = splitClaims(description ?? "");
+    const outcome: LinkOutcome = link === undefined || claims.length === 0 ? { status: "off" } : await link(comparison, claims);
+    const { status, ...rest } = outcome;
+    const how =
+      outcome.status === "ok"
+        ? { status, model: outcome.model, promptVersion: outcome.promptVersion, dropped: outcome.dropped, cached: outcome.cached }
+        : { status, ...rest };
+    const document = {
+      tier: "claimed",
+      description: description ?? null,
+      claims: claims.map((claim, index) => ({ ...claim, ids: outcome.status === "ok" ? (outcome.byClaim[index] ?? []) : [] })),
+      link: how,
+    };
+    resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
   }
 
   function sourceOf(id: string | null): string | undefined {
