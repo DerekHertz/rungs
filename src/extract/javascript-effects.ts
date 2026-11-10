@@ -105,15 +105,27 @@ class Resolver {
 
   // What this file declares under the name. The checker also invents symbols with no declaration
   // for `require` and `globalThis`, and a `globalThis.fetch = ...` in another file declares a
-  // global there; none of that is in scope here, so such a name is a plain global.
+  // global there, not in scope here.
   private declarationsOf(identifier: ts.Identifier): ts.Declaration[] {
     const symbol = this.checker.getSymbolAtLocation(identifier);
     return (symbol?.declarations ?? []).filter((declaration) => declaration.getSourceFile() === this.file);
   }
 
+  // A script's `const fetch = ...` is a real declaration this file sees; only property
+  // assignments onto a global object (`globalThis.fetch = ...`) leave the global a global.
+  private declaredElsewhere(identifier: ts.Identifier): boolean {
+    const declarations = this.checker.getSymbolAtLocation(identifier)?.declarations ?? [];
+    return declarations.some(
+      (declaration) =>
+        !ts.isBinaryExpression(declaration) &&
+        !ts.isPropertyAccessExpression(declaration) &&
+        !ts.isElementAccessExpression(declaration),
+    );
+  }
+
   private identifier(node: ts.Identifier, depth: number): Ref | undefined {
     const here = this.declarationsOf(node);
-    if (here.length === 0) return globalRef(node.text);
+    if (here.length === 0) return this.declaredElsewhere(node) ? undefined : globalRef(node.text);
     const [declaration] = here;
     if (here.length !== 1 || declaration === undefined) return undefined;
 

@@ -219,4 +219,24 @@ describe("effect edges: globals other files assign", () => {
       "function:a.mjs#f setTimeout",
     ]);
   });
+
+  test("a repository declaration in another script is not the global", () => {
+    const graph = extract(
+      new Map([
+        ["a.ts", "const fetch = (x: string) => {};\n"],
+        ["b.ts", 'function f() {\n  fetch("fake");\n}\n'],
+      ]),
+    );
+    expect(graph.edges).toEqual([]);
+  });
+
+  test("window and self assignments leave the global a global", () => {
+    const graph = extract(
+      new Map([
+        ["a.mjs", "window.fetch = () => 1;\nself.setTimeout = () => 2;\n"],
+        ["b.mjs", "export function f() {\n  fetch(u);\n  setTimeout(g, 1);\n}\n"],
+      ]),
+    );
+    expect(graph.edges.map((edge) => edge.operation)).toEqual(["fetch", "setTimeout"]);
+  });
 });
