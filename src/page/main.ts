@@ -56,6 +56,13 @@ let pendingClick: ReturnType<typeof setTimeout> | undefined;
 // double-click only zooms, and a panel opened by its first click can't take its second.
 const DOUBLE_CLICK_MS = 250;
 
+// Every user action starts here, so the latest one wins: a click still waiting out its
+// double-click window, and any source request in flight, are dropped.
+function cancelPending(): void {
+  clearTimeout(pendingClick);
+  requested++;
+}
+
 function hatch(): CanvasPattern {
   const tile = document.createElement("canvas");
   tile.width = tile.height = 6;
@@ -104,7 +111,10 @@ function showTrail(): void {
     }
     const step = document.createElement("button");
     step.textContent = name;
-    step.addEventListener("click", () => zoomTo(node.id));
+    step.addEventListener("click", () => {
+      cancelPending();
+      zoomTo(node.id);
+    });
     return step;
   });
   breadcrumbs.replaceChildren(
@@ -118,8 +128,7 @@ function showTrail(): void {
 }
 
 function closePanel(): void {
-  clearTimeout(pendingClick);
-  requested++;
+  cancelPending();
   selected = undefined;
   panel.hidden = true;
   draw();
@@ -142,8 +151,7 @@ function showSource(node: ModuleNode, text: string): void {
   panel.hidden = false;
 }
 
-async function select(node: ModuleNode): Promise<void> {
-  const ticket = ++requested;
+async function select(node: ModuleNode, ticket: number): Promise<void> {
   if (node.id === selected) return;
   const response = await fetch(`/source?id=${encodeURIComponent(node.id)}`);
   if (ticket !== requested) return;
@@ -244,21 +252,23 @@ canvas.addEventListener("click", (event) => {
   if (event.detail > 1) return;
   const hit = rectAt(event);
   const node = hit && nodes.get(hit.id);
-  clearTimeout(pendingClick);
+  cancelPending();
+  const ticket = requested;
   pendingClick = setTimeout(() => {
     if (node === undefined || node.level === "package" || node.level === "folder") closePanel();
-    else void select(node);
+    else void select(node, ticket);
   }, DOUBLE_CLICK_MS);
 });
 panelClose.addEventListener("click", closePanel);
 canvas.addEventListener("dblclick", (event) => {
-  clearTimeout(pendingClick);
+  cancelPending();
   const hit = rectAt(event);
   const target = hit && zoomTarget(tree, zoomRoot, hit.id);
   if (target !== undefined) zoomTo(target);
 });
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  cancelPending();
   if (selected !== undefined) closePanel();
   else zoomTo(zoomOut(tree, zoomRoot));
 });
