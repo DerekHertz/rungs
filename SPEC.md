@@ -94,6 +94,15 @@ A panel answers the three questions, and each entry selects places on the pictur
 - **Contracts moved:** every change to an exported signature, type, case, effect set or linked
   property.
 
+**Observed.** `rungs compare <base> --run-tests` runs the head tree's tests once, never by
+default, because they are the change's own untrusted code. They run in a sandbox (bubblewrap): a
+temporary copy of the tree, no network, none of the user's files, a stripped environment, a
+wall-clock limit. Dependencies install from the lockfile with the network and with install scripts
+off; the tests then run with no network. The runner is read from the `test` script, `node --test`
+or vitest; any other is named as unsupported. Each result attaches to its test function by file
+and name; a result no single test function matches is listed, never dropped. With no sandbox the
+run is refused, and the page says so, unless `--run-tests-unsandboxed` is given.
+
 Narration in plain English sits beside the pseudocode as a claimed fact, anchored to the lines it
 describes and marked stale when the function changes. It is written on request, and ahead of
 time only for functions in "contracts moved".

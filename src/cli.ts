@@ -6,13 +6,41 @@ import { homedir } from "node:os";
 import { readBase, readCheckout } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
 import { parseOptions, USAGE } from "./options.ts";
+import { runTests } from "./observed.ts";
+import type { TestRun } from "./observed.ts";
+import { chooseIsolation, detectSandbox } from "./sandbox.ts";
 import { serve } from "./server.ts";
+import type { FileTree } from "./graph.ts";
 import type { Claim } from "./claims.ts";
 import type { Comparison } from "./compare.ts";
 import type { Graph } from "./graph.ts";
 
 /** How long the agent may take before the run goes on without links. */
 const LINK_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** How long one run of the tests, install included, may take. */
+const TEST_TIMEOUT_MS = 10 * 60 * 1000;
+
+async function observeTests(tree: FileTree, allowUnsandboxed: boolean): Promise<TestRun> {
+  const choice = chooseIsolation(await detectSandbox(), allowUnsandboxed);
+  if ("refused" in choice) {
+    console.error(`rungs: tests not run: ${choice.refused}`);
+    return { status: "refused", why: choice.refused };
+  }
+  const where =
+    choice.isolation.kind === "bwrap"
+      ? "in a bwrap sandbox with no network"
+      : "WITHOUT a sandbox: their code can reach this machine and the network";
+  console.error(`rungs: running the tests once ${where} (up to ${TEST_TIMEOUT_MS / 60000} minutes)`);
+  const run = await runTests(tree, choice.isolation, TEST_TIMEOUT_MS);
+  if (run.status === "ran") {
+    const count = (outcome: string) => run.reports.filter((report) => report.outcome === outcome).length;
+    const runner = run.runner === "node" ? "node --test" : "vitest";
+    console.error(`rungs: ran ${run.reports.length} tests with ${runner} in ${run.isolation} in ${run.seconds}s: ${count("pass")} pass, ${count("fail")} fail, ${count("skip")} skip`);
+  } else if (run.status === "failed") console.error(`rungs: the test run failed after ${run.seconds}s: ${run.why}\n${run.output}`);
+  else console.error(`rungs: tests not run: ${run.why}`);
+  return run;
+}
 
 const OPENERS: Partial<Record<NodeJS.Platform, (url: string) => [string, string[]]>> = {
   darwin: (url) => ["open", [url]],
@@ -72,7 +100,8 @@ try {
           return outcome;
         }
       : undefined;
-    const server = await serve(tree, options.port, against, description, link);
+    const tests = options.tests === "off" ? undefined : await observeTests(tree, options.tests === "unsandboxed allowed");
+    const server = await serve(tree, options.port, against, description, link, tests);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;

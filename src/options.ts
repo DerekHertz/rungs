@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink] [--port <n>] [--no-open]";
+export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--run-tests|--run-tests-unsandboxed] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
@@ -15,6 +15,11 @@ export interface Options {
   readonly link: boolean;
   /** Set by `--relink`: ask again even when the cache holds an answer. Implies `link`. */
   readonly relink: boolean;
+  /**
+   * Set by `--run-tests`: run the checkout's tests once, in a sandbox. `--run-tests-unsandboxed`
+   * also runs them when no sandbox is available.
+   */
+  readonly tests: "off" | "sandboxed" | "unsandboxed allowed";
 }
 
 /** The options, or a one-line usage error. */
@@ -29,6 +34,8 @@ export function parseOptions(argv: readonly string[]): Options | string {
         description: { type: "string" },
         link: { type: "boolean", default: false },
         relink: { type: "boolean", default: false },
+        "run-tests": { type: "boolean", default: false },
+        "run-tests-unsandboxed": { type: "boolean", default: false },
       },
     });
     const port = Number(values.port);
@@ -42,8 +49,10 @@ export function parseOptions(argv: readonly string[]): Options | string {
     const link = values.link || values.relink;
     if (link && !comparing) return "--link needs compare: rungs compare <base> --description <file> --link";
     if (link && values.description === undefined) return "--link needs a description: rungs compare <base> --description <file> --link";
+    const tests = values["run-tests-unsandboxed"] ? "unsandboxed allowed" : values["run-tests"] ? "sandboxed" : "off";
+    if (tests !== "off" && !comparing) return "--run-tests needs compare: rungs compare <base> --run-tests";
     if (rest.length > 1) return "expected at most one directory";
-    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink };
+    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests };
   } catch (error) {
     return (error as Error).message;
   }

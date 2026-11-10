@@ -13,6 +13,8 @@ import { sliceLines } from "./lines.ts";
 import { splitClaims } from "./claims.ts";
 import type { Claim } from "./claims.ts";
 import type { LinkOutcome } from "./link.ts";
+import { observedDocument, treeDigest } from "./observed.ts";
+import type { TestRun } from "./observed.ts";
 
 /** What the checkout is compared against: the merge base's tree and commit, and the ref the user wrote. */
 export interface Against extends Base {
@@ -45,6 +47,10 @@ interface Resource {
  * claims by rules, and `link`, when given, is asked once for the agent's links from each claim to
  * the modules it describes; they are served beside the claims as claimed facts, and a failure is
  * served as a failure with no links.
+ *
+ * Given `tests`, one run of the tree's tests, it also serves `GET /observed.json`: the run as an
+ * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
+ * apart from the graph and the comparison.
  */
 export async function serve(
   given: FileTree,
@@ -52,6 +58,7 @@ export async function serve(
   base?: Against,
   description?: string,
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
+  tests?: TestRun,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
@@ -91,6 +98,11 @@ export async function serve(
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
     const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison, baseGraph, graph) }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
+  }
+
+  if (tests !== undefined) {
+    const body = `${JSON.stringify(observedDocument(tests, graph, treeDigest(tree)), null, 2)}\n`;
+    resources.set("/observed.json", { contentType: "application/json; charset=utf-8", body });
   }
 
   function sourceOf(id: string | null): string | undefined {

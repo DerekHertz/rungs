@@ -69,6 +69,8 @@ export interface Run {
   readonly collected: ReadonlyMap<string, Collected>;
   /** Where the copy was; it is gone once the run returns. */
   readonly root: string;
+  /** Where the steps found things. */
+  readonly places: Places;
 }
 
 export interface RunRequest {
@@ -179,7 +181,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     for (const name of collect) {
       collected.set(name, swapped === undefined ? await collectFile(join(host.out, name), request.collectBytes ?? 64 << 20) : { kind: "unreadable", why: swapped });
     }
-    return { steps: results, collected, root };
+    return { steps: results, collected, root, places };
   } finally {
     process.off("SIGINT", interrupted).off("SIGTERM", interrupted);
     if (request.isolation.kind !== "bwrap") killStrays(root);

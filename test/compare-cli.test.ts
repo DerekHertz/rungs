@@ -228,3 +228,50 @@ test("--link with no claude on the path prints one line, serves without links, a
     run.child.kill();
   }
 });
+
+async function startedUrl(child: ReturnType<typeof spawn>): Promise<{ url: string; stderr: () => string }> {
+  let out = "";
+  let err = "";
+  child.stderr?.on("data", (chunk) => (err += chunk));
+  const url = await new Promise<string>((resolve, reject) => {
+    child.stdout?.on("data", (chunk) => {
+      out += chunk;
+      const found = /^http:\/\/127\.0\.0\.1:\d+\/$/m.exec(out);
+      if (found) resolve(found[0]);
+    });
+    child.once("exit", () => reject(new Error(`exited early: ${out}${err}`)));
+  });
+  return { url, stderr: () => err };
+}
+
+test("--run-tests runs the head's tests once in the sandbox, says how it went, and serves /observed.json", async () => {
+  const dir = repo();
+  write(dir, "package.json", `{"type":"module","scripts":{"test":"node --test"}}\n`);
+  write(dir, "a.test.mjs", 'import { test } from "node:test";\ntest("one", () => {});\ntest("two", () => { throw new Error("no"); });\n');
+  const child = spawn("node", [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests"], { cwd: dir });
+  try {
+    const { url, stderr } = await startedUrl(child);
+    expect(stderr()).toMatch(/^rungs: running the tests once in a bwrap sandbox with no network \(up to 10 minutes\)$/m);
+    expect(stderr()).toMatch(/^rungs: ran 2 tests with node --test in bwrap in [\d.]+s: 1 pass, 1 fail, 0 skip$/m);
+    const observed = (await (await fetch(new URL("observed.json", url))).json()) as { status: string; counts: object };
+    expect(observed).toMatchObject({ status: "ran", sandbox: "bwrap", counts: { pass: 1, fail: 1, skip: 0 } });
+  } finally {
+    child.kill();
+  }
+});
+
+test("--run-tests with no sandbox refuses, says so, and still serves the comparison", async () => {
+  const dir = repo();
+  const child = spawn(process.execPath, [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests"], {
+    cwd: dir,
+    env: { PATH: bareBin() },
+  });
+  try {
+    const { url, stderr } = await startedUrl(child);
+    const why = "no sandbox to run the tests in (bwrap is not on PATH); --run-tests-unsandboxed runs them anyway";
+    expect(stderr()).toMatch(`rungs: tests not run: ${why}`);
+    expect(await (await fetch(new URL("observed.json", url))).json()).toMatchObject({ status: "refused", why });
+  } finally {
+    child.kill();
+  }
+});
