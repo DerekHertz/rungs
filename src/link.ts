@@ -9,7 +9,7 @@ import { isCodeNode } from "./graph.ts";
 import type { NodeId } from "./graph.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached links are not reused. */
-export const PROMPT_VERSION = "claims-v1";
+export const PROMPT_VERSION = "claims-v2";
 
 /** A changed module an agent may link a claim to. Only ids and change kinds ever reach the agent. */
 export interface Candidate {
@@ -46,9 +46,9 @@ const SCHEMA = {
 
 const SYSTEM = `You link claims from a pull request description to the changed modules they describe. Prompt version ${PROMPT_VERSION}.
 
-You get numbered claims and a list of candidate modules, each as "<change kind> <id>". An id names a file, class or function by its path and qualified name. You see no source code.
+You get numbered claims and a list of candidate modules, each as "<change kind> <id>". An id names a file, class or function by its kind, path and qualified name, for example "file:src/a.ts" or "function:src/a.ts#Box.open". The kind prefix is part of the id. You see no source code.
 
-For each claim, return the ids of the candidate modules the claim describes, using only ids from the list, copied exactly.
+For each claim, return the ids of the candidate modules the claim describes, using only ids from the list, copied exactly and whole, kind prefix included (never "src/a.ts#alpha" for "function:src/a.ts#alpha").
 - Link a file when the claim describes that file or the feature it carries as a whole. Link a class or function only when the claim names or clearly describes that specific piece. Do not also list every function of a file you linked.
 - A claim may cover many modules. A claim that describes none of them gets an empty list.
 - Go by what the claim says and what the names and paths suggest. If you are not sure a module is described, leave it out. Never invent an id.
