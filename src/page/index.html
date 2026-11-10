@@ -37,11 +37,22 @@
         border-bottom: 1px solid #263140;
       }
       #legend {
-        flex: none;
-        display: flex;
-        gap: 12px;
-        padding: 0 10px;
+        position: absolute;
+        left: 10px;
+        bottom: 10px;
+        max-width: 420px;
+        padding: 6px 8px;
+        background: #000a;
         color: #b8c8de;
+        pointer-events: none;
+      }
+      #legend div {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+      }
+      #legend div + div {
+        margin-top: 4px;
       }
       #legend span {
         display: flex;
@@ -52,6 +63,25 @@
         width: 10px;
         height: 10px;
         border: 1px solid #0008;
+      }
+      #controls {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        display: flex;
+        gap: 6px;
+      }
+      #controls button {
+        font: inherit;
+        color: #b8c8de;
+        background: #000a;
+        border: 1px solid #263140;
+        padding: 3px 8px;
+        cursor: pointer;
+      }
+      #controls button:hover {
+        background: #1f2a3a;
+        color: #e8edf2;
       }
       #trail button {
         font: inherit;
@@ -73,13 +103,6 @@
         position: relative;
         flex: 1;
         min-height: 0;
-      }
-      canvas {
-        position: absolute;
-        inset: 0;
-        display: block;
-        width: 100%;
-        height: 100%;
       }
       #source {
         position: absolute;
@@ -166,8 +189,13 @@
     </style>
   </head>
   <body>
-    <header id="bar"><nav id="trail" aria-label="Zoom trail"></nav><div id="legend" aria-label="Role colours"></div></header>
-    <div id="stage"><canvas id="picture"></canvas>
+    <header id="bar"><nav id="trail" aria-label="Zoom trail"></nav></header>
+    <div id="stage">
+      <div id="controls">
+        <button id="reset" type="button" title="R">Reset view (R)</button>
+        <button id="pixel" type="button" title="P">Pixel: off (P)</button>
+      </div>
+      <div id="legend" aria-label="Legend"></div>
       <aside id="source" aria-label="Source" hidden>
         <header>
           <div id="source-title"></div>
