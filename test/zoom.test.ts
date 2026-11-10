@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import type { NodeId } from "../src/graph.ts";
-import { indexGraph, trail, zoomOut, zoomTarget } from "../src/zoom.ts";
+import { commonDistrict, indexGraph, trail, zoomOut, zoomTarget } from "../src/zoom.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
 
 const graph = extract(readFixtureTree(fileURLToPath(new URL("fixtures/small", import.meta.url))));
@@ -60,5 +60,17 @@ describe("zoomTarget", () => {
     expect(zoomTarget(tree, current, current)).toBeUndefined();
     expect(zoomTarget(tree, current, id("function:src/util/math.ts#add"))).toBeUndefined();
     expect(zoomTarget(tree, current, id("function:src/shapes.ts#Circle.radius"))).toBe("class:src/shapes.ts#Circle");
+  });
+});
+
+describe("commonDistrict", () => {
+  test("is the folder of one file, and the nearest folder holding all the files", () => {
+    expect(commonDistrict(tree, [id("file:src/shapes.ts")])).toBe("folder:src");
+    expect(commonDistrict(tree, [id("file:src/shapes.ts"), id("file:src/index.ts")])).toBe("folder:src");
+  });
+
+  test("reaches the top of the repository when the files share nothing else, and is undefined for no files", () => {
+    expect(commonDistrict(tree, [id("file:src/shapes.ts"), id("file:package.json")])).toBe(tree.root);
+    expect(commonDistrict(tree, [])).toBeUndefined();
   });
 });

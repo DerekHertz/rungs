@@ -50,3 +50,19 @@ export function zoomTarget(tree: Tree, current: NodeId, hit: NodeId): NodeId | u
   }
   return undefined;
 }
+
+/** The nearest folder or package that holds every one of `ids`, or undefined for none. A lone file's is its own folder. */
+export function commonDistrict(tree: Tree, ids: readonly NodeId[]): NodeId | undefined {
+  let common: ModuleNode[] | undefined;
+  for (const id of ids) {
+    const steps = trail(tree, id);
+    if (steps.at(-1)!.level !== "package" && steps.at(-1)!.level !== "folder") steps.pop();
+    if (common === undefined) common = steps;
+    else {
+      let length = 0;
+      while (length < common.length && length < steps.length && common[length]!.id === steps[length]!.id) length++;
+      common = common.slice(0, length);
+    }
+  }
+  return common?.at(-1)?.id;
+}
