@@ -73,8 +73,8 @@ test("compare prints one line with the counts, serves the comparison, and stays 
     expect(comparison.against).toEqual({ ref: "main", commit: git(dir, "rev-parse", "main") });
     const files = comparison.changes.filter((c) => c.node.id.startsWith("file:")).map((c) => `${c.kind} ${c.node.id}`);
     expect(files).toEqual([
-      "added file:src/added.ts",
       "altered file:src/a.ts",
+      "added file:src/added.ts",
       "removed file:src/b.ts",
       "moved file:src/moved.ts",
       "added file:src/untracked.ts",
@@ -98,5 +98,5 @@ test("an unknown base prints one line and exits 1", () => {
 test("compare without a base is a usage error, exit 2", () => {
   const result = run(["compare"], repo());
   expect(result.status).toBe(2);
-  expect(result.stderr).toContain("usage: rungs compare <base>");
+  expect(result.stderr).toContain("       rungs compare <base> [dir]");
 });
