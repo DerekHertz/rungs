@@ -1,4 +1,4 @@
-import { compareIds } from "./graph.ts";
+import { compareIds, isCodeNode, lineCount } from "./graph.ts";
 import type { Graph, ModuleNode, NodeId } from "./graph.ts";
 
 export interface Rect {
@@ -31,13 +31,15 @@ interface Weighted {
 }
 
 function leafWeight(node: ModuleNode): number {
-  const lines = Math.max(node.lines, 1);
+  const lines = Math.max(lineCount(node), 1);
   return node.level === "file" && node.generated ? Math.min(lines, GENERATED_WEIGHT) : lines;
 }
 
+// Classes and functions are not placed yet, so the picture is exactly the files and containers.
 export function layout(graph: Graph, width: number, height: number): Rect[] {
   const children = new Map<NodeId | null, ModuleNode[]>();
   for (const node of graph.nodes) {
+    if (isCodeNode(node)) continue;
     const siblings = children.get(node.parent) ?? [];
     siblings.push(node);
     children.set(node.parent, siblings);

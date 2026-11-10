@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
+import { lineCount } from "../src/graph.ts";
 import type { Graph, ModuleNode, NodeId } from "../src/graph.ts";
 import { GENERATED_WEIGHT, layout } from "../src/layout.ts";
 import type { Rect } from "../src/layout.ts";
@@ -124,6 +125,6 @@ describe("layout of generated files", () => {
   });
 
   test("keeps the true line count in the graph", () => {
-    expect(graph.nodes.find((n) => n.path === "package-lock.json")?.lines).toBe(5000);
+    expect(lineCount(graph.nodes.find((n) => n.path === "package-lock.json")!)).toBe(5000);
   });
 });

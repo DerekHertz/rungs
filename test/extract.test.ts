@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { EXTRACTOR_VERSION, extract } from "../src/extract/extract.ts";
-import { serializeGraph } from "../src/graph.ts";
+import { lineCount, serializeGraph } from "../src/graph.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
 
 const fixture = fileURLToPath(new URL("fixtures/small", import.meta.url));
@@ -58,11 +58,11 @@ describe("extract", () => {
   });
 
   test("counts lines, and containers sum their descendants", () => {
-    expect(byPath("file", "a.ts")?.lines).toBe(2);
-    expect(byPath("file", "lib/b.md")?.lines).toBe(1);
-    expect(byPath("file", "lib/pkg/c.js")?.lines).toBe(0);
-    expect(byPath("folder", "lib")?.lines).toBe(2);
-    expect(byPath("package", "")?.lines).toBe(5);
+    expect(lineCount(byPath("file", "a.ts")!)).toBe(2);
+    expect(lineCount(byPath("file", "lib/b.md")!)).toBe(1);
+    expect(lineCount(byPath("file", "lib/pkg/c.js")!)).toBe(0);
+    expect(lineCount(byPath("folder", "lib")!)).toBe(2);
+    expect(lineCount(byPath("package", "")!)).toBe(5);
   });
 
   test("marks only files with a language adapter as analysed", () => {
@@ -98,7 +98,7 @@ describe("extract", () => {
       "pnpm-lock.yaml",
       "yarn.lock",
     ]);
-    expect(locks.nodes.find((node) => node.path === "package-lock.json")?.lines).toBe(900);
+    expect(lineCount(locks.nodes.find((node) => node.path === "package-lock.json")!)).toBe(900);
   });
 
   test("does not depend on the order of the file tree", () => {
