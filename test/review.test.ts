@@ -1,17 +1,17 @@
 import { expect, test } from "vitest";
 import { compare, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
-import type { FileTree } from "../src/graph.ts";
+import type { FileTree, NodeId } from "../src/graph.ts";
 import { appears, unmentioned } from "../src/review.ts";
 import type { ReviewEntry } from "../src/review.ts";
 
 const fn = (name: string, body = 1): string => `export function ${name}() {\n  return ${body};\n}\n`;
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
 
-function review(base: Record<string, string>, head: Record<string, string>, description: string) {
+function review(base: Record<string, string>, head: Record<string, string>, description: string, linked: readonly string[] = []) {
   const headGraph = extract(tree(head));
   const comparison = compare(extract(tree(base)), headGraph);
-  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description);
+  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(linked as NodeId[]));
 }
 
 const labels = (entries: readonly ReviewEntry[]): string[] => entries.map((entry) => entry.label);
@@ -177,4 +177,54 @@ test("a Unicode letter beside a needle is part of a longer name", () => {
   expect(appears("Fix foo\u200Cbar()", "name", "foo")).toBe(false);
   expect(appears("Fix foo\u200Dbar()", "name", "foo")).toBe(false);
   expect(appears("Fix parse()", "name", "parse")).toBe(true);
+});
+
+const altered = { ...base, "src/a.ts": fn("alpha", 2) + fn("beta", 2), "src/b.ts": fn("bravo", 2), "src/c.ts": fn("charlie", 2) };
+
+test("with no links, nothing is linked and the entries are as before", () => {
+  const result = review(base, altered, "Nothing.");
+  expect(result.linkedFiles).toBe(0);
+  expect(result.linkedEntries).toEqual([]);
+  expect(labels(result.entries)).toEqual(["src"]);
+});
+
+test("a file the agent linked leaves 'no claim covers it' for 'linked by the agent only', and stays in view", () => {
+  const result = review(base, altered, "Nothing.", ["file:src/b.ts", "file:src/c.ts", "file:src/a.ts"]);
+  expect(result.unmentionedFiles).toBe(3);
+  expect(result.linkedFiles).toBe(3);
+  expect(result.entries).toEqual([]);
+  expect(result.linkedEntries).toMatchObject([{ level: "district", label: "src", files: 3 }]);
+});
+
+test("a link to a function links its file, and the linked function is marked among its siblings", () => {
+  const result = review(base, altered, "Nothing.", ["function:src/a.ts#alpha"]);
+  expect(result.linkedFiles).toBe(1);
+  expect(labels(result.entries)).toEqual(["src/b.ts", "src/c.ts"]);
+  expect(result.linkedEntries).toMatchObject([
+    { label: "src/a.ts", children: [{ label: "alpha", linked: true }, { label: "beta" }] },
+  ]);
+  expect(result.linkedEntries[0]!.children[1]).not.toHaveProperty("linked");
+});
+
+test("a name match wins over a link: a mentioned file is in neither list", () => {
+  const result = review(base, altered, "Edits src/a.ts, src/b.ts and src/c.ts.", ["file:src/a.ts"]);
+  expect(result.unmentionedFiles).toBe(0);
+  expect(result.linkedFiles).toBe(0);
+  expect(result.entries).toEqual([]);
+  expect(result.linkedEntries).toEqual([]);
+});
+
+test("roll-up applies to each list on its own: a folder rolls up only when all its changed files are in the list", () => {
+  const head = { ...base, "lib/one.ts": fn("one"), "lib/two.ts": fn("two"), "lib/three.ts": fn("three") };
+  const mixed = review(base, head, "Nothing.", ["file:lib/one.ts"]);
+  expect(labels(mixed.entries)).toEqual(["lib/three.ts", "lib/two.ts"]);
+  expect(labels(mixed.linkedEntries)).toEqual(["lib/one.ts"]);
+  const all = review(base, head, "Nothing.", ["file:lib/one.ts", "file:lib/two.ts", "file:lib/three.ts"]);
+  expect(all.entries).toEqual([]);
+  expect(all.linkedEntries).toMatchObject([{ level: "district", label: "lib", files: 3 }]);
+});
+
+test("an id that names no changed module links nothing", () => {
+  const result = review(base, altered, "Nothing.", ["file:src/zzz.ts", "folder:src"]);
+  expect(result.linkedFiles).toBe(0);
 });

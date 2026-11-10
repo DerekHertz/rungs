@@ -55,6 +55,8 @@ export interface CityView {
   show(city: City): void;
   /** Outlines this building as the selected one. */
   select(id: NodeId | undefined): void;
+  /** Outlines these buildings as selected together, replacing any earlier selection. */
+  highlight(ids: readonly NodeId[]): void;
   /** Flies the camera to frame this district, keeping the turn, and names the districts below it. */
   flyTo(id: NodeId): void;
   /** Returns to the isometric view of the whole city, named from the top. */
@@ -82,6 +84,8 @@ const ADDED_CAP = "#ffffff";
 const MOVED_CAP = "#8a94a3";
 const CAP_INSET = 0.15;
 const CAP_THICKNESS = 1.5;
+/** Past this many selected buildings the picture outlines them without naming each. */
+const MAX_LABELLED = 6;
 const GLOW = { hover: 0.3, selected: 0.18 };
 /** What a building in front of the hovered one keeps of its opacity. */
 const FADED = 0.25;
@@ -303,7 +307,9 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   let dirty = true;
 
   let hovered: NodeId | undefined;
-  let selected: NodeId | undefined;
+  let selected = new Set<NodeId>();
+  /** A set was highlighted, so every other building is drawn faint, though still pickable. */
+  let muting = false;
   let focus: NodeId | undefined;
   const faded = new Set<NodeId>();
   const labels = new Map<string, Label>();
@@ -401,9 +407,10 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   function paint(id: NodeId | undefined): void {
     const entry = id === undefined ? undefined : buildings.get(id);
     if (entry === undefined) return;
-    const state = id !== undefined && faded.has(id) ? "faded" : id === selected ? "selected" : id === hovered ? "hover" : "rest";
+    const chosen = id !== undefined && selected.has(id);
+    const state = id !== undefined && faded.has(id) ? "faded" : chosen ? "selected" : id === hovered ? "hover" : muting ? "faded" : "rest";
     entry.mesh.material = entry.looks[state];
-    entry.edges.material = entry.edgeLooks[id === selected ? "selected" : state];
+    entry.edges.material = entry.edgeLooks[chosen ? "selected" : state];
     if (entry.cap !== undefined) entry.cap.visible = state !== "faded";
     dirty = true;
   }
@@ -530,6 +537,15 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     dirty = true;
   }
 
+  function highlight(ids: readonly NodeId[], mute = ids.length > 1): void {
+    const before = selected;
+    const wasMuting = muting;
+    selected = new Set(ids);
+    muting = mute;
+    const repaint = wasMuting || muting ? buildings.keys() : [...before, ...selected];
+    for (const id of repaint) paint(id);
+  }
+
   function flyTo(id: NodeId): void {
     const entry = districts.get(id);
     if (entry === undefined) return;
@@ -550,7 +566,9 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     labels.forEach(({ el }) => el.remove());
     labels.clear();
     pickable = [];
-    hovered = selected = undefined;
+    hovered = undefined;
+    selected = new Set();
+    muting = false;
     city = next;
     focus = rootOf();
     next.districts.forEach(addDistrict);
@@ -594,7 +612,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
           region: Math.max(...xs) - Math.min(...xs),
         });
       }
-      for (const id of new Set([selected, hovered])) {
+      for (const id of new Set([...(selected.size <= MAX_LABELLED ? selected : []), hovered])) {
         const entry = id === undefined ? undefined : buildings.get(id);
         if (id === undefined || entry === undefined) continue;
         const label = labelFor(id, entry.name, "file", entry.color);
@@ -800,11 +818,9 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   return {
     show,
     select(id) {
-      const before = selected;
-      selected = id;
-      paint(before);
-      paint(id);
+      highlight(id === undefined ? [] : [id], false);
     },
+    highlight: (ids) => highlight(ids, ids.length > 0),
     flyTo,
     reset,
     cyclePixel() {

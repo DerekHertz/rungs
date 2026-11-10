@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--port <n>] [--no-open]";
+export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
@@ -11,6 +11,10 @@ export interface Options {
   readonly base: string | undefined;
   /** Set by `--description`: a file holding the change's description, or "-" for stdin. */
   readonly description: string | undefined;
+  /** Set by `--link`: ask an agent to link each claim in the description to the modules it describes. */
+  readonly link: boolean;
+  /** Set by `--relink`: ask again even when the cache holds an answer. Implies `link`. */
+  readonly relink: boolean;
 }
 
 /** The options, or a one-line usage error. */
@@ -23,6 +27,8 @@ export function parseOptions(argv: readonly string[]): Options | string {
         port: { type: "string", default: "0" },
         "no-open": { type: "boolean", default: false },
         description: { type: "string" },
+        link: { type: "boolean", default: false },
+        relink: { type: "boolean", default: false },
       },
     });
     const port = Number(values.port);
@@ -33,8 +39,11 @@ export function parseOptions(argv: readonly string[]): Options | string {
     if (values.description !== undefined && !comparing) {
       return "--description needs compare: rungs compare <base> --description <file>";
     }
+    const link = values.link || values.relink;
+    if (link && !comparing) return "--link needs compare: rungs compare <base> --description <file> --link";
+    if (link && values.description === undefined) return "--link needs a description: rungs compare <base> --description <file> --link";
     if (rest.length > 1) return "expected at most one directory";
-    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description };
+    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink };
   } catch (error) {
     return (error as Error).message;
   }
