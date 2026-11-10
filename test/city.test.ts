@@ -163,11 +163,14 @@ describe.each(graphs)("the city of %s", (_, graph) => {
   });
 
   test("sizes each building by the scale over the repository's files", () => {
-    const counts = city.buildings.map((building) => building.classes + building.functions);
+    const counts = city.buildings
+      .filter((building) => building.role !== "generated")
+      .map((building) => building.classes + building.functions);
     expect(city.counts).toEqual({ fewest: Math.min(...counts), most: Math.max(...counts) });
     const scale = heightScale(counts);
     for (const building of city.buildings) {
-      expect(building.height).toBe(scale.height(building.classes + building.functions));
+      const count = building.role === "generated" ? 0 : building.classes + building.functions;
+      expect(building.height).toBe(building.role === "generated" ? MIN_HEIGHT : scale.height(count));
       expect(building.height).toBeGreaterThanOrEqual(MIN_HEIGHT);
       expect(building.height).toBeLessThanOrEqual(MAX_HEIGHT + EPSILON);
     }
@@ -251,3 +254,28 @@ function isBelow(graph: Graph, id: NodeId, ancestor: NodeId): boolean {
   }
   return false;
 }
+
+describe("a vendored blob in the city", () => {
+  const manyFunctions = (n: number) => "function f() {}\n".repeat(n);
+  const graph = extract(
+    new Map([
+      ["package.json", "{}\n"],
+      ["src/small.ts", manyFunctions(2)],
+      ["src/big.ts", manyFunctions(30)],
+      ["extension/vendor/blob.min.js", manyFunctions(5000)],
+    ]),
+  );
+  const city = cityOf(pictureOf(graph, null), rootOf(graph));
+  const at = (path: string) => city.buildings.find((building) => building.name === path)!;
+
+  test("does not set the top of the scale: the largest file that is not generated does", () => {
+    expect(city.counts).toEqual({ fewest: 0, most: 30 });
+    expect(at("big.ts").height).toBeCloseTo(MAX_HEIGHT, 9);
+    expect(at("small.ts").height).toBeCloseTo(heightScale([0, 30]).height(2), 9);
+    expect(at("package.json").height).toBe(MIN_HEIGHT);
+  });
+
+  test("is drawn at the minimum height but still reports its true counts", () => {
+    expect(at("blob.min.js")).toMatchObject({ role: "generated", functions: 5000, height: MIN_HEIGHT });
+  });
+});

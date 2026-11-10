@@ -64,6 +64,14 @@ export interface CodeNode extends NodeBase {
    * leave it alone.
    */
   readonly digest: string;
+  /** True when the file exports this node from its top level. Methods and nested code never are. */
+  readonly exported: boolean;
+  /**
+   * The signature as written, whitespace and comments normalised away so reformatting is not a
+   * change. A function: modifiers, type parameters, parameter list, return type annotation. A
+   * class: type parameters, heritage clauses and public method signatures. Never inferred.
+   */
+  readonly signature: string;
 }
 
 export type ModuleNode = ContainerNode | FileNode | CodeNode;
@@ -130,6 +138,8 @@ export function canonicalNode(node: ModuleNode): object {
         qualifiedName: node.qualifiedName,
         range: { start: node.range.start, end: node.range.end },
         digest: node.digest,
+        exported: node.exported,
+        signature: node.signature,
       };
   }
 }

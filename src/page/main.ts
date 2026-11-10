@@ -1,12 +1,12 @@
 import { cityOf } from "../city.ts";
 import type { Building, City } from "../city.ts";
 import { pictureOf, tallyText } from "../compare.ts";
-import type { Comparison } from "../compare.ts";
+import type { Comparison, ContractMove } from "../compare.ts";
 import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
 import type { FileNode, Graph, ModuleNode, NodeId } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
-import { unmentioned } from "../review.ts";
+import { contractsReport, unmentioned, unmentionedIds } from "../review.ts";
 import type { ReviewEntry } from "../review.ts";
 import { createCityView } from "./city-view.ts";
 import { LEGEND_ROLES, roleColor } from "./palette.ts";
@@ -229,14 +229,20 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
 
 /** An entry of the review panel: fly to its district, and select the file or code it names. */
 function pickEntry(entry: ReviewEntry): void {
-  cancelPending();
-  const ticket = requested;
   if (entry.level === "district") {
+    cancelPending();
     closePanel();
     focusOn(entry.id);
     return;
   }
-  const node = nodes.get(entry.id) ?? changed.get(entry.id);
+  pickNode(entry.id);
+}
+
+/** A node by id, a ghost or a module removed from a surviving file included: fly to its file, select it. */
+function pickNode(id: NodeId): void {
+  cancelPending();
+  const ticket = requested;
+  const node = nodes.get(id) ?? changed.get(id);
   if (node === undefined) return;
   const place = nodes.get(node.level === "file" ? node.id : (`file:${node.path}` as NodeId));
   if (place === undefined || place.parent === null) return;
@@ -283,15 +289,19 @@ window.addEventListener("keydown", (event) => {
 if (comparison !== null) {
   const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; link: LinkNote };
   const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
+  const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
+  const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked);
   renderReview(review, {
     description: claims.description,
     claims: claims.claims,
     link: claims.link,
     pickClaim,
-    unmentioned: claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked),
+    unmentioned: claimed,
+    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed)),
     pick: pickEntry,
+    pickNode,
   });
 }
 showCity(cityRoot);

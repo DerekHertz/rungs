@@ -113,6 +113,21 @@ test("without a base there are no claims", async () => {
   expect((await get(plain, "claims.json")).status).toBe(404);
 });
 
+test("/contracts.json carries the contracts that moved as a derived fact, and is 404 without a base", async () => {
+  const response = await get(comparing, "contracts.json");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toMatch(/^application\/json/);
+  expect(await response.json()).toEqual({
+    tier: "derived",
+    moves: [
+      { kind: "removed", id: "function:src/keep.ts#gone", before: "()", after: null },
+      { kind: "added", id: "function:src/new.ts#fresh", before: null, after: "()" },
+      { kind: "removed", id: "function:src/old.ts#oldOne", before: "()", after: null },
+    ],
+  });
+  expect((await get(plain, "contracts.json")).status).toBe(404);
+});
+
 test("/claims.json carries each claim's span and linked ids, and how the links were made, as claimed", async () => {
   const body = (await (await get(linkedServer, "claims.json")).json()) as Record<string, unknown>;
   expect(body).toEqual({

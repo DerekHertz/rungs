@@ -19,6 +19,12 @@ export interface Declaration {
    *  modifiers included, leading comments excluded) to the end of the body. */
   readonly start: number;
   readonly end: number;
+  /** True when the file exports this declaration from its top level, by the language's own
+   *  syntax; a binding that merely holds it elsewhere does not count. */
+  readonly exported: boolean;
+  /** The signature as written, with layout, comments and trailing commas left out; see
+   *  src/extract/javascript-contract.ts. Never inferred: a missing return type stays missing. */
+  readonly signature: string;
   /** The declarations whose syntax is inside this one. */
   readonly children: readonly Declaration[];
 }

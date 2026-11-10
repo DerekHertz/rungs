@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import type { Base } from "./checkout.ts";
-import { compare, serializeComparison } from "./compare.ts";
+import { compare, contractsMoved, serializeComparison } from "./compare.ts";
 import type { Comparison } from "./compare.ts";
 import { extract } from "./extract/extract.ts";
 import { isCodeNode, serializeGraph } from "./graph.ts";
@@ -36,7 +36,9 @@ interface Resource {
  * which answers with exactly the lines of the node with that id from the same snapshot. Packages,
  * folders and unknown ids have no source and get 404.
  *
- * Given `base`, it also serves `GET /comparison.json` and `GET /claims.json` (404 otherwise), and a
+ * Given `base`, it also serves `GET /comparison.json`, `GET /contracts.json` and `GET /claims.json`
+ * (404 otherwise). The contracts are the comparison's contract moves as a derived fact, kept in
+ * their own resource so `/comparison.json` stays the plain diff of the two graphs. A
  * module the comparison lists as removed has its source read from the base tree, not the head.
  * The claims are the person's `description` as a claimed fact, kept apart from the graph and the
  * comparison; `description` is null in them when none was given. The description is split into
@@ -87,6 +89,8 @@ export async function serve(
       link: how,
     };
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
+    const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison) }, null, 2)}\n`;
+    resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
   }
 
   function sourceOf(id: string | null): string | undefined {
