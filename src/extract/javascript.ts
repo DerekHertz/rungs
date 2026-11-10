@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 import ts from "typescript";
 import type { Declaration, LanguageAdapter } from "./adapters.ts";
+import { exportedNodes, renderSignature, signatureTokens } from "./javascript-contract.ts";
 
 export const javaScriptAndTypeScript: LanguageAdapter = {
   language: "JavaScript and TypeScript",
@@ -45,6 +46,7 @@ function hasModifier(node: ts.HasModifiers, kind: ts.ModifierSyntaxKind): boolea
 
 function outline(file: ts.SourceFile): Declaration[] {
   if (file.isDeclarationFile) return [];
+  const exported = exportedNodes(file);
   const within = (node: ts.Node): Declaration[] => {
     const found: Declaration[] = [];
     node.forEachChild((child) => {
@@ -58,6 +60,8 @@ function outline(file: ts.SourceFile): Declaration[] {
         text: textOf(child, file),
         start: child.getStart(file),
         end: child.end,
+        exported: exported.has(child),
+        signature: renderSignature(signatureTokens(child, file)),
         children: within(child),
       });
     });
