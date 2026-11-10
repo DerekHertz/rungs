@@ -23,7 +23,9 @@ async function listFiles(dir: string): Promise<string> {
     return (await execFileAsync("git", args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr?.trim();
-    throw new Error(`cannot list the files of ${dir}: ${stderr || (error as Error).message}`);
+    throw new Error(`cannot list the files of ${dir}: ${stderr || (error as Error).message}`, {
+      cause: error,
+    });
   }
 }
 
