@@ -24,7 +24,7 @@ const STYLES: Readonly<Record<Look, Style>> = {
 
 function lookOf(node: ModuleNode): Look {
   if (node.level !== "file") return node.level;
-  return node.generated ? "generated" : node.analysis;
+  return node.role === "generated" ? "generated" : node.analysis;
 }
 
 function displayName(node: ModuleNode): string {
@@ -239,7 +239,7 @@ canvas.addEventListener("mousemove", (event) => {
   const facts = isCodeNode(node)
     ? [`${node.level} ${node.name}`, node.path, `${lineCount(node)} lines`, `lines ${node.range.start}-${node.range.end}`]
     : [`${node.level} ${node.path === "" ? "/" : node.path}`, `${lineCount(node)} lines`];
-  if (node.level === "file") facts.push(node.generated ? "generated" : node.analysis);
+  if (node.level === "file") facts.push(node.role === "generated" ? "generated" : node.analysis);
   tooltip.textContent = facts.join("\n");
   tooltip.style.display = "block";
   tooltip.style.left = `${Math.min(event.clientX + 12, window.innerWidth - tooltip.offsetWidth - 4)}px`;

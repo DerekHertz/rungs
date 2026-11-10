@@ -3,17 +3,10 @@ import { compareIds, nodeId, qualifiedName } from "../graph.ts";
 import type { CodeNode, FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
 import { countLines, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
+import { roleOf } from "./roles.ts";
 import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "3";
-
-const GENERATED_BASENAMES: ReadonlySet<string> = new Set([
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "yarn.lock",
-  "pnpm-lock.yaml",
-  "bun.lock",
-]);
+export const EXTRACTOR_VERSION = "4";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -53,7 +46,7 @@ export function extract(tree: FileTree): Graph {
       parent: directoryId(directoryOf(path)),
       lines,
       analysis: analysed.has(path) ? "analysed" : "not analysed",
-      generated: GENERATED_BASENAMES.has(posix.basename(path)),
+      role: roleOf(path, analysed.has(path)),
     });
     for (let dir = path; dir !== ""; ) {
       dir = directoryOf(dir);

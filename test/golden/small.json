@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "3",
+  "extractorVersion": "4",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -45,7 +45,7 @@
       "parent": "package:",
       "lines": 3,
       "analysis": "not analysed",
-      "generated": false
+      "role": "docs"
     },
     {
       "id": "file:docs/notes.md",
@@ -55,7 +55,7 @@
       "parent": "folder:docs",
       "lines": 1,
       "analysis": "not analysed",
-      "generated": false
+      "role": "docs"
     },
     {
       "id": "file:package-lock.json",
@@ -65,7 +65,7 @@
       "parent": "package:",
       "lines": 5,
       "analysis": "not analysed",
-      "generated": true
+      "role": "generated"
     },
     {
       "id": "file:package.json",
@@ -75,7 +75,7 @@
       "parent": "package:",
       "lines": 4,
       "analysis": "not analysed",
-      "generated": false
+      "role": "config"
     },
     {
       "id": "file:packages/widget/assets/theme.json",
@@ -85,7 +85,7 @@
       "parent": "folder:packages/widget/assets",
       "lines": 3,
       "analysis": "not analysed",
-      "generated": false
+      "role": null
     },
     {
       "id": "file:packages/widget/package.json",
@@ -95,7 +95,7 @@
       "parent": "package:packages/widget",
       "lines": 4,
       "analysis": "not analysed",
-      "generated": false
+      "role": "config"
     },
     {
       "id": "file:packages/widget/src/widget.tsx",
@@ -105,7 +105,7 @@
       "parent": "folder:packages/widget/src",
       "lines": 1,
       "analysis": "analysed",
-      "generated": false
+      "role": "source"
     },
     {
       "id": "file:src/default.js",
@@ -115,7 +115,7 @@
       "parent": "folder:src",
       "lines": 9,
       "analysis": "analysed",
-      "generated": false
+      "role": "source"
     },
     {
       "id": "file:src/index.ts",
@@ -125,7 +125,7 @@
       "parent": "folder:src",
       "lines": 5,
       "analysis": "analysed",
-      "generated": false
+      "role": "source"
     },
     {
       "id": "file:src/legacy.js",
@@ -135,7 +135,7 @@
       "parent": "folder:src",
       "lines": 3,
       "analysis": "analysed",
-      "generated": false
+      "role": "source"
     },
     {
       "id": "file:src/shapes.ts",
@@ -145,7 +145,7 @@
       "parent": "folder:src",
       "lines": 76,
       "analysis": "analysed",
-      "generated": false
+      "role": "source"
     },
     {
       "id": "file:src/util/empty.ts",
@@ -155,7 +155,7 @@
       "parent": "folder:src/util",
       "lines": 0,
       "analysis": "analysed",
-      "generated": false
+      "role": "source"
     },
     {
       "id": "file:src/util/math.ts",
@@ -165,7 +165,27 @@
       "parent": "folder:src/util",
       "lines": 3,
       "analysis": "analysed",
-      "generated": false
+      "role": "source"
+    },
+    {
+      "id": "file:test/helpers.ts",
+      "level": "file",
+      "path": "test/helpers.ts",
+      "name": "helpers.ts",
+      "parent": "folder:test",
+      "lines": 3,
+      "analysis": "analysed",
+      "role": "tests"
+    },
+    {
+      "id": "file:vitest.config.ts",
+      "level": "file",
+      "path": "vitest.config.ts",
+      "name": "vitest.config.ts",
+      "parent": "package:",
+      "lines": 3,
+      "analysis": "analysed",
+      "role": "config"
     },
     {
       "id": "folder:docs",
@@ -213,6 +233,14 @@
       "path": "src/util",
       "name": "util",
       "parent": "folder:src",
+      "lines": 3
+    },
+    {
+      "id": "folder:test",
+      "level": "folder",
+      "path": "test",
+      "name": "test",
+      "parent": "package:",
       "lines": 3
     },
     {
@@ -576,12 +604,24 @@
       }
     },
     {
+      "id": "function:test/helpers.ts#double",
+      "level": "function",
+      "path": "test/helpers.ts",
+      "name": "double",
+      "parent": "file:test/helpers.ts",
+      "qualifiedName": "double",
+      "range": {
+        "start": 1,
+        "end": 3
+      }
+    },
+    {
       "id": "package:",
       "level": "package",
       "path": "",
       "name": "",
       "parent": null,
-      "lines": 117
+      "lines": 123
     },
     {
       "id": "package:packages/widget",
