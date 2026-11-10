@@ -1,6 +1,7 @@
 import {
   AmbientLight,
   BoxGeometry,
+  CanvasTexture,
   Color,
   DirectionalLight,
   EdgesGeometry,
@@ -9,8 +10,10 @@ import {
   LineSegments,
   Mesh,
   MeshLambertMaterial,
+  NearestFilter,
   OrthographicCamera,
   Raycaster,
+  RepeatWrapping,
   Scene,
   Vector2,
   WebGLRenderer,
@@ -53,7 +56,8 @@ const CAMERA_DISTANCE = 3000;
 const ZOOM_RANGE = { min: 0.15, max: 40 };
 const FRAME_FILL = 0.86;
 const CLICK_SLOP = 4;
-const EDGE = { rest: "#0a0d12", hover: "#ffffff", selected: "#ffd479" };
+// Neither outline is a role colour, so a selected docs (yellow) building still stands out.
+const EDGE = { rest: "#0a0d12", hover: "#9aa6b5", selected: "#ffffff" };
 const GLOW = { hover: 0.3, selected: 0.18 };
 
 /** Where the camera looks and how: turning, tilt, pixels per plan unit, and the ground point centred. */
@@ -82,10 +86,29 @@ interface Building3D extends Entry {
   readonly looks: Looks;
 }
 
-function flat(hex: string, glow: number): MeshLambertMaterial {
+// Diagonal stripes mark a file no language adapter read: texture, so hue keeps meaning role.
+let stripes: CanvasTexture | undefined;
+function notAnalysedStripes(): CanvasTexture {
+  if (stripes !== undefined) return stripes;
+  const tile = document.createElement("canvas");
+  tile.width = tile.height = 8;
+  const pen = tile.getContext("2d")!;
+  pen.fillStyle = "#ffffff";
+  pen.fillRect(0, 0, 8, 8);
+  pen.fillStyle = "rgba(0, 0, 0, 0.45)";
+  for (let i = 0; i < 8; i++) pen.fillRect(i, 7 - i, 2, 1);
+  stripes = new CanvasTexture(tile);
+  stripes.wrapS = stripes.wrapT = RepeatWrapping;
+  stripes.repeat.set(6, 6);
+  stripes.magFilter = stripes.minFilter = NearestFilter;
+  return stripes;
+}
+
+function flat(hex: string, glow: number, striped = false): MeshLambertMaterial {
   const color = new Color(hex);
   return new MeshLambertMaterial({
     color,
+    ...(striped ? { map: notAnalysedStripes() } : {}),
     emissive: color.clone().multiplyScalar(glow),
     // Keeps the outline from fighting the faces it sits on.
     polygonOffset: true,
@@ -94,8 +117,12 @@ function flat(hex: string, glow: number): MeshLambertMaterial {
   });
 }
 
-function looksOf(hex: string): Looks {
-  return { rest: flat(hex, 0), hover: flat(hex, GLOW.hover), selected: flat(hex, GLOW.selected) };
+function looksOf(hex: string, striped: boolean): Looks {
+  return {
+    rest: flat(hex, 0, striped),
+    hover: flat(hex, GLOW.hover, striped),
+    selected: flat(hex, GLOW.selected, striped),
+  };
 }
 
 /** The ground directions the screen's right and up point along, for a turn of `az`. */
@@ -137,9 +164,10 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     return known;
   };
   const looksByColor = new Map<string, Looks>();
-  const looksFor = (hex: string): Looks => {
-    const known = looksByColor.get(hex) ?? looksOf(hex);
-    looksByColor.set(hex, known);
+  const looksFor = (hex: string, striped: boolean): Looks => {
+    const key = `${hex}${striped ? " striped" : ""}`;
+    const known = looksByColor.get(key) ?? looksOf(hex, striped);
+    looksByColor.set(key, known);
     return known;
   };
 
@@ -194,7 +222,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   }
 
   function addBuilding(building: Building): void {
-    const looks = looksFor(roleColor(building.role));
+    const looks = looksFor(roleColor(building.role), !building.analysed);
     const entry = place(building.x, building.y, building.w, building.d, building.base, building.height, looks.rest, edgeMaterials.rest);
     idOf.set(entry.mesh, building.id);
     buildings.set(building.id, { ...entry, looks });

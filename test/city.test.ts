@@ -216,6 +216,11 @@ describe("the small fixture's city", () => {
     expect(building("README.md").role).toBe("docs");
   });
 
+  test("marks a file no language adapter read as not analysed", () => {
+    expect(building("README.md").analysed).toBe(false);
+    expect(building("src/util/empty.ts").analysed).toBe(true);
+  });
+
   test("leaves a file the role table does not recognise without a role", () => {
     expect(building("packages/widget/assets/theme.json").role).toBeNull();
   });

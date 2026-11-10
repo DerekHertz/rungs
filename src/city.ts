@@ -46,6 +46,8 @@ export interface Building {
   readonly base: number;
   readonly height: number;
   readonly role: Role | null;
+  /** False for a file no language adapter read; SPEC rule 5 says it is drawn as exactly that. */
+  readonly analysed: boolean;
   readonly classes: number;
   readonly functions: number;
 }
@@ -156,6 +158,7 @@ export function buildCity(graph: Graph, rects: readonly Rect[]): City {
       base: parentLevel === undefined ? 0 : (parentLevel + 1) * PLATE_HEIGHT,
       height: scale.height(countOf(file.path)),
       role: file.level === "file" ? file.role : null,
+      analysed: file.level === "file" && file.analysis === "analysed",
       classes: classes.get(file.path) ?? 0,
       functions: functions.get(file.path) ?? 0,
     });
