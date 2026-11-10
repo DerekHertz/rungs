@@ -12,7 +12,7 @@ function report(base: Record<string, string>, head: Record<string, string>, desc
   const baseGraph = extract(tree(base));
   const comparison = compare(baseGraph, headGraph);
   const claims = unmentioned(comparison, pictureOf(headGraph, comparison).graph, description);
-  return contractsReport(comparison, contractsMoved(comparison, baseGraph, headGraph), unmentionedIds(claims));
+  return contractsReport(comparison, contractsMoved(comparison, baseGraph, headGraph), unmentionedIds(claims), headGraph);
 }
 
 const exp = (name: string, params = "", body = 1): string => `export function ${name}(${params}) {\n  return ${body};\n}\n`;
@@ -106,4 +106,20 @@ test("signatureDiff keeps what both sides share and marks the middle that differ
     suffix: ")",
   });
   expect(signatureDiff("same", "same")).toEqual({ prefix: "same", removed: "", added: "", suffix: "" });
+});
+
+test("an effects move is a row even when the function's text did not change", () => {
+  const fn = 'export function f() {\n  spawn("git");\n}\n';
+  const result = report(
+    { "package.json": "{}\n", "a.mjs": `import { spawn } from "./local.js";\n${fn}` },
+    { "package.json": "{}\n", "a.mjs": `import { spawn } from "node:child_process";\n${fn}` },
+  );
+  expect(result.counts.effects).toBe(1);
+  expect(result.entries).toHaveLength(1);
+  expect(result.entries[0]).toMatchObject({
+    kind: "row",
+    label: "f",
+    path: "a.mjs",
+    move: { kind: "effects", effects: { added: ['process child_process spawn "git"'], removed: [] } },
+  });
 });

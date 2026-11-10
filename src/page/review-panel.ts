@@ -1,7 +1,7 @@
 import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
-import { signatureDiff } from "../review.ts";
-import type { ContractRollup, ContractRow, ContractsReport, ReviewEntry, Unmentioned } from "../review.ts";
+import { effectChip, signatureDiff } from "../review.ts";
+import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
@@ -13,6 +13,8 @@ const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   unexported: "↓",
   moved: "→",
 };
+
+const MAX_CHIPS = 4;
 
 const MARK: Record<ChangeKind, string> = { added: "+", altered: "~", removed: "−", moved: "→" };
 
@@ -46,8 +48,12 @@ export interface ReviewInput {
   readonly unmentioned: Unmentioned | null;
   /** Null without a comparison to derive them from. */
   readonly contracts: ContractsReport | null;
+  /** Null without a comparison to derive them from. Shown with or without a description. */
+  readonly effects: NewEffects | null;
   /** The user picked an entry; the host selects and flies to its place. */
   readonly pick: (entry: ReviewEntry) => void;
+  /** The user picked a call; the host selects its module and marks the call's lines. */
+  readonly pickEffect: (row: EffectRow) => void;
   /** The user picked a contract row or a file rollup; the host selects and flies to the node or file. */
   readonly pickNode: (id: NodeId) => void;
 }
@@ -99,6 +105,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   }
 
   const [unmentioned, unmentionedBody] = section("Unmentioned", "derived");
+  if (input.effects !== null) unmentionedBody.append(effectsBlock(input.effects.none, false));
   const result = input.unmentioned;
   if (result === null) {
     unmentionedBody.append(element("p", "review-empty", "No description was given, so no change can be checked against a claim."));
@@ -121,6 +128,100 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       for (const entry of result.linkedEntries) linkedList.append(row(entry, true));
       unmentionedBody.append(linkedList);
     }
+  }
+  if (input.effects !== null && input.link.status === "ok" && input.effects.byAgent.edges + input.effects.byAgent.tests.edges > 0) {
+    unmentionedBody.append(effectsBlock(input.effects.byAgent, true));
+  }
+
+  function targetText(group: EffectGroup): string {
+    if (group.target === "unknown") return "target unknown";
+    return group.target === "none" ? "no target" : `"${group.target.literal}"`;
+  }
+
+  function effectsBlock(block: EffectsBlock, byAgent: boolean): HTMLElement {
+    const wrap = element("div", "review-effects");
+    const { edges, functions } = block;
+    const title = element(
+      "h3",
+      "review-subtitle",
+      `Reaches the outside world${byAgent ? ", linked by the agent" : ""} (${edges} new effect ${edges === 1 ? "edge" : "edges"} in ${functions} ${functions === 1 ? "function" : "functions"})`,
+    );
+    if (byAgent) title.append(element("span", "review-tag claimed", "claimed"));
+    wrap.append(
+      title,
+      element("p", "review-note", "Direct calls to runtime built-ins only; calls through other modules are not followed yet."),
+    );
+    if (edges === 0 && block.tests.edges === 0) {
+      wrap.append(element("p", "review-empty", "No new call reaches a process, the network, the file system or a timer."));
+      return wrap;
+    }
+    const list = element("ul", "review-list");
+    for (const group of block.groups) list.append(groupRow(group));
+    if (block.tests.edges > 0) list.append(testsRow(block));
+    wrap.append(list);
+    return wrap;
+  }
+
+  /** A row that opens a nested list on first expand, so a group of a hundred calls costs nothing until asked for. */
+  function openable(className: string, label: string, size: string, fill: (into: HTMLElement) => void): HTMLElement {
+    const item = element("li", `review-row ${className}`);
+    const line = element("div", "review-line");
+    const nested = element("ul", "review-list");
+    nested.hidden = true;
+    const toggle = element("button", "review-toggle", "▸");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", `Expand ${label}`);
+    const open = (): void => {
+      nested.hidden = !nested.hidden;
+      toggle.textContent = nested.hidden ? "▸" : "▾";
+      toggle.setAttribute("aria-expanded", String(!nested.hidden));
+      if (!nested.hidden && nested.childElementCount === 0) fill(nested);
+    };
+    toggle.addEventListener("click", open);
+    const head = element("button", "review-pick");
+    head.type = "button";
+    head.append(element("span", "review-label", label), element("span", "review-size", size));
+    head.addEventListener("click", open);
+    line.append(toggle, head);
+    item.append(line, nested);
+    return item;
+  }
+
+  function groupRow(group: EffectGroup): HTMLElement {
+    const label = `${group.resource} ${targetText(group)}`;
+    const size = `${group.rows.length} ${group.rows.length === 1 ? "call" : "calls"}`;
+    return openable("effect-group", label, size, (into) => {
+      for (const found of group.rows) into.append(effectRow(found));
+    });
+  }
+
+  function testsRow(block: EffectsBlock): HTMLElement {
+    return openable("effect-tests", `in tests (${block.tests.edges})`, "", (into) => {
+      for (const group of block.tests.groups) into.append(groupRow(group));
+    });
+  }
+
+  function effectRow(found: EffectRow): HTMLElement {
+    const item = element("li", "review-row effect-call");
+    const line = element("div", "review-line");
+    line.append(element("span", "review-toggle"));
+    const pick = element("button", "review-pick effect-pick");
+    pick.type = "button";
+    pick.dataset.id = found.id;
+    const where = found.range.start === found.range.end ? `${found.range.start}` : `${found.range.start}-${found.range.end}`;
+    const text = element("span", "contract-text");
+    text.append(element("span", "review-label", found.label), element("span", "contract-where", `${found.operation} · ${found.path}:${where}`));
+    pick.append(text);
+    pick.addEventListener("click", () => {
+      active?.classList.remove("active");
+      active = pick;
+      pick.classList.add("active");
+      input.pickEffect(found);
+    });
+    line.append(pick);
+    item.append(line);
+    return item;
   }
 
   function linkNote(link: LinkNote): string {
@@ -183,7 +284,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     contractsBody.append(element("p", "review-empty", "No exported signature changed."));
   } else {
     const c = report.counts;
-    const parts = (["changed", "removed", "unexported", "exposed", "moved", "added"] as const)
+    const parts = (["changed", "effects", "removed", "unexported", "exposed", "moved", "added"] as const)
       .filter((kind) => c[kind] > 0)
       .map((kind) => `${c[kind]} ${kind}`);
     contractsBody.append(element("p", "review-summary", `${parts.join(", ")}.`));
@@ -214,7 +315,9 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     if (entry.unmentioned) head.append(element("span", "review-flag", "unmentioned"));
     text.append(head, element("span", "contract-where", `${entry.level} in ${entry.path}`));
     const { before, after } = entry.move;
-    if (before !== null && after !== null) {
+    if (kind === "effects") {
+      // Same signature on both sides: the chips are the whole change.
+    } else if (before !== null && after !== null) {
       const diff = signatureDiff(before, after);
       const was = element("span", "contract-sig before");
       was.append(element("span", "contract-side", "before"), diff.prefix, element("mark", "removed", diff.removed), diff.suffix);
@@ -226,11 +329,28 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       only.append(element("span", "contract-side", before !== null ? "was" : "now"), before ?? after ?? "");
       text.append(only);
     }
+    const found = entry.move.effects;
+    if (found !== undefined) text.append(chips(found.added, "+", "added"), chips(found.removed, "−", "removed"));
     pick.append(text);
     pick.addEventListener("click", () => choose(pick, entry.id));
     line.append(pick);
     item.append(line);
     return item;
+  }
+
+  function chips(labels: readonly string[], mark: string, kind: "added" | "removed"): DocumentFragment {
+    const shown = labels.slice(0, MAX_CHIPS);
+    const fragment = document.createDocumentFragment();
+    if (shown.length === 0) return fragment;
+    const line = element("span", "effect-chips");
+    for (const label of shown) {
+      const chip = element("span", `effect-chip ${kind}`, `${mark}${effectChip(label)}`);
+      chip.title = label;
+      line.append(chip);
+    }
+    if (labels.length > shown.length) line.append(element("span", "effect-chip more", `${mark}${labels.length - shown.length} more`));
+    fragment.append(line);
+    return fragment;
   }
 
   function rollupRow(entry: ContractRollup): HTMLElement {
