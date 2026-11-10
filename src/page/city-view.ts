@@ -687,7 +687,9 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     if (pickPending) {
       pickPending = false;
       if (pressed.size === 0) settleHover();
-      else setHovered(undefined);
+      // A press is a click until it travels: keep the hover and its fade so the release picks
+      // the building that was under the pointer, not one the fade had hidden.
+      else if (travelled >= CLICK_SLOP) setHovered(undefined);
       handlers.hover(hovered, pointer ?? { x: 0, y: 0 });
     }
     if (moving || dirty) {
