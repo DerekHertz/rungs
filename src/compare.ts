@@ -11,7 +11,8 @@ export type ModuleChange =
   /** Base only and unpaired, exactly as the base graph has it. A package or folder is removed
    *  when its path is gone. */
   | { readonly kind: "removed"; readonly node: ModuleNode }
-  /** The same id on both sides with a different digest. Containers are never altered. */
+  /** The same id on both sides with a different digest, or the same digest and a different
+   *  contract: exported or not, or another signature. Containers are never altered. */
   | { readonly kind: "altered"; readonly node: Body; readonly before: Body }
   /** Different ids, identical digest, paired by the rules on `compare`. `node` is the head side. */
   | { readonly kind: "moved"; readonly node: Body; readonly from: Body };
@@ -32,6 +33,9 @@ export class ExtractorVersionMismatch extends Error {
     this.head = head;
   }
 }
+
+const contractDiffers = (before: Body, node: Body): boolean =>
+  isCodeNode(before) && isCodeNode(node) && (before.exported !== node.exported || before.signature !== node.signature);
 
 const isBody = (node: ModuleNode): node is Body => node.level !== "package" && node.level !== "folder";
 
@@ -103,7 +107,9 @@ export function compare(base: Graph, head: Graph): Comparison {
 
   for (const node of headBodies.values()) {
     const before = baseBodies.get(node.id);
-    if (before !== undefined && before.digest !== node.digest) changes.push({ kind: "altered", node, before });
+    if (before !== undefined && (before.digest !== node.digest || contractDiffers(before, node))) {
+      changes.push({ kind: "altered", node, before });
+    }
   }
 
   /** Pairs each one-to-one group and reports whether anything paired. */
@@ -147,6 +153,66 @@ export function compare(base: Graph, head: Graph): Comparison {
   }
   changes.sort((a, b) => compareIds(a.node.id, b.node.id));
   return { extractorVersion: head.extractorVersion, changes };
+}
+
+export type ContractMoveKind = "changed" | "added" | "removed" | "exposed" | "unexported" | "moved";
+
+/** One exported class or function whose place in the file's contract changed. */
+export interface ContractMove {
+  readonly kind: ContractMoveKind;
+  /** The head id; the base id for a removed node. */
+  readonly id: NodeId;
+  /** Only for "moved": the base id. */
+  readonly from?: NodeId;
+  /** The exported signature before; null when the node did not exist or was not exported. */
+  readonly before: string | null;
+  /** The exported signature after; null when the node is gone or is no longer exported. */
+  readonly after: string | null;
+}
+
+/**
+ * The exported classes and functions whose contract moved, sorted by id: a signature changed
+ * ("changed"), an exported node appeared or went away ("added", "removed"), a node became
+ * exported or stopped being ("exposed", "unexported"), or an exported node moved to another path,
+ * which changes how it is imported ("moved"). A body edit that leaves the signature alone is not
+ * a move. Exports that are not functions or classes are not recorded yet, so not reported.
+ */
+export function contractsMoved(comparison: Comparison): ContractMove[] {
+  const side = (node: CodeNode): string | null => (node.exported ? node.signature : null);
+  const moves: ContractMove[] = [];
+  for (const change of comparison.changes) {
+    const node = change.node;
+    if (!isCodeNode(node)) continue;
+    switch (change.kind) {
+      case "added":
+        if (node.exported) moves.push({ kind: "added", id: node.id, before: null, after: node.signature });
+        break;
+      case "removed":
+        if (node.exported) moves.push({ kind: "removed", id: node.id, before: node.signature, after: null });
+        break;
+      case "altered": {
+        const before = change.before as CodeNode;
+        if (before.exported && node.exported) {
+          if (before.signature !== node.signature) {
+            moves.push({ kind: "changed", id: node.id, before: before.signature, after: node.signature });
+          }
+        } else if (before.exported) {
+          moves.push({ kind: "unexported", id: node.id, before: before.signature, after: null });
+        } else if (node.exported) {
+          moves.push({ kind: "exposed", id: node.id, before: null, after: node.signature });
+        }
+        break;
+      }
+      case "moved": {
+        const from = change.from as CodeNode;
+        if (from.exported || node.exported) {
+          moves.push({ kind: "moved", id: node.id, from: from.id, before: side(from), after: side(node) });
+        }
+        break;
+      }
+    }
+  }
+  return moves.sort((a, b) => compareIds(a.id, b.id));
 }
 
 /** Per-kind counts of changed files. */
