@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { compare, ExtractorVersionMismatch, serializeComparison, tally } from "../src/compare.ts";
+import { compare, contractsMoved, ExtractorVersionMismatch, serializeComparison, tally } from "../src/compare.ts";
 import type { Comparison, ModuleChange } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import { compareIds } from "../src/graph.ts";
@@ -172,6 +172,8 @@ describe("pairing", () => {
       qualifiedName: name,
       range: { start: 1, end: 1 },
       digest: "d".repeat(32),
+      exported: false,
+      signature: "()",
     });
     const graphOf = (digest: string, node: CodeNode): Graph => ({
       extractorVersion: "5",
@@ -324,5 +326,91 @@ describe("properties over generated trees", () => {
       }
     }
     expect([...seen].sort()).toEqual(["added", "altered", "moved", "removed"]);
+  });
+});
+
+describe("contractsMoved", () => {
+  const moved = (before: Record<string, string>, after: Record<string, string>) =>
+    contractsMoved(compareTrees(before, after)).map((move) => {
+      const sides = `${move.before ?? "-"} => ${move.after ?? "-"}`;
+      return `${move.kind} ${move.id}${move.from === undefined ? "" : ` <- ${move.from}`}: ${sides}`;
+    });
+
+  test("a changed signature of an exported function", () => {
+    expect(
+      moved(
+        { "a.ts": "export function f(a: string): void {}\nexport function same(a) {}\n" },
+        { "a.ts": "export function f(a: string, b: number): void {}\nexport function same(a) {}\n" },
+      ),
+    ).toEqual(["changed function:a.ts#f: (a: string): void => (a: string, b: number): void"]);
+  });
+
+  test("a changed body, a reformatting and a private function are not contracts moved", () => {
+    expect(
+      moved(
+        { "a.ts": "export function f(a: string) { return 1; }\nfunction p(a) {}\n" },
+        { "a.ts": "export function f(\n  a:   string, // renamed nothing\n) { return 2; }\nfunction p(a, b) {}\n" },
+      ),
+    ).toEqual([]);
+  });
+
+  test("a changed public method of an exported class changes the class's signature", () => {
+    expect(
+      moved(
+        { "a.js": "export class A { m(a) {} n() {} }\n" },
+        { "a.js": "export class A { m(a, b) {} n() {} }\n" },
+      ),
+    ).toEqual(["changed class:a.js#A: { m(a); n() } => { m(a, b); n() }"]);
+  });
+
+  test("an exported function added, and one removed with its file", () => {
+    expect(
+      moved(
+        { "a.js": "export function old() {}\n", "gone.js": "export function bye(a) {}\nfunction local() {}\n" },
+        { "a.js": "export function old() {}\nexport function fresh(x) {}\n", "new.js": "export class K {}\nfunction hidden() {}\n" },
+      ),
+    ).toEqual([
+      "added class:new.js#K: - => {}",
+      "added function:a.js#fresh: - => (x)",
+      "removed function:gone.js#bye: (a) => -",
+    ]);
+  });
+
+  test("an export that stops being one, with the body untouched, and one that starts", () => {
+    expect(
+      moved(
+        { "a.js": "function f(a) {}\nfunction g() {}\nexport { f };\n" },
+        { "a.js": "function f(a) {}\nfunction g() {}\nexport { g };\n" },
+      ),
+    ).toEqual(["unexported function:a.js#f: (a) => -", "exposed function:a.js#g: - => ()"]);
+  });
+
+  test("an exported function moved to another file keeps its signature and says where from", () => {
+    expect(
+      moved(
+        { "a.js": "export function f(a) { return a; }\n" },
+        { "b.js": "export function f(a) { return a; }\n" },
+      ),
+    ).toEqual(["moved function:b.js#f <- function:a.js#f: (a) => (a)"]);
+  });
+
+  test("is sorted by id, and empty when nothing exported moved", () => {
+    const result = contractsMoved(
+      compareTrees(
+        { "b.js": "export function z() {}\n", "a.js": "export function y() {}\n" },
+        { "b.js": "export function z(q) {}\n", "a.js": "export function y(q) {}\n" },
+      ),
+    );
+    expect(result.map((move) => move.id)).toEqual(["function:a.js#y", "function:b.js#z"]);
+    expect(contractsMoved(compareTrees({ "a.js": "export function f() {}\n" }, { "a.js": "export function f() {}\n" }))).toEqual([]);
+  });
+
+  test("CommonJS exports count the same way", () => {
+    expect(
+      moved(
+        { "a.js": "function f(a) {}\nmodule.exports = { f };\n" },
+        { "a.js": "function f(a, b) {}\nmodule.exports = { f };\n" },
+      ),
+    ).toEqual(["changed function:a.js#f: (a) => (a, b)"]);
   });
 });

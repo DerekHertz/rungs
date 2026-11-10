@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "6",
+  "extractorVersion": "8",
   "changes": [
     {
       "kind": "added",
@@ -262,7 +262,9 @@
           "start": 1,
           "end": 1
         },
-        "digest": "e899a2594bd5311cb7652bbc7f02ec7c"
+        "digest": "e899a2594bd5311cb7652bbc7f02ec7c",
+        "exported": true,
+        "signature": "()"
       }
     },
     {
@@ -278,7 +280,9 @@
           "start": 1,
           "end": 3
         },
-        "digest": "4726333faa03d21d74696b722e265659"
+        "digest": "4726333faa03d21d74696b722e265659",
+        "exported": true,
+        "signature": "()"
       },
       "from": {
         "id": "function:src/legacy.js#legacy",
@@ -291,7 +295,9 @@
           "start": 1,
           "end": 3
         },
-        "digest": "4726333faa03d21d74696b722e265659"
+        "digest": "4726333faa03d21d74696b722e265659",
+        "exported": true,
+        "signature": "()"
       }
     },
     {
@@ -307,7 +313,9 @@
           "start": 3,
           "end": 5
         },
-        "digest": "6f6182f080fc5be91a28fab1cd026f75"
+        "digest": "6f6182f080fc5be91a28fab1cd026f75",
+        "exported": true,
+        "signature": "(): number"
       }
     },
     {
@@ -323,7 +331,9 @@
           "start": 3,
           "end": 5
         },
-        "digest": "0331b57eeaf75580e4be36f366f07f69"
+        "digest": "0331b57eeaf75580e4be36f366f07f69",
+        "exported": true,
+        "signature": "(): number"
       }
     },
     {
@@ -339,7 +349,9 @@
           "start": 1,
           "end": 3
         },
-        "digest": "114b279c606006a7d6314947da1a94d0"
+        "digest": "114b279c606006a7d6314947da1a94d0",
+        "exported": true,
+        "signature": "(n: number): number"
       },
       "from": {
         "id": "function:test/helpers.ts#double",
@@ -352,7 +364,9 @@
           "start": 1,
           "end": 3
         },
-        "digest": "114b279c606006a7d6314947da1a94d0"
+        "digest": "114b279c606006a7d6314947da1a94d0",
+        "exported": true,
+        "signature": "(n: number): number"
       }
     },
     {
@@ -368,7 +382,9 @@
           "start": 4,
           "end": 6
         },
-        "digest": "adebcd9971b55e7b771448b123240b76"
+        "digest": "adebcd9971b55e7b771448b123240b76",
+        "exported": true,
+        "signature": "(n: number): string"
       }
     },
     {
@@ -384,7 +400,9 @@
           "start": 1,
           "end": 3
         },
-        "digest": "8efccf5a62d0a8c95f65e002151799c6"
+        "digest": "8efccf5a62d0a8c95f65e002151799c6",
+        "exported": true,
+        "signature": "(a: number, b: number): number"
       },
       "before": {
         "id": "function:src/util/math.ts#add",
@@ -397,7 +415,9 @@
           "start": 1,
           "end": 3
         },
-        "digest": "445deb8dc986398848dfa385a0b10fbe"
+        "digest": "445deb8dc986398848dfa385a0b10fbe",
+        "exported": true,
+        "signature": "(a: number, b: number): number"
       }
     },
     {
@@ -413,7 +433,9 @@
           "start": 4,
           "end": 6
         },
-        "digest": "5d4a11a2e4af6235826ccb82d6089787"
+        "digest": "5d4a11a2e4af6235826ccb82d6089787",
+        "exported": true,
+        "signature": "(a: number, b: number): number"
       }
     },
     {

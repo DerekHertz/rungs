@@ -7,7 +7,7 @@ import { adapterFor } from "./adapters.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "6";
+export const EXTRACTOR_VERSION = "8";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -90,6 +90,8 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
         qualifiedName: name,
         range: lineRangeOf(starts, declaration.start, declaration.end),
         digest: digestOf(text.slice(declaration.start, declaration.end)),
+        exported: declaration.exported,
+        signature: declaration.signature,
       });
       visit(declaration.children, id, name);
     }
