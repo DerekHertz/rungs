@@ -1,36 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
-import { parseArgs } from "node:util";
-import { readCheckout } from "./checkout.ts";
+import { readBase, readCheckout } from "./checkout.ts";
+import { parseOptions, USAGE } from "./options.ts";
 import { serve } from "./server.ts";
-
-const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]";
-
-interface Options {
-  readonly dir: string;
-  readonly port: number;
-  readonly open: boolean;
-}
-
-function parseOptions(argv: readonly string[]): Options | string {
-  try {
-    const { values, positionals } = parseArgs({
-      args: [...argv],
-      allowPositionals: true,
-      options: {
-        port: { type: "string", default: "0" },
-        "no-open": { type: "boolean", default: false },
-      },
-    });
-    const port = Number(values.port);
-    if (!Number.isInteger(port) || port < 0 || port > 65535) return `invalid port: ${values.port}`;
-    if (positionals.length > 1) return "expected at most one directory";
-    return { dir: resolve(positionals[0] ?? "."), port, open: !values["no-open"] };
-  } catch (error) {
-    return (error as Error).message;
-  }
-}
 
 const OPENERS: Partial<Record<NodeJS.Platform, (url: string) => [string, string[]]>> = {
   darwin: (url) => ["open", [url]],
@@ -55,9 +27,24 @@ if (typeof options === "string") {
 
 try {
   const tree = await readCheckout(options.dir);
-  const server = await serve(tree, options.port);
-  console.log(`Rungs is showing ${tree.size} files from ${options.dir} at ${server.url}`);
-  if (options.open) openBrowser(server.url);
+  if (options.base === undefined) {
+    const server = await serve(tree, options.port);
+    console.log(`Rungs is showing ${tree.size} files from ${options.dir} at ${server.url}`);
+    if (options.open) openBrowser(server.url);
+  } else {
+    const base = await readBase(options.dir, options.base);
+    const against = { ...base, ref: options.base };
+    const server = await serve(tree, options.port, against);
+    const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
+    for (const change of server.comparison?.changes ?? []) {
+      if (change.node.level === "file") counts[change.kind] += 1;
+    }
+    console.log(
+      `Rungs is comparing ${tree.size.toLocaleString("en-US")} files in ${options.dir} (uncommitted changes included) against ${options.base} at ${base.commit.slice(0, 7)} (merge base): ${counts.added} files added, ${counts.altered} altered, ${counts.removed} removed, ${counts.moved} moved`,
+    );
+    console.log(server.url);
+    if (options.open) openBrowser(server.url);
+  }
 } catch (error) {
   console.error(`rungs: ${(error as Error).message}`);
   process.exit(1);
