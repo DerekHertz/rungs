@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { compareIds, nodeId, qualifiedName } from "../graph.ts";
 import type { CodeNode, FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
@@ -6,7 +7,7 @@ import { adapterFor } from "./adapters.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "4";
+export const EXTRACTOR_VERSION = "5";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -47,6 +48,7 @@ export function extract(tree: FileTree): Graph {
       lines,
       analysis: analysed.has(path) ? "analysed" : "not analysed",
       role: roleOf(path, analysed.has(path)),
+      digest: digestOf(text),
     });
     for (let dir = path; dir !== ""; ) {
       dir = directoryOf(dir);
@@ -87,12 +89,18 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
         parent,
         qualifiedName: name,
         range: lineRangeOf(starts, declaration.start, declaration.end),
+        digest: digestOf(text.slice(declaration.start, declaration.end)),
       });
       visit(declaration.children, id, name);
     }
   };
   visit(declarations, nodeId("file", path, ""), "");
   return nodes;
+}
+
+// node:crypto stays here, out of graph.ts, which the page bundles.
+function digestOf(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 32);
 }
 
 function directoryOf(path: string): string {

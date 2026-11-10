@@ -330,3 +330,69 @@ describe("class and function nodes", () => {
     });
   });
 });
+
+const sha32 = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex").slice(0, 32);
+
+/** The digest of every file and code node, by id. */
+function digestsOf(files: Record<string, string>): Map<string, string> {
+  const graph = extract(new Map(Object.entries(files)));
+  return new Map(graph.nodes.flatMap((node): [string, string][] => ("digest" in node ? [[node.id, node.digest]] : [])));
+}
+
+describe("digests", () => {
+  const source = [
+    "class Box {",
+    "  grow() {",
+    "    const inner = () => 1;",
+    "    return inner();",
+    "  }",
+    "  shrink() {}",
+    "}",
+    "function other() {}",
+    "",
+  ].join("\n");
+
+  test("a file's digest is the sha256 of its text, 32 hex digits", () => {
+    const digests = digestsOf({ "a.ts": source, "notes.md": "hello\n" });
+    expect(digests.get("file:a.ts")).toBe(sha32(source));
+    expect(digests.get("file:notes.md")).toBe(sha32("hello\n"));
+    expect(digests.get("file:a.ts")).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  test("a code node's digest is the sha256 of its declaration, first token to end of body", () => {
+    const digests = digestsOf({ "a.ts": `// leading comment\n${source}` });
+    expect(digests.get("function:a.ts#Box.grow")).toBe(
+      sha32("grow() {\n    const inner = () => 1;\n    return inner();\n  }"),
+    );
+    expect(digests.get("function:a.ts#other")).toBe(sha32("function other() {}"));
+  });
+
+  test("identical text gives an identical digest across files, and a different text a different one", () => {
+    const digests = digestsOf({ "a.ts": source, "lib/b.ts": source, "c.ts": `${source}// more\n` });
+    expect(digests.get("file:lib/b.ts")).toBe(digests.get("file:a.ts"));
+    expect(digests.get("function:lib/b.ts#Box.grow")).toBe(digests.get("function:a.ts#Box.grow"));
+    expect(digests.get("file:c.ts")).not.toBe(digests.get("file:a.ts"));
+    expect(digests.get("class:c.ts#Box")).toBe(digests.get("class:a.ts#Box"));
+  });
+
+  test("an edit inside a nested function changes it and its ancestors, and nothing else", () => {
+    const before = digestsOf({ "a.ts": source });
+    const after = digestsOf({ "a.ts": source.replace("=> 1", "=> 2") });
+    const changed = [...before.keys()].filter((id) => before.get(id) !== after.get(id)).sort();
+    expect(changed).toEqual([
+      "class:a.ts#Box",
+      "file:a.ts",
+      "function:a.ts#Box.grow",
+      "function:a.ts#Box.grow.inner",
+    ]);
+  });
+
+  test("whitespace outside a function leaves its digest alone, and lines shifting above it too", () => {
+    const before = digestsOf({ "a.ts": source });
+    const after = digestsOf({ "a.ts": `\n\n// new header\n${source.replace("}\nfunction other", "}\n\n\nfunction other")}  \n` });
+    expect(after.get("function:a.ts#other")).toBe(before.get("function:a.ts#other"));
+    expect(after.get("function:a.ts#Box.shrink")).toBe(before.get("function:a.ts#Box.shrink"));
+    expect(after.get("class:a.ts#Box")).toBe(before.get("class:a.ts#Box"));
+    expect(after.get("file:a.ts")).not.toBe(before.get("file:a.ts"));
+  });
+});
