@@ -100,3 +100,51 @@ test("compare without a base is a usage error, exit 2", () => {
   expect(result.status).toBe(2);
   expect(result.stderr).toContain("       rungs compare <base> [dir]");
 });
+
+function startCompare(dir: string, extra: string[], input?: string) {
+  const child = spawn("node", [cli, "compare", "main", "--no-open", "--port", "0", ...extra], { cwd: dir });
+  if (input !== undefined) child.stdin.end(input);
+  const url = new Promise<string>((resolve, reject) => {
+    let out = "";
+    child.stdout.on("data", (chunk) => {
+      out += chunk;
+      const all = out.split("\n");
+      if (all.length >= 3) resolve(all[1] ?? "");
+    });
+    child.once("exit", () => reject(new Error(`exited early: ${out}`)));
+  });
+  return { child, url };
+}
+
+const claims = async (url: string) => (await (await fetch(new URL("claims.json", url))).json()) as { description: string | null };
+
+test("--description reads a file, and - reads stdin", async () => {
+  const dir = repo();
+  write(dir, "pr.md", "Reworks src/a.ts.\n");
+  const fromFile = startCompare(dir, ["--description", "pr.md"]);
+  const fromStdin = startCompare(dir, ["--description", "-"], "From stdin.\n");
+  try {
+    expect((await claims(await fromFile.url)).description).toBe("Reworks src/a.ts.\n");
+    expect((await claims(await fromStdin.url)).description).toBe("From stdin.\n");
+  } finally {
+    fromFile.child.kill();
+    fromStdin.child.kill();
+  }
+});
+
+test("without --description the claims are null, never guessed", async () => {
+  const dir = repo();
+  const none = startCompare(dir, []);
+  try {
+    expect((await claims(await none.url)).description).toBeNull();
+  } finally {
+    none.child.kill();
+  }
+});
+
+test("an unreadable --description file prints one line and exits 1", () => {
+  const result = run(["compare", "main", "--no-open", "--description", "missing.md"], repo());
+  expect(result.status).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toMatch(/^rungs: .*missing\.md/);
+});

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { text } from "node:stream/consumers";
 import { readBase, readCheckout } from "./checkout.ts";
 import { parseOptions, USAGE } from "./options.ts";
 import { serve } from "./server.ts";
@@ -34,7 +36,13 @@ try {
   } else {
     const base = await readBase(options.dir, options.base);
     const against = { ...base, ref: options.base };
-    const server = await serve(tree, options.port, against);
+    const description =
+      options.description === undefined
+        ? undefined
+        : options.description === "-"
+          ? await text(process.stdin)
+          : await readFile(options.description, "utf8");
+    const server = await serve(tree, options.port, against, description);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;
