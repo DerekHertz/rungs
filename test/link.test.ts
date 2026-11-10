@@ -185,6 +185,7 @@ test("the CLI runner fails with one line when the command is missing, exits non-
     [stub(`console.log("null"); process.exit(2);`), "exited with 2"],
     [stub(`console.log(JSON.stringify({ is_error: true, result: "Not logged in" }));`), "Not logged in"],
     [stub(`console.log(JSON.stringify({ is_error: false, result: "x" }));`), "no structured output"],
+    [stub(`console.log('{"is_error":true,"result":{"toString":null}}');`), "reported an error"],
     [stub(`setTimeout(() => {}, 60000);`), "timed out"],
   ];
   for (const [command, expected] of cases) {

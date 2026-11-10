@@ -175,6 +175,14 @@ export function claudeRunner(command = "claude"): AgentRunner {
         });
         child.on("close", (code) => {
           clearTimeout(timer);
+          // Whatever the reply holds, a throw here must reject, never escape the promise.
+          try {
+            settle(code);
+          } catch (error) {
+            reject(new Error(`claude CLI reply could not be read: ${oneLine(error instanceof Error ? error.message : "unknown error")}`));
+          }
+        });
+        const settle = (code: number | null): void => {
           if (timedOut) return reject(new Error(`claude CLI timed out after ${Math.round(timeoutMs / 1000)}s`));
           let parsed: unknown;
           try {
@@ -187,11 +195,11 @@ export function claudeRunner(command = "claude"): AgentRunner {
           }
           const reply = parsed as { is_error?: boolean; result?: unknown; structured_output?: unknown; modelUsage?: unknown };
           if (code !== 0 || reply.is_error === true) {
-            return reject(new Error(`claude CLI ${code !== 0 ? `exited with ${code}` : "reported an error"}: ${oneLine(String(reply.result ?? stderr))}`));
+            return reject(new Error(`claude CLI ${code !== 0 ? `exited with ${code}` : "reported an error"}: ${oneLine(typeof reply.result === "string" ? reply.result : stderr)}`));
           }
           if (reply.structured_output === undefined) return reject(new Error("claude CLI returned no structured output"));
           resolve({ output: reply.structured_output, model: (typeof reply.modelUsage === "object" && reply.modelUsage !== null ? Object.keys(reply.modelUsage)[0] : undefined) ?? "unknown" });
-        });
+        };
         child.stdin.end(prompt);
       });
     },
