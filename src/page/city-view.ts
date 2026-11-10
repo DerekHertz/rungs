@@ -631,6 +631,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     const dy = event.clientY - last.y;
     pressed.set(event.pointerId, { x: event.clientX, y: event.clientY });
     travelled = Math.max(travelled, Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y));
+    if (travelled >= CLICK_SLOP && hovered !== undefined) pickPending = true;
     if (pressed.size === 1) drag(dx, dy);
   });
   const release = (event: PointerEvent): void => {

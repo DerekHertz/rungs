@@ -126,6 +126,7 @@ function focusOn(id: NodeId): void {
 }
 
 function resetView(): void {
+  cancelPending();
   focus = cityRoot;
   showTrail();
   view.reset();
