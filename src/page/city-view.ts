@@ -445,6 +445,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     const entry = districts.get(id);
     if (entry === undefined) return;
     Object.assign(target, framing(target, regionOf(entry.district)));
+    // The wheel's bounds hold for flying too, so a tiny district never zooms past them.
+    target.ppu = Math.min(fit * ZOOM_RANGE.max, Math.max(fit * ZOOM_RANGE.min, target.ppu));
     focus = id;
     dirty = true;
   }
