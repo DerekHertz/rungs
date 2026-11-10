@@ -8,17 +8,19 @@ interface Style {
   readonly text: string;
 }
 
-type Look = "package" | "folder" | "analysed" | "not analysed";
+type Look = "package" | "folder" | "analysed" | "not analysed" | "generated";
 
 const STYLES: Readonly<Record<Look, Style>> = {
   package: { fill: "#1d3b2a", edge: "#3f7a55", text: "#b9e4c6" },
   folder: { fill: "#1f2a3a", edge: "#3e5677", text: "#b8c8de" },
   analysed: { fill: "#2f6f8f", edge: "#173a4b", text: "#eaf6fc" },
   "not analysed": { fill: "#3a3a3a", edge: "#232323", text: "#a8a8a8" },
+  generated: { fill: "#2c2733", edge: "#1c1921", text: "#9a92a8" },
 };
 
 function lookOf(node: ModuleNode): Look {
-  return node.level === "file" ? node.analysis : node.level;
+  if (node.level !== "file") return node.level;
+  return node.generated ? "generated" : node.analysis;
 }
 
 function displayName(node: ModuleNode): string {
@@ -96,7 +98,7 @@ function draw(): void {
     if (node.level !== "file") {
       if (reservesLabelBand(rect)) label([displayName(node)], { ...rect, h: LABEL_BAND }, style.text);
     } else {
-      label(look === "not analysed" ? [node.name, "not analysed"] : [node.name], rect, style.text);
+      label(look === "analysed" ? [node.name] : [node.name, look], rect, style.text);
     }
   }
 }
@@ -115,7 +117,7 @@ canvas.addEventListener("mousemove", (event) => {
     return;
   }
   const facts = [`${node.level} ${node.path === "" ? "/" : node.path}`, `${node.lines} lines`];
-  if (node.level === "file") facts.push(node.analysis);
+  if (node.level === "file") facts.push(node.generated ? "generated" : node.analysis);
   tooltip.textContent = facts.join("\n");
   tooltip.style.display = "block";
   tooltip.style.left = `${Math.min(event.clientX + 12, window.innerWidth - tooltip.offsetWidth - 4)}px`;
