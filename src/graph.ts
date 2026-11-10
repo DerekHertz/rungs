@@ -27,6 +27,7 @@ export interface FileNode extends NodeBase {
   readonly level: "file";
   readonly parent: NodeId;
   readonly analysis: Analysis;
+  readonly generated: boolean;
 }
 
 export type ModuleNode = ContainerNode | FileNode;
@@ -51,7 +52,7 @@ function canonicalNode(node: ModuleNode): object {
     parent: node.parent,
     lines: node.lines,
   };
-  return node.level === "file" ? { ...base, analysis: node.analysis } : base;
+  return node.level === "file" ? { ...base, analysis: node.analysis, generated: node.generated } : base;
 }
 
 export function serializeGraph(graph: Graph): string {
