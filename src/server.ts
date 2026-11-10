@@ -10,6 +10,7 @@ import { extract } from "./extract/extract.ts";
 import { isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { sliceLines } from "./lines.ts";
+import { pseudocode } from "./pseudocode.ts";
 import { splitClaims } from "./claims.ts";
 import type { Claim } from "./claims.ts";
 import type { LinkOutcome } from "./link.ts";
@@ -35,6 +36,11 @@ interface Resource {
  * Serves one snapshot: the page, its script, the graph extracted from `tree`, and `GET /source?id=`,
  * which answers with exactly the lines of the node with that id from the same snapshot. Packages,
  * folders and unknown ids have no source and get 404.
+ *
+ * `GET /pseudocode?id=` answers with one function's outline as a derived fact: its control
+ * structure through a fixed template, each line with its source line range, computed from the
+ * same snapshot on request and never stored (404 for anything but a function; a removed one is
+ * outlined from the base tree). The page's source panel and the walkthrough's Code column read it.
  *
  * Given `base`, it also serves `GET /comparison.json`, `GET /contracts.json` and `GET /claims.json`
  * (404 otherwise). The contracts are the comparison's contract moves as a derived fact, kept in
@@ -103,8 +109,23 @@ export async function serve(
     return isCodeNode(node) ? sliceLines(text, node.range) : text;
   }
 
+  function pseudocodeOf(id: string | null): string | undefined {
+    if (id === null) return undefined;
+    const ghost = removed.has(id as NodeId);
+    const lines = ghost
+      ? baseGraph === undefined || baseTree === undefined ? undefined : pseudocode(baseGraph, baseTree, id as NodeId)
+      : pseudocode(graph, tree, id as NodeId);
+    return lines === undefined ? undefined : `${JSON.stringify({ tier: "derived", id, lines }, null, 2)}\n`;
+  }
+
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname === "/pseudocode") {
+      const body = pseudocodeOf(url.searchParams.get("id"));
+      if (body === undefined) response.writeHead(404).end();
+      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(body);
+      return;
+    }
     if (url.pathname === "/source") {
       const text = sourceOf(url.searchParams.get("id"));
       if (text === undefined) response.writeHead(404).end();

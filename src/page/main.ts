@@ -8,6 +8,7 @@ import type { FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } fro
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
 import { contractsReport, newEffects, unmentioned, unmentionedIds } from "../review.ts";
 import type { EffectRow, ReviewEntry } from "../review.ts";
+import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
 import { EFFECT_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
 import { renderReview } from "./review-panel.ts";
@@ -25,6 +26,7 @@ const panelFacts = document.querySelector<HTMLElement>("#source-facts")!;
 const panelGutter = document.querySelector<HTMLElement>("#source-gutter")!;
 const panelCode = document.querySelector<HTMLElement>("#source-code")!;
 const panelBody = document.querySelector<HTMLElement>("#source-body")!;
+const outlinePane = document.querySelector<HTMLElement>("#outline")!;
 const panelMark = document.querySelector<HTMLElement>("#source-mark")!;
 const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
 
@@ -263,7 +265,44 @@ function showSource(node: ModuleNode, text: string): void {
   panelCode.textContent = text;
   panelBody.scrollTop = panelBody.scrollLeft = 0;
   panelMark.hidden = true;
+  outlinePane.hidden = true;
   panel.hidden = false;
+}
+
+const EXIT_KINDS: ReadonlySet<string> = new Set(["return", "throw", "break", "continue"]);
+
+/** The function's outline above its source: a line selects its source lines, a function line also opens that node. */
+function showOutline(node: ModuleNode, lines: readonly PseudoLine[]): void {
+  const rows = lines.map((line) => {
+    const row = document.createElement("div");
+    row.className = "outline-line";
+    row.style.paddingLeft = `calc(10px + ${line.depth * 1.6}ch)`;
+    const at = document.createElement("span");
+    at.className = "at";
+    at.textContent = line.range.start === line.range.end ? `L${line.range.start}` : `L${line.range.start}-${line.range.end}`;
+    const text = document.createElement("span");
+    text.className = EXIT_KINDS.has(line.kind) ? "exit" : line.kind === "effect" ? "effect" : line.kind === "straight" ? "quiet" : "";
+    text.textContent = line.text;
+    row.append(at, text);
+    row.addEventListener("click", () => {
+      for (const other of outlinePane.children) other.classList.toggle("on", other === row);
+      markLines(node, line.range);
+    });
+    if (line.node !== undefined) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = "open";
+      const target = line.node;
+      open.addEventListener("click", (event) => {
+        event.stopPropagation();
+        pickNode(target);
+      });
+      row.append(open);
+    }
+    return row;
+  });
+  outlinePane.replaceChildren(...rows);
+  outlinePane.hidden = rows.length === 0;
 }
 
 /** Selects `node`, showing its source and outlining `outline` on the picture. */
@@ -277,8 +316,12 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   if (!response.ok) return closePanel();
   const text = await response.text();
   if (ticket !== requested) return;
+  const outlined = node.level === "function" ? await fetch(`/pseudocode?id=${encodeURIComponent(node.id)}`) : undefined;
+  const pseudo = outlined?.ok ? ((await outlined.json()) as { lines: PseudoLine[] }).lines : [];
+  if (ticket !== requested) return;
   selected = node.id;
   showSource(node, text);
+  showOutline(node, pseudo);
   markLines(node, marked);
   chosenKind = undefined;
   view.select(outline, isCodeNode(node) ? reachOf(reaches, node.id) : undefined);

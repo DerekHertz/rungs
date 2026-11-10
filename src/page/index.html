@@ -420,6 +420,44 @@
         background: #1f2a3a;
         color: #e8edf2;
       }
+      #outline {
+        flex: none;
+        max-height: 60%;
+        overflow: auto;
+        padding: 4px 0;
+        border-bottom: 1px solid #263140;
+        line-height: 1.5;
+      }
+      #outline[hidden] {
+        display: none;
+      }
+      .outline-line {
+        display: flex;
+        gap: 8px;
+        padding: 0 10px;
+        cursor: pointer;
+        white-space: pre;
+      }
+      .outline-line:hover {
+        background: #16202c;
+      }
+      .outline-line.on {
+        background: #ffd84a2e;
+      }
+      .outline-line .at {
+        flex: none;
+        width: 10ch;
+        color: #5b6b7e;
+      }
+      .outline-line .exit {
+        color: #ff9d6b;
+      }
+      .outline-line .effect {
+        color: #ff7ab8;
+      }
+      .outline-line .quiet {
+        color: #8a9bb0;
+      }
       #source-mark {
         position: absolute;
         left: 0;
@@ -517,6 +555,7 @@
           <div id="source-facts"></div>
           <button id="source-close" type="button" aria-label="Close source">&times;</button>
         </header>
+        <div id="outline" aria-label="Pseudocode" hidden></div>
         <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre><div id="source-mark" hidden></div></div>
       </aside>
     </div>
