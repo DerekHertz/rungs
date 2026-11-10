@@ -1,6 +1,6 @@
 import { isCodeNode, lineCount } from "../graph.ts";
-import type { Graph, ModuleNode, NodeId } from "../graph.ts";
-import { LABEL_BAND, layout, reservesLabelBand } from "../layout.ts";
+import type { Graph, ModuleNode, NodeId, Role } from "../graph.ts";
+import { GENERATED_WEIGHT, LABEL_BAND, layout, reservesLabelBand } from "../layout.ts";
 import type { Rect } from "../layout.ts";
 import { indexGraph, trail, zoomOut, zoomTarget } from "../zoom.ts";
 
@@ -10,21 +10,66 @@ interface Style {
   readonly text: string;
 }
 
-type Look = "package" | "folder" | "analysed" | "not analysed" | "generated" | "class" | "function";
+const BACKGROUND = "#10141a";
 
-const STYLES: Readonly<Record<Look, Style>> = {
-  package: { fill: "#1d3b2a", edge: "#3f7a55", text: "#b9e4c6" },
-  folder: { fill: "#1f2a3a", edge: "#3e5677", text: "#b8c8de" },
-  analysed: { fill: "#2f6f8f", edge: "#173a4b", text: "#eaf6fc" },
-  "not analysed": { fill: "#3a3a3a", edge: "#232323", text: "#a8a8a8" },
-  generated: { fill: "#2c2733", edge: "#1c1921", text: "#9a92a8" },
-  class: { fill: "#8a5a2b", edge: "#47301a", text: "#fbefdc" },
-  function: { fill: "#6b5aa8", edge: "#352d55", text: "#f1eefb" },
+// Okabe-Ito, so the picture stays readable with any colour vision. Colour means one thing here,
+// a file's role; levels are told apart by frames and a slight depth shade.
+const ROLE_COLORS: Readonly<Record<Role | "none", string>> = {
+  source: "#56B4E9",
+  tests: "#009E73",
+  docs: "#F0E442",
+  config: "#0072B2",
+  generated: "#D55E00",
+  none: "#c9ced6",
 };
 
-function lookOf(node: ModuleNode): Look {
-  if (node.level !== "file") return node.level;
-  return node.role === "generated" ? "generated" : node.analysis;
+const ROLE_NAMES: readonly (Role | "none")[] = ["source", "tests", "docs", "config", "generated", "none"];
+
+// How far the role colour is mixed toward the background at each depth.
+const DEPTH_SHADE: Readonly<Record<"file" | "class" | "function", number>> = {
+  file: 0.25,
+  class: 0.4,
+  function: 0.52,
+};
+
+const PACKAGE_FILL = "#1d2a24";
+const FOLDER_FILL = "#1a222e";
+
+function rgb(hex: string): [number, number, number] {
+  return [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)) as [number, number, number];
+}
+
+function mix(hex: string, toward: string, amount: number): string {
+  const from = rgb(hex);
+  const to = rgb(toward);
+  return `rgb(${from.map((channel, at) => Math.round(channel + (to[at]! - channel) * amount)).join(",")})`;
+}
+
+function luminance(color: string): number {
+  const [r, g, b] = (color.startsWith("#") ? rgb(color) : color.slice(4, -1).split(",").map(Number)).map((channel) => {
+    const unit = (channel ?? 0) / 255;
+    return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function inkOn(fill: string): string {
+  return luminance(fill) > 0.18 ? "#10141a" : "#f4f7fa";
+}
+
+function roleKey(role: Role | null): Role | "none" {
+  return role ?? "none";
+}
+
+function roleStyle(role: Role | null, level: "file" | "class" | "function"): Style {
+  const color = ROLE_COLORS[roleKey(role)];
+  const fill = mix(color, BACKGROUND, DEPTH_SHADE[level]);
+  return { fill, edge: mix(color, BACKGROUND, 0.7), text: inkOn(fill) };
+}
+
+function containerStyle(node: ModuleNode, dominant: Role | "none"): Style {
+  const fill = node.level === "package" ? PACKAGE_FILL : FOLDER_FILL;
+  return { fill, edge: mix(ROLE_COLORS[dominant], BACKGROUND, 0.25), text: "#b8c8de" };
 }
 
 function displayName(node: ModuleNode): string {
@@ -46,6 +91,9 @@ const context = canvas.getContext("2d")!;
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
 const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
 const tree = indexGraph(graph);
+const roleByPath = new Map<string, Role | null>();
+const dominantRole = new Map<NodeId, Role | "none">();
+tallyRoles();
 let zoomRoot = tree.root;
 let rects: Rect[] = [];
 let selected: NodeId | undefined;
@@ -63,11 +111,36 @@ function cancelPending(): void {
   requested++;
 }
 
-function hatch(): CanvasPattern {
+// The role covering the most area under each package and folder, which tints its frame. A
+// generated file counts at its capped weight, as the layout draws it.
+function tallyRoles(): void {
+  const totals = new Map<NodeId, Map<Role | "none", number>>();
+  for (const node of graph.nodes) {
+    if (node.level !== "file") continue;
+    roleByPath.set(node.path, node.role);
+    const weight = node.role === "generated" ? Math.min(node.lines, GENERATED_WEIGHT) : node.lines;
+    for (let id: NodeId | null = node.parent; id !== null; id = nodes.get(id)!.parent) {
+      const byRole = totals.get(id) ?? new Map<Role | "none", number>();
+      byRole.set(roleKey(node.role), (byRole.get(roleKey(node.role)) ?? 0) + weight);
+      totals.set(id, byRole);
+    }
+  }
+  for (const [id, byRole] of totals) {
+    let best: Role | "none" = "none";
+    let bestLines = 0;
+    for (const role of ROLE_NAMES) {
+      const lines = byRole.get(role) ?? 0;
+      if (lines > bestLines) [best, bestLines] = [role, lines];
+    }
+    dominantRole.set(id, best);
+  }
+}
+
+function hatch(stroke: string): CanvasPattern {
   const tile = document.createElement("canvas");
   tile.width = tile.height = 6;
   const pen = tile.getContext("2d")!;
-  pen.strokeStyle = "#555";
+  pen.strokeStyle = stroke;
   pen.beginPath();
   pen.moveTo(0, 6);
   pen.lineTo(6, 0);
@@ -173,7 +246,7 @@ function draw(): void {
   context.setTransform(scale, 0, 0, scale, 0, 0);
   context.font = "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   context.textBaseline = "top";
-  const pattern = hatch();
+  const hatches = { dark: hatch("rgba(0,0,0,0.22)"), light: hatch("rgba(255,255,255,0.2)") };
 
   rects = layout(graph, zoomRoot, width, height);
   if (selected !== undefined && !rects.some((rect) => rect.id === selected)) {
@@ -183,27 +256,37 @@ function draw(): void {
   const hasPlacedChildren = new Set(rects.map((rect) => nodes.get(rect.id)!.parent));
   for (const rect of rects) {
     const node = nodes.get(rect.id)!;
-    const look = lookOf(node);
-    const style = STYLES[look];
+    const role = isCodeNode(node) ? (roleByPath.get(node.path) ?? null) : node.level === "file" ? node.role : null;
+    const style =
+      node.level === "package" || node.level === "folder"
+        ? containerStyle(node, dominantRole.get(node.id) ?? "none")
+        : roleStyle(role, node.level);
     const x = Math.round(rect.x);
     const y = Math.round(rect.y);
     const w = Math.round(rect.x + rect.w) - x;
     const h = Math.round(rect.y + rect.h) - y;
     context.fillStyle = style.fill;
     context.fillRect(x, y, w, h);
-    if (look === "not analysed") {
-      context.fillStyle = pattern;
+    const notAnalysed = node.level === "file" && node.analysis === "not analysed";
+    if (notAnalysed) {
+      context.fillStyle = style.text === "#10141a" ? hatches.dark : hatches.light;
       context.fillRect(x, y, w, h);
     }
     context.strokeStyle = style.edge;
-    context.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    if (node.level === "package" || node.level === "folder") {
+      context.lineWidth = 2;
+      context.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      context.lineWidth = 1;
+    } else {
+      context.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    }
 
     if (node.level === "package" || node.level === "folder") {
       if (reservesLabelBand(rect)) label([displayName(node)], { ...rect, h: LABEL_BAND }, style.text);
     } else if (hasPlacedChildren.has(node.id)) {
       label([displayName(node)], { ...rect, h: LABEL_BAND }, style.text);
     } else if (node.level === "file") {
-      label(look === "analysed" ? [node.name] : [node.name, look], rect, style.text);
+      label(notAnalysed ? [node.name, "not analysed"] : [node.name], rect, style.text);
     } else {
       label([displayName(node)], rect, style.text);
     }
@@ -212,7 +295,7 @@ function draw(): void {
   const outlined = rects.find((rect) => rect.id === selected);
   if (outlined !== undefined) {
     context.lineWidth = 2;
-    context.strokeStyle = "#ffd84a";
+    context.strokeStyle = "#ffffff";
     const x = Math.round(outlined.x);
     const y = Math.round(outlined.y);
     const w = Math.round(outlined.x + outlined.w) - x;
@@ -239,7 +322,11 @@ canvas.addEventListener("mousemove", (event) => {
   const facts = isCodeNode(node)
     ? [`${node.level} ${node.name}`, node.path, `${lineCount(node)} lines`, `lines ${node.range.start}-${node.range.end}`]
     : [`${node.level} ${node.path === "" ? "/" : node.path}`, `${lineCount(node)} lines`];
-  if (node.level === "file") facts.push(node.role === "generated" ? "generated" : node.analysis);
+  if (node.level === "file") facts.push(node.analysis);
+  if (isCodeNode(node) || node.level === "file") {
+    const role = isCodeNode(node) ? roleByPath.get(node.path) : node.role;
+    facts.push(`role: ${role ?? "none"}`);
+  }
   tooltip.textContent = facts.join("\n");
   tooltip.style.display = "block";
   tooltip.style.left = `${Math.min(event.clientX + 12, window.innerWidth - tooltip.offsetWidth - 4)}px`;
@@ -272,5 +359,15 @@ window.addEventListener("keydown", (event) => {
   if (selected !== undefined) closePanel();
   else zoomTo(zoomOut(tree, zoomRoot));
 });
+const legend = document.querySelector<HTMLElement>("#legend")!;
+legend.replaceChildren(
+  ...ROLE_NAMES.map((role) => {
+    const entry = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.style.background = ROLE_COLORS[role];
+    entry.append(swatch, role);
+    return entry;
+  }),
+);
 window.addEventListener("resize", draw);
 draw();
