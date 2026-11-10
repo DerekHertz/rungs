@@ -23,7 +23,7 @@ export const FOOTPRINT_INSET = 0.05;
 export const ROLE_ORDER: readonly Role[] = ["source", "tests", "docs", "config", "generated"];
 
 /** The resource plates stand in a row this far beyond the plan's far edge, each this big, this far apart. */
-export const RESOURCE_PLATE = { w: 120, d: 48, gap: 40, offset: 48 };
+export const RESOURCE_PLATE = { w: 130, d: 70, gap: 40, offset: 48, height: 6 };
 
 /** An outside resource: a low plate at the edge of the picture, for every kind some effect edge reaches. */
 export interface Resource {

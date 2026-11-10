@@ -22,7 +22,7 @@ import {
   WebGLRenderer,
 } from "three";
 import type { Object3D } from "three";
-import { PLATE_HEIGHT } from "../city.ts";
+import { PLATE_HEIGHT, RESOURCE_PLATE } from "../city.ts";
 import type { Building, City, District, Reach, Resource } from "../city.ts";
 import { tallyText } from "../compare.ts";
 import type { Change } from "../compare.ts";
@@ -97,8 +97,8 @@ const NAME_LIFT = 3;
 const EFFECT = EFFECT_COLOR;
 const EFFECT_OLD = 0.4;
 const BEAM = { fresh: 2.4, old: 1.4 };
-const MAST = { height: 9, share: 0.14, least: 2.5 };
-const PLATE = { fill: "#c9ced6", rest: "#8a94a3", chosen: "#ffffff" };
+const MAST = { height: 14, share: 0.2, least: 3 };
+const PLATE = { fill: "#c9ced6", rest: "#c9ced6", chosen: "#ffffff" };
 
 /** Where the camera looks and how: turning, tilt, pixels per plan unit, and the ground point centred. */
 interface Pose {
@@ -446,15 +446,15 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   function addResource(resource: Resource): void {
     const rest = new LineBasicMaterial({ color: PLATE.rest });
     const lit = new LineBasicMaterial({ color: PLATE.chosen });
-    const entry = place(resource.x, resource.y, resource.w, resource.d, 0, PLATE_HEIGHT, plateMaterial(onBackground(PLATE.fill, 0.18)), rest);
+    const entry = place(resource.x, resource.y, resource.w, resource.d, 0, RESOURCE_PLATE.height, plateMaterial(onBackground(PLATE.fill, 0.5)), rest);
     resourceOf.set(entry.mesh, resource.kind);
     plates.set(resource.kind, {
       ...entry,
       resource,
       rest,
       chosen: lit,
-      anchor: new Vector3(worldX(resource.x + resource.w / 2), PLATE_HEIGHT + NAME_LIFT, worldZ(resource.y + resource.d / 2)),
-      top: new Vector3(worldX(resource.x + resource.w / 2), PLATE_HEIGHT, worldZ(resource.y + resource.d / 2)),
+      anchor: new Vector3(worldX(resource.x + resource.w / 2), RESOURCE_PLATE.height + NAME_LIFT, worldZ(resource.y + resource.d / 2)),
+      top: new Vector3(worldX(resource.x + resource.w / 2), RESOURCE_PLATE.height, worldZ(resource.y + resource.d / 2)),
     });
   }
 
