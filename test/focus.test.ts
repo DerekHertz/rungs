@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { cityOf, MAX_HEIGHT, PLATE_HEIGHT } from "../src/city.ts";
+import { pictureOf } from "../src/compare.ts";
 import { flyTarget, namedDistricts, regionTop } from "../src/focus.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { NodeId } from "../src/graph.ts";
@@ -9,7 +10,7 @@ import { readFixtureTree } from "./fixture-tree.ts";
 
 const graph = extract(readFixtureTree(fileURLToPath(new URL("fixtures/small", import.meta.url))));
 const tree = indexGraph(graph);
-const city = cityOf(graph, tree.root);
+const city = cityOf(pictureOf(graph, null), tree.root);
 const id = (value: string) => value as NodeId;
 const named = (focus: NodeId): [string, number][] =>
   namedDistricts(city.districts, focus)

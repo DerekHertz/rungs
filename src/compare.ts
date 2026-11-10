@@ -1,5 +1,5 @@
 import { canonicalNode, compareIds, isCodeNode, nodeId } from "./graph.ts";
-import type { CodeNode, FileNode, Graph, ModuleNode, NodeId } from "./graph.ts";
+import type { CodeNode, ContainerNode, FileNode, Graph, ModuleNode, NodeId } from "./graph.ts";
 
 export type ChangeKind = "added" | "altered" | "removed" | "moved";
 
@@ -197,4 +197,122 @@ export function serializeComparison(comparison: Comparison): string {
     }
   });
   return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes }, null, 2)}\n`;
+}
+
+export type Change = ChangeKind | "unchanged";
+
+const NO_CHANGES: Tally = { added: 0, altered: 0, removed: 0, moved: 0 };
+
+export interface Overlay {
+  /** "unchanged" for an id with no entry. */
+  change(id: NodeId): Change;
+  entry(id: NodeId): ModuleChange | undefined;
+  /**
+   * A package or folder, a ghost one included, counts the changed files below it. A file counts
+   * its changed classes and functions, the removed ones that are not in the picture's graph
+   * included. Zeros for anything else, and for what has not changed.
+   */
+  tally(id: NodeId): Tally;
+}
+
+export interface Picture {
+  /**
+   * What is laid out: the head graph, and under a comparison the ghosts after it. A ghost is a
+   * removed file, its classes and functions that were removed with it, and a removed package or
+   * folder, all as the base graph had them but standing in the head's directory at their path, or
+   * in a ghost one. A function removed from a file that stays is in the comparison, not here.
+   */
+  readonly graph: Graph;
+  readonly overlay: Overlay | null;
+}
+
+const directoryOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf("/")));
+
+function ancestorsOf(path: string): string[] {
+  const dirs: string[] = [];
+  for (let dir = directoryOf(path); dir !== ""; dir = directoryOf(dir)) dirs.push(dir);
+  return dirs;
+}
+
+/** `pictureOf(head, null)` is the plain picture. It lays nothing out; city.ts does. */
+export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
+  if (comparison === null) return { graph: head, overlay: null };
+
+  const entries = new Map<NodeId, ModuleChange>(comparison.changes.map((change) => [change.node.id, change]));
+  const removed = (level: (node: ModuleNode) => boolean): ModuleNode[] =>
+    comparison.changes.flatMap((change) => (change.kind === "removed" && level(change.node) ? [change.node] : []));
+
+  const removedFiles = removed((node) => node.level === "file");
+  const removedPaths = new Set(removedFiles.map((node) => node.path));
+  const removedDirectories = new Map<string, ModuleNode>();
+  for (const node of removed((n) => !isBody(n))) removedDirectories.set(node.path, node);
+  // Only a directory that a removed file stood in is drawn. One whose files all moved is not.
+  const ghostContainers: ModuleNode[] = [];
+  for (const dir of new Set(removedFiles.flatMap((file) => ancestorsOf(file.path)))) {
+    const node = removedDirectories.get(dir);
+    if (node !== undefined) ghostContainers.push(node);
+  }
+  ghostContainers.sort((a, b) => a.path.length - b.path.length);
+
+  const directoryAt = new Map<string, NodeId>();
+  for (const node of head.nodes) if (!isBody(node)) directoryAt.set(node.path, node.id);
+  for (const node of ghostContainers) directoryAt.set(node.path, node.id);
+  const standIn = (path: string): NodeId => {
+    for (let dir = directoryOf(path); ; dir = directoryOf(dir)) {
+      const found = directoryAt.get(dir);
+      if (found !== undefined) return found;
+      if (dir === "") throw new Error(`no directory to stand ${path} in`);
+    }
+  };
+
+  const ghosts: ModuleNode[] = [];
+  const present = new Set<NodeId>(head.nodes.map((node) => node.id));
+  for (const node of ghostContainers) {
+    ghosts.push({ ...(node as ContainerNode), parent: standIn(node.path) });
+    present.add(node.id);
+  }
+  for (const node of removedFiles) {
+    ghosts.push({ ...(node as FileNode), parent: standIn(node.path) });
+    present.add(node.id);
+  }
+  // A removed file's code is removed, or moved away: a move's `from` is the base node.
+  const pending = comparison.changes.flatMap((change): CodeNode[] => {
+    const base = change.kind === "removed" ? change.node : change.kind === "moved" ? change.from : undefined;
+    return base !== undefined && isCodeNode(base) && removedPaths.has(base.path) ? [base] : [];
+  });
+  for (let progress = true; progress; ) {
+    progress = false;
+    for (const node of pending) {
+      if (present.has(node.id) || !present.has(node.parent)) continue;
+      ghosts.push(node);
+      present.add(node.id);
+      progress = true;
+    }
+  }
+  const graph: Graph = { ...head, nodes: [...head.nodes, ...ghosts] };
+
+  const directories = tally(comparison, graph);
+  const codeTallies = new Map<string, { added: number; altered: number; removed: number; moved: number }>();
+  for (const change of comparison.changes) {
+    if (!isCodeNode(change.node)) continue;
+    const count = codeTallies.get(change.node.path) ?? { added: 0, altered: 0, removed: 0, moved: 0 };
+    count[change.kind] += 1;
+    codeTallies.set(change.node.path, count);
+  }
+  const overlay: Overlay = {
+    change: (id) => entries.get(id)?.kind ?? "unchanged",
+    entry: (id) => entries.get(id),
+    tally(id) {
+      const found = directories.get(id);
+      if (found !== undefined) return found;
+      return id.startsWith("file:") ? (codeTallies.get(id.slice("file:".length)) ?? NO_CHANGES) : NO_CHANGES;
+    },
+  };
+  return { graph, overlay };
+}
+
+/** A district's changed files for its name pill: `+3 ~5 −1 →2`, nothing for a kind with no files. */
+export function tallyText(counts: Tally): string {
+  const parts: [string, number][] = [["+", counts.added], ["~", counts.altered], ["−", counts.removed], ["→", counts.moved]];
+  return parts.flatMap(([mark, count]) => (count > 0 ? [`${mark}${count}`] : [])).join(" ");
 }

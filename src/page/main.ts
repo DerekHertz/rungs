@@ -1,8 +1,10 @@
 import { cityOf } from "../city.ts";
 import type { Building, City } from "../city.ts";
+import { pictureOf, tallyText } from "../compare.ts";
+import type { Comparison } from "../compare.ts";
 import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
-import type { Graph, ModuleNode, NodeId } from "../graph.ts";
+import type { FileNode, Graph, ModuleNode, NodeId } from "../graph.ts";
 import { indexGraph, trail, zoomOut } from "../zoom.ts";
 import { createCityView } from "./city-view.ts";
 import { LEGEND_ROLES, roleColor } from "./palette.ts";
@@ -22,8 +24,14 @@ const panelBody = document.querySelector<HTMLElement>("#source-body")!;
 const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
-const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
-const tree = indexGraph(graph);
+const comparisonResponse = await fetch("/comparison.json");
+const comparison = comparisonResponse.ok
+  ? ((await comparisonResponse.json()) as Comparison & { against: { ref: string; commit: string } })
+  : null;
+const picture = pictureOf(graph, comparison);
+// Ghosts are in the picture's graph, so the trail, flying and the source panel reach them too.
+const nodes = new Map<NodeId, ModuleNode>(picture.graph.nodes.map((node) => [node.id, node]));
+const tree = indexGraph(picture.graph);
 let cityRoot = tree.root;
 /** The district the camera frames and the names count down from; the layout never follows it. */
 let focus = cityRoot;
@@ -81,12 +89,24 @@ function describe(id: NodeId): string[] | undefined {
   if (file?.level !== "file" || building === undefined) return undefined;
   return [
     file.path,
+    ...changeFacts(file, building),
     `role: ${file.role ?? "none"}`,
     `lines: ${file.lines}`,
     file.analysis === "analysed"
       ? `functions: ${building.functions}   classes: ${building.classes}`
       : "not analysed",
   ];
+}
+
+function changeFacts(file: FileNode, building: Building): string[] {
+  const entry = picture.overlay?.entry(file.id);
+  if (entry === undefined) return picture.overlay === null ? [] : ["change: unchanged"];
+  const facts = [`change: ${entry.kind}`];
+  if (entry.kind === "moved") facts.push(`moved from ${entry.from.path}`);
+  if (entry.kind === "removed") facts.push(`removed (was ${file.lines} lines)`);
+  const code = building.tally === null ? "" : tallyText(building.tally);
+  if (code !== "") facts.push(`functions ${code}`);
+  return facts;
 }
 
 function showLegend(counts: City["counts"]): void {
@@ -100,7 +120,13 @@ function showLegend(counts: City["counts"]): void {
   }
   const scale = document.createElement("div");
   scale.textContent = `height: classes and functions per file, square-root scale (${counts.fewest} to ${counts.most})`;
-  legend.replaceChildren(roles, scale);
+  const parts = [roles, scale];
+  if (comparison !== null) {
+    const against = document.createElement("div");
+    against.textContent = `against ${comparison.against.ref} at ${comparison.against.commit.slice(0, 7)}: dim unchanged \u00b7 bright altered \u00b7 white roof added \u00b7 grey roof moved \u00b7 ghost removed`;
+    parts.push(against);
+  }
+  legend.replaceChildren(...parts);
 }
 
 function showCity(root: NodeId): void {
@@ -110,7 +136,7 @@ function showCity(root: NodeId): void {
   selected = undefined;
   panel.hidden = true;
   tooltip.style.display = "none";
-  const city = cityOf(graph, root);
+  const city = cityOf(picture, root);
   buildings = new Map(city.buildings.map((building) => [building.id, building]));
   view.show(city);
   showLegend(city.counts);
