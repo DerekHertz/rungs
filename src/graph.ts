@@ -115,7 +115,7 @@ export function compareIds(a: NodeId, b: NodeId): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function canonicalNode(node: ModuleNode): object {
+export function canonicalNode(node: ModuleNode): object {
   const base = { id: node.id, level: node.level, path: node.path, name: node.name, parent: node.parent };
   switch (node.level) {
     case "package":
