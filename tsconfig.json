@@ -15,5 +15,5 @@
     "erasableSyntaxOnly": true
   },
   "include": ["src", "test", "vitest.config.ts"],
-  "exclude": ["test/fixtures"]
+  "exclude": ["test/fixtures", "src/page"]
 }

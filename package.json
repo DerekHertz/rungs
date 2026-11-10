@@ -5,12 +5,16 @@
   "description": "Draws a codebase as a pixel-art picture you zoom into, computed from the code.",
   "type": "module",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.18"
   },
   "scripts": {
+    "rungs": "node src/cli.ts",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/page",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "esbuild": "0.28.2"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rungs</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #10141a;
+        font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+      #tooltip {
+        position: fixed;
+        pointer-events: none;
+        padding: 4px 6px;
+        background: #000d;
+        color: #e8edf2;
+        white-space: pre;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="picture"></canvas>
+    <div id="tooltip"></div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
