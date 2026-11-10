@@ -83,7 +83,11 @@ and buildings in front of the one you point at fade.
 ## Review
 
 A comparison between two trees is an overlay on the picture, switched on by default for a pull
-request. A panel answers the three questions, and each entry selects places on the picture:
+request.
+
+**Comparison.** Under `rungs compare <base>`, brightness means changed: unchanged files are dimmed and changed files keep full colour, so colour still means role. A changed file is one of four kinds: added (white roof), altered, removed (a see-through ghost where it stood), or moved (grey roof). Moved means identical text under a new path, never a guess.
+
+A panel answers the three questions, and each entry selects places on the picture:
 
 - **Claims:** the change's description, shown as claimed.
 - **Unmentioned:** changed modules and edges no claim covers, new effect edges first. A change
