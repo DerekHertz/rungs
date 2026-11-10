@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "1",
+  "extractorVersion": "2",
   "nodes": [
     {
       "id": "file:README.md",
@@ -8,7 +8,8 @@
       "name": "README.md",
       "parent": "package:",
       "lines": 3,
-      "analysis": "not analysed"
+      "analysis": "not analysed",
+      "generated": false
     },
     {
       "id": "file:docs/notes.md",
@@ -17,7 +18,18 @@
       "name": "notes.md",
       "parent": "folder:docs",
       "lines": 1,
-      "analysis": "not analysed"
+      "analysis": "not analysed",
+      "generated": false
+    },
+    {
+      "id": "file:package-lock.json",
+      "level": "file",
+      "path": "package-lock.json",
+      "name": "package-lock.json",
+      "parent": "package:",
+      "lines": 5,
+      "analysis": "not analysed",
+      "generated": true
     },
     {
       "id": "file:package.json",
@@ -26,7 +38,8 @@
       "name": "package.json",
       "parent": "package:",
       "lines": 4,
-      "analysis": "not analysed"
+      "analysis": "not analysed",
+      "generated": false
     },
     {
       "id": "file:packages/widget/assets/theme.json",
@@ -35,7 +48,8 @@
       "name": "theme.json",
       "parent": "folder:packages/widget/assets",
       "lines": 3,
-      "analysis": "not analysed"
+      "analysis": "not analysed",
+      "generated": false
     },
     {
       "id": "file:packages/widget/package.json",
@@ -44,7 +58,8 @@
       "name": "package.json",
       "parent": "package:packages/widget",
       "lines": 4,
-      "analysis": "not analysed"
+      "analysis": "not analysed",
+      "generated": false
     },
     {
       "id": "file:packages/widget/src/widget.tsx",
@@ -53,7 +68,8 @@
       "name": "widget.tsx",
       "parent": "folder:packages/widget/src",
       "lines": 1,
-      "analysis": "analysed"
+      "analysis": "analysed",
+      "generated": false
     },
     {
       "id": "file:src/index.ts",
@@ -62,7 +78,8 @@
       "name": "index.ts",
       "parent": "folder:src",
       "lines": 5,
-      "analysis": "analysed"
+      "analysis": "analysed",
+      "generated": false
     },
     {
       "id": "file:src/legacy.js",
@@ -71,7 +88,8 @@
       "name": "legacy.js",
       "parent": "folder:src",
       "lines": 3,
-      "analysis": "analysed"
+      "analysis": "analysed",
+      "generated": false
     },
     {
       "id": "file:src/util/empty.ts",
@@ -80,7 +98,8 @@
       "name": "empty.ts",
       "parent": "folder:src/util",
       "lines": 0,
-      "analysis": "analysed"
+      "analysis": "analysed",
+      "generated": false
     },
     {
       "id": "file:src/util/math.ts",
@@ -89,7 +108,8 @@
       "name": "math.ts",
       "parent": "folder:src/util",
       "lines": 3,
-      "analysis": "analysed"
+      "analysis": "analysed",
+      "generated": false
     },
     {
       "id": "folder:docs",
@@ -145,7 +165,7 @@
       "path": "",
       "name": "",
       "parent": null,
-      "lines": 27
+      "lines": 32
     },
     {
       "id": "package:packages/widget",

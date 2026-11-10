@@ -72,6 +72,35 @@ describe("extract", () => {
     expect(byPath("file", "package.json")).toMatchObject({ analysis: "not analysed" });
   });
 
+  test("marks lockfiles generated, wherever they sit, and nothing else", () => {
+    const locks = extract(
+      new Map([
+        ["package-lock.json", "{}\n".repeat(900)],
+        ["npm-shrinkwrap.json", "{}"],
+        ["yarn.lock", "x"],
+        ["pnpm-lock.yaml", "x"],
+        ["bun.lock", "x"],
+        ["pkg/package-lock.json", "{}"],
+        ["package.json", "{}"],
+        ["lock.json", "{}"],
+        ["my-yarn.lock", "x"],
+        ["src/a.ts", "one\n"],
+      ]),
+    );
+    const generated = locks.nodes
+      .filter((node) => node.level === "file" && node.generated)
+      .map((node) => node.path);
+    expect(generated).toEqual([
+      "bun.lock",
+      "npm-shrinkwrap.json",
+      "package-lock.json",
+      "pkg/package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock",
+    ]);
+    expect(locks.nodes.find((node) => node.path === "package-lock.json")?.lines).toBe(900);
+  });
+
   test("does not depend on the order of the file tree", () => {
     const tree = readFixtureTree(fixture);
     expect(extract(new Map([...tree].reverse()))).toEqual(extract(tree));

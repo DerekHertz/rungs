@@ -4,7 +4,15 @@ import type { FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
 import { adapterFor } from "./adapters.ts";
 import type { LanguageAdapter, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "1";
+export const EXTRACTOR_VERSION = "2";
+
+const GENERATED_BASENAMES: ReadonlySet<string> = new Set([
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lock",
+]);
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -41,6 +49,7 @@ export function extract(tree: FileTree): Graph {
       parent: directoryId(directoryOf(path)),
       lines,
       analysis: analysed.has(path) ? "analysed" : "not analysed",
+      generated: GENERATED_BASENAMES.has(posix.basename(path)),
     });
     for (let dir = path; dir !== ""; ) {
       dir = directoryOf(dir);
