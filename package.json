@@ -1,0 +1,22 @@
+{
+  "name": "rungs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Draws a codebase as a pixel-art picture you zoom into, computed from the code.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
+  }
+}
