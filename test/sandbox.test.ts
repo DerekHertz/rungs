@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { AddressInfo, Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -182,6 +182,114 @@ for (const isolation of [bwrap, unsandboxed]) {
     );
   });
 }
+
+// What a run leaves in its out folder is the run's own untrusted work: it is read as a plain
+// file by its expected name, and never followed anywhere else on the machine.
+const FILE_SECRET = "rungs-host-file-secret-value";
+const unreadable = { kind: "unreadable", why: expect.any(String) };
+
+async function hostSecret(): Promise<string> {
+  const path = join(hostDir, "secret.txt");
+  await writeFile(path, `${FILE_SECRET}\n`);
+  return path;
+}
+
+for (const isolation of [bwrap, unsandboxed]) {
+  test(`${isolation.kind}: a result swapped for a link to a host file is unreadable, and the secret is in no output`, async () => {
+    const secret = await hostSecret();
+    const run = await runIsolated({
+      tree: new Map(),
+      isolation,
+      steps: (places) => [
+        {
+          argv: ["/bin/sh", "-c", `cd "${places.out}" && printf real > a.json && rm a.json && ln -s "${secret}" a.json && ln -s /proc/self/environ b.json && ln -s /nowhere c.json`],
+          network: false,
+        },
+      ],
+      collect: ["a.json", "b.json", "c.json"],
+      ...limits,
+    });
+    expect(run.steps[0]?.exitCode).toBe(0);
+    const link = { kind: "unreadable", why: "it is a symbolic link" };
+    expect(run.collected).toEqual(new Map([["a.json", link], ["b.json", link], ["c.json", link]]));
+    const everything = JSON.stringify({ ...run, collected: [...run.collected] });
+    expect(everything).not.toContain(FILE_SECRET);
+    expect(everything).not.toContain(SECRET);
+  });
+
+  test(`${isolation.kind}: a result that is a pipe or a folder is unreadable, and reading it never waits`, async () => {
+    const run = await runIsolated({
+      tree: new Map(),
+      isolation,
+      steps: (places) => [{ argv: ["/bin/sh", "-c", `cd "${places.out}" && mkfifo a.json && mkdir b.json`], network: false }],
+      collect: ["a.json", "b.json"],
+      ...limits,
+    });
+    expect(run.steps[0]?.exitCode).toBe(0);
+    const irregular = { kind: "unreadable", why: "it is not a regular file" };
+    expect(run.collected).toEqual(new Map([["a.json", irregular], ["b.json", irregular]]));
+  });
+
+  test(`${isolation.kind}: only a plain file name in the out folder can be collected`, async () => {
+    for (const name of ["../work/a.json", "sub/a.json", "/etc/passwd", "..", ""]) {
+      await expect(runIsolated({ tree: new Map(), isolation, steps: () => [], collect: [name], ...limits })).rejects.toThrow(
+        `a collected file must be a plain name in the out folder: ${JSON.stringify(name)}`,
+      );
+    }
+  });
+}
+
+// Outside bwrap a run can reach its own out folder from above, and files on the same disk.
+test("unsandboxed: an out folder swapped for a link to a host folder is unreadable", async () => {
+  await writeFile(join(hostDir, "a.json"), FILE_SECRET);
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: unsandboxed,
+    steps: (places) => [{ argv: ["/bin/sh", "-c", `rmdir "${places.out}" && ln -s "${hostDir}" "${places.out}"`], network: false }],
+    collect: ["a.json", "b.json"],
+    ...limits,
+  });
+  expect(run.steps[0]?.exitCode).toBe(0);
+  expect(run.collected).toEqual(new Map([["a.json", unreadable], ["b.json", unreadable]]));
+  expect(JSON.stringify([...run.collected])).not.toContain(FILE_SECRET);
+});
+
+test("unsandboxed: an out folder replaced by another real folder is unreadable", async () => {
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: unsandboxed,
+    steps: (places) => [{ argv: ["/bin/sh", "-c", `mkdir "${places.out}2" && printf x > "${places.out}2/a.json" && rmdir "${places.out}" && mv "${places.out}2" "${places.out}"`], network: false }],
+    collect: ["a.json"],
+    ...limits,
+  });
+  expect(run.collected).toEqual(new Map([["a.json", unreadable]]));
+});
+
+test("unsandboxed: a result that is a second name for a host file is unreadable", async () => {
+  const secret = await hostSecret();
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: unsandboxed,
+    steps: (places) => [{ argv: ["/bin/sh", "-c", `ln "${secret}" "${places.out}/a.json"`], network: false }],
+    collect: ["a.json"],
+    ...limits,
+  });
+  expect(run.steps[0]?.exitCode).toBe(0);
+  expect(run.collected).toEqual(new Map([["a.json", unreadable]]));
+  expect(JSON.stringify([...run.collected])).not.toContain(FILE_SECRET);
+});
+
+test("a result one byte past the limit is too large, not read", async () => {
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: unsandboxed,
+    steps: (places) => [{ argv: ["/bin/sh", "-c", `head -c 1001 /dev/zero > "${places.out}/a.json"`], network: false }],
+    collect: ["a.json"],
+    ...limits,
+    collectBytes: 1000,
+  });
+  expect(run.collected).toEqual(new Map([["a.json", { kind: "too large", bytes: 1001 }]]));
+});
 
 test("a tree path that climbs out of the copy is refused before anything runs", async () => {
   await expect(

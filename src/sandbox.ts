@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { constants, existsSync, rmSync } from "node:fs";
+import type { Stats } from "node:fs";
+import { chmod, lstat, mkdir, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, normalize } from "node:path";
 import { promisify } from "node:util";
@@ -47,10 +48,15 @@ export interface StepResult {
   readonly truncated: boolean;
 }
 
+/**
+ * A file read back from the out folder. The run wrote that folder, so anything there that is not
+ * a plain file under its expected name is `unreadable`, and is never read as data.
+ */
 export type Collected =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "too large"; readonly bytes: number }
-  | { readonly kind: "missing" };
+  | { readonly kind: "missing" }
+  | { readonly kind: "unreadable"; readonly why: string };
 
 export interface Run {
   /** The steps that ran: each one after the first ran because the one before exited 0 in time. */
@@ -66,7 +72,7 @@ export interface RunRequest {
   readonly steps: (places: Places) => readonly Step[];
   /** Files given to the steps at `places.tools`. */
   readonly tools?: FileTree;
-  /** Names of files in `places.out` to read back. */
+  /** Names of files in `places.out` to read back: plain names, never paths. */
   readonly collect?: readonly string[];
   /** One wall-clock limit for all the steps together. */
   readonly timeoutMs: number;
@@ -118,6 +124,12 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
       throw new Error(`the tree holds a path outside itself: ${JSON.stringify(path)}`);
     }
   }
+  const collect = request.collect ?? [];
+  for (const name of collect) {
+    if (name === "" || name === "." || name === ".." || /[/\\\0]/.test(name)) {
+      throw new Error(`a collected file must be a plain name in the out folder: ${JSON.stringify(name)}`);
+    }
+  }
   const root = await mkdtemp(join(tmpdir(), "rungs-run-"));
   let child: ReturnType<typeof spawn> | undefined;
   const interrupted = (signal: NodeJS.Signals) => {
@@ -131,6 +143,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     await writeTree(host.work, request.tree);
     await writeTree(host.tools, request.tools ?? new Map());
     for (const dir of [host.out, join(root, "home"), join(root, "tmp")]) await mkdir(dir);
+    const outMade = await lstat(host.out);
     const node = process.execPath;
     const npm = join(dirname(node), "..", "lib", "node_modules", "npm");
     const { isolation } = request;
@@ -147,7 +160,10 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
       if (result.exitCode !== 0 || result.timedOut) break;
     }
     const collected = new Map<string, Collected>();
-    for (const name of request.collect ?? []) collected.set(name, await collectFile(join(host.out, name), request.collectBytes ?? 64 << 20));
+    const swapped = outFolderSwapped(outMade, await lstat(host.out).catch(() => undefined));
+    for (const name of collect) {
+      collected.set(name, swapped === undefined ? await collectFile(join(host.out, name), request.collectBytes ?? 64 << 20) : { kind: "unreadable", why: swapped });
+    }
     return { steps: results, collected, root };
   } finally {
     process.off("SIGINT", interrupted).off("SIGTERM", interrupted);
@@ -237,14 +253,49 @@ async function writeTree(dir: string, tree: FileTree): Promise<void> {
   }
 }
 
+// A run outside bwrap can reach the out folder from above and put another in its place.
+function outFolderSwapped(made: Stats, now: Stats | undefined): string | undefined {
+  if (now === undefined) return "the out folder is gone";
+  if (!now.isDirectory()) return "the out folder is no longer a folder";
+  if (now.uid !== process.getuid?.()) return "the out folder belongs to someone else";
+  if (now.dev !== made.dev || now.ino !== made.ino) return "the out folder is not the one the run was given";
+  return undefined;
+}
+
+/**
+ * Reads one file the run left behind, trusting nothing about it. The path is opened without
+ * following a link in its last part, and never waits on a pipe. Every check after that is made on
+ * the open file, so the file checked is the file read.
+ */
 async function collectFile(path: string, limit: number): Promise<Collected> {
+  const unreadable = (why: string): Collected => ({ kind: "unreadable", why });
+  let file;
   try {
-    const info = await stat(path);
-    if (!info.isFile()) return { kind: "missing" };
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { kind: "missing" };
+    return unreadable(code === "ELOOP" ? "it is a symbolic link" : `it cannot be opened (${code ?? "unknown error"})`);
+  }
+  try {
+    const info = await file.stat();
+    if (!info.isFile()) return unreadable("it is not a regular file");
+    if (info.nlink !== 1) return unreadable("it is another name for a file elsewhere");
     if (info.size > limit) return { kind: "too large", bytes: info.size };
-    return { kind: "text", text: await readFile(path, "utf8") };
-  } catch {
-    return { kind: "missing" };
+    // The size is only what the file claimed a moment ago: read no more than that, whatever it is now.
+    const buffer = Buffer.alloc(info.size + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (length !== info.size) return unreadable("it changed while it was being read");
+    return { kind: "text", text: buffer.toString("utf8", 0, length) };
+  } catch (error) {
+    return unreadable(`it cannot be read (${(error as NodeJS.ErrnoException).code ?? "unknown error"})`);
+  } finally {
+    await file.close();
   }
 }
 
