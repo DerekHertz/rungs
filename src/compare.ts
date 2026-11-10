@@ -228,6 +228,12 @@ export interface Picture {
 
 const directoryOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf("/")));
 
+function ancestorsOf(path: string): string[] {
+  const dirs: string[] = [];
+  for (let dir = directoryOf(path); dir !== ""; dir = directoryOf(dir)) dirs.push(dir);
+  return dirs;
+}
+
 /** `pictureOf(head, null)` is the plain picture. It lays nothing out; city.ts does. */
 export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
   if (comparison === null) return { graph: head, overlay: null };
@@ -236,9 +242,20 @@ export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
   const removed = (level: (node: ModuleNode) => boolean): ModuleNode[] =>
     comparison.changes.flatMap((change) => (change.kind === "removed" && level(change.node) ? [change.node] : []));
 
+  const removedFiles = removed((node) => node.level === "file");
+  const removedPaths = new Set(removedFiles.map((node) => node.path));
+  const removedDirectories = new Map<string, ModuleNode>();
+  for (const node of removed((n) => !isBody(n))) removedDirectories.set(node.path, node);
+  // Only a directory that a removed file stood in is drawn. One whose files all moved is not.
+  const ghostContainers: ModuleNode[] = [];
+  for (const dir of new Set(removedFiles.flatMap((file) => ancestorsOf(file.path)))) {
+    const node = removedDirectories.get(dir);
+    if (node !== undefined) ghostContainers.push(node);
+  }
+  ghostContainers.sort((a, b) => a.path.length - b.path.length);
+
   const directoryAt = new Map<string, NodeId>();
   for (const node of head.nodes) if (!isBody(node)) directoryAt.set(node.path, node.id);
-  const ghostContainers = removed((node) => !isBody(node)).sort((a, b) => a.path.length - b.path.length);
   for (const node of ghostContainers) directoryAt.set(node.path, node.id);
   const standIn = (path: string): NodeId => {
     for (let dir = directoryOf(path); ; dir = directoryOf(dir)) {
@@ -254,15 +271,23 @@ export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
     ghosts.push({ ...(node as ContainerNode), parent: standIn(node.path) });
     present.add(node.id);
   }
-  for (const node of removed((n) => n.level === "file")) {
+  for (const node of removedFiles) {
     ghosts.push({ ...(node as FileNode), parent: standIn(node.path) });
     present.add(node.id);
   }
-  const code = removed(isCodeNode).filter((node) => entries.get(`file:${node.path}` as NodeId)?.kind === "removed");
-  for (const node of code.sort((a, b) => a.id.length - b.id.length)) {
-    if (!present.has((node as CodeNode).parent)) continue;
-    ghosts.push(node);
-    present.add(node.id);
+  // A removed file's code is removed, or moved away: a move's `from` is the base node.
+  const pending = comparison.changes.flatMap((change): CodeNode[] => {
+    const base = change.kind === "removed" ? change.node : change.kind === "moved" ? change.from : undefined;
+    return base !== undefined && isCodeNode(base) && removedPaths.has(base.path) ? [base] : [];
+  });
+  for (let progress = true; progress; ) {
+    progress = false;
+    for (const node of pending) {
+      if (present.has(node.id) || !present.has(node.parent)) continue;
+      ghosts.push(node);
+      present.add(node.id);
+      progress = true;
+    }
   }
   const graph: Graph = { ...head, nodes: [...head.nodes, ...ghosts] };
 

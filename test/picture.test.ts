@@ -36,7 +36,7 @@ describe("pictureOf without a comparison", () => {
 });
 
 describe("pictureOf under the small fixture's comparison", () => {
-  test("is the head graph followed by exactly the ghosts: removed files, their classes and functions, and removed folders", () => {
+  test("is the head graph followed by exactly the ghosts: removed files, all their classes and functions (move origins included), and the removed folders they stood in", () => {
     expect(picture.graph.nodes.slice(0, head.nodes.length)).toEqual(head.nodes);
     expect([...ghostIds].sort()).toEqual([
       "file:docs/notes.md",
@@ -44,6 +44,7 @@ describe("pictureOf under the small fixture's comparison", () => {
       "file:test/helpers.ts",
       "folder:test",
       "function:src/index.ts#main",
+      "function:test/helpers.ts#double",
     ]);
   });
 
@@ -140,5 +141,44 @@ describe("a removed file moves its lines into the layout at its old height", () 
     expect(ghost.functions).toBe(3);
     expect(ghost.w * ghost.d).toBeGreaterThan(0);
     expect(city.buildings.map((b) => b.id).sort()).toEqual(["file:gone.ts", "file:keep.ts"]);
+  });
+});
+
+describe("ghosts carry everything their base file had", () => {
+  const ghostsOf = (before: Record<string, string>, after: Record<string, string>) => {
+    const b = treeGraph(before);
+    const a = treeGraph(after);
+    const pic = pictureOf(a, compare(b, a));
+    const had = new Set(a.nodes.map((n) => n.id));
+    return { pic, city: cityOf(pic, rootOf(a)), ghosts: pic.graph.nodes.filter((n) => !had.has(n.id)).map((n) => n.id).sort() };
+  };
+
+  test("a function that moved out of a removed file is still in its ghost", () => {
+    const { ghosts, city } = ghostsOf(
+      { "old/a.ts": "export function keep() {}\nexport function moved() {\n  return 1;\n}\n", "b.ts": "export const x = 1;\n" },
+      { "b.ts": "export const x = 1;\nexport function moved() {\n  return 1;\n}\n" },
+    );
+    expect(ghosts).toContain("function:old/a.ts#keep");
+    expect(ghosts).toContain("function:old/a.ts#moved");
+    expect(city.buildings.find((b) => b.id === "file:old/a.ts")!.functions).toBe(2);
+  });
+
+  test("nested code in a removed file is kept whatever order the ids sort in", () => {
+    const { ghosts } = ghostsOf(
+      { "gone.ts": "export function f() { class C { m() {} } return C; }\n", "k.ts": "export const k = 1;\n" },
+      { "k.ts": "export const k = 1;\n" },
+    );
+    expect(ghosts).toEqual(
+      expect.arrayContaining(["file:gone.ts", "function:gone.ts#f", "class:gone.ts#f.C", "function:gone.ts#f.C.m"]),
+    );
+  });
+
+  test("a directory whose files all moved leaves no empty ghost district", () => {
+    const { ghosts, pic } = ghostsOf(
+      { "old/a.ts": "export function a() {}\n", "k.ts": "export const k = 1;\n" },
+      { "new/a.ts": "export function a() {}\n", "k.ts": "export const k = 1;\n" },
+    );
+    expect(ghosts).toEqual([]);
+    expect(pic.graph.nodes.some((n) => n.id === "folder:old")).toBe(false);
   });
 });
