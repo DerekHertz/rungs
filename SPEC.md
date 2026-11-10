@@ -11,6 +11,18 @@ agent-written changes the way they would approve a design, without reading every
 A reviewer needs three answers to say yes or no: what the change claims to do, what it touches
 that nobody mentioned, and which contracts moved.
 
+## North star for the MVP
+
+You run one command on a real agent-written change of 10,000 lines or more and decide to approve
+or reject it in 15 minutes, without opening a diff. Anything on screen that you doubt, you can
+click through to the source lines that produced it.
+
+The test case is pull request #18 of the previous project: 14,370 added lines of plain
+JavaScript.
+
+Left for after the MVP: narration, the observed tier, property nodes, the house and map themes,
+lazily resolved edges, and links between effect sites.
+
 ## The rungs
 
 Each rung is computed from the one below it. Only the graph is stored; the rest are views.
