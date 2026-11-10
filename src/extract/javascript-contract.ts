@@ -31,6 +31,12 @@ function chainText(target: ts.Expression): string | undefined {
     const object = chainText(target.expression);
     return object === undefined ? undefined : `${object}.${target.name.text}`;
   }
+  if (ts.isElementAccessExpression(target)) {
+    const key = unwrap(target.argumentExpression);
+    const object = chainText(target.expression);
+    const literal = ts.isStringLiteralLike(key) ? key.text : undefined;
+    return object === undefined || literal === undefined ? undefined : `${object}.${literal}`;
+  }
   return undefined;
 }
 
@@ -156,9 +162,33 @@ const isPublic = (member: ts.ClassElement): boolean =>
   !hasModifier(member, ts.SyntaxKind.ProtectedKeyword) &&
   !(member.name !== undefined && ts.isPrivateIdentifier(member.name));
 
+// A field reads as its modifiers, name and annotation. Without an annotation, a function-valued
+// initialiser reads as its parameter list and return annotation; any other initialiser says
+// nothing, since its type is not written.
+function fieldSignature(member: ts.PropertyDeclaration, file: ts.SourceFile): string[] {
+  const out: string[] = [];
+  for (const [kind, word] of [
+    [ts.SyntaxKind.StaticKeyword, "static"],
+    [ts.SyntaxKind.AbstractKeyword, "abstract"],
+    [ts.SyntaxKind.ReadonlyKeyword, "readonly"],
+  ] as const) {
+    if (hasModifier(member, kind)) out.push(word);
+  }
+  out.push(...tokensOf(member.name, file));
+  if (member.questionToken !== undefined) out.push("?");
+  if (member.exclamationToken !== undefined) out.push("!");
+  const value = member.initializer === undefined ? undefined : unwrap(member.initializer);
+  if (member.type !== undefined) out.push(":", ...tokensOf(member.type, file));
+  else if (value !== undefined && (ts.isArrowFunction(value) || ts.isFunctionExpression(value))) {
+    out.push("=", ...callable(value, file));
+  }
+  return out;
+}
+
 function memberSignature(member: ts.ClassElement, file: ts.SourceFile): string[] | undefined {
   if (!isPublic(member)) return undefined;
   if (ts.isConstructorDeclaration(member)) return ["constructor", ...shape(member, file)];
+  if (ts.isPropertyDeclaration(member)) return fieldSignature(member, file);
   if (!ts.isMethodDeclaration(member) && !ts.isAccessor(member)) return undefined;
   const out: string[] = [];
   if (hasModifier(member, ts.SyntaxKind.StaticKeyword)) out.push("static");

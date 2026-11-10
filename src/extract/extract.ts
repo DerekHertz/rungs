@@ -7,7 +7,7 @@ import { adapterFor } from "./adapters.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "7";
+export const EXTRACTOR_VERSION = "8";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);

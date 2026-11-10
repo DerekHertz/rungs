@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "7",
+  "extractorVersion": "8",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -44,7 +44,7 @@
       },
       "digest": "ea4ad4c31628236aeba0f272f97d6d2f",
       "exported": true,
-      "signature": "extends Polygon { constructor(side: number); get side(): number; set side(value: number); area(): number; static area(): number; \"half.size#x\"(): number }"
+      "signature": "extends Polygon { static count; constructor(side: number); get side(): number; set side(value: number); area(): number; static area(): number; \"half.size#x\"(): number; onResize = (): void }"
     },
     {
       "id": "file:README.md",

@@ -70,6 +70,16 @@ describe("what a file exports, in CommonJS", () => {
     ).toEqual(["\"module.exports.m\"", "\"module.exports.n\"", "a", "b"]);
   });
 
+  test("string-literal element access counts as dot access; a computed key is not guessed", () => {
+    expect(
+      exportedNames(
+        "a.js",
+        "function f(x) {}\nfunction g() {}\nfunction h() {}\nfunction i() {}\nconst k = 'i';\nexports[\"f\"] = f;\nmodule.exports['g'] = g;\nmodule[\"exports\"].h = h;\nexports[k] = i;\n",
+      ),
+    ).toEqual(["f", "g", "h"]);
+    expect(exportedNames("b.js", "function f() {}\nmodule[`exports`] = { f };\n")).toEqual(["f"]);
+  });
+
   test("exports.f = ... and module.exports.f = ...", () => {
     expect(
       exportedNames(
@@ -164,7 +174,7 @@ describe("a class's signature", () => {
         "export class Square<T> extends Shape<T> implements Sized, Named {\n  private secret(a: number) {}\n  protected inner() {}\n  #hidden() {}\n  constructor(public side: number) { super(); }\n  area(): number { return 1; }\n  static unit(): Square<number> { return new Square(1); }\n  get half(): number { return 1; }\n  set half(v: number) {}\n  field = 1;\n  async load?(id: string): Promise<void> {}\n}\n",
       )[0],
     ).toBe(
-      "Square: exported <T> extends Shape<T> implements Sized, Named { constructor(public side: number); area(): number; static unit(): Square<number>; get half(): number; set half(v: number); async load?(id: string): Promise<void> }",
+      "Square: exported <T> extends Shape<T> implements Sized, Named { constructor(public side: number); area(): number; static unit(): Square<number>; get half(): number; set half(v: number); field; async load?(id: string): Promise<void> }",
     );
   });
 
@@ -175,6 +185,18 @@ describe("a class's signature", () => {
         "export abstract class A {\n  abstract run(a: string): void;\n  m(a: string): void;\n  m(a: number): void;\n  m(a: any) {}\n}\n",
       )[0],
     ).toBe("A: exported { abstract run(a: string): void; m(a: string): void; m(a: number): void; m(a: any) }");
+  });
+
+  test("public fields read by name and written type; function-valued ones by parameters and return", () => {
+    expect(
+      contractsOf(
+        "a.ts",
+        "export class C {\n  value: string;\n  static readonly max?: number;\n  run = (x: string): void => {};\n  typed: Fn = (x) => {};\n  plain = 1;\n  private secret: string;\n  #hidden = 1;\n}\n",
+      )[0],
+    ).toBe("C: exported { value: string; static readonly max?: number; run = (x: string): void; typed: Fn; plain }");
+    expect(contractsOf("a.ts", "export class C { value: string }\n")[0]).not.toBe(
+      contractsOf("a.ts", "export class C { value: number }\n")[0],
+    );
   });
 
   test("an empty class and one extending an expression", () => {
