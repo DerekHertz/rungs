@@ -1,7 +1,8 @@
-import { isCodeNode, lineCount, rootOf } from "../graph.ts";
+import { isCodeNode, lineCount } from "../graph.ts";
 import type { Graph, ModuleNode, NodeId } from "../graph.ts";
 import { LABEL_BAND, layout, reservesLabelBand } from "../layout.ts";
 import type { Rect } from "../layout.ts";
+import { indexGraph, trail, zoomOut, zoomTarget } from "../zoom.ts";
 
 interface Style {
   readonly fill: string;
@@ -32,10 +33,13 @@ function displayName(node: ModuleNode): string {
 
 const canvas = document.querySelector<HTMLCanvasElement>("#picture")!;
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
+const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
 const context = canvas.getContext("2d")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
 const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+const tree = indexGraph(graph);
+let zoomRoot = tree.root;
 let rects: Rect[] = [];
 
 function hatch(): CanvasPattern {
@@ -69,9 +73,40 @@ function label(lines: readonly string[], rect: Rect, color: string): void {
   });
 }
 
+function zoomTo(id: NodeId): void {
+  if (id === zoomRoot) return;
+  zoomRoot = id;
+  tooltip.style.display = "none";
+  draw();
+}
+
+function showTrail(): void {
+  const steps = trail(tree, zoomRoot).map((node, index, all) => {
+    const name = displayName(node);
+    if (index === all.length - 1) {
+      const here = document.createElement("span");
+      here.textContent = name;
+      return here;
+    }
+    const step = document.createElement("button");
+    step.textContent = name;
+    step.addEventListener("click", () => zoomTo(node.id));
+    return step;
+  });
+  breadcrumbs.replaceChildren(
+    ...steps.flatMap((step, index) => {
+      if (index === 0) return [step];
+      const arrow = document.createElement("i");
+      arrow.textContent = "\u203A";
+      return [arrow, step];
+    }),
+  );
+}
+
 function draw(): void {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
+  showTrail();
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
   const scale = window.devicePixelRatio;
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(height * scale);
@@ -80,7 +115,7 @@ function draw(): void {
   context.textBaseline = "top";
   const pattern = hatch();
 
-  rects = layout(graph, rootOf(graph), width, height);
+  rects = layout(graph, zoomRoot, width, height);
   const hasPlacedChildren = new Set(rects.map((rect) => nodes.get(rect.id)!.parent));
   for (const rect of rects) {
     const node = nodes.get(rect.id)!;
@@ -111,14 +146,15 @@ function draw(): void {
   }
 }
 
+function rectAt(event: MouseEvent): Rect | undefined {
+  const bounds = canvas.getBoundingClientRect();
+  const x = event.clientX - bounds.left;
+  const y = event.clientY - bounds.top;
+  return rects.findLast((rect) => x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h);
+}
+
 canvas.addEventListener("mousemove", (event) => {
-  const hit = rects.findLast(
-    (rect) =>
-      event.clientX >= rect.x &&
-      event.clientX < rect.x + rect.w &&
-      event.clientY >= rect.y &&
-      event.clientY < rect.y + rect.h,
-  );
+  const hit = rectAt(event);
   const node = hit && nodes.get(hit.id);
   if (node === undefined) {
     tooltip.style.display = "none";
@@ -135,6 +171,14 @@ canvas.addEventListener("mousemove", (event) => {
 });
 canvas.addEventListener("mouseleave", () => {
   tooltip.style.display = "none";
+});
+canvas.addEventListener("dblclick", (event) => {
+  const hit = rectAt(event);
+  const target = hit && zoomTarget(tree, zoomRoot, hit.id);
+  if (target !== undefined) zoomTo(target);
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") zoomTo(zoomOut(tree, zoomRoot));
 });
 window.addEventListener("resize", draw);
 draw();
