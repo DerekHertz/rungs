@@ -118,6 +118,7 @@ interface District3D {
 
 interface Label {
   readonly el: HTMLElement;
+  readonly kind: "near" | "far" | "file";
   readonly w: number;
   readonly h: number;
 }
@@ -473,14 +474,14 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
 
   function labelFor(id: string, text: string, kind: "near" | "far" | "file", color: string): Label {
     const known = labels.get(id);
-    if (known !== undefined) return known;
-    const el = document.createElement("div");
+    if (known?.kind === kind) return known;
+    const el = known?.el ?? document.createElement("div");
     el.className = `name name-${kind}`;
     el.textContent = text;
     el.style.borderLeftColor = color;
     el.style.visibility = "hidden";
-    names.append(el);
-    const made = { el, w: el.offsetWidth, h: el.offsetHeight };
+    if (known === undefined) names.append(el);
+    const made = { el, kind, w: el.offsetWidth, h: el.offsetHeight };
     labels.set(id, made);
     return made;
   }
