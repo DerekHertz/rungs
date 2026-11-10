@@ -50,6 +50,11 @@ let zoomRoot = tree.root;
 let rects: Rect[] = [];
 let selected: NodeId | undefined;
 let requested = 0;
+let pendingClick: ReturnType<typeof setTimeout> | undefined;
+
+// Browsers don't expose the system's double-click interval; a click waits this long so that a
+// double-click only zooms, and a panel opened by its first click can't take its second.
+const DOUBLE_CLICK_MS = 250;
 
 function hatch(): CanvasPattern {
   const tile = document.createElement("canvas");
@@ -137,8 +142,8 @@ function showSource(node: ModuleNode, text: string): void {
 }
 
 async function select(node: ModuleNode): Promise<void> {
-  if (node.id === selected) return;
   const ticket = ++requested;
+  if (node.id === selected) return;
   const response = await fetch(`/source?id=${encodeURIComponent(node.id)}`);
   if (ticket !== requested) return;
   if (!response.ok) return closePanel();
@@ -235,13 +240,18 @@ canvas.addEventListener("mouseleave", () => {
   tooltip.style.display = "none";
 });
 canvas.addEventListener("click", (event) => {
+  if (event.detail > 1) return;
   const hit = rectAt(event);
   const node = hit && nodes.get(hit.id);
-  if (node === undefined || node.level === "package" || node.level === "folder") closePanel();
-  else void select(node);
+  clearTimeout(pendingClick);
+  pendingClick = setTimeout(() => {
+    if (node === undefined || node.level === "package" || node.level === "folder") closePanel();
+    else void select(node);
+  }, DOUBLE_CLICK_MS);
 });
 panelClose.addEventListener("click", closePanel);
 canvas.addEventListener("dblclick", (event) => {
+  clearTimeout(pendingClick);
   const hit = rectAt(event);
   const target = hit && zoomTarget(tree, zoomRoot, hit.id);
   if (target !== undefined) zoomTo(target);
