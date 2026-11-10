@@ -5,6 +5,7 @@ import type { Building, District } from "../src/city.ts";
 import { extract } from "../src/extract/extract.ts";
 import { isCodeNode, rootOf } from "../src/graph.ts";
 import type { Graph, ModuleNode, NodeId, Role } from "../src/graph.ts";
+import { pictureOf } from "../src/compare.ts";
 import { layout, leafWeight } from "../src/layout.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
 
@@ -89,7 +90,7 @@ describe("heightScale", () => {
 
 describe.each(graphs)("the city of %s", (_, graph) => {
   const root = rootOf(graph);
-  const city = cityOf(graph, root);
+  const city = cityOf(pictureOf(graph, null), root);
   const districts = new Map<NodeId, District>(city.districts.map((district) => [district.id, district]));
   const buildings = new Map<NodeId, Building>(city.buildings.map((building) => [building.id, building]));
   const files = graph.nodes.filter((node) => node.level === "file");
@@ -193,14 +194,14 @@ describe.each(graphs)("the city of %s", (_, graph) => {
 
   test("depends only on the graph and the root", () => {
     const reordered: Graph = { ...graph, nodes: [...graph.nodes].reverse() };
-    expect(cityOf(reordered, root)).toEqual(city);
-    expect(cityOf(graph, root)).toEqual(city);
-    expect(buildCity(graph, rects)).toEqual(city);
+    expect(cityOf(pictureOf(reordered, null), root)).toEqual(city);
+    expect(cityOf(pictureOf(graph, null), root)).toEqual(city);
+    expect(buildCity(pictureOf(graph, null), rects)).toEqual(city);
   });
 });
 
 describe("the small fixture's city", () => {
-  const city = cityOf(fixture, rootOf(fixture));
+  const city = cityOf(pictureOf(fixture, null), rootOf(fixture));
   const building = (path: string): Building => city.buildings.find((candidate) => candidate.id === `file:${path}`)!;
   const district = (path: string): District => city.districts.find((candidate) => candidate.id === `folder:${path}`)!;
 
