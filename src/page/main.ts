@@ -34,6 +34,13 @@ function displayName(node: ModuleNode): string {
 const canvas = document.querySelector<HTMLCanvasElement>("#picture")!;
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
+const panel = document.querySelector<HTMLElement>("#source")!;
+const panelTitle = document.querySelector<HTMLElement>("#source-title")!;
+const panelFacts = document.querySelector<HTMLElement>("#source-facts")!;
+const panelGutter = document.querySelector<HTMLElement>("#source-gutter")!;
+const panelCode = document.querySelector<HTMLElement>("#source-code")!;
+const panelBody = document.querySelector<HTMLElement>("#source-body")!;
+const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
 const context = canvas.getContext("2d")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
@@ -41,6 +48,8 @@ const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, no
 const tree = indexGraph(graph);
 let zoomRoot = tree.root;
 let rects: Rect[] = [];
+let selected: NodeId | undefined;
+let requested = 0;
 
 function hatch(): CanvasPattern {
   const tile = document.createElement("canvas");
@@ -103,6 +112,43 @@ function showTrail(): void {
   );
 }
 
+function closePanel(): void {
+  requested++;
+  selected = undefined;
+  panel.hidden = true;
+  draw();
+}
+
+function showSource(node: ModuleNode, text: string): void {
+  const first = isCodeNode(node) ? node.range.start : 1;
+  const lines = text.split("\n");
+  if (lines.length > 1 && lines.at(-1) === "") lines.pop();
+  const last = first + lines.length - 1;
+  panelTitle.textContent = isCodeNode(node) ? `${node.level} ${node.qualifiedName}` : `file ${node.path}`;
+  panelFacts.textContent = isCodeNode(node)
+    ? `${node.path} \u00B7 lines ${node.range.start}-${node.range.end}`
+    : text === ""
+      ? `${node.path} \u00B7 empty`
+      : `lines ${first}-${last}`;
+  panelGutter.textContent = lines.map((_, index) => first + index).join("\n");
+  panelCode.textContent = text;
+  panelBody.scrollTop = panelBody.scrollLeft = 0;
+  panel.hidden = false;
+}
+
+async function select(node: ModuleNode): Promise<void> {
+  if (node.id === selected) return;
+  const ticket = ++requested;
+  const response = await fetch(`/source?id=${encodeURIComponent(node.id)}`);
+  if (ticket !== requested) return;
+  if (!response.ok) return closePanel();
+  const text = await response.text();
+  if (ticket !== requested) return;
+  selected = node.id;
+  showSource(node, text);
+  draw();
+}
+
 function draw(): void {
   showTrail();
   const width = canvas.clientWidth;
@@ -116,6 +162,10 @@ function draw(): void {
   const pattern = hatch();
 
   rects = layout(graph, zoomRoot, width, height);
+  if (selected !== undefined && !rects.some((rect) => rect.id === selected)) {
+    selected = undefined;
+    panel.hidden = true;
+  }
   const hasPlacedChildren = new Set(rects.map((rect) => nodes.get(rect.id)!.parent));
   for (const rect of rects) {
     const node = nodes.get(rect.id)!;
@@ -143,6 +193,18 @@ function draw(): void {
     } else {
       label([displayName(node)], rect, style.text);
     }
+  }
+
+  const outlined = rects.find((rect) => rect.id === selected);
+  if (outlined !== undefined) {
+    context.lineWidth = 2;
+    context.strokeStyle = "#ffd84a";
+    const x = Math.round(outlined.x);
+    const y = Math.round(outlined.y);
+    const w = Math.round(outlined.x + outlined.w) - x;
+    const h = Math.round(outlined.y + outlined.h) - y;
+    context.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    context.lineWidth = 1;
   }
 }
 
@@ -172,13 +234,22 @@ canvas.addEventListener("mousemove", (event) => {
 canvas.addEventListener("mouseleave", () => {
   tooltip.style.display = "none";
 });
+canvas.addEventListener("click", (event) => {
+  const hit = rectAt(event);
+  const node = hit && nodes.get(hit.id);
+  if (node === undefined || node.level === "package" || node.level === "folder") closePanel();
+  else void select(node);
+});
+panelClose.addEventListener("click", closePanel);
 canvas.addEventListener("dblclick", (event) => {
   const hit = rectAt(event);
   const target = hit && zoomTarget(tree, zoomRoot, hit.id);
   if (target !== undefined) zoomTo(target);
 });
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") zoomTo(zoomOut(tree, zoomRoot));
+  if (event.key !== "Escape") return;
+  if (selected !== undefined) closePanel();
+  else zoomTo(zoomOut(tree, zoomRoot));
 });
 window.addEventListener("resize", draw);
 draw();
