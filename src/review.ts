@@ -1,6 +1,6 @@
 import { isCodeNode, lineCount } from "./graph.ts";
-import type { Graph, ModuleNode, NodeId } from "./graph.ts";
-import type { ChangeKind, Comparison, ModuleChange, Tally } from "./compare.ts";
+import type { CodeLevel, Graph, ModuleNode, NodeId } from "./graph.ts";
+import type { ChangeKind, Comparison, ContractMove, ContractMoveKind, ModuleChange, Tally } from "./compare.ts";
 
 /** Most urgent first: a removed or altered module changed what already stood, a moved one is the same text. */
 const URGENCY: Record<ChangeKind, number> = { removed: 0, altered: 1, added: 2, moved: 3 };
@@ -170,3 +170,125 @@ export function unmentioned(comparison: Comparison, graph: Graph, description: s
   return { changedFiles: fileChanges.length, unmentionedFiles: files.length, entries };
 }
 
+
+/** The ids of every entry of `result`, nested ones included: the changes no claim covers. */
+export function unmentionedIds(result: Unmentioned): Set<NodeId> {
+  const ids = new Set<NodeId>();
+  const visit = (entries: readonly ReviewEntry[]): void => {
+    for (const entry of entries) {
+      ids.add(entry.id);
+      visit(entry.children);
+    }
+  };
+  visit(result.entries);
+  return ids;
+}
+
+export interface ContractRow {
+  readonly kind: "row";
+  readonly move: ContractMove;
+  readonly id: NodeId;
+  readonly label: string;
+  /** Where it stands now; where it stood for a removed one. */
+  readonly path: string;
+  readonly level: CodeLevel;
+  /** No claim covers the change to this node. */
+  readonly unmentioned: boolean;
+}
+
+/** Many added or moved exports of one file, kept to one row so the changed ones stay on screen. */
+export interface ContractRollup {
+  readonly kind: "rollup";
+  readonly moveKind: "added" | "moved";
+  readonly path: string;
+  readonly fileId: NodeId;
+  readonly rows: readonly ContractRow[];
+  readonly unmentioned: number;
+}
+
+export interface ContractsReport {
+  readonly counts: Readonly<Record<ContractMoveKind, number>>;
+  readonly entries: readonly (ContractRow | ContractRollup)[];
+}
+
+/** A file with more added (or moved) exports than this gets one rollup row. */
+export const ROLLUP_OVER = 3;
+
+/** Changed first, since only a changed signature can break a caller; then what went; then what appeared. */
+const CONTRACT_ORDER: readonly ContractMoveKind[] = ["changed", "removed", "unexported", "exposed", "moved", "added"];
+
+/**
+ * The contracts that moved as rows to show, in the order a reviewer must read them: changed,
+ * removed, unexported, exposed, moved, added. Within a kind, by id, with a file's rollup after
+ * the single rows of its kind. Only added and moved exports roll up, since a new or relocated
+ * file can bring hundreds; a changed, removed, unexported or exposed export is always its own row.
+ */
+export function contractsReport(
+  comparison: Comparison,
+  moves: readonly ContractMove[],
+  unmentionedSet: ReadonlySet<NodeId>,
+): ContractsReport {
+  const nodeOf = new Map<NodeId, ModuleNode>(comparison.changes.map((change) => [change.node.id, change.node]));
+  const counts: Record<ContractMoveKind, number> = { changed: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 };
+  const rows: ContractRow[] = [];
+  for (const move of moves) {
+    const node = nodeOf.get(move.id);
+    if (node === undefined || !isCodeNode(node)) continue;
+    counts[move.kind] += 1;
+    rows.push({ kind: "row", move, id: move.id, label: node.qualifiedName, path: node.path, level: node.level, unmentioned: unmentionedSet.has(move.id) });
+  }
+
+  const entries: (ContractRow | ContractRollup)[] = [];
+  const grouped = new Map<string, ContractRow[]>();
+  for (const row of rows) {
+    const kind = row.move.kind;
+    if (kind !== "added" && kind !== "moved") {
+      entries.push(row);
+      continue;
+    }
+    const key = `${kind} ${row.path}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), row]);
+  }
+  for (const group of grouped.values()) {
+    const first = group[0]!;
+    if (group.length <= ROLLUP_OVER) {
+      entries.push(...group);
+      continue;
+    }
+    entries.push({
+      kind: "rollup",
+      moveKind: first.move.kind as "added" | "moved",
+      path: first.path,
+      fileId: `file:${first.path}` as NodeId,
+      rows: group,
+      unmentioned: group.filter((row) => row.unmentioned).length,
+    });
+  }
+  const rank = (entry: ContractRow | ContractRollup): number =>
+    CONTRACT_ORDER.indexOf(entry.kind === "row" ? entry.move.kind : entry.moveKind);
+  const key = (entry: ContractRow | ContractRollup): string => (entry.kind === "row" ? entry.id : entry.path);
+  entries.sort((a, b) => rank(a) - rank(b) || Number(a.kind === "rollup") - Number(b.kind === "rollup") || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  return { counts, entries };
+}
+
+export interface SignatureDiff {
+  readonly prefix: string;
+  readonly removed: string;
+  readonly added: string;
+  readonly suffix: string;
+}
+
+/** What two signatures share at the start and the end, and the middle of each that differs. */
+export function signatureDiff(before: string, after: string): SignatureDiff {
+  let start = 0;
+  const shortest = Math.min(before.length, after.length);
+  while (start < shortest && before[start] === after[start]) start += 1;
+  let end = 0;
+  while (end < shortest - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end += 1;
+  return {
+    prefix: before.slice(0, start),
+    removed: before.slice(start, before.length - end),
+    added: after.slice(start, after.length - end),
+    suffix: before.slice(before.length - end),
+  };
+}

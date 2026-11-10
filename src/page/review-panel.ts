@@ -1,6 +1,17 @@
 import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
-import type { ReviewEntry, Unmentioned } from "../review.ts";
+import { signatureDiff } from "../review.ts";
+import type { ContractRollup, ContractRow, ContractsReport, ReviewEntry, Unmentioned } from "../review.ts";
+import type { NodeId } from "../graph.ts";
+
+const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
+  changed: "~",
+  added: "+",
+  removed: "−",
+  exposed: "↑",
+  unexported: "↓",
+  moved: "→",
+};
 
 const MARK: Record<ChangeKind, string> = { added: "+", altered: "~", removed: "−", moved: "→" };
 
@@ -9,8 +20,12 @@ export interface ReviewInput {
   readonly description: string | null;
   /** Null when there is no description to check changes against. */
   readonly unmentioned: Unmentioned | null;
+  /** Null without a comparison to derive them from. */
+  readonly contracts: ContractsReport | null;
   /** The user picked an entry; the host selects and flies to its place. */
   readonly pick: (entry: ReviewEntry) => void;
+  /** The user picked a contract row or a file rollup; the host selects and flies to the node or file. */
+  readonly pickNode: (id: NodeId) => void;
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {
@@ -29,7 +44,7 @@ function section(title: string, tag: string): [HTMLElement, HTMLElement] {
   return [wrap, body];
 }
 
-/** Fills `host` with Claims and Unmentioned. Everything user-supplied goes in as text. */
+/** Fills `host` with Claims, Unmentioned and Contracts moved. Everything user-supplied goes in as text. */
 export function renderReview(host: HTMLElement, input: ReviewInput): void {
   let active: HTMLElement | undefined;
   const [claims, claimsBody] = section("Claims", "claimed");
@@ -98,5 +113,93 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     return item;
   }
 
-  host.replaceChildren(claims, unmentioned);
+  const [contracts, contractsBody] = section("Contracts moved", "derived");
+  const report = input.contracts;
+  if (report === null || report.entries.length === 0) {
+    contractsBody.append(element("p", "review-empty", "No exported signature changed."));
+  } else {
+    const c = report.counts;
+    const parts = (["changed", "removed", "unexported", "exposed", "moved", "added"] as const)
+      .filter((kind) => c[kind] > 0)
+      .map((kind) => `${c[kind]} ${kind}`);
+    contractsBody.append(element("p", "review-summary", `${parts.join(", ")}.`));
+    const list = element("ul", "review-list");
+    for (const entry of report.entries) list.append(entry.kind === "row" ? contractRow(entry) : rollupRow(entry));
+    contractsBody.append(list);
+  }
+
+  function choose(pick: HTMLElement, id: NodeId): void {
+    active?.classList.remove("active");
+    active = pick;
+    pick.classList.add("active");
+    input.pickNode(id);
+  }
+
+  function contractRow(entry: ContractRow): HTMLElement {
+    const kind = entry.move.kind;
+    const item = element("li", `review-row contract contract-${kind}`);
+    const line = element("div", "review-line");
+    line.append(element("span", "review-toggle"));
+    const pick = element("button", "review-pick contract-pick");
+    pick.type = "button";
+    pick.dataset.id = entry.id;
+    pick.append(element("span", `review-mark contract-${kind}`, CONTRACT_MARK[kind]));
+    const text = element("span", "contract-text");
+    const head = element("span", "contract-head");
+    head.append(element("span", "review-label", entry.label), element("span", "review-size", kind));
+    if (entry.unmentioned) head.append(element("span", "review-flag", "unmentioned"));
+    text.append(head, element("span", "contract-where", `${entry.level} in ${entry.path}`));
+    const { before, after } = entry.move;
+    if (before !== null && after !== null) {
+      const diff = signatureDiff(before, after);
+      const was = element("span", "contract-sig before");
+      was.append(element("span", "contract-side", "before"), diff.prefix, element("mark", "removed", diff.removed), diff.suffix);
+      const now = element("span", "contract-sig after");
+      now.append(element("span", "contract-side", "after"), diff.prefix, element("mark", "added", diff.added), diff.suffix);
+      text.append(was, now);
+    } else if (before !== null || after !== null) {
+      const only = element("span", "contract-sig");
+      only.append(element("span", "contract-side", before !== null ? "was" : "now"), before ?? after ?? "");
+      text.append(only);
+    }
+    pick.append(text);
+    pick.addEventListener("click", () => choose(pick, entry.id));
+    line.append(pick);
+    item.append(line);
+    return item;
+  }
+
+  function rollupRow(entry: ContractRollup): HTMLElement {
+    const item = element("li", `review-row contract contract-${entry.moveKind} rollup`);
+    const line = element("div", "review-line");
+    const nested = element("ul", "review-list");
+    nested.hidden = true;
+    const toggle = element("button", "review-toggle", "▸");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", `Expand ${entry.path}`);
+    toggle.addEventListener("click", () => {
+      nested.hidden = !nested.hidden;
+      toggle.textContent = nested.hidden ? "▸" : "▾";
+      toggle.setAttribute("aria-expanded", String(!nested.hidden));
+      if (!nested.hidden && nested.childElementCount === 0) for (const row of entry.rows) nested.append(contractRow(row));
+    });
+    line.append(toggle);
+    const pick = element("button", "review-pick contract-pick");
+    pick.type = "button";
+    pick.dataset.id = entry.fileId;
+    pick.append(element("span", `review-mark contract-${entry.moveKind}`, CONTRACT_MARK[entry.moveKind]));
+    const text = element("span", "contract-text");
+    const head = element("span", "contract-head");
+    head.append(element("span", "review-label", entry.path), element("span", "review-size", `${entry.rows.length} ${entry.moveKind}`));
+    if (entry.unmentioned > 0) head.append(element("span", "review-flag", entry.unmentioned === entry.rows.length ? "unmentioned" : `${entry.unmentioned} unmentioned`));
+    text.append(head);
+    pick.append(text);
+    pick.addEventListener("click", () => choose(pick, entry.fileId));
+    line.append(pick);
+    item.append(line, nested);
+    return item;
+  }
+
+  host.replaceChildren(claims, unmentioned, contracts);
 }
