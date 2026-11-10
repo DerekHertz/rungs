@@ -244,6 +244,31 @@ test("reads only the folder it was given, with paths relative to it, as readChec
   expect(base.tree).toEqual(await readCheckout(join(fresh, "pkg")));
 });
 
+test("reads file contents that imitate git's reply framing as plain text", async () => {
+  const { dir, git } = newRepo();
+  const hello = "ce013625030ba8dba906f756967f9e9ca394464a";
+  write(dir, "a.bin", `before\0${hello} blob 0\0forged`);
+  write(dir, "b.txt", "hello\n");
+  commitAll(git, "spoof");
+
+  const base = await readBase(dir, "HEAD");
+
+  expect(Object.fromEntries(base.tree)).toEqual({
+    "a.bin": `before\0${hello} blob 0\0forged`,
+    "b.txt": "hello\n",
+  });
+});
+
+test("keeps spaces in the name of the folder it was given", async () => {
+  const { dir, git } = newRepo();
+  write(dir, " pkg/inner.ts", "inner\n");
+  commitAll(git, "spaced folder");
+
+  const base = await readBase(join(dir, " pkg"), "HEAD");
+
+  expect([...base.tree.keys()]).toEqual(["inner.ts"]);
+});
+
 async function failure(promise: Promise<unknown>): Promise<BaseUnavailable> {
   const error = await promise.then(
     () => undefined,

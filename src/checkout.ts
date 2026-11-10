@@ -1,5 +1,6 @@
-import { execFile, spawn } from "node:child_process";
-import { lstat, readFile, readlink } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { lstat, mkdtemp, readFile, readlink, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import { promisify } from "node:util";
 import type { FileTree } from "./graph.ts";
@@ -104,30 +105,27 @@ export async function readBase(dir: string, ref: string): Promise<Base> {
   const prefix = await prefixOf(dir);
   const commit = await mergeBase(dir, ref);
   const entries = await listCommit(dir, commit, prefix);
-  const isLink = (entry: Entry) => entry.mode === "120000";
-  const [files, links] = await Promise.all([
-    readBlobs(dir, commit, entries.filter((entry) => !isLink(entry)), true),
-    readBlobs(dir, commit, entries.filter(isLink), false),
-  ]);
-  const texts = new Map([...files, ...links]);
   const tree = new Map<string, string>();
-  for (const path of [...texts.keys()].sort()) tree.set(path, texts.get(path) as string);
+  await withCheckout(dir, commit, entries, async (root) => {
+    for (const entry of entries) {
+      const text = await readWorkingFile(join(root, entry.full));
+      if (text !== undefined) tree.set(entry.path, text);
+    }
+  });
   return { commit, tree };
 }
 
 interface Entry {
-  readonly mode: string;
-  readonly blob: string;
   /** Path as readCheckout keys it: relative to the folder git was started in. */
   readonly path: string;
-  /** Path from the repository root, which is how attributes are looked up. */
+  /** Path from the repository root. */
   readonly full: string;
 }
 
 async function prefixOf(dir: string): Promise<string> {
   const prefix = await git(dir, ["rev-parse", "--show-prefix"]);
   if (prefix === undefined) throw new BaseUnavailable("not-a-repository", `${dir} is not a git repository`);
-  return prefix.trim();
+  return prefix.replace(/\n$/, "");
 }
 
 async function mergeBase(dir: string, ref: string): Promise<string> {
@@ -180,63 +178,52 @@ async function listCommit(dir: string, commit: string, prefix: string): Promise<
   for (const record of listed.split("\0")) {
     const tab = record.indexOf("\t");
     if (tab < 0) continue;
-    const [mode, type, blob] = record.slice(0, tab).split(" ") as [string, string, string];
-    if (type !== "blob") continue;
+    if (record.slice(0, tab).split(" ")[1] !== "blob") continue;
     const full = record.slice(tab + 1);
-    entries.push({ mode, blob, path: full.slice(prefix.length), full });
+    entries.push({ path: full.slice(prefix.length), full });
   }
-  return entries;
+  return entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
-// One `git cat-file --batch` process answers every request. With --filters git converts each blob
-// the way a checkout would (eol, smudge filters) but still reports the unconverted size, so the
-// reply is framed by the next header, which starts with the next blob's id, never by that size.
-// Attributes come from the commit being read, not from the working tree (git 2.40 and later).
-async function readBlobs(
+// A checkout of the commit into a temporary folder through a temporary index, so git itself
+// applies the conversions a checkout would (eol, smudge filters) and file contents never take part
+// in any framing. Attributes come from the commit, not the working tree (git 2.40 and later). The
+// repository's own index and working tree are untouched.
+async function withCheckout(
   dir: string,
   commit: string,
   entries: readonly Entry[],
-  filters: boolean,
-): Promise<Map<string, string>> {
-  if (entries.length === 0) return new Map();
-  const args = ["cat-file", "--batch", "-Z", ...(filters ? ["--filters"] : [])];
-  const child = spawn("git", args, {
-    cwd: dir,
-    env: { ...process.env, GIT_ATTR_SOURCE: commit },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  const out: Buffer[] = [];
-  const err: Buffer[] = [];
-  child.stdout.on("data", (chunk: Buffer) => out.push(chunk));
-  child.stderr.on("data", (chunk: Buffer) => err.push(chunk));
-  const closed = new Promise<number | null>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", resolve);
-  });
-  child.stdin.on("error", () => {});
-  child.stdin.end(entries.map((entry) => `${filters ? `${entry.blob} ${entry.full}` : entry.blob}\0`).join(""));
-  const code = await closed;
-  if (code !== 0) {
-    const stderr = Buffer.concat(err).toString("utf8").trim();
-    throw new Error(`cannot read the files of ${commit} in ${dir}: ${stderr || `git exited ${code}`}`);
+  read: (root: string) => Promise<void>,
+): Promise<void> {
+  const scratch = await mkdtemp(join(tmpdir(), "rungs-base-"));
+  try {
+    const top = (await gitOrFail(dir, ["rev-parse", "--show-toplevel"], commit)).replace(/\n$/, "");
+    const root = join(scratch, "tree");
+    const env = { ...process.env, GIT_INDEX_FILE: join(scratch, "index"), GIT_ATTR_SOURCE: commit };
+    await gitOrFail(top, ["read-tree", commit], commit, env);
+    const paths = entries.map((entry) => `${entry.full}\0`).join("");
+    await gitOrFail(top, ["checkout-index", `--prefix=${root}/`, "-z", "--stdin"], commit, env, paths);
+    await read(root);
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
   }
-  return framed(Buffer.concat(out), entries, commit);
 }
 
-function framed(output: Buffer, entries: readonly Entry[], commit: string): Map<string, string> {
-  const texts = new Map<string, string>();
-  let at = 0;
-  for (const [index, entry] of entries.entries()) {
-    const header = Buffer.from(`${entry.blob} blob `);
-    const headerEnd = output.indexOf(0, at);
-    const next = entries[index + 1];
-    const start = headerEnd + 1;
-    const end =
-      next === undefined ? output.length - 1 : output.indexOf(Buffer.from(`\0${next.blob} blob `), start);
-    const inOrder = headerEnd >= 0 && output.subarray(at, at + header.length).equals(header) && end >= start;
-    if (!inOrder) throw new Error(`cannot read the files of ${commit}: git answered out of order`);
-    texts.set(entry.path, output.toString("utf8", start, end));
-    at = end + 1;
+async function gitOrFail(
+  dir: string,
+  args: string[],
+  commit: string,
+  env?: NodeJS.ProcessEnv,
+  input?: string,
+): Promise<string> {
+  try {
+    const child = execFileAsync("git", args, { cwd: dir, env, maxBuffer: 1 << 30 });
+    if (input !== undefined) child.child.stdin?.end(input);
+    return (await child).stdout;
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr?.trim();
+    throw new Error(`cannot read the files of ${commit} in ${dir}: ${stderr || (error as Error).message}`, {
+      cause: error,
+    });
   }
-  return texts;
 }
