@@ -7,25 +7,9 @@ import type { CodeSyntax } from "./extract/javascript.ts";
 import { isCodeNode, resourceId, targetText } from "./graph.ts";
 import type { CodeNode, EffectEdge, FileTree, Graph, LineRange, NodeId } from "./graph.ts";
 import { lineRangeOf, lineStarts } from "./lines.ts";
+import type { LineKind, PseudoLine } from "./pseudo-line.ts";
 
-export type LineKind =
-  | "if" | "else if" | "else" | "switch" | "case" | "default"
-  | "for" | "while" | "do" | "try" | "catch" | "finally"
-  | "return" | "throw" | "break" | "continue" | "await" | "yield"
-  | "with" | "effect" | "function" | "straight";
-
-/**
- * One line of a function's outline. `range` is the source lines the line stands for: a header's
- * own lines for a branch or loop (never its body), the whole statement for a return, throw, jump
- * or effect. `node` is set on a nested function or class, which is shown as this one line.
- */
-export interface PseudoLine {
-  readonly depth: number;
-  readonly kind: LineKind;
-  readonly text: string;
-  readonly range: LineRange;
-  readonly node?: NodeId;
-}
+export type { LineKind, PseudoLine } from "./pseudo-line.ts";
 
 // A long return, throw, await or effect argument is cut and marked; a condition never is.
 const CUT = 100;
