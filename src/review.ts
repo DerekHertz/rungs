@@ -18,12 +18,13 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\
  */
 export function appears(description: string, kind: "path" | "file" | "name", needle: string): boolean {
   const body = escape(needle);
+  const word = "\\p{L}\\p{N}\\p{M}_";
   const pattern =
     kind === "path"
-      ? `(?<![\\w./-])${body}(?![\\w/-]|\\.\\w)`
+      ? `(?<![${word}./-])${body}(?![${word}/-]|\\.[${word}])`
       : kind === "file"
-        ? `(?<![\\w.-])${body}(?![\\w/-]|\\.\\w)`
-        : `(?<![\\w$])${body}(?![\\w$])`;
+        ? `(?<![${word}.-])${body}(?![${word}/-]|\\.[${word}])`
+        : `(?<![${word}$])${body}(?![${word}$])`;
   return new RegExp(pattern, "u").test(description);
 }
 
@@ -86,8 +87,7 @@ export function unmentioned(comparison: Comparison, graph: Graph, description: s
   const fileChanges = comparison.changes.filter((change) => change.node.level === "file");
   const shared = new Map<string, number>();
   for (const change of fileChanges) {
-    const name = baseName(change.node.path);
-    shared.set(name, (shared.get(name) ?? 0) + 1);
+    for (const name of new Set(pathsOf(change).map(baseName))) shared.set(name, (shared.get(name) ?? 0) + 1);
   }
   const pathMentioned = (path: string): boolean =>
     appears(description, "path", path) || (shared.get(baseName(path)) === 1 && appears(description, "file", baseName(path)));

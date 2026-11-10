@@ -162,3 +162,17 @@ test("code under a mentioned file is covered by it", () => {
   const head = { ...base, "src/a.ts": fn("alpha", 2) + fn("gamma") };
   expect(review(base, head, "In src/a.ts.").entries).toEqual([]);
 });
+
+test("a moved file's old base name counts toward ambiguity", () => {
+  const before = { "package.json": "{}\n", "src/a.ts": "export const a = 1;\n", "other/a.ts": "export const b = 1;\n" };
+  const after = { "package.json": "{}\n", "lib/b.ts": "export const a = 1;\n", "other/a.ts": "export const b = 2;\n" };
+  expect(labels(review(before, after, "Update a.ts").entries)).toEqual(["other/a.ts", "lib/b.ts"]);
+});
+
+test("a Unicode letter beside a needle is part of a longer name", () => {
+  expect(appears("Update \u00e9a.ts", "file", "a.ts")).toBe(false);
+  expect(appears("Fix \u00e9parse()", "name", "parse")).toBe(false);
+  expect(appears("Fix parse\u00e9()", "name", "parse")).toBe(false);
+  expect(appears("x/\u00e9a.ts", "path", "a.ts")).toBe(false);
+  expect(appears("Fix parse()", "name", "parse")).toBe(true);
+});
