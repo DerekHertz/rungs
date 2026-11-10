@@ -1,5 +1,5 @@
-import { isCodeNode } from "../graph.ts";
-import type { ContainerNode, FileNode, Graph, NodeId } from "../graph.ts";
+import { isCodeNode, lineCount, rootOf } from "../graph.ts";
+import type { Graph, ModuleNode, NodeId } from "../graph.ts";
 import { LABEL_BAND, layout, reservesLabelBand } from "../layout.ts";
 import type { Rect } from "../layout.ts";
 
@@ -9,7 +9,7 @@ interface Style {
   readonly text: string;
 }
 
-type Look = "package" | "folder" | "analysed" | "not analysed" | "generated";
+type Look = "package" | "folder" | "analysed" | "not analysed" | "generated" | "class" | "function";
 
 const STYLES: Readonly<Record<Look, Style>> = {
   package: { fill: "#1d3b2a", edge: "#3f7a55", text: "#b9e4c6" },
@@ -17,17 +17,16 @@ const STYLES: Readonly<Record<Look, Style>> = {
   analysed: { fill: "#2f6f8f", edge: "#173a4b", text: "#eaf6fc" },
   "not analysed": { fill: "#3a3a3a", edge: "#232323", text: "#a8a8a8" },
   generated: { fill: "#2c2733", edge: "#1c1921", text: "#9a92a8" },
+  class: { fill: "#8a5a2b", edge: "#47301a", text: "#fbefdc" },
+  function: { fill: "#6b5aa8", edge: "#352d55", text: "#f1eefb" },
 };
 
-// Layout places no classes or functions yet, so only containers and files are drawn.
-type DrawnNode = ContainerNode | FileNode;
-
-function lookOf(node: DrawnNode): Look {
+function lookOf(node: ModuleNode): Look {
   if (node.level !== "file") return node.level;
   return node.generated ? "generated" : node.analysis;
 }
 
-function displayName(node: DrawnNode): string {
+function displayName(node: ModuleNode): string {
   return node.path === "" ? "/" : node.name;
 }
 
@@ -36,9 +35,7 @@ const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const context = canvas.getContext("2d")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
-const nodes = new Map<NodeId, DrawnNode>(
-  graph.nodes.filter((node) => !isCodeNode(node)).map((node) => [node.id, node]),
-);
+const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
 let rects: Rect[] = [];
 
 function hatch(): CanvasPattern {
@@ -83,7 +80,8 @@ function draw(): void {
   context.textBaseline = "top";
   const pattern = hatch();
 
-  rects = layout(graph, width, height);
+  rects = layout(graph, rootOf(graph), width, height);
+  const hasPlacedChildren = new Set(rects.map((rect) => nodes.get(rect.id)!.parent));
   for (const rect of rects) {
     const node = nodes.get(rect.id)!;
     const look = lookOf(node);
@@ -101,10 +99,14 @@ function draw(): void {
     context.strokeStyle = style.edge;
     context.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 
-    if (node.level !== "file") {
+    if (node.level === "package" || node.level === "folder") {
       if (reservesLabelBand(rect)) label([displayName(node)], { ...rect, h: LABEL_BAND }, style.text);
-    } else {
+    } else if (hasPlacedChildren.has(node.id)) {
+      label([displayName(node)], { ...rect, h: LABEL_BAND }, style.text);
+    } else if (node.level === "file") {
       label(look === "analysed" ? [node.name] : [node.name, look], rect, style.text);
+    } else {
+      label([displayName(node)], rect, style.text);
     }
   }
 }
@@ -122,7 +124,9 @@ canvas.addEventListener("mousemove", (event) => {
     tooltip.style.display = "none";
     return;
   }
-  const facts = [`${node.level} ${node.path === "" ? "/" : node.path}`, `${node.lines} lines`];
+  const facts = isCodeNode(node)
+    ? [`${node.level} ${node.name}`, node.path, `${lineCount(node)} lines`, `lines ${node.range.start}-${node.range.end}`]
+    : [`${node.level} ${node.path === "" ? "/" : node.path}`, `${lineCount(node)} lines`];
   if (node.level === "file") facts.push(node.generated ? "generated" : node.analysis);
   tooltip.textContent = facts.join("\n");
   tooltip.style.display = "block";
