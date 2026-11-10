@@ -67,3 +67,17 @@ test("skips indexed files whose folder was replaced by a symlink, as git does", 
     rmSync(outside, { recursive: true, force: true });
   }
 });
+
+test("skips indexed files whose folder was replaced by a file, as git does", async () => {
+  mkdirSync(join(repo, "flattened"));
+  writeFileSync(join(repo, "flattened/inner.ts"), "inside\n");
+  git("add", "flattened");
+  git("commit", "--quiet", "-m", "flattened");
+  rmSync(join(repo, "flattened"), { recursive: true });
+  writeFileSync(join(repo, "flattened"), "now a file\n");
+
+  const tree = await readCheckout(repo);
+
+  expect(tree.has("flattened/inner.ts")).toBe(false);
+  expect(tree.get("flattened")).toBe("now a file\n");
+});

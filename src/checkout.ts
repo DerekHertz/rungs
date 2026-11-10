@@ -39,15 +39,16 @@ async function listFiles(dir: string): Promise<string> {
   }
 }
 
-// The index still lists files deleted from the working tree, and submodules are listed as
-// directories; neither has text to read. A symlink's text is its target, as git stores it.
+// The index still lists files deleted from the working tree, or whose folder became a file,
+// and submodules are listed as
+// directories; none has text to read. A symlink's text is its target, as git stores it.
 async function readWorkingFile(path: string): Promise<string | undefined> {
   try {
     if ((await lstat(path)).isSymbolicLink()) return await readlink(path, "utf8");
     return await readFile(path, "utf8");
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "EISDIR") return undefined;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR") return undefined;
     throw error;
   }
 }
@@ -68,7 +69,8 @@ async function isSymbolicLink(path: string): Promise<boolean> {
   try {
     return (await lstat(path)).isSymbolicLink();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
     throw error;
   }
 }
