@@ -1,6 +1,42 @@
 {
-  "extractorVersion": "2",
+  "extractorVersion": "3",
   "nodes": [
+    {
+      "id": "class:src/shapes.ts#Circle",
+      "level": "class",
+      "path": "src/shapes.ts",
+      "name": "Circle",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "Circle",
+      "range": {
+        "start": 64,
+        "end": 68
+      }
+    },
+    {
+      "id": "class:src/shapes.ts#Polygon",
+      "level": "class",
+      "path": "src/shapes.ts",
+      "name": "Polygon",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "Polygon",
+      "range": {
+        "start": 5,
+        "end": 10
+      }
+    },
+    {
+      "id": "class:src/shapes.ts#Square",
+      "level": "class",
+      "path": "src/shapes.ts",
+      "name": "Square",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "Square",
+      "range": {
+        "start": 12,
+        "end": 45
+      }
+    },
     {
       "id": "file:README.md",
       "level": "file",
@@ -72,6 +108,16 @@
       "generated": false
     },
     {
+      "id": "file:src/default.js",
+      "level": "file",
+      "path": "src/default.js",
+      "name": "default.js",
+      "parent": "folder:src",
+      "lines": 9,
+      "analysis": "analysed",
+      "generated": false
+    },
+    {
       "id": "file:src/index.ts",
       "level": "file",
       "path": "src/index.ts",
@@ -88,6 +134,16 @@
       "name": "legacy.js",
       "parent": "folder:src",
       "lines": 3,
+      "analysis": "analysed",
+      "generated": false
+    },
+    {
+      "id": "file:src/shapes.ts",
+      "level": "file",
+      "path": "src/shapes.ts",
+      "name": "shapes.ts",
+      "parent": "folder:src",
+      "lines": 76,
       "analysis": "analysed",
       "generated": false
     },
@@ -149,7 +205,7 @@
       "path": "src",
       "name": "src",
       "parent": "package:",
-      "lines": 11
+      "lines": 96
     },
     {
       "id": "folder:src/util",
@@ -160,12 +216,372 @@
       "lines": 3
     },
     {
+      "id": "function:packages/widget/src/widget.tsx#Widget",
+      "level": "function",
+      "path": "packages/widget/src/widget.tsx",
+      "name": "Widget",
+      "parent": "file:packages/widget/src/widget.tsx",
+      "qualifiedName": "Widget",
+      "range": {
+        "start": 1,
+        "end": 1
+      }
+    },
+    {
+      "id": "function:src/default.js#\"<function>\"",
+      "level": "function",
+      "path": "src/default.js",
+      "name": "<function>",
+      "parent": "file:src/default.js",
+      "qualifiedName": "\"<function>\"",
+      "range": {
+        "start": 7,
+        "end": 9
+      }
+    },
+    {
+      "id": "function:src/default.js#\"<function>\".\"exports.helper\"",
+      "level": "function",
+      "path": "src/default.js",
+      "name": "exports.helper",
+      "parent": "function:src/default.js#\"<function>\"",
+      "qualifiedName": "\"<function>\".\"exports.helper\"",
+      "range": {
+        "start": 8,
+        "end": 8
+      }
+    },
+    {
+      "id": "function:src/default.js#default",
+      "level": "function",
+      "path": "src/default.js",
+      "name": "default",
+      "parent": "file:src/default.js",
+      "qualifiedName": "default",
+      "range": {
+        "start": 1,
+        "end": 5
+      }
+    },
+    {
+      "id": "function:src/default.js#default.\"map() callback\"",
+      "level": "function",
+      "path": "src/default.js",
+      "name": "map() callback",
+      "parent": "function:src/default.js#default",
+      "qualifiedName": "default.\"map() callback\"",
+      "range": {
+        "start": 2,
+        "end": 4
+      }
+    },
+    {
+      "id": "function:src/index.ts#main",
+      "level": "function",
+      "path": "src/index.ts",
+      "name": "main",
+      "parent": "file:src/index.ts",
+      "qualifiedName": "main",
+      "range": {
+        "start": 3,
+        "end": 5
+      }
+    },
+    {
+      "id": "function:src/legacy.js#legacy",
+      "level": "function",
+      "path": "src/legacy.js",
+      "name": "legacy",
+      "parent": "file:src/legacy.js",
+      "qualifiedName": "legacy",
+      "range": {
+        "start": 1,
+        "end": 3
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#\"describeShapes(\\\"squares\\\") callback\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "describeShapes(\"squares\") callback",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "\"describeShapes(\\\"squares\\\") callback\"",
+      "range": {
+        "start": 70,
+        "end": 72
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#\"describeShapes(\\\"squares\\\") callback\".\"describeShapes(\\\"area\\\") callback\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "describeShapes(\"area\") callback",
+      "parent": "function:src/shapes.ts#\"describeShapes(\\\"squares\\\") callback\"",
+      "qualifiedName": "\"describeShapes(\\\"squares\\\") callback\".\"describeShapes(\\\"area\\\") callback\"",
+      "range": {
+        "start": 71,
+        "end": 71
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#\"filter() callback\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "filter() callback",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "\"filter() callback\"",
+      "range": {
+        "start": 53,
+        "end": 53
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#\"handlers.close\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "handlers.close",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "\"handlers.close\"",
+      "range": {
+        "start": 60,
+        "end": 60
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#\"handlers.nested.reset\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "handlers.nested.reset",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "\"handlers.nested.reset\"",
+      "range": {
+        "start": 61,
+        "end": 61
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#\"handlers.open\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "handlers.open",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "\"handlers.open\"",
+      "range": {
+        "start": 57,
+        "end": 59
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#\"map() callback\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "map() callback",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "\"map() callback\"",
+      "range": {
+        "start": 53,
+        "end": 53
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#\"map() callback\"@2",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "map() callback (2)",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "\"map() callback\"@2",
+      "range": {
+        "start": 54,
+        "end": 54
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Circle.radius",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "radius",
+      "parent": "class:src/shapes.ts#Circle",
+      "qualifiedName": "Circle.radius",
+      "range": {
+        "start": 65,
+        "end": 67
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Polygon.\"static from\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "static from",
+      "parent": "class:src/shapes.ts#Polygon",
+      "qualifiedName": "Polygon.\"static from\"",
+      "range": {
+        "start": 7,
+        "end": 9
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.\"\\u0023grow\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "#grow",
+      "parent": "class:src/shapes.ts#Square",
+      "qualifiedName": "Square.\"\\u0023grow\"",
+      "range": {
+        "start": 35,
+        "end": 40
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.\"\\u0023grow\".clamp",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "clamp",
+      "parent": "function:src/shapes.ts#Square.\"\\u0023grow\"",
+      "qualifiedName": "Square.\"\\u0023grow\".clamp",
+      "range": {
+        "start": 36,
+        "end": 38
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.\"get side\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "get side",
+      "parent": "class:src/shapes.ts#Square",
+      "qualifiedName": "Square.\"get side\"",
+      "range": {
+        "start": 22,
+        "end": 24
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.\"half.size\\u0023x\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "half.size#x",
+      "parent": "class:src/shapes.ts#Square",
+      "qualifiedName": "Square.\"half.size\\u0023x\"",
+      "range": {
+        "start": 41,
+        "end": 43
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.\"set side\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "set side",
+      "parent": "class:src/shapes.ts#Square",
+      "qualifiedName": "Square.\"set side\"",
+      "range": {
+        "start": 25,
+        "end": 27
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.\"static area\"",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "static area",
+      "parent": "class:src/shapes.ts#Square",
+      "qualifiedName": "Square.\"static area\"",
+      "range": {
+        "start": 32,
+        "end": 34
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.area",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "area",
+      "parent": "class:src/shapes.ts#Square",
+      "qualifiedName": "Square.area",
+      "range": {
+        "start": 28,
+        "end": 31
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.area.squared",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "squared",
+      "parent": "function:src/shapes.ts#Square.area",
+      "qualifiedName": "Square.area.squared",
+      "range": {
+        "start": 29,
+        "end": 29
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.constructor",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "constructor",
+      "parent": "class:src/shapes.ts#Square",
+      "qualifiedName": "Square.constructor",
+      "range": {
+        "start": 18,
+        "end": 21
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#Square.onResize",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "onResize",
+      "parent": "class:src/shapes.ts#Square",
+      "qualifiedName": "Square.onResize",
+      "range": {
+        "start": 44,
+        "end": 44
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#describeShapes",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "describeShapes",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "describeShapes",
+      "range": {
+        "start": 74,
+        "end": 76
+      }
+    },
+    {
+      "id": "function:src/shapes.ts#scale",
+      "level": "function",
+      "path": "src/shapes.ts",
+      "name": "scale",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "scale",
+      "range": {
+        "start": 49,
+        "end": 51
+      }
+    },
+    {
+      "id": "function:src/util/math.ts#add",
+      "level": "function",
+      "path": "src/util/math.ts",
+      "name": "add",
+      "parent": "file:src/util/math.ts",
+      "qualifiedName": "add",
+      "range": {
+        "start": 1,
+        "end": 3
+      }
+    },
+    {
       "id": "package:",
       "level": "package",
       "path": "",
       "name": "",
       "parent": null,
-      "lines": 32
+      "lines": 117
     },
     {
       "id": "package:packages/widget",

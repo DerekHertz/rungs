@@ -1,4 +1,5 @@
-import type { Graph, ModuleNode, NodeId } from "../graph.ts";
+import { isCodeNode } from "../graph.ts";
+import type { ContainerNode, FileNode, Graph, NodeId } from "../graph.ts";
 import { LABEL_BAND, layout, reservesLabelBand } from "../layout.ts";
 import type { Rect } from "../layout.ts";
 
@@ -18,12 +19,15 @@ const STYLES: Readonly<Record<Look, Style>> = {
   generated: { fill: "#2c2733", edge: "#1c1921", text: "#9a92a8" },
 };
 
-function lookOf(node: ModuleNode): Look {
+// Layout places no classes or functions yet, so only containers and files are drawn.
+type DrawnNode = ContainerNode | FileNode;
+
+function lookOf(node: DrawnNode): Look {
   if (node.level !== "file") return node.level;
   return node.generated ? "generated" : node.analysis;
 }
 
-function displayName(node: ModuleNode): string {
+function displayName(node: DrawnNode): string {
   return node.path === "" ? "/" : node.name;
 }
 
@@ -32,7 +36,9 @@ const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const context = canvas.getContext("2d")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
-const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+const nodes = new Map<NodeId, DrawnNode>(
+  graph.nodes.filter((node) => !isCodeNode(node)).map((node) => [node.id, node]),
+);
 let rects: Rect[] = [];
 
 function hatch(): CanvasPattern {
