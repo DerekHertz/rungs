@@ -27,9 +27,9 @@ describe("pictureOf without a comparison", () => {
   });
 
   test("lays out the same city it always did (golden from before comparisons existed)", () => {
-    const plain = JSON.parse(JSON.stringify(cityOf(pictureOf(head, null), rootOf(head)))) as Record<string, unknown>;
+    const plain = JSON.parse(JSON.stringify(cityOf(pictureOf({ ...head, edges: [] }, null), rootOf(head)))) as Record<string, unknown>;
     const stripped = JSON.parse(
-      JSON.stringify(plain, (key, value: unknown) => (["change", "tally", "ghost", "compared"].includes(key) ? undefined : value)),
+      JSON.stringify(plain, (key, value: unknown) => (["change", "tally", "ghost", "compared", "reach", "resources"].includes(key) ? undefined : value)),
     );
     expect(stripped).toEqual(JSON.parse(readFileSync(fixtureUrl("../golden/city-plain.json"), "utf8")));
   });

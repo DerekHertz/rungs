@@ -1,7 +1,7 @@
-import { canonicalEdge, canonicalNode, compareIds, isCodeNode, nodeId } from "./graph.ts";
+import { canonicalEdge, canonicalNode, compareIds, isCodeNode, nodeId, targetText } from "./graph.ts";
 import { diffEffects, effectSets } from "./effects.ts";
 import type { EffectChange } from "./effects.ts";
-import type { CodeNode, ContainerNode, FileNode, Graph, ModuleNode, NodeId } from "./graph.ts";
+import type { CodeNode, ContainerNode, EffectEdge, FileNode, Graph, ModuleNode, NodeId } from "./graph.ts";
 
 export type ChangeKind = "added" | "altered" | "removed" | "moved";
 
@@ -312,6 +312,8 @@ export interface Overlay {
    * included. Zeros for anything else, and for what has not changed.
    */
   tally(id: NodeId): Tally;
+  /** True for an effect edge of the head graph that the comparison lists as added. */
+  freshEdge(edge: EffectEdge): boolean;
 }
 
 export interface Picture {
@@ -332,6 +334,9 @@ function ancestorsOf(path: string): string[] {
   for (let dir = directoryOf(path); dir !== ""; dir = directoryOf(dir)) dirs.push(dir);
   return dirs;
 }
+
+const edgeKey = (edge: EffectEdge): string =>
+  `${edge.from}\0${edge.to}\0${edge.operation}\0${targetText(edge.target)}\0${edge.range.start}\0${edge.range.end}`;
 
 /** `pictureOf(head, null)` is the plain picture. It lays nothing out; city.ts does. */
 export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
@@ -398,7 +403,9 @@ export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
     count[change.kind] += 1;
     codeTallies.set(change.node.path, count);
   }
+  const freshKeys = new Set(comparison.effects.flatMap((change) => (change.kind === "added" ? [edgeKey(change.edge)] : [])));
   const overlay: Overlay = {
+    freshEdge: (edge) => freshKeys.has(edgeKey(edge)),
     change: (id) => entries.get(id)?.kind ?? "unchanged",
     entry: (id) => entries.get(id),
     tally(id) {
