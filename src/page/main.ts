@@ -1,4 +1,4 @@
-import { cityOf, reachMap } from "../city.ts";
+import { cityOf, reachMap, reachOf } from "../city.ts";
 import type { Building, City } from "../city.ts";
 import { pictureOf, tallyText } from "../compare.ts";
 import type { Comparison, ContractMove } from "../compare.ts";
@@ -148,13 +148,16 @@ function showLegend(city: City): void {
   const effects = document.createElement("div");
   const swatch = document.createElement("i");
   swatch.style.background = EFFECT_COLOR;
-  effects.append(
-    swatch,
+  const words = document.createElement("span");
+  words.textContent =
     comparison === null
       ? "plate at the edge: an outside resource \u00b7 line from the building you point at: it reaches it"
-      : "plate at the edge: an outside resource \u00b7 pink post on a roof and bright pink line: a new call to it \u00b7 dim line: an old one",
-  );
-  effects.style.alignItems = "center";
+      : "plate at the edge: an outside resource \u00b7 pink post on a roof and bright pink line: a new call to it \u00b7 dim line: an old one";
+  effects.append(swatch, words);
+  effects.style.flexWrap = "nowrap";
+  effects.style.alignItems = "flex-start";
+  swatch.style.flex = "none";
+  swatch.style.marginTop = "3px";
   const parts = [roles, scale, ...(city.resources.length > 0 ? [effects] : [])];
   if (comparison !== null) {
     const against = document.createElement("div");
@@ -278,7 +281,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   showSource(node, text);
   markLines(node, marked);
   chosenKind = undefined;
-  view.select(outline, isCodeNode(node) ? reaches.get(node.id) : undefined);
+  view.select(outline, isCodeNode(node) ? reachOf(reaches, node.id) : undefined);
 }
 
 /** An entry of the review panel: fly to its district, and select the file or code it names. */

@@ -166,6 +166,11 @@ export function reachMap(picture: Picture): ReadonlyMap<NodeId, Reach> {
   return new Map([...found].map(([id, reach]) => [id, { kinds: inOrder(reach.kinds), fresh: inOrder(reach.fresh) }]));
 }
 
+/** What `id` reaches: nothing for a node with no edge in or below it, never its file's reach. */
+export function reachOf(reaches: ReadonlyMap<NodeId, Reach>, id: NodeId): Reach {
+  return reaches.get(id) ?? NO_REACH;
+}
+
 export function withoutCode(graph: Graph): Graph {
   return { ...graph, nodes: graph.nodes.filter((node) => !isCodeNode(node)) };
 }

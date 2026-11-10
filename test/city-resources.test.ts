@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { PLAN_DEPTH, PLAN_WIDTH, cityOf, reachMap } from "../src/city.ts";
+import { PLAN_DEPTH, PLAN_WIDTH, cityOf, reachMap, reachOf } from "../src/city.ts";
 import { compare, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import { rootOf } from "../src/graph.ts";
@@ -68,5 +68,12 @@ describe("resources under a comparison", () => {
     const reach = reachMap(picture);
     expect(reach.get('function:src/effects.mjs#serve' as NodeId)).toEqual({ kinds: ["network", "file system"], fresh: ["network"] });
     expect(reach.get('function:src/effects.mjs#build' as NodeId)).toEqual({ kinds: ["process"], fresh: [] });
+  });
+
+  test("a function with no effects reaches nothing, though its file reaches plenty", () => {
+    const reaches = reachMap(picture);
+    expect(reaches.has("function:src/effects.mjs#save" as NodeId)).toBe(false);
+    expect(reachOf(reaches, "function:src/effects.mjs#save" as NodeId)).toEqual({ kinds: [], fresh: [] });
+    expect(reachOf(reaches, "file:src/effects.mjs" as NodeId).kinds.length).toBeGreaterThan(0);
   });
 });
