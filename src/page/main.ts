@@ -6,8 +6,11 @@ import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
 import type { FileNode, Graph, ModuleNode, NodeId } from "../graph.ts";
 import { indexGraph, trail, zoomOut } from "../zoom.ts";
+import { unmentioned } from "../review.ts";
+import type { ReviewEntry } from "../review.ts";
 import { createCityView } from "./city-view.ts";
 import { LEGEND_ROLES, roleColor } from "./palette.ts";
+import { renderReview } from "./review-panel.ts";
 
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
@@ -31,6 +34,8 @@ const comparison = comparisonResponse.ok
 const picture = pictureOf(graph, comparison);
 // Ghosts are in the picture's graph, so the trail, flying and the source panel reach them too.
 const nodes = new Map<NodeId, ModuleNode>(picture.graph.nodes.map((node) => [node.id, node]));
+// A module removed from a file that stays has no place in the picture, but its base source is served.
+const changed = new Map<NodeId, ModuleNode>((comparison?.changes ?? []).map((change) => [change.node.id, change.node]));
 const tree = indexGraph(picture.graph);
 let cityRoot = tree.root;
 /** The district the camera frames and the names count down from; the layout never follows it. */
@@ -208,7 +213,8 @@ function showSource(node: ModuleNode, text: string): void {
   panel.hidden = false;
 }
 
-async function select(node: ModuleNode, ticket: number): Promise<void> {
+/** Selects `node`, showing its source and outlining `outline` on the picture. */
+async function select(node: ModuleNode, ticket: number, outline: NodeId = node.id): Promise<void> {
   if (node.id === selected) return;
   const response = await fetch(`/source?id=${encodeURIComponent(node.id)}`);
   if (ticket !== requested) return;
@@ -217,7 +223,24 @@ async function select(node: ModuleNode, ticket: number): Promise<void> {
   if (ticket !== requested) return;
   selected = node.id;
   showSource(node, text);
-  view.select(node.id);
+  view.select(outline);
+}
+
+/** An entry of the review panel: fly to its district, and select the file or code it names. */
+function pickEntry(entry: ReviewEntry): void {
+  cancelPending();
+  const ticket = requested;
+  if (entry.level === "district") {
+    closePanel();
+    focusOn(entry.id);
+    return;
+  }
+  const node = nodes.get(entry.id) ?? changed.get(entry.id);
+  if (node === undefined) return;
+  const place = nodes.get(node.level === "file" ? node.id : (`file:${node.path}` as NodeId));
+  if (place === undefined || place.parent === null) return;
+  focusOn(place.parent);
+  void select(node, ticket, place.id);
 }
 
 function cyclePixel(): void {
@@ -238,4 +261,14 @@ window.addEventListener("keydown", (event) => {
   else if (event.key === "p" || event.key === "P") cyclePixel();
 });
 
+if (comparison !== null) {
+  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null };
+  const review = document.querySelector<HTMLElement>("#review")!;
+  review.hidden = false;
+  renderReview(review, {
+    description: claims.description,
+    unmentioned: claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description),
+    pick: pickEntry,
+  });
+}
 showCity(cityRoot);
