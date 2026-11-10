@@ -39,9 +39,9 @@ async function listFiles(dir: string): Promise<string> {
   }
 }
 
-// The index still lists files deleted from the working tree, or whose folder became a file,
-// and submodules are listed as
-// directories; none has text to read. A symlink's text is its target, as git stores it.
+// The index still lists files deleted from the working tree or whose folder became a file, and
+// submodules are listed as directories; none has text to read. A symlink's text is its target,
+// as git stores it.
 async function readWorkingFile(path: string): Promise<string | undefined> {
   try {
     if ((await lstat(path)).isSymbolicLink()) return await readlink(path, "utf8");
