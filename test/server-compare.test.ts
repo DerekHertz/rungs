@@ -22,11 +22,11 @@ const comparing = await serve(head, 0, against);
 const plain = await serve(head, 0);
 const claimed = await serve(head, 0, against, "Adds <b>src/new.ts</b>.\n");
 const seen: { texts: string[]; candidates: string[] }[] = [];
-const linkedServer = await serve(head, 0, against, "Fresh numbers.\n- Trims keep.\n", async (comparison, claims) => {
-  seen.push({ texts: claims.map((claim) => claim.text), candidates: candidatesOf(comparison).map((candidate) => candidate.id) });
+const linkedServer = await serve(head, 0, against, "Fresh numbers.\n- Trims keep.\n", async (comparison, claims, graph) => {
+  seen.push({ texts: claims.map((claim) => claim.text), candidates: candidatesOf(comparison, graph).map((candidate) => candidate.id) });
   return {
     status: "ok",
-    byClaim: [["file:src/new.ts" as NodeId], ["function:src/keep.ts#gone" as NodeId, "file:src/keep.ts" as NodeId]],
+    byClaim: [["file:src/new.ts" as NodeId], ["file:src/keep.ts" as NodeId]],
     model: "m",
     promptVersion: "p1",
     dropped: { ids: 2, claims: 1 },
@@ -120,11 +120,11 @@ test("/claims.json carries each claim's span and linked ids, and how the links w
     description: "Fresh numbers.\n- Trims keep.\n",
     claims: [
       { index: 0, text: "Fresh numbers.", start: 0, end: 14, ids: ["file:src/new.ts"] },
-      { index: 1, text: "Trims keep.", start: 17, end: 28, ids: ["function:src/keep.ts#gone", "file:src/keep.ts"] },
+      { index: 1, text: "Trims keep.", start: 17, end: 28, ids: ["file:src/keep.ts"] },
     ],
     link: { status: "ok", model: "m", promptVersion: "p1", dropped: { ids: 2, claims: 1 }, cached: false },
   });
-  expect(seen).toEqual([{ texts: ["Fresh numbers.", "Trims keep."], candidates: expect.arrayContaining(["file:src/new.ts", "function:src/keep.ts#gone"]) }]);
+  expect(seen).toEqual([{ texts: ["Fresh numbers.", "Trims keep."], candidates: expect.arrayContaining(["file:src/new.ts", "folder:src", "file:src/keep.ts"]) }]);
 });
 
 test("a failed link is said so in /claims.json, with no ids", async () => {

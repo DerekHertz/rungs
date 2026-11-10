@@ -21,53 +21,55 @@ afterAll(() => {
 
 const fn = (name: string, body = 1): string => `export function ${name}() {\n  return ${body};\n}\n`;
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
-const comparison = compare(
-  extract(tree({ "package.json": "{}\n", "src/a.ts": fn("alpha"), "src/gone.ts": fn("old") })),
-  extract(tree({ "package.json": "{}\n", "src/a.ts": fn("alpha", 2), "src/new.ts": fn("fresh") + "export class Box {\n  open() {\n    return 1;\n  }\n}\n" })),
-);
-const candidates = candidatesOf(comparison);
+const headGraph = extract(tree({ "package.json": "{}\n", "src/a.ts": fn("alpha", 2), "src/new.ts": fn("fresh") + "export class Box {\n  open() {\n    return 1;\n  }\n}\n" }));
+const comparison = compare(extract(tree({ "package.json": "{}\n", "src/a.ts": fn("alpha"), "src/gone.ts": fn("old") })), headGraph);
+const candidates = candidatesOf(comparison, headGraph);
 const claims = splitClaims("Speeds up alpha.\n- Adds fresh things\n");
 
-test("the candidates are every changed file, class and function with its change kind, and never a folder", () => {
-  expect(candidates.map((candidate) => `${candidate.kind} ${candidate.id}`)).toEqual([
+test("the candidates are the folders holding changed files, with counts and kinds, then every changed file, and no code", () => {
+  expect(candidates.map((candidate) => candidate.line)).toEqual([
+    "folder folder:src (3 changed files: 1 added, 1 altered, 1 removed)",
     "altered file:src/a.ts",
-    "altered function:src/a.ts#alpha",
     "removed file:src/gone.ts",
-    "removed function:src/gone.ts#old",
     "added file:src/new.ts",
-    "added class:src/new.ts#Box",
-    "added function:src/new.ts#Box.open",
-    "added function:src/new.ts#fresh",
   ]);
+  expect(candidates[0]!.files).toEqual(["file:src/a.ts", "file:src/gone.ts", "file:src/new.ts"]);
 });
 
-test("the prompt holds the claims and candidate ids and no source text, and names its version", () => {
+test("the prompt holds the claims and candidate lines and no source text, and names its version", () => {
   const prompt = promptFor(claims, candidates);
   expect(prompt.system).toContain(PROMPT_VERSION);
   expect(prompt.user).toContain('0: "Speeds up alpha."');
   expect(prompt.user).toContain('1: "Adds fresh things"');
   expect(prompt.user).toContain("altered file:src/a.ts");
   expect(prompt.user).not.toContain("return 2");
+  expect(prompt.user).not.toContain("alpha()");
   expect(promptFor(claims, candidates)).toEqual(prompt);
 });
 
+const known = new Map(candidates.map((candidate) => [candidate.id, candidate.files] as const));
+
 test("validation drops ids outside the candidates and claim indexes out of range, and counts them", () => {
-  const known = new Set(candidates.map((candidate) => candidate.id));
   const out = validate(
-    { links: [{ claim: 0, ids: ["file:src/a.ts", "file:src/nope.ts", "file:src/a.ts"] }, { claim: 1, ids: ["function:src/new.ts#fresh"] }, { claim: 1, ids: ["file:src/new.ts"] }, { claim: 7, ids: ["file:src/a.ts"] }, { claim: -1, ids: [] }] },
+    { links: [{ claim: 0, ids: ["file:src/a.ts", "file:src/nope.ts", "file:src/a.ts"] }, { claim: 1, ids: ["file:src/new.ts"] }, { claim: 1, ids: ["file:src/a.ts"] }, { claim: 7, ids: ["file:src/a.ts"] }, { claim: -1, ids: [] }] },
     claims.length,
     known,
   );
   expect(out).toEqual({
-    byClaim: [["file:src/a.ts"], ["function:src/new.ts#fresh", "file:src/new.ts"]],
+    byClaim: [["file:src/a.ts"], ["file:src/new.ts", "file:src/a.ts"]],
     dropped: { ids: 1, claims: 2 },
   });
 });
 
+test("a link to a folder covers every changed file under it, without repeats", () => {
+  const out = validate({ links: [{ claim: 0, ids: ["file:src/a.ts", "folder:src"] }] }, 1, known);
+  expect(out.byClaim).toEqual([["file:src/a.ts", "file:src/gone.ts", "file:src/new.ts"]]);
+});
+
 test("validation refuses output that is not the schema's shape", () => {
-  const known = new Set<NodeId>();
+  const nothing = new Map<NodeId, readonly NodeId[]>();
   for (const bad of [null, "x", {}, { links: "x" }, { links: [{ claim: "0", ids: [] }] }, { links: [{ claim: 0, ids: [3] }] }, { links: [{ claim: 0.5, ids: [] }] }]) {
-    expect(() => validate(bad, 2, known)).toThrow();
+    expect(() => validate(bad, 2, nothing)).toThrow();
   }
 });
 
@@ -80,13 +82,13 @@ function fake(output: unknown, calls: { count: number } = { count: 0 }): AgentRu
   };
 }
 
-const answer = { links: [{ claim: 0, ids: ["function:src/a.ts#alpha", "file:src/bogus.ts"] }, { claim: 1, ids: ["file:src/new.ts"] }] };
+const answer = { links: [{ claim: 0, ids: ["file:src/a.ts", "file:src/bogus.ts"] }, { claim: 1, ids: ["file:src/new.ts"] }] };
 
 test("linking validates the agent's answer and reports the model, prompt version and drops", async () => {
   const outcome = await linkClaims({ claims, candidates, runner: fake(answer), cacheDir: temp(), relink: false, timeoutMs: 1000 });
   expect(outcome).toEqual({
     status: "ok",
-    byClaim: [["function:src/a.ts#alpha"], ["file:src/new.ts"]],
+    byClaim: [["file:src/a.ts"], ["file:src/new.ts"]],
     model: "fake-model",
     promptVersion: PROMPT_VERSION,
     dropped: { ids: 1, claims: 0 },
@@ -118,6 +120,16 @@ test("the cache is plain JSON keyed by the claims and candidate ids, so other cl
   await linkClaims({ claims: splitClaims("Different words."), candidates, runner: fake(answer, calls), cacheDir: dir, relink: false, timeoutMs: 1000 });
   await linkClaims({ claims, candidates: candidates.slice(1), runner: fake(answer, calls), cacheDir: dir, relink: false, timeoutMs: 1000 });
   expect(calls.count).toBe(2);
+});
+
+test("the cache key is what the prompt says: the same ids with another change kind miss", async () => {
+  const dir = temp();
+  const asRemoved = candidates.map((candidate) => ({ ...candidate, line: candidate.line.replace("altered", "removed") }));
+  const calls = { count: 0 };
+  await linkClaims({ claims, candidates, runner: fake(answer, calls), cacheDir: dir, relink: false, timeoutMs: 1000 });
+  await linkClaims({ claims, candidates: asRemoved, runner: fake(answer, calls), cacheDir: dir, relink: false, timeoutMs: 1000 });
+  expect(calls.count).toBe(2);
+  expect(readdirSync(dir)).toHaveLength(2);
 });
 
 test("a runner that throws, or answers the wrong shape, gives one failed line and no links", async () => {
@@ -166,6 +178,11 @@ test("the CLI runner fails with one line when the command is missing, exits non-
     [join(temp(), "no-such-claude"), "not found"],
     [stub(`console.error("boom\\nmore"); process.exit(3);`), "exited with 3"],
     [stub(`console.log("not json");`), "invalid JSON"],
+    [stub(`console.log("null");`), "not an object"],
+    [stub(`console.log("42");`), "not an object"],
+    [stub(`console.log('"text"');`), "not an object"],
+    [stub(`console.log("[1]");`), "not an object"],
+    [stub(`console.log("null"); process.exit(2);`), "exited with 2"],
     [stub(`console.log(JSON.stringify({ is_error: true, result: "Not logged in" }));`), "Not logged in"],
     [stub(`console.log(JSON.stringify({ is_error: false, result: "x" }));`), "no structured output"],
     [stub(`setTimeout(() => {}, 60000);`), "timed out"],
@@ -193,5 +210,5 @@ test.skipIf(process.env.RUNGS_REAL_CLAUDE !== "1")("the real claude CLI links a 
   });
   expect(outcome).toMatchObject({ status: "ok" });
   const ids = outcome.status === "ok" ? outcome.byClaim[0]! : [];
-  expect(ids.some((id) => id.includes("src/a.ts"))).toBe(true);
+  expect(ids.some((id) => id === "file:src/a.ts")).toBe(true);
 });

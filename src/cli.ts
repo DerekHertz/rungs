@@ -9,6 +9,7 @@ import { parseOptions, USAGE } from "./options.ts";
 import { serve } from "./server.ts";
 import type { Claim } from "./claims.ts";
 import type { Comparison } from "./compare.ts";
+import type { Graph } from "./graph.ts";
 
 /** How long the agent may take before the run goes on without links. */
 const LINK_TIMEOUT_MS = 5 * 60 * 1000;
@@ -50,9 +51,9 @@ try {
           ? await text(process.stdin)
           : await readFile(options.description, "utf8");
     const link = options.link
-      ? async (comparison: Comparison, claims: readonly Claim[]) => {
-          const candidates = candidatesOf(comparison);
-          console.error(`rungs: asking claude to link ${claims.length} claims to ${candidates.length} changed modules (up to ${LINK_TIMEOUT_MS / 60000} minutes)`);
+      ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
+          const candidates = candidatesOf(comparison, graph);
+          console.error(`rungs: asking claude to link ${claims.length} claims to ${candidates.length} changed files and folders (up to ${LINK_TIMEOUT_MS / 60000} minutes)`);
           const started = Date.now();
           const outcome = await linkClaims({
             claims,

@@ -198,7 +198,7 @@ test("--link asks claude, serves the links, and a second run reads the cache", {
   try {
     const body = (await (await fetch(new URL("claims.json", await first.url))).json()) as { claims: { ids: string[] }[]; link: Record<string, unknown> };
     expect(body.claims.map((claim) => claim.ids)).toEqual([["file:src/a.ts"], []]);
-    expect(body.link).toEqual({ status: "ok", model: "stub-model", promptVersion: "claims-v2", dropped: { ids: 1, claims: 0 }, cached: false });
+    expect(body.link).toEqual({ status: "ok", model: "stub-model", promptVersion: "claims-v3", dropped: { ids: 1, claims: 0 }, cached: false });
     expect(first.stderr()).toMatch(/linked 1 of 2 claims by stub-model/);
   } finally {
     first.child.kill();

@@ -8,7 +8,7 @@ import { compare, serializeComparison } from "./compare.ts";
 import type { Comparison } from "./compare.ts";
 import { extract } from "./extract/extract.ts";
 import { isCodeNode, serializeGraph } from "./graph.ts";
-import type { FileTree, ModuleNode, NodeId } from "./graph.ts";
+import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { sliceLines } from "./lines.ts";
 import { splitClaims } from "./claims.ts";
 import type { Claim } from "./claims.ts";
@@ -49,7 +49,7 @@ export async function serve(
   port: number,
   base?: Against,
   description?: string,
-  link?: (comparison: Comparison, claims: readonly Claim[]) => Promise<LinkOutcome>,
+  link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
@@ -74,7 +74,7 @@ export async function serve(
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
     const claims = splitClaims(description ?? "");
-    const outcome: LinkOutcome = link === undefined || claims.length === 0 ? { status: "off" } : await link(comparison, claims);
+    const outcome: LinkOutcome = link === undefined || claims.length === 0 ? { status: "off" } : await link(comparison, claims, graph);
     const { status, ...rest } = outcome;
     const how =
       outcome.status === "ok"
