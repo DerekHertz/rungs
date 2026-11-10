@@ -91,7 +91,7 @@ class Resolver {
   private call(node: ts.CallExpression, depth: number): Ref | undefined {
     const callee = unwrap(node.expression);
     const [first] = node.arguments;
-    if (ts.isIdentifier(callee) && callee.text === "require" && this.symbolOf(callee) === undefined) {
+    if (ts.isIdentifier(callee) && callee.text === "require" && this.declarationsOf(callee).length === 0) {
       const specifier = stringOf(first);
       return specifier === undefined || node.arguments.length !== 1
         ? undefined
@@ -103,17 +103,17 @@ class Resolver {
     return wraps ? this.resolve(first, depth + 1) : undefined;
   }
 
-  // The checker invents symbols with no declaration for `require` and `globalThis`; they are
-  // no more declared than any other global.
-  private symbolOf(identifier: ts.Identifier): ts.Symbol | undefined {
+  // What this file declares under the name. The checker also invents symbols with no declaration
+  // for `require` and `globalThis`, and a `globalThis.fetch = ...` in another file declares a
+  // global there; none of that is in scope here, so such a name is a plain global.
+  private declarationsOf(identifier: ts.Identifier): ts.Declaration[] {
     const symbol = this.checker.getSymbolAtLocation(identifier);
-    return symbol?.declarations === undefined || symbol.declarations.length === 0 ? undefined : symbol;
+    return (symbol?.declarations ?? []).filter((declaration) => declaration.getSourceFile() === this.file);
   }
 
   private identifier(node: ts.Identifier, depth: number): Ref | undefined {
-    const symbol = this.symbolOf(node);
-    if (symbol === undefined) return globalRef(node.text);
-    const here = (symbol.declarations ?? []).filter((declaration) => declaration.getSourceFile() === this.file);
+    const here = this.declarationsOf(node);
+    if (here.length === 0) return globalRef(node.text);
     const [declaration] = here;
     if (here.length !== 1 || declaration === undefined) return undefined;
 

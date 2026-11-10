@@ -205,3 +205,18 @@ describe("effect edges: attribution", () => {
     expect(extract(new Map([...tree].reverse()))).toEqual(extract(tree));
   });
 });
+
+describe("effect edges: globals other files assign", () => {
+  test("a global another file assigns to is still the global", () => {
+    const graph = extract(
+      new Map([
+        ["a.mjs", "export function f() {\n  fetch(u);\n  setTimeout(g, 1);\n}\n"],
+        ["b.mjs", "globalThis.fetch = () => 1;\nglobalThis.setTimeout = () => 2;\n"],
+      ]),
+    );
+    expect(graph.edges.map((edge) => `${edge.from} ${edge.operation}`)).toEqual([
+      "function:a.mjs#f fetch",
+      "function:a.mjs#f setTimeout",
+    ]);
+  });
+});
