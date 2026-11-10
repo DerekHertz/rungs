@@ -10,6 +10,7 @@ import {
   LineDashedMaterial,
   LineSegments,
   Mesh,
+  MeshBasicMaterial,
   MeshLambertMaterial,
   NearestFilter,
   OrthographicCamera,
@@ -21,42 +22,43 @@ import {
   WebGLRenderer,
 } from "three";
 import type { Object3D } from "three";
-import { PLATE_HEIGHT } from "../city.ts";
-import type { Building, City, District } from "../city.ts";
+import { PLATE_HEIGHT, RESOURCE_PLATE } from "../city.ts";
+import type { Building, City, District, Reach, Resource } from "../city.ts";
 import { tallyText } from "../compare.ts";
 import type { Change } from "../compare.ts";
 import { namedDistricts, regionTop } from "../focus.ts";
-import type { NodeId } from "../graph.ts";
+import type { NodeId, ResourceKind } from "../graph.ts";
 import { occluders, visibleNames } from "../screen.ts";
 import type { Name, Projected } from "../screen.ts";
-import { BACKGROUND, onBackground, roleColor } from "./palette.ts";
+import { BACKGROUND, EFFECT_COLOR, onBackground, roleColor } from "./palette.ts";
 
 interface Point {
   readonly x: number;
   readonly y: number;
 }
 
-/** What a double-click landed on: a building, or the plate of a district. */
-export interface Hit {
-  readonly kind: "building" | "district";
-  readonly id: NodeId;
-}
+/** What a click landed on: a building, the plate of a district, or the plate of an outside resource. */
+export type Hit =
+  | { readonly kind: "building" | "district"; readonly id: NodeId }
+  | { readonly kind: "resource"; readonly resource: ResourceKind };
 
 export interface CityHandlers {
   /** The building under the pointer, or undefined; fires as the pointer or the camera moves. */
   hover(id: NodeId | undefined, at: Point): void;
   /** `clicks` is 1 for a single click and counts up with a double-click. */
   click(id: NodeId | undefined, clicks: number): void;
+  /** A single click on a resource plate. */
+  resource(kind: ResourceKind): void;
   /** `hit` is undefined on empty ground. */
   doubleClick(hit: Hit | undefined): void;
 }
 
 export interface CityView {
   show(city: City): void;
-  /** Outlines this building as the selected one. */
-  select(id: NodeId | undefined): void;
-  /** Outlines these buildings as selected together, replacing any earlier selection. */
-  highlight(ids: readonly NodeId[]): void;
+  /** Outlines this building as the selected one; `reach` is what its lines go to when that is a function inside it. */
+  select(id: NodeId | undefined, reach?: Reach): void;
+  /** Outlines these buildings as selected together, replacing any earlier selection; `chosen` lights that resource's plate. */
+  highlight(ids: readonly NodeId[], chosen?: ResourceKind): void;
   /** Flies the camera to frame this district, keeping the turn, and names the districts below it. */
   flyTo(id: NodeId): void;
   /** Returns to the isometric view of the whole city, named from the top. */
@@ -91,6 +93,12 @@ const GLOW = { hover: 0.3, selected: 0.18 };
 const FADED = 0.25;
 const FADED_EDGE = "#9aa6b5";
 const NAME_LIFT = 3;
+// Not a role colour: the effect channel is lines and the mast, never a building's hue.
+const EFFECT = EFFECT_COLOR;
+const EFFECT_OLD = 0.4;
+const BEAM = { fresh: 2.4, old: 1.4 };
+const MAST = { height: 14, share: 0.2, least: 3 };
+const PLATE = { fill: "#c9ced6", rest: "#c9ced6", chosen: "#ffffff" };
 
 /** Where the camera looks and how: turning, tilt, pixels per plan unit, and the ground point centred. */
 interface Pose {
@@ -127,12 +135,25 @@ interface Building3D extends Entry {
   readonly ghost: boolean;
   readonly edgeLooks: EdgeLooks;
   readonly cap: Mesh | undefined;
+  /** Under a comparison, a slim post on the roof of a building with a new effect edge. */
+  readonly mast: Mesh | undefined;
+  readonly reach: Reach;
   readonly color: string;
   /** Just above the roof, where the file's name floats. */
   readonly anchor: Vector3;
+  /** The middle of the roof, where its lines start. */
+  readonly roof: Vector3;
   readonly looks: Looks;
   readonly corners: readonly Vector3[];
   readonly center: Vector3;
+}
+
+interface Resource3D extends Entry {
+  readonly resource: Resource;
+  readonly anchor: Vector3;
+  readonly top: Vector3;
+  readonly rest: LineBasicMaterial;
+  readonly chosen: LineBasicMaterial;
 }
 
 interface District3D {
@@ -143,7 +164,7 @@ interface District3D {
 
 interface Label {
   readonly el: HTMLElement;
-  readonly kind: "near" | "far" | "file";
+  readonly kind: "near" | "far" | "file" | "resource";
   readonly w: number;
   readonly h: number;
 }
@@ -295,6 +316,11 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   let city: City | undefined;
   const buildings = new Map<NodeId, Building3D>();
   const districts = new Map<NodeId, District3D>();
+  const plates = new Map<ResourceKind, Resource3D>();
+  const resourceOf = new Map<Object3D, ResourceKind>();
+  let reaching = new Group();
+  let chosen: ResourceKind | undefined;
+  let selectedReach: Reach | undefined;
   const idOf = new Map<Object3D, NodeId>();
   let pickable: Mesh[] = [];
 
@@ -390,11 +416,24 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
       pickable.push(cap);
       idOf.set(cap, building.id);
     }
+    let mast: Mesh | undefined;
+    if (building.reach.fresh.length > 0) {
+      const size = Math.min(Math.max(MAST.least, MAST.share * Math.min(building.w, building.d)), 0.25 * Math.min(building.w, building.d));
+      mast = new Mesh(box, capMaterial(EFFECT));
+      mast.scale.set(size, MAST.height, size);
+      mast.position.set(worldX(building.x + building.w - size / 2), roof + MAST.height / 2, worldZ(building.y + building.d - size / 2));
+      group.add(mast);
+      pickable.push(mast);
+      idOf.set(mast, building.id);
+    }
     buildings.set(building.id, {
       ...entry,
       ghost,
       edgeLooks,
       cap,
+      mast,
+      reach: building.reach,
+      roof: new Vector3(worldX(building.x + building.w / 2), roof, worldZ(building.y + building.d / 2)),
       name: building.name,
       color: roleColor(building.role),
       anchor: new Vector3(worldX(building.x + building.w / 2), roof + NAME_LIFT, worldZ(building.y + building.d / 2)),
@@ -402,6 +441,59 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
       corners: corners(building.x, building.y, building.w, building.d, building.base, roof),
       center: new Vector3(worldX(building.x + building.w / 2), (building.base + roof) / 2, worldZ(building.y + building.d / 2)),
     });
+  }
+
+  function addResource(resource: Resource): void {
+    const rest = new LineBasicMaterial({ color: PLATE.rest });
+    const lit = new LineBasicMaterial({ color: PLATE.chosen });
+    const entry = place(resource.x, resource.y, resource.w, resource.d, 0, RESOURCE_PLATE.height, plateMaterial(onBackground(PLATE.fill, 0.5)), rest);
+    resourceOf.set(entry.mesh, resource.kind);
+    plates.set(resource.kind, {
+      ...entry,
+      resource,
+      rest,
+      chosen: lit,
+      anchor: new Vector3(worldX(resource.x + resource.w / 2), RESOURCE_PLATE.height + NAME_LIFT, worldZ(resource.y + resource.d / 2)),
+      top: new Vector3(worldX(resource.x + resource.w / 2), RESOURCE_PLATE.height, worldZ(resource.y + resource.d / 2)),
+    });
+  }
+
+  function paintPlates(): void {
+    for (const [kind, plate] of plates) plate.edges.material = kind === chosen ? plate.chosen : plate.rest;
+    dirty = true;
+  }
+
+  const beamMaterials = new Map<string, MeshBasicMaterial>();
+  const beamMaterial = (hex: string): MeshBasicMaterial => {
+    const known = beamMaterials.get(hex) ?? new MeshBasicMaterial({ color: hex, depthTest: false, transparent: true });
+    beamMaterials.set(hex, known);
+    return known;
+  };
+
+  /** Draws a line from the hovered building, else the selected one, to each resource it reaches. */
+  function drawReach(): void {
+    reaching.removeFromParent();
+    reaching = new Group();
+    const from = hovered === undefined ? (selected.size === 1 ? [...selected][0] : undefined) : hovered;
+    const entry = from === undefined ? undefined : buildings.get(from);
+    const reach = hovered === undefined ? selectedReach : entry?.reach;
+    if (entry !== undefined && reach !== undefined) {
+      for (const kind of reach.kinds) {
+        const plate = plates.get(kind);
+        if (plate === undefined) continue;
+        const fresh = !city!.compared || reach.fresh.includes(kind);
+        const length = entry.roof.distanceTo(plate.top);
+        const beam = new Mesh(box, beamMaterial(fresh ? EFFECT : onBackground(EFFECT, EFFECT_OLD)));
+        const thickness = fresh ? BEAM.fresh : BEAM.old;
+        beam.scale.set(thickness, thickness, length);
+        beam.position.copy(entry.roof).add(plate.top).multiplyScalar(0.5);
+        beam.lookAt(plate.top);
+        beam.renderOrder = fresh ? 3 : 2;
+        reaching.add(beam);
+      }
+    }
+    scene.add(reaching);
+    dirty = true;
   }
 
   function paint(id: NodeId | undefined): void {
@@ -412,6 +504,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     entry.mesh.material = entry.looks[state];
     entry.edges.material = entry.edgeLooks[chosen ? "selected" : state];
     if (entry.cap !== undefined) entry.cap.visible = state !== "faded";
+    if (entry.mast !== undefined) entry.mast.visible = state !== "faded";
     dirty = true;
   }
 
@@ -447,11 +540,13 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     refade();
     paint(before);
     paint(id);
+    drawReach();
   }
 
   function wholeCity(): Region | undefined {
     if (city === undefined) return undefined;
-    return { left: worldX(0), right: worldX(city.width), near: worldZ(0), far: worldZ(city.depth), floor: 0, top: city.top };
+    const far = Math.max(city.depth, ...city.resources.map((resource) => resource.y + resource.d));
+    return { left: worldX(0), right: worldX(city.width), near: worldZ(0), far: worldZ(far), floor: 0, top: city.top };
   }
 
   function regionOf(district: District): Region {
@@ -537,13 +632,17 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     dirty = true;
   }
 
-  function highlight(ids: readonly NodeId[], mute = ids.length > 1): void {
+  function highlight(ids: readonly NodeId[], mute = ids.length > 1, plate?: ResourceKind, reach?: Reach): void {
     const before = selected;
+    chosen = plate;
+    selectedReach = ids.length === 1 ? (reach ?? buildings.get(ids[0]!)?.reach) : undefined;
+    paintPlates();
     const wasMuting = muting;
     selected = new Set(ids);
     muting = mute;
     const repaint = wasMuting || muting ? buildings.keys() : [...before, ...selected];
     for (const id of repaint) paint(id);
+    drawReach();
   }
 
   function flyTo(id: NodeId): void {
@@ -561,6 +660,12 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     group = new Group();
     buildings.clear();
     districts.clear();
+    plates.clear();
+    resourceOf.clear();
+    reaching.removeFromParent();
+    reaching = new Group();
+    chosen = undefined;
+    selectedReach = undefined;
     faded.clear();
     idOf.clear();
     labels.forEach(({ el }) => el.remove());
@@ -573,6 +678,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     focus = rootOf();
     next.districts.forEach(addDistrict);
     next.buildings.forEach(addBuilding);
+    next.resources.forEach(addResource);
     group.updateMatrixWorld(true);
     scene.add(group);
     Object.assign(shown, framing({ ...shown, az: ISOMETRIC.az, tilt: ISOMETRIC.tilt }));
@@ -581,7 +687,7 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     dirty = true;
   }
 
-  function labelFor(id: string, text: string, kind: "near" | "far" | "file", color: string): Label {
+  function labelFor(id: string, text: string, kind: Label["kind"], color: string): Label {
     const known = labels.get(id);
     if (known?.kind === kind) return known;
     const el = known?.el ?? document.createElement("div");
@@ -610,6 +716,19 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
           box: { x: centre.x - label.w / 2, y: centre.y - label.h / 2, w: label.w, h: label.h },
           weight: district.w * district.d,
           region: Math.max(...xs) - Math.min(...xs),
+        });
+      }
+      for (const { resource } of plates.values()) {
+        const plate = plates.get(resource.kind)!;
+        const count = `${resource.files} ${resource.files === 1 ? "file" : "files"}`;
+        const text = `${resource.kind}  ${count}${city.compared && resource.fresh > 0 ? `  ${resource.fresh} new` : ""}`;
+        const label = labelFor(`resource:${resource.kind}`, text, "resource", EFFECT);
+        const centre = onScreen(plate.anchor);
+        wanted.push({
+          id: `resource:${resource.kind}`,
+          box: { x: centre.x - label.w / 2, y: centre.y - label.h, w: label.w, h: label.h },
+          weight: Infinity,
+          region: Infinity,
         });
       }
       for (const id of new Set([...(selected.size <= MAX_LABELLED ? selected : []), hovered])) {
@@ -643,6 +762,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
     ndc.set(((pointer.x - bounds.left) / bounds.width) * 2 - 1, -((pointer.y - bounds.top) / bounds.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     for (const hit of ray.intersectObjects(pickable, false)) {
+      const kind = resourceOf.get(hit.object);
+      if (kind !== undefined) return { kind: "resource", resource: kind };
       const id = idOf.get(hit.object);
       if (id === undefined || faded.has(id)) continue;
       return { kind: buildings.has(id) ? "building" : "district", id };
@@ -768,7 +889,10 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
   );
   canvas.addEventListener("click", (event) => {
     if (travelled >= CLICK_SLOP || turning) return;
-    handlers.click(pickAt(event), event.detail);
+    const at = pickAt(event);
+    const thing = pickThing();
+    if (thing?.kind === "resource") handlers.resource(thing.resource);
+    else handlers.click(at, event.detail);
   });
   canvas.addEventListener("dblclick", (event) => {
     if (travelled >= CLICK_SLOP || turning) return;
@@ -817,10 +941,10 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers): CityV
 
   return {
     show,
-    select(id) {
-      highlight(id === undefined ? [] : [id], false);
+    select(id, reach) {
+      highlight(id === undefined ? [] : [id], false, undefined, reach);
     },
-    highlight: (ids) => highlight(ids, ids.length > 0),
+    highlight: (ids, plate) => highlight(ids, ids.length > 0, plate),
     flyTo,
     reset,
     cyclePixel() {

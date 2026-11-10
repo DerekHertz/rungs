@@ -1,6 +1,6 @@
 import type { Change, Picture, Tally } from "./compare.ts";
-import { isCodeNode } from "./graph.ts";
-import type { Graph, ModuleNode, NodeId, Role } from "./graph.ts";
+import { isCodeNode, resourcesOf } from "./graph.ts";
+import type { Graph, ModuleNode, NodeId, ResourceKind, Role } from "./graph.ts";
 import { layout, leafWeight } from "./layout.ts";
 import type { Rect } from "./layout.ts";
 
@@ -21,6 +21,29 @@ export const FOOTPRINT_INSET = 0.05;
 
 /** Breaks a tie between roles covering equally many lines; a district with no role comes last. */
 export const ROLE_ORDER: readonly Role[] = ["source", "tests", "docs", "config", "generated"];
+
+/** The resource plates stand in a row this far beyond the plan's far edge, each this big, this far apart. */
+export const RESOURCE_PLATE = { w: 130, d: 70, gap: 40, offset: 48, height: 6 };
+
+/** An outside resource: a low plate at the edge of the picture, for every kind some effect edge reaches. */
+export interface Resource {
+  readonly kind: ResourceKind;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly d: number;
+  /** The files with an edge to it, and under a comparison how many of those have a new one. */
+  readonly files: number;
+  readonly fresh: number;
+}
+
+/** The resources a file, class or function reaches, and the ones a new edge (under a comparison) reaches. */
+export interface Reach {
+  readonly kinds: readonly ResourceKind[];
+  readonly fresh: readonly ResourceKind[];
+}
+
+const NO_REACH: Reach = { kinds: [], fresh: [] };
 
 /** A package or folder: a raised plate on its rect of the ground plan. */
 export interface District {
@@ -65,6 +88,8 @@ export interface Building {
   readonly change: Change | null;
   /** The file's changed classes and functions, by kind; null when not a comparison. */
   readonly tally: Tally | null;
+  /** What the file's own and nested code reaches. */
+  readonly reach: Reach;
 }
 
 /** The smallest and largest number of classes and functions in a file of the repository, generated files left out. */
@@ -84,6 +109,8 @@ export interface City {
   /** Parents before the districts inside them. */
   readonly districts: readonly District[];
   readonly buildings: readonly Building[];
+  /** In RESOURCE_ORDER, left to right, beyond the plan's far edge; none when the graph has no effect edges. */
+  readonly resources: readonly Resource[];
   /** What the heights were scaled between, for the legend. */
   readonly counts: CountRange;
   /** The height of the tallest building's roof. */
@@ -114,6 +141,34 @@ export function heightScale(counts: readonly number[]): HeightScale {
       return MIN_HEIGHT + (MAX_HEIGHT - MIN_HEIGHT) * Math.sqrt(share);
     },
   };
+}
+
+/**
+ * For each file, class and function with an effect edge in or below it, the resources it reaches.
+ * An edge counts for its owner and every class or function around it, up to its file.
+ */
+export function reachMap(picture: Picture): ReadonlyMap<NodeId, Reach> {
+  const { graph, overlay } = picture;
+  const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+  const found = new Map<NodeId, { kinds: Set<ResourceKind>; fresh: Set<ResourceKind> }>();
+  for (const edge of graph.edges) {
+    const kind = edge.to.slice("resource:".length) as ResourceKind;
+    const fresh = overlay?.freshEdge(edge) ?? false;
+    for (let node = nodes.get(edge.from); node !== undefined; node = isCodeNode(node) ? nodes.get(node.parent) : undefined) {
+      const reach = found.get(node.id) ?? { kinds: new Set(), fresh: new Set() };
+      reach.kinds.add(kind);
+      if (fresh) reach.fresh.add(kind);
+      found.set(node.id, reach);
+      if (!isCodeNode(node)) break;
+    }
+  }
+  const inOrder = (kinds: ReadonlySet<ResourceKind>): ResourceKind[] => resourcesOf(graph).filter((kind) => kinds.has(kind));
+  return new Map([...found].map(([id, reach]) => [id, { kinds: inOrder(reach.kinds), fresh: inOrder(reach.fresh) }]));
+}
+
+/** What `id` reaches: nothing for a node with no edge in or below it, never its file's reach. */
+export function reachOf(reaches: ReadonlyMap<NodeId, Reach>, id: NodeId): Reach {
+  return reaches.get(id) ?? NO_REACH;
 }
 
 export function withoutCode(graph: Graph): Graph {
@@ -171,6 +226,7 @@ export function buildCity(picture: Picture, rects: readonly Rect[]): City {
     });
   }
 
+  const reaches = reachMap(picture);
   const buildings: Building[] = [];
   for (const rect of files) {
     const file = nodes.get(rect.id)!;
@@ -191,14 +247,28 @@ export function buildCity(picture: Picture, rects: readonly Rect[]): City {
       functions: functions.get(file.path) ?? 0,
       change: overlay?.change(rect.id) ?? null,
       tally: overlay?.tally(rect.id) ?? null,
+      reach: reaches.get(rect.id) ?? NO_REACH,
     });
   }
+
+  const kinds = resourcesOf(graph);
+  const rowWidth = kinds.length * RESOURCE_PLATE.w + (kinds.length - 1) * RESOURCE_PLATE.gap;
+  const resources = kinds.map((kind, index): Resource => ({
+    kind,
+    x: (PLAN_WIDTH - rowWidth) / 2 + index * (RESOURCE_PLATE.w + RESOURCE_PLATE.gap),
+    y: PLAN_DEPTH + RESOURCE_PLATE.offset,
+    w: RESOURCE_PLATE.w,
+    d: RESOURCE_PLATE.d,
+    files: buildings.filter((building) => building.reach.kinds.includes(kind)).length,
+    fresh: buildings.filter((building) => building.reach.fresh.includes(kind)).length,
+  }));
 
   return {
     width: PLAN_WIDTH,
     depth: PLAN_DEPTH,
     districts,
     buildings,
+    resources,
     counts: { fewest: scale.fewest, most: scale.most },
     top: buildings.reduce((top, building) => Math.max(top, building.base + building.height), 0),
     compared: overlay !== null,

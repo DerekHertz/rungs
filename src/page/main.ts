@@ -1,15 +1,15 @@
-import { cityOf } from "../city.ts";
+import { cityOf, reachMap, reachOf } from "../city.ts";
 import type { Building, City } from "../city.ts";
 import { pictureOf, tallyText } from "../compare.ts";
 import type { Comparison, ContractMove } from "../compare.ts";
 import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
-import type { FileNode, Graph, LineRange, ModuleNode, NodeId } from "../graph.ts";
+import type { FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
 import { contractsReport, newEffects, unmentioned, unmentionedIds } from "../review.ts";
 import type { EffectRow, ReviewEntry } from "../review.ts";
 import { createCityView } from "./city-view.ts";
-import { LEGEND_ROLES, roleColor } from "./palette.ts";
+import { EFFECT_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
 
@@ -80,15 +80,32 @@ const view = createCityView(stage, {
       else void select(node, ticket);
     }, DOUBLE_CLICK_MS);
   },
+  resource(kind) {
+    cancelPending();
+    closePanel();
+    chooseResource(chosenKind === kind ? undefined : kind);
+  },
   doubleClick(hit) {
     // A building is reserved for entering it; until then a double-click on one only cancels the
     // first click's selection.
     cancelPending();
-    if (hit?.kind === "building") return;
+    if (hit?.kind === "building" || hit?.kind === "resource") return;
     const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
     if (to !== undefined) focusOn(to);
   },
 });
+
+let chosenKind: ResourceKind | undefined;
+const reaches = reachMap(picture);
+
+/** Outlines every building that reaches `kind`, only the ones with a new edge to it under a comparison. */
+function chooseResource(kind: ResourceKind | undefined): void {
+  chosenKind = kind;
+  const reaching = [...buildings.values()].filter((building) =>
+    kind === undefined ? false : (comparison === null ? building.reach.kinds : building.reach.fresh).includes(kind),
+  );
+  view.highlight(reaching.map((building) => building.id), kind);
+}
 
 function describe(id: NodeId): string[] | undefined {
   const file = nodes.get(id);
@@ -116,7 +133,8 @@ function changeFacts(file: FileNode, building: Building): string[] {
   return facts;
 }
 
-function showLegend(counts: City["counts"]): void {
+function showLegend(city: City): void {
+  const counts = city.counts;
   const roles = document.createElement("div");
   for (const role of LEGEND_ROLES) {
     const entry = document.createElement("span");
@@ -127,7 +145,20 @@ function showLegend(counts: City["counts"]): void {
   }
   const scale = document.createElement("div");
   scale.textContent = `height: classes and functions per file, square-root scale (${counts.fewest} to ${counts.most})`;
-  const parts = [roles, scale];
+  const effects = document.createElement("div");
+  const swatch = document.createElement("i");
+  swatch.style.background = EFFECT_COLOR;
+  const words = document.createElement("span");
+  words.textContent =
+    comparison === null
+      ? "plate at the edge: an outside resource \u00b7 line from the building you point at: it reaches it"
+      : "plate at the edge: an outside resource \u00b7 pink post on a roof and bright pink line: a new call to it \u00b7 dim line: an old one";
+  effects.append(swatch, words);
+  effects.style.flexWrap = "nowrap";
+  effects.style.alignItems = "flex-start";
+  swatch.style.flex = "none";
+  swatch.style.marginTop = "3px";
+  const parts = [roles, scale, ...(city.resources.length > 0 ? [effects] : [])];
   if (comparison !== null) {
     const against = document.createElement("div");
     against.textContent = `against ${comparison.against.ref} at ${comparison.against.commit.slice(0, 7)}: dim unchanged \u00b7 bright altered \u00b7 white roof added \u00b7 grey roof moved \u00b7 ghost removed`;
@@ -141,12 +172,13 @@ function showCity(root: NodeId): void {
   cityRoot = root;
   focus = root;
   selected = undefined;
+  chosenKind = undefined;
   panel.hidden = true;
   tooltip.style.display = "none";
   const city = cityOf(picture, root);
   buildings = new Map(city.buildings.map((building) => [building.id, building]));
   view.show(city);
-  showLegend(city.counts);
+  showLegend(city);
   showTrail();
 }
 
@@ -194,6 +226,7 @@ function showTrail(): void {
 function closePanel(): void {
   cancelPending();
   selected = undefined;
+  chosenKind = undefined;
   panel.hidden = true;
   view.select(undefined);
 }
@@ -247,7 +280,8 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   selected = node.id;
   showSource(node, text);
   markLines(node, marked);
-  view.select(outline);
+  chosenKind = undefined;
+  view.select(outline, isCodeNode(node) ? reachOf(reaches, node.id) : undefined);
 }
 
 /** An entry of the review panel: fly to its district, and select the file or code it names. */
@@ -286,6 +320,7 @@ function pickClaim(claim: ClaimRow): void {
   cancelPending();
   closePanel();
   const places = [...new Set(claim.ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  chosenKind = undefined;
   view.highlight(places);
   const district = commonDistrict(tree, places);
   if (district !== undefined) focusOn(district);
