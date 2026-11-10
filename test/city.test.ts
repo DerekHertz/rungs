@@ -235,6 +235,13 @@ describe("the small fixture's city", () => {
   test("stacks a nested district on its parent", () => {
     expect(district("src/util").level).toBe(district("src").level + 1);
   });
+
+  test("carries the names to show and the district each one stands on", () => {
+    expect(district("src/util").name).toBe("util");
+    expect(district("src/util").parent).toBe(district("src").id);
+    expect(building("src/shapes.ts").name).toBe("shapes.ts");
+    expect(city.districts.filter((candidate) => candidate.parent === null)).toHaveLength(1);
+  });
 });
 
 function isBelow(graph: Graph, id: NodeId, ancestor: NodeId): boolean {

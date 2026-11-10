@@ -1,5 +1,6 @@
 import { cityOf } from "../city.ts";
 import type { Building, City } from "../city.ts";
+import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
 import type { Graph, ModuleNode, NodeId } from "../graph.ts";
 import { indexGraph, trail, zoomOut } from "../zoom.ts";
@@ -24,6 +25,8 @@ const graph = (await (await fetch("/graph.json")).json()) as Graph;
 const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
 const tree = indexGraph(graph);
 let cityRoot = tree.root;
+/** The district the camera frames and the names count down from; the layout never follows it. */
+let focus = cityRoot;
 let buildings = new Map<NodeId, Building>();
 let selected: NodeId | undefined;
 let requested = 0;
@@ -62,9 +65,13 @@ const view = createCityView(stage, {
       else void select(node, ticket);
     }, DOUBLE_CLICK_MS);
   },
-  doubleClick() {
-    // Reserved for entering a building; until then it only cancels the first click's selection.
+  doubleClick(hit) {
+    // A building is reserved for entering it; until then a double-click on one only cancels the
+    // first click's selection.
     cancelPending();
+    if (hit?.kind === "building") return;
+    const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
+    if (to !== undefined) focusOn(to);
   },
 });
 
@@ -99,6 +106,7 @@ function showLegend(counts: City["counts"]): void {
 function showCity(root: NodeId): void {
   cancelPending();
   cityRoot = root;
+  focus = root;
   selected = undefined;
   panel.hidden = true;
   tooltip.style.display = "none";
@@ -109,8 +117,23 @@ function showCity(root: NodeId): void {
   showTrail();
 }
 
+/** Flies to a district inside the city; the city itself stays as it is. */
+function focusOn(id: NodeId): void {
+  if (id === focus) return;
+  focus = id;
+  showTrail();
+  view.flyTo(id);
+}
+
+function resetView(): void {
+  cancelPending();
+  focus = cityRoot;
+  showTrail();
+  view.reset();
+}
+
 function showTrail(): void {
-  const steps = trail(tree, cityRoot).map((node, index, all) => {
+  const steps = trail(tree, focus).map((node, index, all) => {
     const name = node.path === "" ? "/" : node.name;
     if (index === all.length - 1) {
       const here = document.createElement("span");
@@ -119,7 +142,10 @@ function showTrail(): void {
     }
     const step = document.createElement("button");
     step.textContent = name;
-    step.addEventListener("click", () => showCity(node.id));
+    step.addEventListener("click", () => {
+      cancelPending();
+      focusOn(node.id);
+    });
     return step;
   });
   breadcrumbs.replaceChildren(
@@ -174,15 +200,15 @@ function cyclePixel(): void {
 }
 
 panelClose.addEventListener("click", closePanel);
-resetButton.addEventListener("click", () => view.reset());
+resetButton.addEventListener("click", resetView);
 pixelButton.addEventListener("click", cyclePixel);
 window.addEventListener("keydown", (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === "Escape") {
     cancelPending();
     if (selected !== undefined) closePanel();
-    else if (zoomOut(tree, cityRoot) !== cityRoot) showCity(zoomOut(tree, cityRoot));
-  } else if (event.key === "r" || event.key === "R") view.reset();
+    else if (focus !== cityRoot) focusOn(zoomOut(tree, focus));
+  } else if (event.key === "r" || event.key === "R") resetView();
   else if (event.key === "p" || event.key === "P") cyclePixel();
 });
 

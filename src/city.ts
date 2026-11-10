@@ -24,6 +24,10 @@ export const ROLE_ORDER: readonly Role[] = ["source", "tests", "docs", "config",
 /** A package or folder: a raised plate on its rect of the ground plan. */
 export interface District {
   readonly id: NodeId;
+  /** For display only. */
+  readonly name: string;
+  /** The district this one stands on; null for the root. */
+  readonly parent: NodeId | null;
   readonly x: number;
   readonly y: number;
   readonly w: number;
@@ -39,6 +43,8 @@ export interface District {
 /** A file: a box on its lot, standing on its district's plate. */
 export interface Building {
   readonly id: NodeId;
+  /** The file's name, for display only. */
+  readonly name: string;
   readonly x: number;
   readonly y: number;
   readonly w: number;
@@ -132,8 +138,11 @@ export function buildCity(graph: Graph, rects: readonly Rect[]): City {
   const districts: District[] = [];
   for (const rect of lots) {
     if (nodes.get(rect.id)!.level === "file") continue;
+    const container = nodes.get(rect.id)!;
     districts.push({
       id: rect.id,
+      name: container.name,
+      parent: container.parent,
       x: rect.x,
       y: rect.y,
       w: rect.w,
@@ -151,6 +160,7 @@ export function buildCity(graph: Graph, rects: readonly Rect[]): City {
     const inset = FOOTPRINT_INSET * Math.min(rect.w, rect.h);
     buildings.push({
       id: rect.id,
+      name: file.name,
       x: rect.x + inset,
       y: rect.y + inset,
       w: rect.w - 2 * inset,
