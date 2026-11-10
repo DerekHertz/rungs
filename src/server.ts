@@ -23,7 +23,8 @@ interface Resource {
  * which answers with exactly the lines of the node with that id from the same snapshot. Packages,
  * folders and unknown ids have no source and get 404.
  */
-export async function serve(tree: FileTree, port: number): Promise<RunningServer> {
+export async function serve(given: FileTree, port: number): Promise<RunningServer> {
+  const tree: FileTree = new Map(given);
   const graph = extract(tree);
   const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
   const [html, script] = await Promise.all([

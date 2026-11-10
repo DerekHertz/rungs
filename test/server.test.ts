@@ -120,3 +120,15 @@ test("answers 404 for a package, a folder and an unknown id", async () => {
   expect((await source("function:src/shapes.ts#nothing")).status).toBe(404);
   expect((await fetch(new URL("source", server.url))).status).toBe(404);
 });
+
+test("serves the snapshot it was given, even if the caller's map changes later", async () => {
+  const mutable = new Map([["a.ts", "function oldName() {}\n"]]);
+  const own = await serve(mutable, 0);
+  try {
+    mutable.set("a.ts", "const unrelated = 99;\n");
+    const response = await fetch(new URL(`source?id=${encodeURIComponent("function:a.ts#oldName")}`, own.url));
+    expect(await response.text()).toBe("function oldName() {}");
+  } finally {
+    await own.close();
+  }
+});
