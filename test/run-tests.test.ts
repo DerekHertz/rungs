@@ -28,7 +28,7 @@ test.skip("later", () => {});
 ]);
 
 test("node --test runs once in the sandbox, and each result lands on its test function", async () => {
-  const run = await runTests(suite, bwrap, 60_000);
+  const run = await runTests(suite, new Set(), bwrap, 60_000);
   const document = observedDocument(run, extract(suite), "t");
   expect(document).toMatchObject({
     status: "ran",
@@ -77,7 +77,7 @@ test("its install script never ran", () => assert.equal(existsSync("marker"), fa
 `,
     ],
   ]);
-  const run = await runTests(tree, bwrap, 60_000);
+  const run = await runTests(tree, new Set(), bwrap, 60_000);
   expect(run).toMatchObject({ status: "ran", exitCode: 0 });
   expect(run.status === "ran" ? run.reports.map((report) => [report.path, report.outcome]) : run).toEqual([
     [["the dependency is installed"], "pass"],
@@ -90,10 +90,10 @@ test("a run past its limit is a failed run that says so", async () => {
     ["package.json", `{"scripts":{"test":"node --test"}}\n`],
     ["hang.test.mjs", `import { test } from "node:test";\ntest("hangs", () => new Promise(() => setInterval(() => {}, 1000)));\n`],
   ]);
-  expect(await runTests(tree, bwrap, 1500)).toMatchObject({ status: "failed", why: "the run passed its limit of 2 seconds", runner: "node" });
+  expect(await runTests(tree, new Set(), bwrap, 1500)).toMatchObject({ status: "failed", why: "the run passed its limit of 2 seconds", runner: "node" });
 });
 
 test("an unsupported runner runs nothing", async () => {
   const tree = new Map([["package.json", `{"scripts":{"test":"jest"}}\n`]]);
-  expect(await runTests(tree, bwrap, 1000)).toEqual({ status: "unsupported", why: 'the test script runs "jest"; Rungs reads only node --test and vitest' });
+  expect(await runTests(tree, new Set(), bwrap, 1000)).toEqual({ status: "unsupported", why: 'the test script runs "jest"; Rungs reads only node --test and vitest' });
 });

@@ -75,6 +75,8 @@ export interface Run {
 
 export interface RunRequest {
   readonly tree: FileTree;
+  /** Paths of the tree written executable; a file tree holds text, not modes. */
+  readonly executable?: ReadonlySet<string>;
   readonly isolation: Isolation;
   readonly steps: (places: Places) => readonly Step[];
   /** Files given to the steps at `places.tools`. */
@@ -148,8 +150,8 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
   process.once("SIGINT", interrupted).once("SIGTERM", interrupted);
   try {
     const host = { work: join(root, "work"), out: join(root, "out"), tools: join(root, "tools") };
-    await writeTree(host.work, request.tree);
-    await writeTree(host.tools, request.tools ?? new Map());
+    await writeTree(host.work, request.tree, request.executable ?? new Set());
+    await writeTree(host.tools, request.tools ?? new Map(), new Set());
     for (const dir of [host.out, join(root, "home"), join(root, "tmp")]) await mkdir(dir);
     const outMade = await lstat(host.out);
     const node = process.execPath;
@@ -323,12 +325,12 @@ function killTree(pid: number): void {
   }
 }
 
-async function writeTree(dir: string, tree: FileTree): Promise<void> {
+async function writeTree(dir: string, tree: FileTree, executable: ReadonlySet<string>): Promise<void> {
   await mkdir(dir, { recursive: true });
   for (const [path, text] of tree) {
     const file = join(dir, path);
     await mkdir(dirname(file), { recursive: true });
-    await writeFile(file, text);
+    await writeFile(file, text, { mode: executable.has(path) ? 0o755 : 0o644 });
   }
 }
 

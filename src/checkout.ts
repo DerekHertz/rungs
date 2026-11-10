@@ -76,6 +76,20 @@ async function isSymbolicLink(path: string): Promise<boolean> {
   }
 }
 
+/** The paths of `tree` that are executable files in `dir`; a symlink never is. */
+export async function readExecutables(dir: string, tree: FileTree): Promise<ReadonlySet<string>> {
+  const executable = new Set<string>();
+  for (const path of tree.keys()) {
+    try {
+      const info = await lstat(join(dir, path));
+      if (info.isFile() && (info.mode & 0o111) !== 0) executable.add(path);
+    } catch {
+      // Gone since the tree was read: nothing to mark.
+    }
+  }
+  return executable;
+}
+
 export type BaseProblem =
   | "not-a-repository"
   | "unborn-head"

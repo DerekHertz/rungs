@@ -405,6 +405,17 @@ await runIsolated({
   });
 }
 
+test("files marked executable keep their mode in the copy", async () => {
+  const run = await runIsolated({
+    tree: new Map([["run.sh", "#!/bin/sh\necho ran\n"], ["plain.sh", "#!/bin/sh\necho ran\n"]]),
+    executable: new Set(["run.sh"]),
+    isolation: bwrap,
+    steps: () => [{ argv: ["/bin/sh", "-c", "./run.sh; ./plain.sh 2>/dev/null || echo refused"], network: false }],
+    ...limits,
+  });
+  expect(run.steps[0]?.output).toBe("ran\nrefused\n");
+});
+
 test("a tree path that climbs out of the copy is refused before anything runs", async () => {
   await expect(
     runIsolated({ tree: new Map([["../escape.txt", "x"]]), isolation: unsandboxed, steps: () => [], ...limits }),

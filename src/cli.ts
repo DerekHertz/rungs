@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { text } from "node:stream/consumers";
 import { homedir } from "node:os";
-import { readBase, readCheckout } from "./checkout.ts";
+import { readBase, readCheckout, readExecutables } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
 import { parseOptions, USAGE } from "./options.ts";
 import { runTests } from "./observed.ts";
@@ -21,7 +21,7 @@ const LINK_TIMEOUT_MS = 5 * 60 * 1000;
 /** How long one run of the tests, install included, may take. */
 const TEST_TIMEOUT_MS = 10 * 60 * 1000;
 
-async function observeTests(tree: FileTree, allowUnsandboxed: boolean): Promise<TestRun> {
+async function observeTests(dir: string, tree: FileTree, allowUnsandboxed: boolean): Promise<TestRun> {
   const choice = chooseIsolation(await detectSandbox(), allowUnsandboxed);
   if ("refused" in choice) {
     console.error(`rungs: tests not run: ${choice.refused}`);
@@ -32,7 +32,7 @@ async function observeTests(tree: FileTree, allowUnsandboxed: boolean): Promise<
       ? "in a bwrap sandbox with no network"
       : "WITHOUT a sandbox: their code can reach this machine and the network";
   console.error(`rungs: running the tests once ${where} (up to ${TEST_TIMEOUT_MS / 60000} minutes)`);
-  const run = await runTests(tree, choice.isolation, TEST_TIMEOUT_MS);
+  const run = await runTests(tree, await readExecutables(dir, tree), choice.isolation, TEST_TIMEOUT_MS);
   if (run.status === "ran") {
     const count = (outcome: string) => run.reports.filter((report) => report.outcome === outcome).length;
     const runner = run.runner === "node" ? "node --test" : "vitest";
@@ -100,7 +100,7 @@ try {
           return outcome;
         }
       : undefined;
-    const tests = options.tests === "off" ? undefined : await observeTests(tree, options.tests === "unsandboxed allowed");
+    const tests = options.tests === "off" ? undefined : await observeTests(options.dir, tree, options.tests === "unsandboxed allowed");
     const server = await serve(tree, options.port, against, description, link, tests);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {

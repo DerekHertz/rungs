@@ -167,12 +167,13 @@ const OUTPUT_TAIL = 8000;
  * Runs the tree's tests once under `isolation`: dependencies from the lockfile with the network
  * and with install scripts off, then the tests with no network at all.
  */
-export async function runTests(tree: FileTree, isolation: Isolation, timeoutMs: number): Promise<TestRun> {
+export async function runTests(tree: FileTree, executable: ReadonlySet<string>, isolation: Isolation, timeoutMs: number): Promise<TestRun> {
   const detection = detectRunner(tree);
   if ("unsupported" in detection) return { status: "unsupported", why: detection.unsupported };
   const started = Date.now();
   const run = await runIsolated({
     tree,
+    executable,
     isolation,
     tools: new Map([["reporter.mjs", NODE_REPORTER]]),
     steps: (places) => stepsOf(detection, places),
