@@ -1,8 +1,10 @@
 import ts from "typescript";
 import { digestOf } from "./extract/extract.ts";
-import { isAmbient, isCodeSyntax, scriptKind } from "./extract/javascript.ts";
+import { effectSites } from "./extract/javascript-effects.ts";
+import { isAmbient, isCodeSyntax, programOver, scriptKind } from "./extract/javascript.ts";
+import type { EffectSite } from "./extract/adapters.ts";
 import type { CodeSyntax } from "./extract/javascript.ts";
-import { isCodeNode, targetText } from "./graph.ts";
+import { isCodeNode, resourceId, targetText } from "./graph.ts";
 import type { CodeNode, EffectEdge, FileTree, Graph, LineRange, NodeId } from "./graph.ts";
 import { lineRangeOf, lineStarts } from "./lines.ts";
 
@@ -10,7 +12,7 @@ export type LineKind =
   | "if" | "else if" | "else" | "switch" | "case" | "default"
   | "for" | "while" | "do" | "try" | "catch" | "finally"
   | "return" | "throw" | "break" | "continue" | "await" | "yield"
-  | "effect" | "function" | "straight";
+  | "with" | "effect" | "function" | "straight";
 
 /**
  * One line of a function's outline. `range` is the source lines the line stands for: a header's
@@ -37,12 +39,16 @@ export function pseudocode(graph: Graph, tree: FileTree, id: NodeId): PseudoLine
   if (node === undefined || !isCodeNode(node) || node.level !== "function") return undefined;
   const text = tree.get(node.path);
   if (text === undefined) return undefined;
-  const file = ts.createSourceFile(node.path, text, ts.ScriptTarget.Latest, true, scriptKind(node.path));
+  // The effect catalog resolves names through the binder of the file alone (no module resolution),
+  // so a program over this one file finds the same call sites, with exact positions, as the extractor.
+  const program = programOver([{ path: node.path, text }]);
+  const file = program.getSourceFile(`/${node.path}`) ?? ts.createSourceFile(node.path, text, ts.ScriptTarget.Latest, true, scriptKind(node.path));
+  const sites = effectSites(file, program.getTypeChecker());
   const syntax = find(file, text, node);
   if (syntax === undefined) return undefined;
   const children = graph.nodes.filter((child): child is CodeNode => isCodeNode(child) && child.parent === id);
   const effects = graph.edges.filter((edge) => edge.from === id);
-  return new Outline(file, text, children, effects).of(syntax);
+  return new Outline(file, text, children, effects, sites).of(syntax);
 }
 
 function find(file: ts.SourceFile, text: string, node: CodeNode): CodeSyntax | undefined {
@@ -83,7 +89,10 @@ class Outline {
   private readonly text: string;
   private run: { start: number; end: number } | undefined;
 
-  constructor(file: ts.SourceFile, text: string, children: readonly CodeNode[], effects: readonly EffectEdge[]) {
+  private readonly sites = new Map<string, EffectSite>();
+
+  constructor(file: ts.SourceFile, text: string, children: readonly CodeNode[], effects: readonly EffectEdge[], sites: readonly EffectSite[]) {
+    for (const site of sites) this.sites.set(`${site.start}:${site.end}`, site);
     this.file = file;
     this.text = text;
     this.starts = lineStarts(text);
@@ -113,8 +122,29 @@ class Outline {
     return lineRangeOf(this.starts, start, Math.max(end, start + 1));
   }
 
+  // Layout is collapsed to single spaces; the text of string, template and regular expression
+  // literals is not layout and stays as written.
   private collapse(start: number, end: number): string {
-    return this.text.slice(start, end).replace(/\s+/g, " ").trim();
+    const literals: [number, number][] = [];
+    const visit = (node: ts.Node): void => {
+      if (node.end <= start || node.getStart(this.file) >= end) return;
+      if (ts.isStringLiteralLike(node) || ts.isRegularExpressionLiteral(node) || ts.isTemplateLiteralToken(node)) literals.push([node.getStart(this.file), node.end]);
+      else node.forEachChild(visit);
+    };
+    visit(this.file);
+    let out = "";
+    let at = start;
+    const layout = (to: number): void => {
+      if (to > at) out += this.text.slice(at, to).replace(/\s+/g, " ");
+    };
+    for (const [from, to] of literals) {
+      const clipped = Math.max(from, start);
+      layout(clipped);
+      out += this.text.slice(clipped, Math.min(to, end));
+      at = Math.min(to, end);
+    }
+    layout(end);
+    return out.trim();
   }
 
   private cut(node: ts.Node): string {
@@ -149,20 +179,24 @@ class Outline {
     else this.statements([statement], depth);
   }
 
-  private statement(node: ts.Statement, depth: number, label: string): void {
-    const start = node.getStart(this.file);
+  private statement(node: ts.Statement, depth: number, label: string, from?: number): void {
+    const start = from ?? node.getStart(this.file);
     const emit = (kind: LineKind, text: string, to: number, rest: readonly PseudoLine[] = []): void => {
       this.flush(depth);
       this.add([this.line(depth, kind, `${label}${text}`, start, to), ...rest]);
     };
     if (ts.isIfStatement(node)) return this.branch(node, depth, label);
-    if (ts.isLabeledStatement(node)) return this.statement(node.statement, depth, `${label}${node.label.text}: `);
+    if (ts.isLabeledStatement(node)) return this.statement(node.statement, depth, `${label}${node.label.text}: `, start);
     if (ts.isBlock(node)) {
       this.flush(depth);
       return this.statements(node.statements, depth);
     }
+    if (ts.isWithStatement(node)) {
+      emit("with", `with (${this.collapse(node.expression.getStart(this.file), node.expression.end)})`, this.headerEnd(node, node.statement), this.inline(node.expression, depth + 1));
+      return this.body(node.statement, depth + 1);
+    }
     if (ts.isSwitchStatement(node)) {
-      emit("switch", `switch (${this.collapse(node.expression.getStart(this.file), node.expression.end)})`, node.expression.end, this.inline(node.expression, depth + 1));
+      emit("switch", `switch (${this.collapse(node.expression.getStart(this.file), node.expression.end)})`, this.headerEnd(node, node.caseBlock), this.inline(node.expression, depth + 1));
       for (const clause of node.caseBlock.clauses) {
         if (ts.isCaseClause(clause)) {
           const text = `case ${this.collapse(clause.expression.getStart(this.file), clause.expression.end)}:`;
@@ -174,15 +208,15 @@ class Outline {
     }
     if (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node) || ts.isWhileStatement(node)) {
       const text = this.header(node, node.statement);
-      const headerEnd = start + this.text.slice(start, node.statement.getStart(this.file)).trimEnd().length;
-      emit(ts.isWhileStatement(node) ? "while" : "for", text, headerEnd, this.inline(headerParts(node), depth + 1));
+      emit(ts.isWhileStatement(node) ? "while" : "for", text, this.headerEnd(node, node.statement), this.inline(headerParts(node), depth + 1));
       return this.body(node.statement, depth + 1);
     }
     if (ts.isDoStatement(node)) {
       emit("do", "do", start + 2);
       this.body(node.statement, depth + 1);
       const text = `while (${this.collapse(node.expression.getStart(this.file), node.expression.end)})`;
-      this.add([this.line(depth, "while", text, node.expression.getStart(this.file), node.expression.end), ...this.inline(node.expression, depth + 1)]);
+      const keyword = node.getChildren(this.file).find((child) => child.kind === ts.SyntaxKind.WhileKeyword)!;
+      this.add([this.line(depth, "while", text, keyword.getStart(this.file), node.end), ...this.inline(node.expression, depth + 1)]);
       return;
     }
     if (ts.isTryStatement(node)) {
@@ -191,7 +225,7 @@ class Outline {
       if (node.catchClause !== undefined) {
         const clause = node.catchClause;
         const text = clause.variableDeclaration === undefined ? "catch" : this.header(clause, clause.block);
-        const to = clause.variableDeclaration === undefined ? clause.getStart(this.file) + 5 : clause.variableDeclaration.end;
+        const to = clause.variableDeclaration === undefined ? clause.getStart(this.file) + 5 : this.headerEnd(clause, clause.block);
         this.add([this.line(depth, "catch", text, clause.getStart(this.file), to)]);
         this.statements(clause.block.statements, depth + 1);
       }
@@ -222,7 +256,7 @@ class Outline {
     for (let current: ts.IfStatement = node, first = true; ; first = false) {
       const start = current.getStart(this.file);
       const text = this.header(current, current.thenStatement);
-      const headerEnd = start + this.text.slice(start, current.thenStatement.getStart(this.file)).trimEnd().length;
+      const headerEnd = this.headerEnd(current, current.thenStatement);
       this.flush(depth);
       const prefix = first ? label : "";
       const keyword = first ? "if" : "else if";
@@ -240,6 +274,12 @@ class Outline {
     }
   }
 
+  /** The end of a header: where the text before `body` stops, trailing layout excluded. */
+  private headerEnd(node: ts.Node, body: ts.Node): number {
+    const start = node.getStart(this.file);
+    return start + this.text.slice(start, body.getStart(this.file)).trimEnd().length;
+  }
+
   private elseOf(node: ts.IfStatement): number {
     return node.getChildren(this.file).find((child) => child.kind === ts.SyntaxKind.ElseKeyword)!.getStart(this.file);
   }
@@ -247,10 +287,12 @@ class Outline {
   /** The awaits, yields, nested functions and effect calls inside `root`, in source order. */
   private inline(root: ts.Node | readonly ts.Node[], depth: number): PseudoLine[] {
     const found: PseudoLine[] = [];
-    const visit = (node: ts.Node, awaited: boolean): void => {
+    const visit = (node: ts.Node, awaited: ts.AwaitExpression | undefined): void => {
       if (isCodeSyntax(node) && !isAmbient(node)) {
         const start = node.getStart(this.file);
-        const child = this.nested.find((candidate) => digestOf(this.text.slice(start, node.end)) === candidate.digest);
+        const at = this.range(start, node.end);
+        const digest = digestOf(this.text.slice(start, node.end));
+        const child = this.nested.find((candidate) => candidate.range.start === at.start && candidate.range.end === at.end && candidate.digest === digest);
         if (child !== undefined) {
           this.nested.splice(this.nested.indexOf(child), 1);
           found.push({ depth, kind: "function", text: `${child.level === "class" ? "class" : "function"} ${child.name}`, range: child.range, node: child.id });
@@ -261,7 +303,7 @@ class Outline {
         const isAwait = ts.isAwaitExpression(node);
         const operand = node.expression === undefined ? undefined : unwrap(node.expression);
         if (isAwait && operand !== undefined && this.effectOf(operand) !== undefined) {
-          visit(operand, true);
+          visit(operand, node as ts.AwaitExpression);
           return;
         }
         const keyword = isAwait ? "await" : node.asteriskToken === undefined ? "yield" : "yield*";
@@ -272,19 +314,25 @@ class Outline {
         const edge = this.claim(node);
         if (edge !== undefined) {
           const text = `effect ${edge.to.slice("resource:".length)}: ${edge.operation}${edge.target === "none" ? "" : ` ${targetText(edge.target)}`}`;
-          found.push({ depth, kind: "effect", text: awaited ? `await ${text}` : text, range: edge.range });
+          const range = awaited === undefined ? edge.range : this.range(awaited.getStart(this.file), awaited.end);
+          found.push({ depth, kind: "effect", text: awaited === undefined ? text : `await ${text}`, range });
         }
       }
-      node.forEachChild((child) => visit(child, false));
+      node.forEachChild((child) => visit(child, undefined));
     };
-    for (const node of Array.isArray(root) ? (root as readonly ts.Node[]) : [root as ts.Node]) visit(node, false);
+    for (const node of Array.isArray(root) ? (root as readonly ts.Node[]) : [root as ts.Node]) visit(node, undefined);
     return found;
   }
 
   private effectOf(node: ts.Expression): EffectEdge | undefined {
     if (!ts.isCallExpression(node) && !ts.isNewExpression(node)) return undefined;
-    const range = this.range(node.getStart(this.file), node.end);
-    return this.unclaimed.find((edge) => edge.range.start === range.start && edge.range.end === range.end);
+    const start = node.getStart(this.file);
+    const site = this.sites.get(`${start}:${node.end}`);
+    if (site === undefined) return undefined;
+    const range = this.range(start, node.end);
+    return this.unclaimed.find(
+      (edge) => edge.range.start === range.start && edge.range.end === range.end && edge.operation === site.operation && edge.to === resourceId(site.resource) && targetText(edge.target) === targetText(site.target),
+    );
   }
 
   private claim(node: ts.CallExpression | ts.NewExpression): EffectEdge | undefined {

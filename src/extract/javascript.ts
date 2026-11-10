@@ -6,7 +6,7 @@ import { exportedNodes, renderSignature, signatureTokens } from "./javascript-co
 
 // Built over the tree's own files and nothing else, with no default library and no module
 // resolution, so the binder's answers cannot depend on what is installed on this machine.
-function programOver(files: readonly SourceFile[]): ts.Program {
+export function programOver(files: readonly SourceFile[]): ts.Program {
   const byName = new Map(files.map((file) => [`/${file.path}`, file]));
   const host: ts.CompilerHost = {
     getSourceFile: (name, languageVersion) => {

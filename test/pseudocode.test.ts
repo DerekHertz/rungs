@@ -75,3 +75,37 @@ describe("pseudocode of a function", () => {
     expect(pseudocode(graph, tree, nodeId("function", "everything.js", "nope"))).toBeUndefined();
   });
 });
+
+describe("review round 1", () => {
+  const of = (source: string) => outline("f", new Map([["everything.js", source]]));
+
+  test("an effect attaches to its own call, not to another call on the same line", () => {
+    expect(of('async function f() {\n await noop(); fetch("x");\n}\n')).toBe('L2       await noop()\nL2       effect network: fetch "x"\n');
+  });
+
+  test("a with statement shows its control flow", () => {
+    expect(of("function f(obj) {\n with (obj) {\n if (bad) throw 1;\n return ok;\n }\n}\n")).toBe(
+      "L2       with (obj)\nL3         if (bad)\nL3           throw 1;\nL4         return ok;\n",
+    );
+  });
+
+  test("whitespace inside string and template literals is kept", () => {
+    expect(of('function f(x) {\n if (x === "a  b" || x === `c   ${x}  d`) return 1;\n}\n')).toBe(
+      'L2       if (x === "a  b" || x === `c   ${x}  d`)\nL2         return 1;\n',
+    );
+  });
+
+  test("identical nested functions keep their own pointers, in source order", () => {
+    const files: FileTree = new Map([["everything.js", "function f() {\n const z = () => 0;\n const a = () => 0;\n}\n"]]);
+    const lines = pseudocode(extract(files), files, nodeId("function", "everything.js", "f"))!;
+    expect(lines.map((line) => [line.range.start, line.text, line.node])).toEqual([
+      [2, "function z", nodeId("function", "everything.js", "f.z")],
+      [3, "function a", nodeId("function", "everything.js", "f.a")],
+    ]);
+  });
+
+  test("a line's range spans the whole construct it shows", () => {
+    expect(of('async function f() {\n await\n fetch("x");\n}\n')).toBe('L2-3     await effect network: fetch "x"\n');
+    expect(of("function f(flag) {\n do {} while (\n flag\n );\n}\n")).toBe("L2       do\nL2-4     while (flag)\n");
+  });
+});
