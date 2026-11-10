@@ -18,7 +18,8 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\
  * - `name`: a class or function name on identifier boundaries, a qualified name whole.
  */
 export function appears(description: string, kind: "path" | "file" | "name", needle: string): boolean {
-  if (needle === "") return false;
+  // Nothing, or only white space, names nothing.
+  if (needle.trim() === "") return false;
   const body = escape(needle);
   // Everything that can continue a JavaScript identifier, joiners included.
   const word = "\\p{ID_Continue}\\u200C\\u200D_";

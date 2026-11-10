@@ -232,5 +232,6 @@ test("an id that names no changed module links nothing", () => {
 test("an empty needle never appears, whatever the kind", () => {
   for (const kind of ["path", "file", "name"] as const) {
     for (const text of ["x", "", " ", "a b"]) expect(appears(text, kind, "")).toBe(false);
+    for (const blank of [" ", "\n", "\t ", "\u00a0"]) expect(appears("Summary.\n\nDetails. a b", kind, blank)).toBe(false);
   }
 });
