@@ -16,6 +16,12 @@ The name comes from a ladder of abstraction. Each rung is computed from the one 
 2. **Extract a graph.** A pure, deterministic function turns the file tree into a graph of packages, folders, files, classes and functions, each with a line range and a role (source, tests, config, docs or generated). JavaScript and TypeScript go through the TypeScript compiler. No model is called.
 3. **Lay out a ground plan.** A squarified treemap places every package, folder and file. The layout depends only on the graph, so neither the camera nor the theme ever moves anything.
 4. **Draw a city.** Districts are raised plates and files are buildings, rendered with three.js. Drag to pan, right-drag to turn, scroll to zoom, double-click a district to fly to it. Click a building to read its source, served from the same snapshot the graph came from.
+5. **Compare against a base.** `rungs compare <base>` reads the base revision at the merge base, the same base GitHub diffs a pull request against, and extracts both graphs. Every module carries a digest of its text, so the comparison pairs nodes by identity and finds what was added, altered, removed or moved without reading a diff. Unchanged buildings dim, changed ones stay bright, and removed files stand as see-through ghosts you can still open.
+6. **Answer the three questions.** A panel beside the city lists the description's claims, the changes no claim covers, and the contracts that moved: exported signatures and the outside resources each function reaches (processes, network, file system, timers), drawn as plates at the edge of the city. Every entry flies the camera to its place and opens its exact lines.
+
+![Rungs comparing a 14,370-line agent-written pull request: the review panel lists claims, 119 new calls to the outside world no claim covers, and two changed signatures; the city dims unchanged code and draws process, network, file system and timer plates at its edge.](docs/media/review.png)
+
+*Rungs reviewing the target pull request. The panel shows which claims the agent linked to code, what reaches the outside world without being mentioned, and the two exported functions whose parameters changed.*
 
 ## System design
 
@@ -28,6 +34,10 @@ The architecture borrows from operating systems and distributed systems: Ensembl
 | **Three tiers of facts, never mixed.** *Derived* facts come from the extractor, *observed* facts from running the code, *claimed* facts from people and agents. | It is a trust boundary. An agent's description of its own change is drawn as a claim, and can attach to the graph but never create or change a node. |
 | **Composable layers behind narrow seams**, in the style of Ensemble. A language adapter turns files of one language into nodes and edges, and a theme turns facts into looks. | Each layer can be replaced and tested alone. Adapters only describe declarations, and the extractor alone assigns ids and line numbers, so a new language cannot break identity. Every theme shares one layout, so switching theme moves nothing. |
 | **Identity is (level, path, qualified name), never a line number.** | A function keeps its identity when code above it moves, which is what makes a review a comparison of two graphs. The naming scheme is collision-free by construction and is recorded in [ADR 0001](docs/adr/0001-code-node-identity.md). |
+| **A comparison is a function of two graphs.** Identity plus a digest per module decides added, altered, removed and moved. A move is paired only when the text is identical. | A rename is never mistaken for a rewrite, and a rewrite is never hidden as a rename. Swapping base and head swaps added with removed, which is checked over 300 generated tree pairs. |
+| **Effects are resolved, never matched by name.** A call becomes an effect edge only when the TypeScript binder resolves its callee to an entry in a versioned catalog of runtime built-ins, over an in-memory program with no type definitions from the host. | A local function called `fetch` is not the network, and a shadowing parameter is not the file system. Output stays a pure function of the tree, and a call Rungs cannot resolve is listed as a known gap, not guessed. |
+| **Agents may link, never decide.** An agent links each claim in the description to the modules it describes. Links are validated against the comparison, cached outside the repository, and drawn as claimed. | A wrong link can only move a change from "no claim covers it" to "linked by the agent only", where it stays visible. The agent can never hide a change or create a fact. |
+| **The pull request is untrusted input.** The base is read through a temporary index and a scratch checkout, never by parsing git's output by content, and the agent sees names, never source text. | A file crafted to look like git's reply framing cannot make another file read wrong, and a description cannot inject into the page or the agent's command. |
 | **Lazy release consistency for expensive views.** Pseudocode, narration and call edges are computed when a view first opens them, and ahead of time only for contracts that moved. | Opening a function is the acquire. Nobody pays for analysis of code they never look at, which matters on a change of thousands of lines. Part of the specification, not built yet. |
 | **A cache with recorded reads.** Each record lists everything it read, including lookups that found nothing, and is valid only while all of those are unchanged. | An incremental update must equal a build from nothing, byte for byte, which is checked with random edits. Part of the specification, not built yet. |
 | **One meaning per visual channel.** Colour shows role, from a colour-blind-safe palette. Height shows classes and functions per file, on a square-root scale. Stripes mark files with no language adapter. | People read only a few features at a glance, and each can carry one message ([research notes](docs/research/visual-understanding-for-review.md)). Stripes follow the rule that Rungs never guesses: what it cannot analyse is shown as exactly that. |
@@ -39,9 +49,10 @@ From the repository root, with Node 22.18 or later and git:
 ```sh
 npm ci
 npm run rungs -- /path/to/a/git/checkout
+npm run rungs -- compare main /path/to/a/git/checkout --description pr.md --link
 ```
 
-This builds the graph, starts a local server on 127.0.0.1 and opens the city in your browser. Leave out the path to draw Rungs itself. `--port <n>` picks the port and `--no-open` skips the browser. Press R to reset the view and P to cycle the pixel-art render mode. Stop the server with Ctrl+C.
+The first command builds the graph, starts a local server on 127.0.0.1 and opens the city in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. `--description` reads the pull request's description as claims, and `--link` asks the Claude Code CLI to link them to the code, using your own login. `--port <n>` picks the port and `--no-open` skips the browser. Press R to reset the view and P to cycle the pixel-art render mode. Stop the server with Ctrl+C.
 
 ## Verification and design
 
@@ -51,9 +62,12 @@ Run `npm run lint`, `npm run typecheck` and `npm test`. CI runs the same three o
 - qualified names over 2,070 adversarial inputs, checked to be unique and never empty;
 - line counting with CRLF and Unicode line separators, from a single definition of a line;
 - layout proportions, the height scale, and the label and fading decisions;
-- a server that returns exactly a function's lines.
+- a server that returns exactly a function's lines;
+- comparison properties over generated tree pairs, and goldens for the comparison and the effect catalog;
+- reading a base revision, including a file built to imitate git's reply framing;
+- the claims, unmentioned and contracts answers, including adversarial descriptions.
 
-Larger features start from two independent design sketches on different models, and every pull request is reviewed by a second model against a stated contract before it merges. The browser behaviour is checked with scripted headless Chromium runs, including source text compared byte for byte against the file.
+Larger features start from two independent design sketches on different models, and every pull request is reviewed by a second model against a stated contract before it merges, for one round or two depending on how much the change decides about what the picture claims. The browser behaviour is checked with scripted headless Chromium runs, including source text compared byte for byte against the file.
 
 - [Specification](SPEC.md): the product contract and the rules every change is held to
 - [ADR 0001: code node identity](docs/adr/0001-code-node-identity.md)

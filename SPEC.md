@@ -20,8 +20,7 @@ click through to the source lines that produced it.
 The test case is pull request #18 of the previous project: 14,370 added lines of plain
 JavaScript.
 
-Left for after the MVP: narration, the observed tier, property nodes, the house and map themes,
-lazily resolved edges, and links between effect sites.
+Left for after the MVP: property nodes, the house and map themes, lazily resolved edges, and links between effect sites.
 
 ## The rungs
 
