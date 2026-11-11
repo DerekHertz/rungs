@@ -81,6 +81,7 @@ const EDGE = { rest: "#0a0d12", dim: "#1b212b", hover: "#9aa6b5", selected: "#ff
 const DIM = 0.35;
 // The unchanged floors of an altered file are dimmer than its changed ones, but not as dim as an unchanged file.
 const BODY = 0.55;
+const ROOF_EDGE = 1.5;
 const GHOST_EDGE = "#c9ced6";
 const ADDED_CAP = "#ffffff";
 const MOVED_CAP = "#8a94a3";
@@ -343,7 +344,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers, failin
     const ghost = building.change === "removed";
     const dim = building.change === "unchanged" || building.change === "moved";
     const striped = !building.analysed && !ghost;
-    const band = building.band ?? 0;
+    // No function changed (a comment, a removal): only the roof edge is lit.
+    const band = building.band === 0 ? Math.min(ROOF_EDGE, building.height) : (building.band ?? 0);
     const lower = building.height - band;
     // An altered file is two boxes: its unchanged floors, dimmed, and the changed ones on top, in full colour.
     const split = building.change === "altered" && band > 0 && lower > 0;

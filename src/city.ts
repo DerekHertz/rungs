@@ -193,13 +193,14 @@ export function cityOf(picture: Picture, root: NodeId): City {
 /**
  * The height of the changed slice of an altered file of `height`, which has `floors` classes and
  * functions: their altered and added ones take that share of the height, never less than BAND_MIN.
- * A function that was removed has no floor left, and a file with no code (or all of it changed) is
- * changed throughout.
+ * 0 when none changed (a removed function has no floor left); the view then shows only the roof
+ * edge. A file with no code is changed throughout.
  */
 export function changedBand(height: number, floors: number, tally: Tally): number {
   if (floors === 0) return height;
-  const share = (height * Math.min(tally.altered + tally.added, floors)) / floors;
-  return Math.min(height, Math.max(BAND_MIN, share));
+  const changed = Math.min(tally.altered + tally.added, floors);
+  if (changed === 0) return 0;
+  return Math.min(height, Math.max(BAND_MIN, (height * changed) / floors));
 }
 
 /** `rects` are a layout of `picture.graph`; the rects of classes and functions are ignored. */

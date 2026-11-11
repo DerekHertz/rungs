@@ -95,8 +95,10 @@ describe("changedBand", () => {
     expect(changedBand(40, 0, { ...none, altered: 1 })).toBe(40);
   });
 
-  test("a removed function takes no floor, but an altered file with only removals still shows the minimum", () => {
-    expect(changedBand(100, 9, { ...none, removed: 4 })).toBe(BAND_MIN);
+  test("is 0 when no function or class changed: a comment or a removal lights no floor", () => {
+    expect(changedBand(100, 9, { ...none })).toBe(0);
+    expect(changedBand(100, 9, { ...none, removed: 4 })).toBe(0);
+    expect(changedBand(100, 9, { ...none, moved: 2 })).toBe(0);
   });
 
   test("never taller than the building", () => {
@@ -113,5 +115,16 @@ describe("a building's band in the city", () => {
     expect(altered.band).toBeGreaterThan(0);
     expect(altered.band!).toBeLessThanOrEqual(altered.height);
     for (const path of ["README.md", "src/main.ts", "src/compat/legacy.js", "src/index.ts"]) expect(building(path).band, path).toBeUndefined();
+  });
+});
+
+describe("a comment-only change", () => {
+  const tree = (text: string) => extract(new Map([["package.json", "{}\n"], ["src/a.ts", text], ["src/b.ts", "export function other() {}\nexport function more() {}\n"]]));
+  const city = cityOf(pictureOf(tree("// new note\nexport function f() {}\n"), compare(tree("export function f() {}\n"), tree("// new note\nexport function f() {}\n"))), rootOf(tree("")));
+
+  test("is an altered building with a band of 0, so no floor is lit", () => {
+    const a = city.buildings.find((b) => b.id === "file:src/a.ts")!;
+    expect(a.change).toBe("altered");
+    expect(a.band).toBe(0);
   });
 });
