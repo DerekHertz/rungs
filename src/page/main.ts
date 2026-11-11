@@ -180,7 +180,7 @@ function showLegend(city: City): void {
     const said = document.createElement("span");
     said.textContent =
       observed.status === "ran"
-        ? "orange flag: a test in the file failed when the tests ran (observed, one run)"
+        ? "orange flag: a test in the file failed when main's tests ran against this change (observed, one run; evidence against mistakes, not against a hostile author)"
         : observed.status === "failed"
           ? `tests: the run failed (${observed.why})`
           : observed.status === "unreliable"
