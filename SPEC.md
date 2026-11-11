@@ -121,8 +121,8 @@ behind is read as plain files under their expected names, never followed as link
 
 `node --test` reports into an open file with no name, which in the sandbox only the runner's
 process can reach, and a test script whose flags would load the tree's code into the runner is
-unsupported. Whatever the results came through, they are checked against the runner's exit code,
-the test files the run was given and each other; a run that fails a check is shown as "results
+unsupported. Whatever the results came through, they are checked against the runner's exit code
+and the test files the run was given; a run that fails a check is shown as "results
 unreliable" with why, and none of its results is shown.
 
 Only `node --test` is run. Any other runner is named as unsupported, and a vitest project shows

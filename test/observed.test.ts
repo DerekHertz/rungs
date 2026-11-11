@@ -11,8 +11,8 @@ const FLAG_NOTE = "Rungs runs node --test only with flags that keep the tree's c
 
 test("the base's node --test script is read; vitest and anything else is unsupported, never guessed", () => {
   const cases: [string | undefined, unknown][] = [
-    [pkg({ test: "node --test" }), { runner: "node", args: [] }],
-    [pkg({ test: "node --test 'test/*.test.mjs' tools/x.test.mjs --test-reporter=spec" }), { runner: "node", args: ["test/*.test.mjs", "tools/x.test.mjs"] }],
+    [pkg({ test: "node --test" }), { runner: "node", flags: [], files: [] }],
+    [pkg({ test: "node --test 'test/*.test.mjs' tools/x.test.mjs --test-reporter=spec" }), { runner: "node", flags: [], files: ["test/*.test.mjs", "tools/x.test.mjs"] }],
     [pkg({ test: "vitest run --reporter=dot" }, { devDependencies: { vitest: "5" } }), { unsupported: "vitest is chosen by the PR" }],
     [pkg({ test: "vitest" }), { unsupported: "vitest is chosen by the PR" }],
     [pkg({ test: "jest" }), { unsupported: `the test script runs "jest"; ${BASE_ONLY}` }],
@@ -22,12 +22,23 @@ test("the base's node --test script is read; vitest and anything else is unsuppo
     [pkg({ test: "node --test --import ./setup.mjs" }), { unsupported: `the test script gives node "--import"; ${FLAG_NOTE}` }],
     [pkg({ test: "node --experimental-test-isolation=none --test" }), { unsupported: `the test script gives node "--experimental-test-isolation=none"; ${FLAG_NOTE}` }],
     [pkg({ test: "node -r ./setup.cjs --test" }), { unsupported: `the test script gives node "-r"; ${FLAG_NOTE}` }],
-    [pkg({ test: "node --test --test-concurrency=1 --test-timeout 500 --experimental-strip-types a.test.ts" }), { runner: "node", args: ["--test-concurrency=1", "--test-timeout", "500", "--experimental-strip-types", "a.test.ts"] }],
+    [pkg({ test: "node --test --test-concurrency=1 --test-timeout 500 --experimental-strip-types a.test.ts" }), { runner: "node", flags: ["--test-concurrency=1", "--test-timeout=500", "--experimental-strip-types"], files: ["a.test.ts"] }],
     [pkg({ test: "node test.js" }), { unsupported: `the test script runs "node" without --test; ${BASE_ONLY}` }],
     [pkg({}), { unsupported: "the base's package.json has no test script" }],
     ["{ not json", { unsupported: "the base's package.json is not valid JSON" }],
     [undefined, { unsupported: "the base has no package.json" }],
   ];
+  cases.push(
+    // A flag's value belongs to the flag, in either spelling, and is never taken for a file.
+    [pkg({ test: "node --test --test-timeout 5000 a.test.mjs b.test.mjs" }), { runner: "node", flags: ["--test-timeout=5000"], files: ["a.test.mjs", "b.test.mjs"] }],
+    [pkg({ test: "node --test --test-timeout=5000 a.test.mjs" }), { runner: "node", flags: ["--test-timeout=5000"], files: ["a.test.mjs"] }],
+    [pkg({ test: "node --test --test-name-pattern adds --test-skip-pattern slow --test-concurrency 2 --test-shard 1/2 a.test.mjs" }), { runner: "node", flags: ["--test-name-pattern=adds", "--test-skip-pattern=slow", "--test-concurrency=2", "--test-shard=1/2"], files: ["a.test.mjs"] }],
+    [pkg({ test: "node --test --test-only --test-force-exit a.test.mjs" }), { runner: "node", flags: ["--test-only", "--test-force-exit"], files: ["a.test.mjs"] }],
+    // The reporter is ours: the script's, with its destination, is dropped whole.
+    [pkg({ test: "node --test --test-reporter spec --test-reporter-destination stdout a.test.mjs" }), { runner: "node", flags: [], files: ["a.test.mjs"] }],
+    [pkg({ test: "node --test --test-reporter=spec a.test.mjs" }), { runner: "node", flags: [], files: ["a.test.mjs"] }],
+    [pkg({ test: "node --test a.test.mjs --test-timeout" }), { unsupported: 'the test script gives "--test-timeout" no value' }],
+  );
   for (const [json, expected] of cases) expect([json, detectRunner(new Map(json === undefined ? [] : [["package.json", json]]))]).toEqual([json, expected]);
 });
 
@@ -211,7 +222,9 @@ test("results that contradict the runner or themselves are unreliable, and say w
     ["exit 1, nothing", [], 1, "the runner exited 1 but no failure was recorded"],
     ["exit 0, a failure", [report("a.test.mjs", "one", "fail")], 0, "the runner exited 0 but 1 failure was recorded"],
     ["killed", [report("a.test.mjs", "one", "fail")], 137, "the runner exited 137, which no test result explains"],
-    ["one test, two outcomes", [report("a.test.mjs", "one", "fail"), report("a.test.mjs", "one", "pass")], 1, 'two results for "one" in a.test.mjs disagree (fail and pass)'],
+    // Two tests may share a name, and one may pass while the other fails.
+    ["one name, two tests, two outcomes", [report("a.test.mjs", "one", "fail"), report("a.test.mjs", "one", "pass")], 1, undefined],
+    ["one name, three tests", [report("a.test.mjs", "one", "pass"), report("a.test.mjs", "one", "fail"), report("a.test.mjs", "one", "skip")], 1, undefined],
     ["a file not in the tree", [report("a.test.mjs", "one", "fail"), report("../etc/x.test.mjs", "one", "pass")], 1, 'a result names "../etc/x.test.mjs", which is not a test file this run was given'],
     ["no file", [report("", "one", "fail")], 1, 'a result names "", which is not a test file this run was given'],
   ];

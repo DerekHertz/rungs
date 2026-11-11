@@ -51,7 +51,7 @@ export type TestRun =
       readonly output: string;
     }
   | {
-      /** The results contradict the runner or each other, so none of them is passed on. */
+      /** The results contradict the runner or the files the run was given, so none of them is passed on. */
       readonly status: "unreliable";
       readonly why: string;
       readonly runner: Runner;
@@ -72,7 +72,8 @@ export type TestRun =
     };
 
 /** The runner the base's `test` script names, with the arguments it passes. */
-export type Detection = { readonly runner: Runner; readonly args: readonly string[] } | { readonly unsupported: string };
+/** The script's node flags, each with its value as `--flag=value`, and the files or patterns it names. */
+export type Detection = { readonly runner: Runner; readonly flags: readonly string[]; readonly files: readonly string[] } | { readonly unsupported: string };
 
 const SHELL = /[;&|<>$`'"\\(){}!]/;
 /**
@@ -81,8 +82,44 @@ const SHELL = /[;&|<>$`'"\\(){}!]/;
  * preloaded. So a flag that loads code (--import, --require, --loader) or runs the tests in the
  * runner (--experimental-test-isolation) is not on the list, and neither is any flag not known.
  */
-const NODE_FLAGS =
-  /^--(?:test-concurrency|test-timeout|test-name-pattern|test-skip-pattern|test-only|test-force-exit|test-shard|test-update-snapshots|experimental-test-coverage|experimental-strip-types|experimental-transform-types|enable-source-maps|no-warnings)(?:=|$)/;
+const NODE_BOOLEAN_FLAGS = new Set([
+  "--test-only", "--test-force-exit", "--test-update-snapshots", "--experimental-test-coverage", "--experimental-strip-types", "--experimental-transform-types", "--enable-source-maps", "--no-warnings",
+]);
+const NODE_VALUE_FLAGS = new Set(["--test-concurrency", "--test-timeout", "--test-name-pattern", "--test-skip-pattern", "--test-shard"]);
+/** Ours to set: the script's reporter, with its destination, is dropped. */
+const NODE_REPORTER_FLAGS = new Set(["--test-reporter", "--test-reporter-destination"]);
+
+/**
+ * The flags and files of a `node --test` script. A flag's value is read with the flag, in either
+ * spelling (`--test-timeout 5000` or `--test-timeout=5000`) and kept as `--flag=value`, so no file
+ * can ever be taken for a value or a value for a file. Any flag not listed is refused.
+ */
+function parseNodeArgs(words: readonly string[]): { flags: string[]; files: string[] } | { unsupported: string } {
+  const flags: string[] = [];
+  const files: string[] = [];
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index] ?? "";
+    if (!word.startsWith("-")) {
+      files.push(word);
+      continue;
+    }
+    const equals = word.indexOf("=");
+    const name = equals < 0 ? word : word.slice(0, equals);
+    const keep = NODE_VALUE_FLAGS.has(name);
+    if (keep || NODE_REPORTER_FLAGS.has(name)) {
+      let value = equals < 0 ? undefined : word.slice(equals + 1);
+      if (value === undefined) {
+        value = words[index + 1];
+        index += 1;
+      }
+      if (value === undefined) return { unsupported: `the test script gives ${JSON.stringify(name)} no value` };
+      if (keep) flags.push(`${name}=${value}`);
+    } else if (NODE_BOOLEAN_FLAGS.has(word)) flags.push(word);
+    else return { unsupported: `the test script gives node ${JSON.stringify(word)}; Rungs runs node --test only with flags that keep the tree's code out of the runner` };
+  }
+  return { flags, files };
+}
+
 const READ = "Rungs reads only node --test";
 const VITEST = "vitest is chosen by the PR";
 
@@ -111,12 +148,8 @@ export function detectRunner(base: FileTree): Detection {
   if (command === "vitest") return { unsupported: VITEST };
   if (command === "node") {
     if (!rest.includes("--test")) return { unsupported: `the test script runs "node" without --test; ${READ}` };
-    const args = rest.filter((word) => word !== "--test" && !word.startsWith("--test-reporter"));
-    const flag = args.find((word) => word.startsWith("-") && !NODE_FLAGS.test(word));
-    if (flag !== undefined) {
-      return { unsupported: `the test script gives node ${JSON.stringify(flag)}; Rungs runs node --test only with flags that keep the tree's code out of the runner` };
-    }
-    return { runner: "node", args };
+    const parsed = parseNodeArgs(rest.filter((word) => word !== "--test"));
+    return "unsupported" in parsed ? parsed : { runner: "node", ...parsed };
   }
   return { unsupported: `the test script runs ${JSON.stringify(command)}; ${READ}` };
 }
@@ -416,7 +449,7 @@ export async function runTests(
   const tree = new Map([...head].filter(([path]) => !isTestFile(path)));
   for (const path of baseTests) tree.set(path, base.get(path) ?? "");
   const pinned = new Set(baseTests);
-  const first = await once({ tree, executable, pinned, args: detection.args, allowed: pinned, install }, isolation, timeoutMs, registry);
+  const first = await once({ tree, executable, pinned, args: [...detection.flags, ...detection.files], allowed: pinned, install }, isolation, timeoutMs, registry);
   const seconds = Math.round((Date.now() - started) / 100) / 10;
   const about = { runner: detection.runner, isolation: isolation.kind, seconds: first.seconds };
   if (first.status === "failed") return { status: "failed", why: first.why, output: first.output, ...about };
@@ -424,10 +457,9 @@ export async function runTests(
   const writtenFiles = testPaths(head).filter((path) => RUNNABLE.test(path) && head.get(path) !== base.get(path));
   let written: WrittenRun | undefined;
   if (writtenFiles.length > 0) {
-    const flags = detection.args.filter((word) => word.startsWith("-"));
     const left = Math.max(1000, timeoutMs - (Date.now() - started));
     const { seconds: took, ...outcome } = await once(
-      { tree: head, executable, pinned: new Set(), args: [...flags, ...writtenFiles], allowed: new Set(writtenFiles), install },
+      { tree: head, executable, pinned: new Set(), args: [...detection.flags, ...writtenFiles], allowed: new Set(writtenFiles), install },
       isolation,
       left,
       registry,
@@ -449,22 +481,15 @@ export async function runTests(
 /**
  * Why a run's results cannot be shown as what happened, if they cannot. However the results reach
  * Rungs, they are checked against the one thing the tests do not write, the runner's exit code,
- * against the test files the run was given, and against each other. A run that fails any check is shown as unreliable,
+ * and against the test files the run was given. A run that fails any check is shown as unreliable,
  * never as passes.
  */
 export function unreliable(reports: readonly TestReport[], exitCode: number, allowed: ReadonlySet<string>): string | undefined {
   if (exitCode !== 0 && exitCode !== 1) return `the runner exited ${exitCode}, which no test result explains`;
-  const outcomes = new Map<string, Outcome>();
   let failures = 0;
   for (const report of reports) {
     if (!allowed.has(report.file)) return `a result names ${JSON.stringify(report.file.slice(0, 120))}, which is not a test file this run was given`;
     if (report.outcome === "fail") failures += 1;
-    const key = JSON.stringify([report.file, report.path]);
-    const before = outcomes.get(key);
-    if (before !== undefined && before !== report.outcome) {
-      return `two results for ${JSON.stringify(report.path.join(" > ").slice(0, 120))} in ${report.file} disagree (${before} and ${report.outcome})`;
-    }
-    outcomes.set(key, report.outcome);
   }
   if (exitCode !== 0 && failures === 0) return `the runner exited ${exitCode} but no failure was recorded`;
   if (exitCode === 0 && failures > 0) return `the runner exited 0 but ${failures} ${failures === 1 ? "failure was" : "failures were"} recorded`;
