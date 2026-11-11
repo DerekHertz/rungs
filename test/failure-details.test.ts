@@ -42,9 +42,9 @@ test("a deepStrictEqual mismatch of objects keeps its multiline expected, actual
   });
 });
 
-test("a multiline string is shown as a labelled quoted block, its lines as they are", () => {
+test("a multiline string is shown escaped, as util.inspect prints it, so every character is exact", () => {
   const [report] = run(`${HEAD}test("lines", () => {\n  assert.strictEqual("one\\ntwo", "one\\nthree");\n});\n`);
-  expect(report?.detail).toMatchObject({ expected: 'string:\n"one\nthree"', actual: 'string:\n"one\ntwo"', line: 4 });
+  expect(report?.detail).toMatchObject({ expected: "'one\\nthree'", actual: "'one\\ntwo'", line: 4 });
 });
 
 test("a thrown Error has its message and the line it was thrown on, and no expected or actual", () => {
@@ -113,6 +113,42 @@ test("a message that looks like a stack frame is not taken for one", () => {
   expect(report?.detail).toEqual({ line: 4 });
   const [bare] = run(`${HEAD}test("fake", () => {\n  const error = new Error("boom");\n  error.stack = "Error: boom\\n    at fake (" + import.meta.filename + ":5:1)";\n  throw Object.assign(error, { message: "other" });\n});\n`);
   expect(bare?.detail).toBeUndefined();
+});
+
+test("CRLF and LF strings do not look alike", () => {
+  const [report] = run(`${HEAD}test("eol", () => {\n  assert.strictEqual("a\\r\\nb", "a\\nb");\n});\n`);
+  expect(report?.detail).toMatchObject({ actual: "'a\\r\\nb'", expected: "'a\\nb'" });
+});
+
+test("a hostile detail is dropped and never costs the run its other results", () => {
+  const event = (name: string, extra: object = {}) => JSON.stringify({ type: "test:fail", file: "test/a.test.mjs", name, nesting: 0, kind: "test", ms: 1, error: "no", ...extra });
+  const lines = [
+    event("good", { detail: { operator: "strictEqual", expected: "1", actual: "2", line: 5 } }),
+    event("zero", { detail: { expected: "1", actual: "2", line: 0 } }),
+    event("fraction", { detail: { line: 1.5 } }),
+    event("text", { detail: { expected: 7 } }),
+    event("array", { detail: [1] }),
+    event("string", { detail: "x" }),
+    JSON.stringify({ type: "test:pass", file: "test/a.test.mjs", name: "passes", nesting: 0, kind: "test", ms: 1 }),
+    event("last", { detail: { line: 9 } }),
+  ];
+  const reports = parseNodeEvents(lines.join("\n"));
+  expect(reports.map((report) => report.path[0])).toEqual(["good", "zero", "fraction", "text", "array", "string", "passes", "last"]);
+  expect(reports.map((report) => report.detail)).toEqual([{ operator: "strictEqual", expected: "1", actual: "2", line: 5 }, undefined, undefined, undefined, undefined, undefined, undefined, { line: 9 }]);
+  expect(reports[1]).toMatchObject({ message: "no" });
+});
+
+test("the reporter writes no line of 0", () => {
+  const [report] = run(`${HEAD}test("zero", () => {\n  const error = new Error("x");\n  error.stack = "Error: x\\n    at zero (" + import.meta.filename + ":0:1)";\n  throw error;\n});\n`);
+  expect(report).toMatchObject({ message: "x" });
+  expect(report?.detail).toBeUndefined();
+});
+
+test("a name that looks like a message or a frame is not read as the stack's frames", () => {
+  const [renamed] = run(`${HEAD}test("renamed", () => {\n  const error = new Error("x");\n  error.name = "N\\n    at fake (" + import.meta.filename + ":5:1)\\nM";\n  throw error;\n});\n`);
+  expect(renamed?.detail).toEqual({ line: 4 });
+  const [weird] = run(`${HEAD}class Weird extends Error {}\nWeird.prototype.name = "W\\n    at fake (" + import.meta.filename + ":5:1)\\nZ";\ntest("weird", () => {\n  throw new Weird("x");\n});\n`);
+  expect(weird?.detail).toEqual({ line: 6 });
 });
 
 const range = { start: 81, end: 95 };

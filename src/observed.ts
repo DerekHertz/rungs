@@ -194,26 +194,25 @@ const text = (read) => {
   }
 };
 const cutNote = (length) => (length > LIMIT ? "… " + (length - LIMIT) + " more characters" : "");
-// A string is quoted, a multiline one as a labelled block of its own lines, so that it is never taken for a number.
-const quote = (value) => {
-  const kept = value.slice(0, LIMIT);
-  return (kept.includes("\\n") ? 'string:\\n"' + kept + '"' : inspect(kept, { colors: false })) + cutNote(value.length);
-};
+// Always util.inspect's escaped form, so a string is quoted and every character, a CR or an LF, is exact.
 const show = (value) => {
-  if (typeof value === "string") return quote(value);
-  const printed = inspect(value, { colors: false, depth: 6, compact: false, breakLength: 80, maxArrayLength: 50, maxStringLength: 500, sorted: true });
-  return printed.slice(0, LIMIT) + cutNote(printed.length);
+  const printed = inspect(typeof value === "string" ? value.slice(0, LIMIT) : value, { colors: false, depth: 6, compact: false, breakLength: Infinity, maxArrayLength: 50, maxStringLength: ${FAILURE_LIMIT}, sorted: true });
+  return typeof value === "string" ? printed + cutNote(value.length) : printed.slice(0, LIMIT) + cutNote(printed.length);
 };
-// The first frame in the test's own file among the frames after the message; nothing when the message cannot be told from the frames.
-const lineOf = (stack, message, file) => {
-  if (typeof stack !== "string" || typeof message !== "string" || message === "") return undefined;
-  const at = stack.indexOf(message);
-  if (at < 0 || stack.slice(0, at).includes("\\n")) return undefined;
-  for (const frame of stack.slice(at + message.length).split("\\n")) {
+// The first frame in the test's own file among the frames after the stack's header, which must be exactly the error's name and message (and code); nothing otherwise.
+const lineOf = (stack, name, message, code, file) => {
+  if (typeof stack !== "string" || typeof name !== "string" || typeof message !== "string") return undefined;
+  const heads = [name, ...(typeof code === "string" ? [name + " [" + code + "]"] : [])].map((head) => (message === "" ? head : head + ": " + message));
+  const head = heads.find((candidate) => stack.startsWith(candidate) && (stack.length === candidate.length || stack[candidate.length] === "\\n"));
+  if (head === undefined) return undefined;
+  for (const frame of stack.slice(head.length).split("\\n")) {
     const found = /^\\s*at .*?\\(?((?:file:\\/\\/)?\\/[^\\s()]*?):(\\d+):\\d+\\)?\\s*$/.exec(frame);
     if (found === null) continue;
     try {
-      if (where(found[1].startsWith("file:") ? fileURLToPath(found[1]) : found[1]) === file) return Number(found[2]);
+      if (where(found[1].startsWith("file:") ? fileURLToPath(found[1]) : found[1]) === file) {
+        const line = Number(found[2]);
+        return Number.isSafeInteger(line) && line > 0 ? line : undefined;
+      }
     } catch {}
   }
   return undefined;
@@ -229,7 +228,7 @@ const detailOf = (cause, file) => {
         detail.actual = show(cause.actual);
       }
     }
-    const line = lineOf(cause?.stack, cause?.message, file);
+    const line = lineOf(cause?.stack, cause?.name, cause?.message, cause?.code, file);
     if (line !== undefined) detail.line = line;
     return Object.keys(detail).length === 0 ? undefined : detail;
   } catch {
@@ -576,13 +575,12 @@ interface NodeEvent {
 /** The limit plus room for the "… N more characters" the reporter already added, so that a cut value is not cut again. */
 const KEPT = FAILURE_LIMIT + 40;
 
-/** Only strings and a line number, whatever else the run wrote; values are cut to the limit. Null when it is not a detail. */
-function readDetail(value: unknown): FailureDetail | undefined | null {
-  if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null) return null;
+/** Only strings and a positive line number, whatever else the run wrote; values are cut to the limit. A detail that is not one is dropped, never an error: the rest of the event and the run stay. */
+function readDetail(value: unknown): FailureDetail | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const { operator, expected, actual, line } = value as Record<string, unknown>;
   const text = (field: unknown) => field === undefined || typeof field === "string";
-  if (!text(operator) || !text(expected) || !text(actual) || !(line === undefined || (Number.isInteger(line) && (line as number) > 0))) return null;
+  if (!text(operator) || !text(expected) || !text(actual) || !(line === undefined || (typeof line === "number" && Number.isSafeInteger(line) && line > 0))) return undefined;
   const detail = {
     ...(typeof operator === "string" ? { operator: operator.slice(0, 40) } : {}),
     ...(typeof expected === "string" ? { expected: bounded(expected, KEPT) } : {}),
@@ -605,8 +603,7 @@ function isNodeEvent(value: unknown): value is NodeEvent {
     typeof event.ms === "number" &&
     [event.skip, event.todo].every((flag) => flag === undefined || typeof flag === "boolean") &&
     (event.error === undefined || typeof event.error === "string") &&
-    (event.failure === undefined || typeof event.failure === "string") &&
-    readDetail(event.detail) !== null
+    (event.failure === undefined || typeof event.failure === "string")
   );
 }
 
