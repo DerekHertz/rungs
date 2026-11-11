@@ -5,6 +5,7 @@ import { resourceKindOf } from "./effects.ts";
 import type { ChangedEffect } from "./effects.ts";
 import type { SectionChange } from "./sections.ts";
 import type { ChangeKind, Comparison, ContractMove, ContractMoveKind, ModuleChange, Tally } from "./compare.ts";
+import type { TestChanges } from "./test-changes-types.ts";
 
 /** Most urgent first: a removed or altered module changed what already stood, a moved one is the same text. */
 const URGENCY: Record<ChangeKind, number> = { removed: 0, altered: 1, added: 2, moved: 3 };
@@ -69,6 +70,10 @@ export type ReviewEntry =
       readonly linked?: true;
       /** Anonymous callbacks inside it whose change is rolled up into this row instead of listed. */
       readonly folded?: readonly NodeId[];
+      /** A test the rename rule paired with a removed one: the old name. The row is one `~` under the new name. */
+      readonly renamedFrom?: string;
+      /** A renamed test that asserts less than before. */
+      readonly weakened?: true;
     })
   /** A folder or package whose changed files are all unmentioned, rolled up. `children` are its files. */
   | (EntryBase & { readonly level: "district"; readonly files: number; readonly kinds: Tally })
@@ -145,6 +150,17 @@ export function labelOf(node: ModuleNode & { readonly qualifiedName: string }): 
   const last = segmentsOf(node.qualifiedName).at(-1)!;
   if (!LABELLED_CALLBACK.test(last.text)) return node.qualifiedName;
   return `${last.text.slice(0, -" callback".length)}${last.ordinal > 1 ? `@${last.ordinal}` : ""}`;
+}
+
+/** The titles a test's qualified name holds, as test-changes.ts joins them with " > ", or undefined when a segment is not a labelled test or describe callback. */
+function titlePathOf(qualifiedName: string): string | undefined {
+  const titles: string[] = [];
+  for (const segment of segmentsOf(qualifiedName)) {
+    const match = /^[\w.]+\("(.*)"\) callback$/su.exec(segment.text);
+    if (match === null) return undefined;
+    titles.push(match[1]!);
+  }
+  return titles.join(" > ");
 }
 
 type Kinds = { -readonly [K in ChangeKind]: number };
@@ -234,6 +250,7 @@ export function unmentioned(
   graph: Graph,
   description: string,
   linked: ReadonlySet<NodeId> = new Set(),
+  tests: { readonly renamed: TestChanges["renamed"]; readonly weakened: TestChanges["weakened"] } = { renamed: [], weakened: [] },
 ): Unmentioned {
   const fileChanges = comparison.changes.filter((change) => change.node.level === "file");
   const { pathMentioned, fileMentioned, nameCovered, sectionCovered } = mentionRules(comparison, description);
@@ -295,6 +312,28 @@ export function unmentioned(
     return undefined;
   };
 
+  // A removed test and an added one that testChanges paired as renamed are one `~` row under the new name.
+  const testsBy = (kind: ModuleChange["kind"]): Map<string, ModuleChange> => {
+    const by = new Map<string, ModuleChange>();
+    for (const change of comparison.changes) {
+      if (change.kind !== kind || change.node.level !== "function") continue;
+      const titles = titlePathOf(change.node.qualifiedName);
+      if (titles !== undefined) by.set(`${change.node.path}\0${titles}`, change);
+    }
+    return by;
+  };
+  const removedTests = testsBy("removed");
+  const addedTests = testsBy("added");
+  const renamedFrom = new Map<NodeId, { readonly was: ModuleChange; readonly weakened: boolean }>();
+  const renamedAway = new Set<NodeId>();
+  for (const { file, from, to } of tests.renamed) {
+    const was = removedTests.get(`${file}\0${from}`);
+    const now = addedTests.get(`${file}\0${to}`);
+    if (was === undefined || now === undefined) continue;
+    renamedFrom.set(now.node.id, { was, weakened: tests.weakened.some((test) => test.file === file && test.name === to) });
+    renamedAway.add(was.node.id);
+  }
+
   const folds = new Map<NodeId, NodeId[]>();
   const fileFolds = new Map<string, NodeId[]>();
   const codeChanges: ModuleChange[] = [];
@@ -302,6 +341,9 @@ export function unmentioned(
     const node = change.node;
     if (!isCodeNode(node) || pathsOf(change).some(pathMentioned)) continue;
     if (nameCovered(node.qualifiedName)) continue;
+    if (renamedAway.has(node.id)) continue;
+    const renamed = renamedFrom.get(node.id);
+    if (renamed !== undefined && isCodeNode(renamed.was.node) && (nameCovered(renamed.was.node.qualifiedName) || pathsOf(renamed.was).some(pathMentioned))) continue;
     if (!isAnonymous(node)) {
       codeChanges.push(change);
       continue;
@@ -315,7 +357,17 @@ export function unmentioned(
   for (const change of codeChanges) {
     const node = change.node as ModuleNode & { readonly level: "class" | "function"; readonly qualifiedName: string };
     const folded = folds.get(node.id);
-    const entry: ReviewEntry = { id: node.id, level: node.level, label: labelOf(node), change: change.kind, lines: sizeOf(node), children: [], ...(folded === undefined ? {} : { folded }) };
+    const renamed = renamedFrom.get(node.id);
+    const entry: ReviewEntry = {
+      id: node.id,
+      level: node.level,
+      label: labelOf(node),
+      change: renamed === undefined ? change.kind : "altered",
+      lines: sizeOf(node),
+      children: [],
+      ...(folded === undefined ? {} : { folded }),
+      ...(renamed === undefined || !isCodeNode(renamed.was.node) ? {} : { renamedFrom: labelOf(renamed.was.node), ...(renamed.weakened ? { weakened: true as const } : {}) }),
+    };
     codeBy.set(node.path, [...(codeBy.get(node.path) ?? []), entry]);
   }
 

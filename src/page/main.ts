@@ -738,7 +738,7 @@ if (comparison !== null && testChanges !== null) {
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
-  const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked);
+  const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked, testChanges);
   const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
   renderReview(review, {
     description: claims.description,
