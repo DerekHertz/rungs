@@ -249,7 +249,8 @@ const NODE_TEST = `{"type":"module","scripts":{"test":"node --test"}}\n`;
 
 const TWO_TESTS = 'import { test } from "node:test";\ntest("one", () => {});\ntest("two", () => { throw new Error("no"); });\n';
 
-test("--run-tests runs main's tests against the head once in the sandbox, says how it went, and serves /observed.json", async () => {
+// Starts the CLI, a bwrap sandbox and a node test run: genuinely slow work, so the timeout is explicit.
+test("--run-tests runs main's tests against the head once in the sandbox, says how it went, and serves /observed.json", { timeout: 60000 }, async () => {
   const dir = repo(NODE_TEST, { "a.test.mjs": TWO_TESTS });
   write(dir, "b.test.mjs", 'import { test } from "node:test";\ntest("written here", () => {});\n');
   const child = spawn("node", [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests"], { cwd: dir });
@@ -266,7 +267,7 @@ test("--run-tests runs main's tests against the head once in the sandbox, says h
   }
 });
 
-test("--run-tests-unsandboxed with no sandbox warns that the results are as trustworthy as the PR's author, and labels the run", async () => {
+test("--run-tests-unsandboxed with no sandbox warns that the results are as trustworthy as the PR's author, and labels the run", { timeout: 60000 }, async () => {
   const dir = repo(NODE_TEST, { "a.test.mjs": 'import { test } from "node:test";\ntest("one", () => {});\n' });
   const child = spawn(process.execPath, [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests-unsandboxed"], { cwd: dir, env: { PATH: bareBin() } });
   try {
@@ -279,7 +280,7 @@ test("--run-tests-unsandboxed with no sandbox warns that the results are as trus
   }
 });
 
-test("--run-tests with no sandbox refuses, says so, and still serves the comparison", async () => {
+test("--run-tests with no sandbox refuses, says so, and still serves the comparison", { timeout: 60000 }, async () => {
   const dir = repo();
   const child = spawn(process.execPath, [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests"], {
     cwd: dir,

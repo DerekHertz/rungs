@@ -137,7 +137,7 @@ for (const isolation of [bwrap, unsandboxed]) {
     expect(existsSync(run.root)).toBe(false);
   });
 
-  test(`${isolation.kind}: output past the limit is cut and marked, and a locked folder is still removed`, async () => {
+  test(`${isolation.kind}: output past the limit is cut and marked, and a locked folder is still removed`, { timeout: 60_000 }, async () => {
     const run = await runIsolated({
       tree: new Map([["a/b.txt", "text\n"]]),
       isolation,
@@ -370,7 +370,8 @@ test("in the sandbox a process left behind dies with its step: the namespace end
   });
   expect(Date.now() - started).toBeLessThan(10_000);
   expect(run.steps[0]).toEqual({ exitCode: 0, timedOut: false, truncated: false, ms: expect.any(Number), output: expect.stringMatching(/^\d+\n$/) });
-  expect(run.steps[0]?.ms).toBeLessThan(900);
+  // The output closed because the namespace ended, not because the 1 s output grace ran out: only the grace path names a leftover. (No elapsed-time bound: node start-up alone can pass it under load.)
+  expect(run.steps[0]?.leftover).toBeUndefined();
   expect(run.steps[1]?.output).toBe("0\n");
 });
 

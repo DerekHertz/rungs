@@ -245,7 +245,10 @@ test("the CLI runner passes the prompt on stdin, allows no tools or MCP servers,
   expect(await claudeRunner(command).run(request)).toEqual({ output: { links: [] }, model: "claude-x" });
 });
 
-test("the CLI runner fails with one line when the command is missing, exits non-zero, prints non-JSON, reports an error or times out", async () => {
+// Every case here but the last must fail for its own reason, so each gets a timeout so long that
+// loaded-machine slowness in starting node can never pass for "timed out". The timeout is tested
+// alone, below, on a stub that never answers.
+test("the CLI runner fails with one line when the command is missing, exits non-zero, prints non-JSON or reports an error", { timeout: 60000 }, async () => {
   const cases: [string, string][] = [
     [join(temp(), "no-such-claude"), "not found"],
     [stub(`console.error("boom\\nmore"); process.exit(3);`), "exited with 3"],
@@ -258,11 +261,10 @@ test("the CLI runner fails with one line when the command is missing, exits non-
     [stub(`console.log(JSON.stringify({ is_error: true, result: "Not logged in" }));`), "Not logged in"],
     [stub(`console.log(JSON.stringify({ is_error: false, result: "x" }));`), "no structured output"],
     [stub(`console.log('{"is_error":true,"result":{"toString":null}}');`), "reported an error"],
-    [stub(`setTimeout(() => {}, 60000);`), "timed out"],
   ];
   for (const [command, expected] of cases) {
     const error = await claudeRunner(command)
-      .run({ ...request, timeoutMs: 400 })
+      .run({ ...request, timeoutMs: 30000 })
       .then(
         () => undefined,
         (caught: Error) => caught,
@@ -270,6 +272,18 @@ test("the CLI runner fails with one line when the command is missing, exits non-
     expect(error?.message).toContain(expected);
     expect(error?.message).not.toContain("\n");
   }
+});
+
+// The stub never writes and never exits, so only the CLI timeout can end it, however slow the
+// machine is: the short timeout cannot fire early on any other case, and cannot be missed.
+test("the CLI runner fails with one line when the command never answers within the timeout", { timeout: 60000 }, async () => {
+  const error = await claudeRunner(stub(`setInterval(() => {}, 1000);`))
+    .run({ ...request, timeoutMs: 300 })
+    .then(
+      () => undefined,
+      (caught: Error) => caught,
+    );
+  expect(error?.message).toBe("claude CLI timed out after 0s");
 });
 
 test.skipIf(process.env.STREETS_REAL_CLAUDE !== "1")("the real claude CLI links a claim to the module it names", { timeout: 180000 }, async () => {

@@ -1,11 +1,30 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+
+// The compiler's own export cannot be spied on in place, so the tests get a copy whose two
+// expensive entry points count their calls and pass straight through.
+const compiler = vi.hoisted(() => ({ programs: 0, parses: 0 }));
+vi.mock("typescript", async (importOriginal) => {
+  const real = (await importOriginal<{ default: typeof import("typescript") }>()).default;
+  const counted = {
+    ...real,
+    createProgram: ((...args: Parameters<typeof real.createProgram>) => {
+      compiler.programs++;
+      return real.createProgram(...args);
+    }) as typeof real.createProgram,
+    createSourceFile: ((...args: Parameters<typeof real.createSourceFile>) => {
+      compiler.parses++;
+      return real.createSourceFile(...args);
+    }) as typeof real.createSourceFile,
+  };
+  return { default: counted };
+});
 import { EXTRACTOR_VERSION, extract } from "../src/extract/extract.ts";
 import { isCodeNode, lineCount, serializeGraph } from "../src/graph.ts";
 import type { CodeNode, Graph } from "../src/graph.ts";
-import { readFixtureTree } from "./fixture-tree.ts";
+import { readFixtureTree, wideTree } from "./fixture-tree.ts";
 
 const fixture = fileURLToPath(new URL("fixtures/small", import.meta.url));
 const goldenPath = fileURLToPath(new URL("golden/small.json", import.meta.url));
@@ -419,17 +438,16 @@ describe("effect edges on the small fixture", () => {
   });
 });
 
-test("extraction stays fast on a 300-file tree", () => {
-  const tree = new Map<string, string>();
-  for (let i = 0; i < 300; i++) {
-    const calls = Array.from({ length: 30 }, (_, j) => `  fs.readFileSync(path.join(dir, "f${j}"));\n  helper${j}(a, b);`);
-    tree.set(`src/m${i}.mjs`, `import fs from "node:fs";\nimport path from "node:path";\nexport function run${i}(dir, a, b) {\n${calls.join("\n")}\n}\n`);
-  }
-  const started = performance.now();
-  const graph = extract(tree);
-  const seconds = (performance.now() - started) / 1000;
+// Speed is counted in operations, not seconds: a wall-clock bound flakes on a loaded machine.
+// Extraction stays linear while it builds one program for the whole tree and parses each file
+// once, however many files there are. The seconds themselves are in `npm run perf`.
+test("extraction on a 300-file tree builds one program and parses each file once", () => {
+  compiler.programs = 0;
+  compiler.parses = 0;
+  const graph = extract(wideTree(300));
   expect(graph.edges).toHaveLength(300 * 30);
-  expect(seconds).toBeLessThan(4);
+  expect(compiler.programs).toBe(1);
+  expect(compiler.parses).toBeLessThanOrEqual(300);
 });
 
 describe("a binary file", () => {
