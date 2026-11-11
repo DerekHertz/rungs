@@ -83,12 +83,6 @@ export interface ReviewInput {
   readonly walkAbout?: string;
 }
 
-/** What the host can ask of the panel after it is drawn. */
-export interface ReviewHandle {
-  /** Opens the Tests row; false when the panel has no such row. */
-  openTests(): boolean;
-}
-
 /** A new element with a class and, when given, text; never markup. */
 export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {
   const made = document.createElement(tag);
@@ -119,6 +113,22 @@ function remember(id: string): void {
 
 const plural = (count: number, one: string): string => `${count} ${count === 1 ? one : `${one}s`}`;
 
+/** What the review panel shows of the reviewer's place: the open row, the selected entry, and how far the row is scrolled. */
+export interface ReviewSnapshot {
+  readonly open: RowId | undefined;
+  readonly active: { readonly pick: HTMLElement; readonly detail?: HTMLElement } | undefined;
+  readonly scroll: number;
+}
+
+export interface ReviewHandle {
+  /** Opens the Tests row; false when the panel has no such row. */
+  openTests(): boolean;
+  /** Select a risk's row and scroll it into view, or clear the sidebar's selection when `risk` is undefined. */
+  selectRisk(risk: RiskItem | undefined): void;
+  snapshot(): ReviewSnapshot;
+  restore(saved: ReviewSnapshot): void;
+}
+
 /** The text of a target group: a literal in quotes, or exactly what is not known. */
 function targetText(group: EffectGroup): string {
   if (group.target === "unknown") return "target unknown";
@@ -141,6 +151,15 @@ function linkNote(link: LinkNote): string {
  */
 export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandle {
   let active: { pick: HTMLElement; detail?: HTMLElement } | undefined;
+  let openRow: RowId | undefined;
+  const riskPicks = new Map<RiskItem, { pick: HTMLElement; detail: HTMLElement }>();
+  const clearActive = (): void => {
+    if (active === undefined) return;
+    active.pick.classList.remove("active");
+    active.pick.setAttribute("aria-current", "false");
+    if (active.detail !== undefined) active.detail.hidden = true;
+    active = undefined;
+  };
   const choose = (pick: HTMLElement, detail?: HTMLElement): void => {
     if (active !== undefined) {
       active.pick.classList.remove("active");
@@ -571,6 +590,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
         text.append(element("span", "review-label", risk.label), element("span", "contract-where", risk.blast.count > 0 ? `${risk.path} · ${plural(risk.blast.count, "file")} rest on it` : risk.path));
         pick.append(element("span", "review-mark", "!"), text);
         item.append(pick, detail);
+        riskPicks.set(risk, { pick, detail });
         rows.append(item);
       }
       body.append(element("h3", "review-subtitle", `${titles[kind]} (${items.length})`), rows);
@@ -638,6 +658,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
 
   const bodies = new Map<RowId, { section: HTMLElement; body: HTMLElement; button: HTMLButtonElement; chevron: HTMLElement; filled: boolean; fill: (body: HTMLElement) => void }>();
   const setOpen = (open: RowId): void => {
+    openRow = open;
     for (const [id, found] of bodies) {
       const isOpen = id === open;
       found.section.classList.toggle("open", isOpen);
@@ -726,6 +747,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
   about.append(aboutBody, aboutButton);
 
   host.replaceChildren(...sections, about);
+  const scroller = (): HTMLElement | undefined => (openRow === undefined ? undefined : bodies.get(openRow)?.body);
   return {
     openTests() {
       const row = bodies.get("tests");
@@ -733,6 +755,22 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       setOpen("tests");
       row.section.scrollIntoView({ block: "nearest" });
       return true;
+    },
+    selectRisk(risk) {
+      if (risk === undefined) return clearActive();
+      setOpen("risks");
+      const found = riskPicks.get(risk);
+      if (found === undefined) return clearActive();
+      choose(found.pick, found.detail);
+      found.pick.scrollIntoView({ block: "nearest" });
+    },
+    snapshot: () => ({ open: openRow, active, scroll: scroller()?.scrollTop ?? 0 }),
+    restore(saved) {
+      if (saved.open !== undefined) setOpen(saved.open);
+      clearActive();
+      if (saved.active !== undefined) choose(saved.active.pick, saved.active.detail);
+      const body = scroller();
+      if (body !== undefined) body.scrollTop = saved.scroll;
     },
   };
 }

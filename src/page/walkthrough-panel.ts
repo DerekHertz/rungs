@@ -171,6 +171,8 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
       changes();
       return rows;
     }
+    const none = observed.status === "ran" && observed.results.length === 0 && observed.written.length === 0 && observed.writtenProblem === undefined;
+    if (none) rows.push(element("p", "walk-observed", "No test attached"));
     rows.push(element("p", "review-summary observed-trust", EVIDENCE_LINE));
     if (observed.unsandboxed) rows.push(element("p", "review-warning", `Tests ${UNSANDBOXED_LINE}.`));
     if (observed.status !== "ran") {
@@ -200,7 +202,6 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
       if (observed.written.length > 0) rows.push(list(observed.written));
     }
     changes();
-    if (observed.results.length === 0 && observed.written.length === 0 && observed.writtenProblem === undefined) rows.push(element("p", "review-empty", "no test attached"));
     return rows;
   }
 

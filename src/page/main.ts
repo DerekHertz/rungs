@@ -32,7 +32,9 @@ import type { TestMark } from "../test-marks.ts";
 import { comparedLine, failingEntry, walkEntry } from "../arrival.ts";
 import { renderArrival } from "./arrival-panel.ts";
 import { renderReview } from "./review-panel.ts";
-import type { ClaimRow, LinkNote } from "./review-panel.ts";
+import type { ClaimRow, LinkNote, ReviewHandle, ReviewSnapshot } from "./review-panel.ts";
+import { enterStop, leaveTour, stopRow } from "../tour-selection.ts";
+import type { SavedSelection } from "../tour-selection.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
 import type { Walk } from "./walkthrough-panel.ts";
 import { observedAt, stopFacts, tourCoverage, coverageLine, walkSummary } from "../stops.ts";
@@ -90,6 +92,8 @@ let focus = townRoot;
 let alone = false;
 let lots = new Map<NodeId, Lot>();
 let selected: NodeId | undefined;
+/** The files a manually picked risk or claim outlines, until something else is picked. */
+let shownPlaces: readonly NodeId[] | undefined;
 let requested = 0;
 let pendingClick: ReturnType<typeof setTimeout> | undefined;
 
@@ -453,6 +457,7 @@ function closePanel(): void {
   cancelPending();
   narrationTicket++;
   selected = undefined;
+  shownPlaces = undefined;
   chosenKind = undefined;
   panel.hidden = true;
   townView.select(undefined);
@@ -705,17 +710,60 @@ function pickPlaces(ids: readonly string[]): void {
   closePanel();
   const places = [...new Set(ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
   chosenKind = undefined;
+  shownPlaces = places;
   townView.highlight(places);
   const district = commonDistrict(tree, places);
   if (district !== undefined) focusOn(district, rubbleAmong(places));
 }
 
+/** What the reviewer had selected by hand before the tour: the open file or the outlined places, where the camera was, and the sidebar. */
+interface Manual {
+  readonly selected: NodeId | undefined;
+  readonly places: readonly NodeId[] | undefined;
+  readonly focus: NodeId;
+  readonly alone: boolean;
+  readonly review: ReviewSnapshot | undefined;
+}
+let manual: SavedSelection<Manual>;
+let reviewHandle: ReviewHandle | undefined;
+let risks: readonly RiskItem[] = [];
+
+/** Put back what the reviewer had picked before the tour. */
+function restoreManual(saved: Manual): void {
+  if (saved.selected !== undefined) pickNode(saved.selected);
+  else if (saved.places !== undefined) pickPlaces(saved.places);
+  else {
+    closePanel();
+    townView.highlight([]);
+    focusOn(saved.focus, saved.alone ? [] : undefined);
+  }
+  // pickPlaces and pickNode do not touch the sidebar, so it comes back from its own snapshot.
+  if (saved.review !== undefined) reviewHandle?.restore(saved.review);
+}
+
 /** A stop of the walkthrough: outline its nodes' files and fly to the district holding them all. Closing the tour clears the outline. */
 function visitStop(stop: Stop | undefined): void {
+  if (stop === undefined) {
+    const left = leaveTour(manual);
+    manual = left.state;
+    leaveInside();
+    cancelPending();
+    closePanel();
+    townView.highlight([]);
+    if (left.restore !== undefined) restoreManual(left.restore.value);
+    return;
+  }
+  manual = enterStop(manual, () => ({ selected, places: shownPlaces, focus, alone, review: reviewHandle?.snapshot() }));
   leaveInside();
   cancelPending();
   closePanel();
-  const places = [...new Set((stop?.ids ?? []).map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  const places = [...new Set(stop.ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  const paths = stop.ids.flatMap((id) => {
+    const node = nodes.get(id) ?? changed.get(id);
+    return node === undefined ? [] : [node.path];
+  });
+  const row = stopRow(stop.ids, paths, risks);
+  reviewHandle?.selectRisk(row === undefined ? undefined : risks[row]);
   townView.highlight(places);
   const district = commonDistrict(tree, places);
   if (district !== undefined) focusOn(district, rubbleAmong(places));
@@ -751,7 +799,8 @@ if (comparison !== null && testChanges !== null) {
   const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
   const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
   const coverage = tourCoverage(tour.stops, comparison);
-  const handle = renderReview(review, {
+  risks = ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks;
+  reviewHandle = renderReview(review, {
     walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
     description: claims.description,
     claims: claims.claims,
@@ -767,7 +816,7 @@ if (comparison !== null && testChanges !== null) {
     pickNode,
     observed: observed === null ? null : { document: observed, report: observedRun },
     testChanges,
-    risks: ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks,
+    risks,
     pickRisk: (risk: RiskItem) => pickPlaces(risk.ids),
   });
 
@@ -799,7 +848,15 @@ if (comparison !== null && testChanges !== null) {
       compared: comparedLine(run.repo, comparison.against),
       tests: failingEntry(observed === null ? "absent" : observed.status, failing),
       tour: walkEntry(tour.walkthrough, tour.stops.length, coverage),
-      openTests: () => void handle.openTests(),
+      openTests: () => {
+        // Going to the failing tests is a pick of the reviewer's own: it ends the tour and leaves its selection behind.
+        if (manual !== undefined) {
+          endTour();
+          reviewHandle?.selectRisk(undefined);
+          clearOutline();
+        }
+        void reviewHandle?.openTests();
+      },
       startTour: () => walk?.step(1),
     }),
   );
