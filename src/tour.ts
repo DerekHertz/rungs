@@ -16,8 +16,8 @@ export const TOUR_PROMPT_VERSION = "tour-v1";
  */
 export interface Place {
   readonly id: NodeId;
-  /** The lines a sentence about this place may be anchored to: the node's own, a file's from 1. */
-  readonly range: LineRange;
+  /** The lines a sentence about this place may be anchored to: the node's own, a file's from 1; null for a binary file, which has no lines. */
+  readonly range: LineRange | null;
   /** Exactly what the prompt shows for this place: kind, id, lines, signature, new effects. No source text. */
   readonly line: string;
 }
@@ -62,9 +62,9 @@ export function placesOf(comparison: Comparison, graph: Graph): Place[] {
   for (const change of files) {
     const file = change.node;
     if (file.level !== "file") continue;
-    const range = { start: 1, end: Math.max(1, file.lines) };
+    const range = file.lines === null ? null : { start: 1, end: Math.max(1, file.lines) };
     const code = file.role === "tests" || file.role === "docs" ? [] : (codeBy.get(file.path) ?? []);
-    out.push({ id: file.id, range, line: [`${change.kind} ${file.id} [${file.role ?? "no role"}] ${lines(range)}`, ...(effectsAt.get(file.id) ?? [])].join("\n") });
+    out.push({ id: file.id, range, line: [`${change.kind} ${file.id} [${file.role ?? "no role"}] ${range === null ? "binary" : lines(range)}`, ...(effectsAt.get(file.id) ?? [])].join("\n") });
     for (const { change: inner, node } of [...code].sort((a, b) => a.node.range.start - b.node.range.start || byText(a.node.id, b.node.id))) {
       const was =
         inner.kind === "altered" && isCodeNode(inner.before) && inner.before.signature !== node.signature
@@ -184,7 +184,7 @@ export function validateTour(output: unknown, claimCount: number, places: readon
       const { text, id, start, end } = (item ?? {}) as { text?: unknown; id?: unknown; start?: unknown; end?: unknown };
       if (typeof text !== "string" || typeof id !== "string" || !isInt(start) || !isInt(end)) throw new Error("the agent's answer has a malformed sentence");
       const within = kept.includes(id as NodeId) ? known.get(id as NodeId) : undefined;
-      if (flat(text) === "" || within === undefined || start > end || start < within.start || end > within.end) dropped.sentences++;
+      if (flat(text) === "" || within === undefined || within === null || start > end || start < within.start || end > within.end) dropped.sentences++;
       else sentences.push({ text: flat(text), id: id as NodeId, range: { start, end } });
     }
     if (kept.length === 0) dropped.stops++;

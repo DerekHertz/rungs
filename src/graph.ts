@@ -39,7 +39,8 @@ export interface ContainerNode extends NodeBase {
 export interface FileNode extends NodeBase {
   readonly level: "file";
   readonly parent: NodeId;
-  readonly lines: number;
+  /** Null for a binary file: it has bytes, not lines. */
+  readonly lines: number | null;
   readonly analysis: Analysis;
   /** Null when no rule in the extractor's table matches; never a guess. */
   readonly role: Role | null;
@@ -82,7 +83,7 @@ export function isCodeNode(node: ModuleNode): node is CodeNode {
 
 /** The lines a node stands for: a container's or file's total, a code node's range length. */
 export function lineCount(node: ModuleNode): number {
-  return isCodeNode(node) ? node.range.end - node.range.start + 1 : node.lines;
+  return isCodeNode(node) ? node.range.end - node.range.start + 1 : (node.lines ?? 0);
 }
 
 const IDENTIFIER_NAME = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u;

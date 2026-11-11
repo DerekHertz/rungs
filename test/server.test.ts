@@ -31,6 +31,7 @@ const tree: FileTree = new Map([
   ["package.json", "{}\n"],
   ["src/shapes.ts", SHAPES],
   ["src/crlf.ts", "export function a() {\r\n  return 1;\r\n}\r\n\r\nexport function b() {\r\n  return 2;\r\n}\r\n"],
+  ["img/x.png", "\u0089PNG\0\0\n\n"],
   ["src/bare.ts", "export function last() {\n  return 3;\n}"],
 ]);
 
@@ -143,4 +144,25 @@ test("serves the town sheet: its sizes and a sprite, and nothing else from /town
   expect(sprite.headers.get("content-type")).toBe("image/png");
   expect((await fetch(`${server.url}town/make_sprites.py`)).status).toBe(404);
   expect((await fetch(`${server.url}town/..%2Fmake_sprites.py`)).status).toBe(404);
+});
+
+test("a binary file's source is not its bytes read as text", async () => {
+  const id = extract(tree).nodes.find((node) => node.path === "img/x.png" && node.level === "file")!.id;
+  expect(await sourceText(id)).toBe("binary file");
+  const changes = await fetch(new URL(`changes?id=${encodeURIComponent(id)}`, server.url));
+  expect(changes.status).toBe(404);
+});
+
+test("a file that changed between binary and text has no line diff", async () => {
+  const base: FileTree = new Map([["a.bin", "PNG\0\ndata\n"], ["b.bin", "hello\n"]]);
+  const head: FileTree = new Map([["a.bin", "hello\n"], ["b.bin", "PNG\0\ndata\n"]]);
+  const compared = await serve(head, 0, { ref: "main", commit: "3f2a9c1d00000000000000000000000000000000", tree: base });
+  try {
+    for (const path of ["a.bin", "b.bin"]) {
+      const id = extract(head).nodes.find((node) => node.path === path && node.level === "file")!.id;
+      expect((await fetch(new URL(`changes?id=${encodeURIComponent(id)}`, compared.url))).status).toBe(404);
+    }
+  } finally {
+    compared.close();
+  }
 });

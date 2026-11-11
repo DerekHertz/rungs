@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { compareEdges, compareIds, compareImports, compareResolutions, nodeId, qualifiedName, resourceId } from "../graph.ts";
 import type { CodeNode, Edge, ImportEdge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge } from "../graph.ts";
-import { countLines, lineRangeOf, lineStarts } from "../lines.ts";
+import { countLines, isBinary, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "13";
+export const EXTRACTOR_VERSION = "14";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -46,7 +46,7 @@ export function extract(tree: FileTree): Graph {
 
   const directoryLines = new Map<string, number>([["", 0]]);
   for (const [path, text] of tree) {
-    const lines = countLines(text);
+    const lines = isBinary(text) ? null : countLines(text);
     nodes.push({
       id: nodeId("file", path, ""),
       level: "file",
@@ -60,7 +60,7 @@ export function extract(tree: FileTree): Graph {
     });
     for (let dir = path; dir !== ""; ) {
       dir = directoryOf(dir);
-      directoryLines.set(dir, (directoryLines.get(dir) ?? 0) + lines);
+      directoryLines.set(dir, (directoryLines.get(dir) ?? 0) + (lines ?? 0));
     }
   }
   for (const [dir, lines] of directoryLines) {

@@ -211,3 +211,18 @@ test("the agent is asked with a schema for stops, ids, claims and anchored narra
   await walkthrough(request({ runner: fake(answer, calls) }));
   expect(JSON.stringify(calls.schemas[0])).toContain('"required":["text","id","start","end"]');
 });
+
+test("a binary file offers no line anchors: its place says binary and narration anchored into it is dropped", () => {
+  const headGraph = extract(tree({ "package.json": "{}\n", "a.bin": "\0\n" }));
+  const places = placesOf(compare(extract(tree({ "package.json": "{}\n" })), headGraph), headGraph);
+  const place = places.find((candidate) => candidate.id === "file:a.bin")!;
+  expect(place.line).toContain("binary");
+  expect(place.line).not.toMatch(/L\d/);
+  const tour = validateTour(
+    { stops: [{ title: "A", ids: ["file:a.bin"], claims: [], narration: [{ text: "Adds an image.", id: "file:a.bin", start: 1, end: 1 }] }] },
+    0,
+    places,
+  );
+  expect(tour.stops[0]?.sentences).toEqual([]);
+  expect(tour.dropped.sentences).toBe(1);
+});

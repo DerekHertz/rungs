@@ -328,7 +328,9 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     const size =
       entry.level === "district"
         ? `${entry.files} files ${tallyText(entry.kinds)}`
-        : `${entry.lines} ${entry.lines === 1 ? "line" : "lines"}${entry.folded === undefined ? "" : ` · +${plural(entry.folded.length, "callback")}`}`;
+        : entry.lines === null
+          ? "binary"
+          : `${entry.lines} ${entry.lines === 1 ? "line" : "lines"}${entry.folded === undefined ? "" : ` · +${plural(entry.folded.length, "callback")}`}`;
     pick.append(element("span", "review-size", size));
     line.append(pick);
     item.append(line);

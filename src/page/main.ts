@@ -196,7 +196,7 @@ function describe(id: NodeId): string[] | undefined {
     `role: ${file.role ?? "none"}`,
     ...townFacts(file),
     ...failingFacts(file),
-    `lines: ${file.lines}`,
+    file.lines === null ? "binary" : `lines: ${file.lines}`,
     file.analysis === "analysed"
       ? `functions: ${lot.functions}   classes: ${lot.classes}`
       : "not analysed",
@@ -248,7 +248,7 @@ function changeFacts(file: FileNode): string[] {
   if (entry === undefined) return picture.overlay === null ? [] : ["change: unchanged"];
   const facts = [`change: ${entry.kind}`];
   if (entry.kind === "moved") facts.push(`moved from ${entry.from.path}`);
-  if (entry.kind === "removed") facts.push(`removed (was ${file.lines} lines)`);
+  if (entry.kind === "removed") facts.push(`removed (was ${file.lines === null ? "binary" : `${file.lines} lines`})`);
   const tally = picture.overlay?.tally(file.id) ?? null;
   const code = tally === null ? "" : tallyText(tally);
   if (code !== "") facts.push(`functions ${code}`);
