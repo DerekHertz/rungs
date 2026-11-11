@@ -1,9 +1,10 @@
-// Page-safe: the walkthrough panel reads these types, so nothing here may import node:*.
+// Page-safe: the walkthrough panel reads these types, so nothing here may import node:*. The page takes only the types, so the signature sanitizer's use of the TypeScript parser stays out of its bundle.
 
 import type { Claim } from "./claims.ts";
 import type { Comparison, ModuleChange } from "./compare.ts";
 import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
+import { promptSignature } from "./signature.ts";
 import type { CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached tours are not reused. */
@@ -67,11 +68,11 @@ export function placesOf(comparison: Comparison, graph: Graph): Place[] {
     for (const { change: inner, node } of [...code].sort((a, b) => a.node.range.start - b.node.range.start || byText(a.node.id, b.node.id))) {
       const was =
         inner.kind === "altered" && isCodeNode(inner.before) && inner.before.signature !== node.signature
-          ? [`    was ${inner.before.signature}`]
+          ? [`    was ${promptSignature(inner.before.signature)}`]
           : inner.kind === "moved"
             ? [`    was ${inner.from.id}`]
             : [];
-      const first = `  ${inner.kind} ${node.id} ${lines(node.range)}${node.exported ? " exported" : ""} ${node.signature}`;
+      const first = `  ${inner.kind} ${node.id} ${lines(node.range)}${node.exported ? " exported" : ""} ${promptSignature(node.signature)}`;
       out.push({ id: node.id, range: node.range, line: [first, ...was, ...(effectsAt.get(node.id) ?? [])].join("\n") });
     }
   }

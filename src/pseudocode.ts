@@ -1,4 +1,5 @@
 import ts from "typescript";
+import { effectLabel } from "./effects.ts";
 import { digestOf } from "./extract/extract.ts";
 import { effectSites } from "./extract/javascript-effects.ts";
 import { isAmbient, isCodeSyntax, programOver, scriptKind } from "./extract/javascript.ts";
@@ -299,7 +300,7 @@ class Outline {
         if (edge !== undefined) {
           const text = `effect ${edge.to.slice("resource:".length)}: ${edge.operation}${edge.target === "none" ? "" : ` ${targetText(edge.target)}`}`;
           const range = awaited === undefined ? edge.range : this.range(awaited.getStart(this.file), awaited.end);
-          found.push({ depth, kind: "effect", text: awaited === undefined ? text : `await ${text}`, range });
+          found.push({ depth, kind: "effect", text: awaited === undefined ? text : `await ${text}`, range, effect: effectLabel(edge) });
         }
       }
       node.forEachChild((child) => visit(child, undefined));
