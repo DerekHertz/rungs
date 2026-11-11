@@ -101,6 +101,18 @@ test("each row's number comes first", () => {
   expect(contractsSummary({ changed: 0, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 }, 1)).toBe("1 effects changed");
 });
 
+test("commas inside generics do not split parameters", () => {
+  const change = signatureChange("f(value: Map<string, number>)", "f(value: Map<string, boolean>)");
+  expect(change.modified).toEqual(["value"]);
+  expect(change.text).toBe("~ value");
+  expect(signatureChange("f(a: Map<string, number>)", "f(a: Map<string, number>, b: number)").text).toBe("+ b: number");
+});
+
+test("no description means unmentioned is not checked, never nothing", () => {
+  expect(unmentionedSummary({ files: null, calls: 0 })).toBe("not checked, no description");
+  expect(unmentionedSummary({ files: 0, calls: 0 })).toBe("nothing");
+});
+
 test("the tests row says fail of total, or why there is no run", () => {
   const ran = { tier: "observed", tree: "t", status: "ran", counts: { pass: 187, fail: 23, skip: 0 } } as const;
   expect(testsSummary(ran as never, 0)).toBe("23 fail of 210");

@@ -494,7 +494,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
           {
             id: "tests" as const,
             name: "Tests",
-            tag: "observed",
+            tag: input.observed === null ? "derived" : "observed",
             summary: testsSummary(input.observed?.document ?? null, weakened),
             fill: fillTests,
             ...(input.observed === null ? {} : { about: observedNote(input.observed.document) }),

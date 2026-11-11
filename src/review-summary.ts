@@ -19,8 +19,8 @@ function splitTop(text: string): string[] {
       if (c === "\\") i += 1;
       else if (c === quote) quote = "";
     } else if (c === '"' || c === "'" || c === "`") quote = c;
-    else if (OPEN.includes(c)) depth += 1;
-    else if (CLOSE.includes(c)) depth -= 1;
+    else if (OPEN.includes(c) || c === "<") depth += 1;
+    else if (CLOSE.includes(c) || (c === ">" && text[i - 1] !== "=")) depth = Math.max(0, depth - 1);
     else if (c === "," && depth === 0) {
       parts.push(text.slice(start, i));
       start = i + 1;
@@ -164,7 +164,7 @@ export function claimsSummary(description: string | null, claims: readonly { rea
 
 export function unmentionedSummary(found: { files: number | null; calls: number; changed?: number }): string {
   const parts = [found.files === null || found.files === 0 ? "" : plural(found.files, "file"), found.calls === 0 ? "" : `${found.calls} new ${found.calls === 1 ? "call" : "calls"} out`, (found.changed ?? 0) === 0 ? "" : `${found.changed} effects changed`].filter((part) => part !== "");
-  return parts.length === 0 ? "nothing" : parts.join(" · ");
+  return parts.length === 0 ? (found.files === null ? "not checked, no description" : "nothing") : parts.join(" · ");
 }
 
 const CONTRACT_KINDS: readonly ContractMoveKind[] = ["changed", "effects", "removed", "unexported", "exposed", "moved", "added"];
