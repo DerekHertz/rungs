@@ -60,6 +60,33 @@ test("lines come from lines.ts, so U+2028 does not start a line", () => {
   ]);
 });
 
+test("closing hashes never change an ATX heading's level", () => {
+  expect(markdownSections("### A #\nunchanged\n## B\nold\n")).toEqual([
+    { text: "A", level: 3, start: 1, end: 2 },
+    { text: "B", level: 2, start: 3, end: 4 },
+  ]);
+});
+
+test("a setext section starts at its text, not at a link definition before it", () => {
+  expect(markdownSections("# A\n[ref]: /old\nB\n===\nbody\n")).toEqual([
+    { text: "A", level: 1, start: 1, end: 2 },
+    { text: "B", level: 1, start: 3, end: 5 },
+  ]);
+});
+
+test("a leading BOM does not shift ranges; a BOM-only file has no sections; CRLF files keep their lines", () => {
+  expect(markdownSections("﻿# A\nx\n## B\n")).toEqual([
+    { text: "A", level: 1, start: 1, end: 3 },
+    { text: "B", level: 2, start: 3, end: 3 },
+  ]);
+  expect(markdownSections("﻿Setext\n===\nbody\n")).toEqual([{ text: "Setext", level: 1, start: 1, end: 3 }]);
+  expect(markdownSections("﻿")).toEqual([]);
+  expect(markdownSections("﻿# A\r\nx\r\n## B\r\n")).toEqual([
+    { text: "A", level: 1, start: 1, end: 3 },
+    { text: "B", level: 2, start: 3, end: 3 },
+  ]);
+});
+
 test("empty and heading-free files have no sections", () => {
   expect(markdownSections("")).toEqual([]);
   expect(markdownSections("just words\n")).toEqual([]);

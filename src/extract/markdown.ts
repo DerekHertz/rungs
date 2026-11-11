@@ -21,17 +21,22 @@ export interface Heading {
  */
 export function markdownSections(text: string): Heading[] {
   // micromark ends a line at a lone "\r" too, which lines.ts does not: a blank of the same length keeps every offset.
-  const source = text.replace(/\r(?!\n)/g, " ");
+  // micromark also drops a leading BOM before it counts offsets; lines.ts counts it, so its length goes back on below.
+  const bom = text.startsWith("﻿") ? 1 : 0;
+  const source = text.slice(bom).replace(/\r(?!\n)/g, " ");
   const events = postprocess(parse().document().write(preprocess()(source, undefined, true)));
   const found: { text: string; level: number; offset: number }[] = [];
   let current: { text: string; level: number; offset: number } | undefined;
   for (const [phase, token, context] of events) {
     if (phase === "enter") {
       if (token.type === "atxHeading" || token.type === "setextHeading") current = { text: "", level: 0, offset: token.start.offset };
+      // A setext heading's token starts at a link definition before it; its section starts at its text.
+      else if (token.type === "setextHeadingText" && current !== undefined) current.offset = token.start.offset;
       continue;
     }
     if (current === undefined) continue;
-    if (token.type === "atxHeadingSequence") current.level = token.end.offset - token.start.offset;
+    // Only the opening run of hashes is the level; a closing run is not.
+    if (token.type === "atxHeadingSequence") current.level ||= token.end.offset - token.start.offset;
     else if (token.type === "atxHeadingText") current.text = context.sliceSerialize(token).trim();
     else if (token.type === "setextHeadingLineSequence") current.level = source[token.start.offset] === "=" ? 1 : 2;
     else if (token.type === "setextHeadingText") {
@@ -45,7 +50,7 @@ export function markdownSections(text: string): Heading[] {
   }
   const starts = lineStarts(text);
   const total = countLines(text);
-  const lined = found.map((heading) => ({ text: heading.text, level: heading.level, start: lineRangeOf(starts, heading.offset, heading.offset + 1).start }));
+  const lined = found.map((heading) => ({ text: heading.text, level: heading.level, start: lineRangeOf(starts, heading.offset + bom, heading.offset + bom + 1).start }));
   return lined.map((heading, index) => {
     const next = lined.slice(index + 1).find((other) => other.level <= heading.level);
     return { ...heading, end: next === undefined ? total : next.start - 1 };
