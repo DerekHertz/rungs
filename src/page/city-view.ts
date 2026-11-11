@@ -1,7 +1,6 @@
 import {
   AmbientLight,
   BoxGeometry,
-  CanvasTexture,
   Color,
   DirectionalLight,
   EdgesGeometry,
@@ -12,10 +11,8 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
-  NearestFilter,
   OrthographicCamera,
   Raycaster,
-  RepeatWrapping,
   Scene,
   Vector2,
   Vector3,
@@ -30,6 +27,8 @@ import { namedDistricts, regionTop } from "../focus.ts";
 import type { NodeId, ResourceKind } from "../graph.ts";
 import { occluders, visibleNames } from "../screen.ts";
 import type { Name, Projected } from "../screen.ts";
+import { FADED, flat, ghostLooksOf, looksOf } from "./looks.ts";
+import type { Looks } from "./looks.ts";
 import { BACKGROUND, EFFECT_COLOR, FAIL_COLOR, onBackground, roleColor } from "./palette.ts";
 
 interface Point {
@@ -80,7 +79,9 @@ const CLICK_SLOP = 4;
 const EDGE = { rest: "#0a0d12", dim: "#1b212b", hover: "#9aa6b5", selected: "#ffffff" };
 // Under a comparison, unchanged and moved files keep this share of their role colour.
 const DIM = 0.35;
-const GHOST_OPACITY = { rest: 0.12, hover: 0.3, selected: 0.3, faded: 0.05 };
+// The unchanged floors of an altered file are dimmer than its changed ones, but not as dim as an unchanged file.
+const BODY = 0.55;
+const ROOF_EDGE = 1.5;
 const GHOST_EDGE = "#c9ced6";
 const ADDED_CAP = "#ffffff";
 const MOVED_CAP = "#8a94a3";
@@ -88,9 +89,6 @@ const CAP_INSET = 0.15;
 const CAP_THICKNESS = 1.5;
 /** Past this many selected buildings the picture outlines them without naming each. */
 const MAX_LABELLED = 6;
-const GLOW = { hover: 0.3, selected: 0.18 };
-/** What a building in front of the hovered one keeps of its opacity. */
-const FADED = 0.25;
 const FADED_EDGE = "#9aa6b5";
 const NAME_LIFT = 3;
 // Not a role colour: the effect channel is lines and the mast, never a building's hue.
@@ -112,13 +110,6 @@ interface Pose {
 
 type Mode = "pan" | "turn";
 
-interface Looks {
-  readonly rest: MeshLambertMaterial;
-  readonly hover: MeshLambertMaterial;
-  readonly selected: MeshLambertMaterial;
-  readonly faded: MeshLambertMaterial;
-}
-
 interface Entry {
   readonly mesh: Mesh;
   readonly edges: LineSegments;
@@ -136,6 +127,9 @@ interface Building3D extends Entry {
   readonly ghost: boolean;
   readonly edgeLooks: EdgeLooks;
   readonly cap: Mesh | undefined;
+  /** An altered file's changed floors, standing on its unchanged ones; the building's own mesh is those. */
+  readonly band: Entry | undefined;
+  readonly bandLooks: Looks | undefined;
   /** Under a comparison, a slim post on the roof of a building with a new effect edge. */
   readonly mast: Mesh | undefined;
   /** A pole and pennant on the roof of a file with a test that failed when run: an observed fact. */
@@ -180,66 +174,6 @@ interface Region {
   readonly far: number;
   readonly floor: number;
   readonly top: number;
-}
-
-// Diagonal stripes mark a file no language adapter read: texture, so hue keeps meaning role.
-let stripes: CanvasTexture | undefined;
-function notAnalysedStripes(): CanvasTexture {
-  if (stripes !== undefined) return stripes;
-  const tile = document.createElement("canvas");
-  tile.width = tile.height = 8;
-  const pen = tile.getContext("2d")!;
-  pen.fillStyle = "#ffffff";
-  pen.fillRect(0, 0, 8, 8);
-  pen.fillStyle = "rgba(0, 0, 0, 0.45)";
-  for (let i = 0; i < 8; i++) pen.fillRect(i, 7 - i, 2, 1);
-  stripes = new CanvasTexture(tile);
-  stripes.wrapS = stripes.wrapT = RepeatWrapping;
-  stripes.repeat.set(6, 6);
-  stripes.magFilter = stripes.minFilter = NearestFilter;
-  return stripes;
-}
-
-function flat(hex: string, glow: number, striped = false): MeshLambertMaterial {
-  const color = new Color(hex);
-  return new MeshLambertMaterial({
-    color,
-    ...(striped ? { map: notAnalysedStripes() } : {}),
-    emissive: color.clone().multiplyScalar(glow),
-    // Keeps the outline from fighting the faces it sits on.
-    polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
-  });
-}
-
-function ghostLooksOf(hex: string): Looks {
-  const see = (opacity: number): MeshLambertMaterial => {
-    const material = flat(hex, 0);
-    material.transparent = true;
-    material.opacity = opacity;
-    material.depthWrite = false;
-    return material;
-  };
-  return {
-    rest: see(GHOST_OPACITY.rest),
-    hover: see(GHOST_OPACITY.hover),
-    selected: see(GHOST_OPACITY.selected),
-    faded: see(GHOST_OPACITY.faded),
-  };
-}
-
-function looksOf(hex: string, striped: boolean): Looks {
-  const faded = flat(hex, 0, striped);
-  faded.transparent = true;
-  faded.opacity = FADED;
-  faded.depthWrite = false;
-  return {
-    rest: flat(hex, 0, striped),
-    hover: flat(hex, GLOW.hover, striped),
-    selected: flat(hex, GLOW.selected, striped),
-    faded,
-  };
 }
 
 /** The ground directions the screen's right and up point along, for a turn of `az`. */
@@ -303,6 +237,12 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers, failin
     return known;
   };
   const looksByColor = new Map<string, Looks>();
+  const bodyLooks = (hex: string, striped: boolean): Looks => {
+    const key = `${hex}${striped ? " striped" : ""} body`;
+    const known = looksByColor.get(key) ?? looksOf(onBackground(hex, BODY), striped);
+    looksByColor.set(key, known);
+    return known;
+  };
   const looksFor = (hex: string, striped: boolean, change: Change | null): Looks => {
     const key = `${hex}${striped ? " striped" : ""} ${change === "removed" ? "ghost" : change === "unchanged" || change === "moved" ? "dim" : "full"}`;
     const known =
@@ -403,9 +343,18 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers, failin
   function addBuilding(building: Building): void {
     const ghost = building.change === "removed";
     const dim = building.change === "unchanged" || building.change === "moved";
-    const looks = looksFor(roleColor(building.role), !building.analysed && !ghost, building.change);
-    const edgeLooks = ghost ? dashedEdges : dim ? dimEdges : edgeMaterials;
-    const entry = place(building.x, building.y, building.w, building.d, building.base, building.height, looks.rest, edgeLooks.rest, ghost);
+    const striped = !building.analysed && !ghost;
+    // No function changed (a comment, a removal): only the roof edge is lit.
+    const band = building.band === 0 ? Math.min(ROOF_EDGE, building.height) : (building.band ?? 0);
+    const lower = building.height - band;
+    // An altered file is two boxes: its unchanged floors, dimmed, and the changed ones on top, in full colour.
+    const split = building.change === "altered" && band > 0 && lower > 0;
+    const looks = split ? bodyLooks(roleColor(building.role), striped) : looksFor(roleColor(building.role), striped, building.change);
+    const edgeLooks = ghost ? dashedEdges : dim || split ? dimEdges : edgeMaterials;
+    const entry = place(building.x, building.y, building.w, building.d, building.base, split ? lower : building.height, looks.rest, edgeLooks.rest, ghost);
+    const bandLooks = split ? looksFor(roleColor(building.role), striped, "altered") : undefined;
+    const changedFloors = bandLooks === undefined ? undefined : place(building.x, building.y, building.w, building.d, building.base + lower, band, bandLooks.rest, edgeMaterials.rest);
+    if (changedFloors !== undefined) idOf.set(changedFloors.mesh, building.id);
     idOf.set(entry.mesh, building.id);
     const roof = building.base + building.height;
     const capColor = building.change === "added" ? ADDED_CAP : building.change === "moved" ? MOVED_CAP : undefined;
@@ -449,6 +398,8 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers, failin
       ...entry,
       ghost,
       edgeLooks,
+      band: changedFloors,
+      bandLooks,
       cap,
       mast,
       flag,
@@ -523,6 +474,10 @@ export function createCityView(host: HTMLElement, handlers: CityHandlers, failin
     const state = id !== undefined && faded.has(id) ? "faded" : chosen ? "selected" : id === hovered ? "hover" : muting ? "faded" : "rest";
     entry.mesh.material = entry.looks[state];
     entry.edges.material = entry.edgeLooks[chosen ? "selected" : state];
+    if (entry.band !== undefined && entry.bandLooks !== undefined) {
+      entry.band.mesh.material = entry.bandLooks[state];
+      entry.band.edges.material = edgeMaterials[chosen ? "selected" : state];
+    }
     if (entry.cap !== undefined) entry.cap.visible = state !== "faded";
     if (entry.mast !== undefined) entry.mast.visible = state !== "faded";
     for (const part of entry.flag) part.visible = state !== "faded";

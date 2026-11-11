@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { cityOf } from "../src/city.ts";
+import { BAND_MIN, changedBand, cityOf } from "../src/city.ts";
 import type { Building, District } from "../src/city.ts";
 import { compare, pictureOf, tallyText } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
@@ -79,5 +79,77 @@ describe("tallyText", () => {
     expect(tallyText({ added: 3, altered: 5, removed: 1, moved: 2 })).toBe("+3 ~5 −1 →2");
     expect(tallyText({ added: 0, altered: 2, removed: 0, moved: 0 })).toBe("~2");
     expect(tallyText({ added: 0, altered: 0, removed: 0, moved: 0 })).toBe("");
+  });
+});
+
+describe("changedBand", () => {
+  const none = { added: 0, altered: 0, removed: 0, moved: 0 };
+
+  test("is the share of a file's floors that are changed code, at least the visible minimum", () => {
+    expect(changedBand(100, 10, { ...none, altered: 2, added: 3 })).toBe(50);
+    expect(changedBand(100, 40, { ...none, altered: 1 })).toBe(BAND_MIN);
+  });
+
+  test("is the whole building when every floor changed", () => {
+    expect(changedBand(40, 4, { ...none, altered: 4 })).toBe(40);
+  });
+
+  test("is 0 for a file with no functions or classes, whatever changed in it", () => {
+    expect(changedBand(5, 0, { ...none })).toBe(0);
+    expect(changedBand(5, 0, { ...none, altered: 1 })).toBe(0);
+  });
+
+  test("is 0 when no function or class changed: a comment or a removal lights no floor", () => {
+    expect(changedBand(100, 9, { ...none })).toBe(0);
+    expect(changedBand(100, 9, { ...none, removed: 4 })).toBe(0);
+    expect(changedBand(100, 9, { ...none, moved: 2 })).toBe(0);
+  });
+
+  test("never taller than the building", () => {
+    expect(changedBand(BAND_MIN - 1, 9, { ...none, altered: 1 })).toBe(BAND_MIN - 1);
+  });
+});
+
+describe("a building's band in the city", () => {
+  const city = cityOf(pictureOf(head, compare(base, head)), root);
+  const building = (path: string): Building => city.buildings.find((b) => b.id === `file:${path}`)!;
+
+  test("only an altered file has one, and it is part of its height", () => {
+    const altered = building("src/util/math.ts");
+    expect(altered.band).toBeGreaterThan(0);
+    expect(altered.band!).toBeLessThanOrEqual(altered.height);
+    for (const path of ["README.md", "src/main.ts", "src/compat/legacy.js", "src/index.ts"]) expect(building(path).band, path).toBeUndefined();
+  });
+});
+
+describe("a comment-only change", () => {
+  const tree = (text: string) => extract(new Map([["package.json", "{}\n"], ["src/a.ts", text], ["src/b.ts", "export function other() {}\nexport function more() {}\n"]]));
+  const city = cityOf(pictureOf(tree("// new note\nexport function f() {}\n"), compare(tree("export function f() {}\n"), tree("// new note\nexport function f() {}\n"))), rootOf(tree("")));
+
+  test("is an altered building with a band of 0, so no floor is lit", () => {
+    const a = city.buildings.find((b) => b.id === "file:src/a.ts")!;
+    expect(a.change).toBe("altered");
+    expect(a.band).toBe(0);
+  });
+});
+
+describe("what lights in an altered file", () => {
+  const trees = (files: [string, string, string][]) => {
+    const make = (side: 1 | 2) => extract(new Map([["package.json", "{}\n"], ...files.map(([path, before, after]): [string, string] => [path, side === 1 ? before : after])]));
+    return cityOf(pictureOf(make(2), compare(make(1), make(2))), rootOf(make(2)));
+  };
+  const city = trees([
+    ["src/code.ts", "// old\nexport function f() {}\n", "// new\nexport function f() {}\n"],
+    ["README.md", "old\n", "new\n"],
+    ["config.json", "{\"a\":1}\n", "{\"a\":2}\n"],
+  ]);
+  const band = (path: string) => city.buildings.find((b) => b.id === `file:${path}`)!;
+
+  test("a code file with no changed function lights only its roof edge", () => {
+    expect(band("src/code.ts").band).toBe(0);
+  });
+
+  test("a docs or config file, or one with no adapter, lights fully", () => {
+    for (const path of ["README.md", "config.json"]) expect(band(path).band, path).toBe(band(path).height);
   });
 });
