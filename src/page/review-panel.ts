@@ -455,7 +455,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
 
   function fillTests(body: HTMLElement): void {
     if (input.observed !== null) body.append(...observedBody(input.observed, input.pickNode));
-    const changes = testChangesBlock(input.testChanges);
+    const changes = testChangesBlock(input.testChanges, input.pickNode);
     if (changes !== null) body.append(changes);
   }
 
@@ -471,7 +471,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   }
 
   const result = input.unmentioned;
-  const tested = input.observed !== null || testChangesBlock(input.testChanges) !== null;
+  const tested = input.observed !== null || testChangesBlock(input.testChanges, input.pickNode) !== null;
   const weakened = input.testChanges.deletedFiles.length + input.testChanges.removedTests.length + input.testChanges.markers.length + input.testChanges.weakened.length;
   const questions: Question[] = [
     { id: "claims", name: "Claims", tag: "claimed", summary: claimsSummary(input.description, input.claims, input.link.status, input.context.length), fill: fillClaims },
