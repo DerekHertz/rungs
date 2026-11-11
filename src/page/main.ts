@@ -273,7 +273,7 @@ function showTownLegend(town: Town): void {
       ? "plinth: the stone a building stands on is as tall as the files resting on it through imports; no file has any here"
       : `plinth: the taller the stone, the more files rest on it through imports, square-root scale (${town.importance.fewest} to ${town.importance.most}); none where nothing rests on it \u00b7 point at a building for the list`;
   const ways = document.createElement("div");
-  ways.textContent = `gate: a way in the repo declares in package.json (main, bin, exports, scripts); test files are ways in too, with no gate \u00b7 footpath: a way in reaches this file through imports; ${town.unreached} files have none: nothing reaches them`;
+  ways.textContent = `gate: a way in the repo declares in package.json (main, bin, exports, scripts); test files are ways in too, with no gate \u00b7 footpath: every file but code has one; a code file has one when a way in reaches it through imports, and ${town.unreached} code files have none: nothing reaches them`;
   legend.replaceChildren(kinds, size, stone, ways, harbour);
 }
 

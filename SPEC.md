@@ -73,7 +73,7 @@ Each rung is computed from the one below it. Only the graph is stored; the rest 
   `exports` and its scripts, and test files.
 - **Importance** of a module is what stops working if it stops: everything that rests on it
   through import edges, directly or indirectly. The number is always shown with the list behind
-  it. A module nothing reaches is shown as "nothing reaches it", never called dead.
+  it. A code file (one a language adapter analyses) that no way in reaches is shown as "nothing reaches it", never called dead; other files are never shown that way.
 
 ## The picture
 
@@ -94,8 +94,9 @@ and never changes the layout.
   lists the files that rest on it.
 - **Gates.** A file the repo declares as a way in has a gate at the front of its lot. Test files
   are ways in too, but the lab already says so, and they get no gate.
-- **Paths.** A footpath runs from the road to each building's door. A file no way in reaches
-  through imports has no path, which shows "nothing reaches it" and never calls it dead.
+- **Paths.** A footpath runs from the road to each building's door. A code file no way in
+  reaches through imports has no path, which shows "nothing reaches it" and never calls it dead;
+  other files always have one.
 - **Harbour.** Each kind of outside resource the code reaches is one structure in the harbour,
   and a kind nothing reaches has none.
 - **Names by zoom.** From far away only blocks are named, in large type. Closer in, files are named;

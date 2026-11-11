@@ -13,6 +13,7 @@ const tree = new Map<string, string>([
   ["types.ts", "export type T = number;\n"],
   ["orphan.js", 'import { b } from "./b.js";\nexport const o = b;\n'],
   ["alone.js", "export const z = 1;\n"],
+  ["README.md", "# hi\n"],
 ]);
 const graph = extract(tree);
 const path = (id: NodeId): string => graph.nodes.find((node) => node.id === id)!.path;
@@ -32,7 +33,7 @@ describe("importanceOf", () => {
 describe("reachedFrom", () => {
   test("follows imports forward from the ways in; a file nothing reaches is absent", () => {
     const reached = reachedFrom(graph, waysIn(tree, graph).map((way) => way.id));
-    expect([...reached].map(path).sort()).toEqual(["a.js", "b.js", "main.js", "types.ts"]);
+    expect([...reached].map(path).sort()).toEqual(["README.md", "a.js", "b.js", "main.js", "package.json", "types.ts"]);
   });
 });
 
@@ -56,6 +57,8 @@ describe("the town's lots", () => {
     expect(lot("main.js").wayIn).toEqual(["package.json main"]);
     expect(lot("b.js").reached).toBe(true);
     expect(lot("orphan.js").reached).toBe(false);
+    expect(lot("README.md").reached).toBe(true);
+    expect(town.unreached).toBe(2);
     expect(town.unreached).toBe(town.lots.filter((candidate) => !candidate.reached).length);
   });
 });

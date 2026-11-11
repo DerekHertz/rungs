@@ -55,10 +55,15 @@ export function importanceOf(graph: Graph): Map<NodeId, NodeId[]> {
   return rests;
 }
 
-/** The files some way in reaches through imports, the ways in themselves included. */
+/**
+ * The files with a footpath: those some way in reaches through imports (the ways in themselves
+ * included), and every file that is not code, which imports never reach and so is never judged by
+ * them. Code is a file a language adapter analyses.
+ */
 export function reachedFrom(graph: Graph, waysIn: readonly NodeId[]): Set<NodeId> {
   const { forward } = fileEdges(graph);
   const reached = closure(waysIn, forward);
   for (const id of waysIn) reached.add(id);
+  for (const node of graph.nodes) if (node.level === "file" && node.analysis !== "analysed") reached.add(node.id);
   return reached;
 }
