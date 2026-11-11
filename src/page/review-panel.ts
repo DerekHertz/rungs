@@ -1,7 +1,7 @@
 import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
 import { shortToken } from "../effects.ts";
-import { effectChip, signatureDiff } from "../review.ts";
+import { effectChip, sectionCount, signatureDiff } from "../review.ts";
 import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
 import type { ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
@@ -336,9 +336,11 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
         ? `${entry.files} files ${tallyText(entry.kinds)}`
         : entry.level === "moves"
           ? plural(entry.files, "file")
-          : entry.lines === null
-            ? "binary"
-            : `${entry.lines} ${entry.lines === 1 ? "line" : "lines"}${entry.folded === undefined ? "" : ` · +${plural(entry.folded.length, "callback")}`}`;
+          : entry.level === "section"
+            ? `+${entry.plus ?? 0} −${entry.minus ?? 0}`
+            : entry.lines === null
+              ? "binary"
+              : `${entry.lines} ${entry.lines === 1 ? "line" : "lines"}${entry.folded === undefined ? "" : ` · +${plural(entry.folded.length, "callback")}`}`;
     pick.append(element("span", "review-size", size));
     line.append(pick);
     item.append(line);
@@ -490,7 +492,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       id: "unmentioned",
       name: "Unmentioned",
       tag: "derived",
-      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0, agent: { files: result?.linkedFiles ?? 0, calls: (input.effects?.byAgent.edges ?? 0) + (input.effects?.byAgent.tests.edges ?? 0), changed: input.effects?.changed.byAgent.length ?? 0 } }),
+      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, sections: result === null ? 0 : sectionCount(result.entries), moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0, agent: { files: result?.linkedFiles ?? 0, calls: (input.effects?.byAgent.edges ?? 0) + (input.effects?.byAgent.tests.edges ?? 0), changed: input.effects?.changed.byAgent.length ?? 0 } }),
       fill: fillUnmentioned,
     },
     {
@@ -590,7 +592,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   });
   const notes: [string, string][] = [
     ["Claims", linkNote(input.link)],
-    ["Unmentioned", "A change counts as mentioned when its path or name appears in the description. One only an agent links to the module or its file stays in the count as linked by the agent only; an agent's link to a folder covers none of its files. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
+    ["Unmentioned", "A change counts as mentioned when its path or name appears in the description; a Markdown section when its heading, or an enclosing heading, appears as a whole phrase, ignoring case. One only an agent links to the module or its file stays in the count as linked by the agent only; an agent's link to a folder covers none of its files. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
     ...(input.observed === null ? [] : observedAbout(input.observed))
   ];
   for (const [title, text] of notes) aboutBody.append(element("h3", "review-subtitle", title), element("p", "rv-note", text));

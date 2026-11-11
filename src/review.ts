@@ -2,6 +2,7 @@ import { RESOURCE_ORDER, isCodeNode, lineCount, targetText } from "./graph.ts";
 import type { CodeLevel, EffectTarget, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
 import { resourceKindOf } from "./effects.ts";
 import type { ChangedEffect } from "./effects.ts";
+import type { SectionChange } from "./sections.ts";
 import type { ChangeKind, Comparison, ContractMove, ContractMoveKind, ModuleChange, Tally } from "./compare.ts";
 
 /** Most urgent first: a removed or altered module changed what already stood, a moved one is the same text. */
@@ -33,6 +34,17 @@ export function appears(description: string, kind: "path" | "file" | "name", nee
   return new RegExp(pattern, "u").test(description);
 }
 
+/**
+ * Whether a Markdown heading is in a description: the whole phrase, case-insensitively, any run
+ * of white space matching the heading's own, and not inside a longer word ("Review" is not in
+ * "Reviewer" or "preview"). A heading with no letter or digit names nothing.
+ */
+export function headingAppears(description: string, heading: string): boolean {
+  if (!/[\p{L}\p{N}]/u.test(heading)) return false;
+  const body = heading.trim().split(/\s+/).map(escape).join("\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`, "iu").test(description);
+}
+
 interface EntryBase {
   readonly id: NodeId;
   /** A path for a file or district, the qualified name for a class or function. */
@@ -44,8 +56,13 @@ interface EntryBase {
 
 export type ReviewEntry =
   | (EntryBase & {
-      readonly level: "file" | "class" | "function";
+      readonly level: "file" | "class" | "function" | "section";
       readonly change: ChangeKind;
+      /** A section's file, to select when the entry is picked. */
+      readonly path?: string;
+      /** A section's added and removed lines. */
+      readonly plus?: number;
+      readonly minus?: number;
       readonly from?: string;
       /** An agent linked a claim to this very module, not only to something in its file. */
       readonly linked?: true;
@@ -176,6 +193,9 @@ function mentionRules(comparison: Comparison, description: string) {
       const parts = qualifiedName.split(".");
       return parts.some((_, index) => appears(description, "name", parts.slice(0, index + 1).join(".")));
     },
+    /** A section is covered by its own heading or an enclosing one. */
+    sectionCovered: (section: SectionChange): boolean =>
+      [...section.ancestorHeadings, section.heading].some((heading) => headingAppears(description, heading)),
   };
 }
 
@@ -205,7 +225,24 @@ export function unmentioned(
   linked: ReadonlySet<NodeId> = new Set(),
 ): Unmentioned {
   const fileChanges = comparison.changes.filter((change) => change.node.level === "file");
-  const { pathMentioned, fileMentioned, nameCovered } = mentionRules(comparison, description);
+  const { pathMentioned, fileMentioned, nameCovered, sectionCovered } = mentionRules(comparison, description);
+
+  const sectionsBy = new Map<string, ReviewEntry[]>();
+  for (const section of comparison.sections) {
+    if (sectionCovered(section)) continue;
+    const entry: ReviewEntry = {
+      id: section.id,
+      level: "section",
+      label: [...section.ancestors, section.name].join(" › "),
+      change: section.kind,
+      lines: section.plus + section.minus,
+      path: section.path,
+      plus: section.plus,
+      minus: section.minus,
+      children: [],
+    };
+    sectionsBy.set(section.path, [...(sectionsBy.get(section.path) ?? []), entry]);
+  }
 
   // Moved files by (old folder, new folder). A group of two or more is one fact, mentioned when the
   // description names either folder or a folder above one; its files then count as mentioned.
@@ -285,6 +322,7 @@ export function unmentioned(
     const children = (codeBy.get(node.path) ?? [])
       .map((child): ReviewEntry => (linked.has(child.id) && child.level !== "district" && child.level !== "moves" ? { ...child, linked: true } : child))
       .sort(bySeverity);
+    children.push(...(sectionsBy.get(node.path) ?? []));
     const entry: ReviewEntry = {
       id: node.id,
       level: "file",
@@ -386,6 +424,11 @@ export function unmentioned(
     unlinkedMoveGroups: unlinked.groups.length,
     unlinkedMovedFiles: none.length - unlinked.rest.length,
   };
+}
+
+/** How many sections the entries list, nested ones included. */
+export function sectionCount(entries: readonly ReviewEntry[]): number {
+  return entries.reduce((sum, entry) => sum + (entry.level === "section" ? 1 : 0) + sectionCount(entry.children), 0);
 }
 
 /** The ids of every entry of `result`, nested ones included: the changes no claim covers. */

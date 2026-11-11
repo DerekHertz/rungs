@@ -580,7 +580,8 @@ function pickEntry(entry: ReviewEntry): void {
     pickPlaces(entry.children.map((child) => child.id));
     return;
   }
-  pickNode(entry.id, undefined, entry.folded);
+  // A section has no place in the picture: it selects its file.
+  pickNode(entry.level === "section" ? (`file:${entry.path}` as NodeId) : entry.id, undefined, entry.folded);
 }
 
 /** A node by id, a ghost or a module removed from a surviving file included: fly to its file, select it. */

@@ -126,7 +126,7 @@ describe("townOf", () => {
   });
 
   test("an empty graph is an empty town", () => {
-    const town = townOf({ extractorVersion: "x", nodes: [], edges: [], resolutions: [], imports: [] }, SHEET);
+    const town = townOf({ extractorVersion: "x", nodes: [], edges: [], resolutions: [], imports: [], sections: [] }, SHEET);
     expect(town.lots).toEqual([]);
     expect(town.blocks).toEqual([]);
   });
