@@ -8,7 +8,7 @@ import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "17";
+export const EXTRACTOR_VERSION = "18";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -142,6 +142,7 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
         range: lineRangeOf(starts, declaration.start, declaration.end),
         digest: digestOf(text.slice(declaration.start, declaration.end)),
         exported: declaration.exported,
+        ...(declaration.exportedAs === undefined ? {} : { exportedAs: declaration.exportedAs }),
         signature: declaration.signature,
       });
       spans.push({ id, start: declaration.start, end: declaration.end, depth });
@@ -225,6 +226,8 @@ function importEdges(path: string, text: string, sites: readonly ImportSite[]): 
     syntax: site.syntax,
     typeOnly: site.typeOnly,
     target: "file" in site.target ? { file: nodeId("file", site.target.file, "") } : site.target,
+    names: site.names,
+    ...(site.reexports === undefined ? {} : { reexports: site.reexports }),
     range: lineRangeOf(starts, site.start, site.end),
   }));
 }

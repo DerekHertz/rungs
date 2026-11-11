@@ -3,7 +3,7 @@ import type { Comparison, ContractMove } from "./compare.ts";
 import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
 import type { CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
-import { importanceOf } from "./importance.ts";
+import { exportNamesOf, exportRadiusOf, importanceOf } from "./importance.ts";
 import { effectParts, isAnonymous, labelOf } from "./review.ts";
 
 /*
@@ -38,6 +38,12 @@ export interface Block {
   readonly reasons: readonly string[];
   /** The unnamed callbacks inside it that changed, folded under it. */
   readonly folded: readonly NodeId[];
+  /**
+   * Only for an exported block: the files that rest on the names it is exported under, sorted:
+   * those whose imports take the name (or all of the file), directly or through re-exports, and
+   * the files resting on them. Never fewer than the truth: a use the extractor cannot name counts.
+   */
+  readonly rests?: readonly string[];
 }
 
 export interface FileWhy {
@@ -109,6 +115,12 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
     else folds.set(holder.id, [...(folds.get(holder.id) ?? []), node.id]);
   }
   const blocks: Block[] = [];
+  const radius = exportRadiusOf(head);
+  const restsOf = (node: CodeNode): readonly string[] | undefined => {
+    if (!node.exported) return undefined;
+    const was = base.nodes.find((candidate) => candidate.id === (moveBy.get(node.id)?.from ?? node.id));
+    return radius(file.id, exportNamesOf(was === undefined ? [node] : [node, was])).map((id) => nodes.get(id)?.path ?? id).sort(byText);
+  };
   const changedIds = new Set<NodeId>(comparison.changes.filter((change) => change.kind === "altered" || change.kind === "added").map((change) => change.node.id));
   // A block is listed when its text changed, or when a contract moved or an effect arrived at it with the text the same (an import now points elsewhere).
   for (const node of head.nodes) {
@@ -116,7 +128,8 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
     const move = moveBy.get(node.id);
     if (!changedIds.has(node.id) && move === undefined && !effectLines.has(node.id)) continue;
     const reasons = [...(move === undefined ? [] : [`contract ${WORD[move.kind]}`]), ...[...(effectLines.get(node.id) ?? [])].sort(byText), ...(node.exported ? ["exported"] : [])];
-    blocks.push({ id: node.id, level: node.level, label: labelOf(node), range: node.range, reasons, folded: (folds.get(node.id) ?? []).sort(byText) });
+    const rests = restsOf(node);
+    blocks.push({ id: node.id, level: node.level, label: labelOf(node), range: node.range, reasons, folded: (folds.get(node.id) ?? []).sort(byText), ...(rests === undefined ? {} : { rests }) });
   }
   // A moved contract first, then an effect, then exported; within a rank, in source order.
   const rank = (block: Block): number =>

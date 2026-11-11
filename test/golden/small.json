@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "17",
+  "extractorVersion": "18",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -14,6 +14,9 @@
       },
       "digest": "0eed4facbb58a5b147f9286d867088ea",
       "exported": true,
+      "exportedAs": [
+        "Circle"
+      ],
       "signature": "{ radius(): number }"
     },
     {
@@ -29,6 +32,9 @@
       },
       "digest": "af32f1680c29e866fb952087e05582e6",
       "exported": true,
+      "exportedAs": [
+        "Polygon"
+      ],
       "signature": "implements Shape { abstract area(): number; static from(points: number[]): Polygon }"
     },
     {
@@ -44,6 +50,9 @@
       },
       "digest": "ea4ad4c31628236aeba0f272f97d6d2f",
       "exported": true,
+      "exportedAs": [
+        "Square"
+      ],
       "signature": "extends Polygon { static count; constructor(side: number); get side(): number; set side(value: number); area(): number; static area(): number; \"half.size#x\"(): number; onResize = (): void }"
     },
     {
@@ -319,6 +328,9 @@
       },
       "digest": "e360190997659002045e5e0bb2072cf7",
       "exported": true,
+      "exportedAs": [
+        "Widget"
+      ],
       "signature": "()"
     },
     {
@@ -364,6 +376,9 @@
       },
       "digest": "4b79e5a9fe4ac58eca5ae7039e232967",
       "exported": true,
+      "exportedAs": [
+        "default"
+      ],
       "signature": "()"
     },
     {
@@ -394,6 +409,9 @@
       },
       "digest": "5e020687f2a07c2bf9d995c165b5d4d9",
       "exported": true,
+      "exportedAs": [
+        "*"
+      ],
       "signature": "()"
     },
     {
@@ -409,6 +427,9 @@
       },
       "digest": "723b0562955d3f8cb34ea3381d16da52",
       "exported": true,
+      "exportedAs": [
+        "*"
+      ],
       "signature": "(name)"
     },
     {
@@ -439,6 +460,9 @@
       },
       "digest": "e351c0c50115b3965fc4af8881d8d325",
       "exported": true,
+      "exportedAs": [
+        "aliased"
+      ],
       "signature": "()"
     },
     {
@@ -454,6 +478,9 @@
       },
       "digest": "d7dbda446b2c60450cf9dc0963b1eefe",
       "exported": true,
+      "exportedAs": [
+        "build"
+      ],
       "signature": "async ()"
     },
     {
@@ -469,6 +496,9 @@
       },
       "digest": "e7fea4b66a254ce32b3b94b53f90c6c5",
       "exported": true,
+      "exportedAs": [
+        "computed"
+      ],
       "signature": "(fs, name)"
     },
     {
@@ -484,6 +514,9 @@
       },
       "digest": "6550a4357f8dfe6f65c2a4f7fb4cd474",
       "exported": true,
+      "exportedAs": [
+        "save"
+      ],
       "signature": "async (path, data)"
     },
     {
@@ -499,6 +532,9 @@
       },
       "digest": "bd93b03f1fef262fc99760463e30ae45",
       "exported": true,
+      "exportedAs": [
+        "serve"
+      ],
       "signature": "(port)"
     },
     {
@@ -544,6 +580,9 @@
       },
       "digest": "f1e8c88b064a0b52ac418de4303c7b85",
       "exported": true,
+      "exportedAs": [
+        "shadowed"
+      ],
       "signature": "(run)"
     },
     {
@@ -559,6 +598,9 @@
       },
       "digest": "e3e6dcea719d087b043408a9bc15d8bb",
       "exported": true,
+      "exportedAs": [
+        "version"
+      ],
       "signature": "()"
     },
     {
@@ -574,6 +616,9 @@
       },
       "digest": "6f6182f080fc5be91a28fab1cd026f75",
       "exported": true,
+      "exportedAs": [
+        "main"
+      ],
       "signature": "(): number"
     },
     {
@@ -589,6 +634,9 @@
       },
       "digest": "4726333faa03d21d74696b722e265659",
       "exported": true,
+      "exportedAs": [
+        "*"
+      ],
       "signature": "()"
     },
     {
@@ -919,6 +967,9 @@
       },
       "digest": "1cd72f792e5315ca5603c2cd9bbd976a",
       "exported": true,
+      "exportedAs": [
+        "scale"
+      ],
       "signature": "(shape: Shape, by: number): number; (shape: Shape, by: string): number"
     },
     {
@@ -934,6 +985,9 @@
       },
       "digest": "445deb8dc986398848dfa385a0b10fbe",
       "exported": true,
+      "exportedAs": [
+        "add"
+      ],
       "signature": "(a: number, b: number): number"
     },
     {
@@ -949,6 +1003,9 @@
       },
       "digest": "114b279c606006a7d6314947da1a94d0",
       "exported": true,
+      "exportedAs": [
+        "double"
+      ],
       "signature": "(n: number): number"
     },
     {
@@ -1138,6 +1195,9 @@
       "target": {
         "external": "node:fs"
       },
+      "names": [
+        "readFileSync"
+      ],
       "range": {
         "start": 1,
         "end": 1
@@ -1151,6 +1211,7 @@
       "target": {
         "external": "child_process"
       },
+      "names": "all",
       "range": {
         "start": 2,
         "end": 2
@@ -1164,6 +1225,10 @@
       "target": {
         "external": "node:child_process"
       },
+      "names": [
+        "execFileSync",
+        "spawn"
+      ],
       "range": {
         "start": 1,
         "end": 1
@@ -1177,6 +1242,9 @@
       "target": {
         "external": "node:fs"
       },
+      "names": [
+        "promises"
+      ],
       "range": {
         "start": 2,
         "end": 2
@@ -1190,6 +1258,9 @@
       "target": {
         "external": "node:http"
       },
+      "names": [
+        "default"
+      ],
       "range": {
         "start": 3,
         "end": 3
@@ -1203,6 +1274,9 @@
       "target": {
         "external": "node:util"
       },
+      "names": [
+        "promisify"
+      ],
       "range": {
         "start": 4,
         "end": 4
@@ -1216,6 +1290,9 @@
       "target": {
         "file": "file:src/util/math.ts"
       },
+      "names": [
+        "add"
+      ],
       "range": {
         "start": 1,
         "end": 1

@@ -101,6 +101,7 @@ function outline(file: ts.SourceFile): Declaration[] {
         start: child.getStart(file),
         end: child.end,
         exported: exported.has(child),
+        ...(exported.has(child) ? { exportedAs: [...exported.get(child)!].sort() } : {}),
         signature: renderSignature(signatureTokens(child, file)),
         children: within(child),
       });

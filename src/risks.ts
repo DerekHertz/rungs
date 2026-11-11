@@ -4,15 +4,18 @@ import { declarationText } from "./dependencies.ts";
 import { resourceKindOf } from "./effects.ts";
 import { isCodeNode, targetText } from "./graph.ts";
 import type { Graph, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
-import { importanceOf } from "./importance.ts";
+import type { ExportRadius } from "./importance.ts";
+import { exportNamesOf, exportRadiusOf } from "./importance.ts";
 import { effectParts } from "./review.ts";
 import type { TestChanges } from "./test-changes-types.ts";
 
 /*
- * Risks (SPEC, Review): what could break, ranked, all derived. Blast radius is per FILE, not per
- * export: an import edge in the graph names the file imported, not which of its exports the
- * importer uses, so a contract's radius is the files resting on its file (importanceOf, the
- * plinth's own relation). Every export of one file therefore shares one radius.
+ * Risks (SPEC, Review): what could break, ranked, all derived. Blast radius is per export for a
+ * contract: an import edge records the names it takes, so a changed export's radius is the files
+ * that import that name (or all of the file), directly or through re-exports, and the files
+ * resting on those (exportRadiusOf). An export whose names are unknown counts every file that
+ * rests on its file (importanceOf, the plinth's own relation), so a radius is never undercounted.
+ * Effects, tests and moved files are per file.
  */
 
 export type RiskKind = "contract" | "effect" | "test" | "dependency";
@@ -69,25 +72,28 @@ function contractDetail(move: ContractMove): string {
  * passed in so this module stays free of node:*.
  */
 export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests: TestChanges, isTest: (path: string) => boolean): RiskItem[] {
-  const headRests = importanceOf(head);
-  const baseRests = importanceOf(base);
+  const headRadius = exportRadiusOf(head);
+  const baseRadius = exportRadiusOf(base);
   const headNodes = new Map<NodeId, ModuleNode>(head.nodes.map((node) => [node.id, node]));
   const baseNodes = new Map<NodeId, ModuleNode>(base.nodes.map((node) => [node.id, node]));
 
-  /** The files resting on the files at `paths`, by the head's edges, or the base's for a file the head no longer has. */
-  const blastOf = (paths: readonly string[], basePaths: readonly string[] = []): Blast => {
+  /**
+   * The files resting on the files at `paths`, by the head's edges, or the base's for a file the
+   * head no longer has: on the whole file, or on the exports `of` it names.
+   */
+  const blastOf = (paths: readonly string[], basePaths: readonly string[] = [], of: readonly string[] | "all" = "all"): Blast => {
     const found = new Set<string>();
-    const add = (path: string, rests: ReadonlyMap<NodeId, readonly NodeId[]>, names: ReadonlyMap<NodeId, ModuleNode>): void => {
+    const add = (path: string, radius: ExportRadius, names: ReadonlyMap<NodeId, ModuleNode>): void => {
       const id = `file:${path}` as NodeId;
-      if (names.has(id)) for (const rest of rests.get(id) ?? []) found.add(names.get(rest)?.path ?? rest);
+      if (names.has(id)) for (const rest of radius(id, of)) found.add(names.get(rest)?.path ?? rest);
     };
     for (const path of paths) {
-      add(path, headRests, headNodes);
+      add(path, headRadius, headNodes);
       // A file the head no longer has at that path keeps the dependents the base gave it.
-      if (!headNodes.has(`file:${path}` as NodeId)) add(path, baseRests, baseNodes);
+      if (!headNodes.has(`file:${path}` as NodeId)) add(path, baseRadius, baseNodes);
     }
     // A moved file's old place: the files that rested on it there still do, or are broken by it.
-    for (const path of basePaths) add(path, baseRests, baseNodes);
+    for (const path of basePaths) add(path, baseRadius, baseNodes);
     const files = [...found].sort(byText);
     return { count: files.length, files };
   };
@@ -101,8 +107,16 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     const node = headNodes.get(move.id) ?? baseNodes.get(move.id);
     if (node === undefined) continue;
     const name = move.type?.name ?? (isCodeNode(node) ? node.qualifiedName : node.path);
-    const was = move.from === undefined ? undefined : baseNodes.get(move.from);
-    items.push({ kind: "contract", label: `${name} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], was === undefined ? [] : [was.path]), ids: [move.id] });
+    const was = baseNodes.get(move.from ?? move.id);
+    // A block is exported under the names its head and base forms carry. A type's contract name is not an export name when it is a wildcard re-export or `export =` (any importer may use it: all),
+    // and a dotted one is either a namespace member (exported as its first segment) or a quoted name with a dot, so both are asked for.
+    const of =
+      move.type === undefined
+        ? exportNamesOf([headNodes.get(move.id), was].filter((found) => found !== undefined))
+        : move.type.name.includes("* from") || move.type.name.includes("export=")
+          ? "all"
+          : [...new Set([move.type.name, move.type.name.split(".")[0]!])];
+    items.push({ kind: "contract", label: `${name} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
   }
 
   /** Effects by test-ness, new or changed, resource and target: one item each, its radius the union of its holders'. */

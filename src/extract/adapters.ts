@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { CodeLevel, TypeContract, EffectArg, EffectTarget, FileTree, ImportSyntax, ResourceKind } from "../graph.ts";
+import type { CodeLevel, TypeContract, EffectArg, EffectTarget, FileTree, ImportReexports, ImportSyntax, ImportedNames, ResourceKind } from "../graph.ts";
 import { javaScriptAndTypeScript } from "./javascript.ts";
 
 export interface SourceFile {
@@ -22,6 +22,8 @@ export interface Declaration {
   /** True when the file exports this declaration from its top level, by the language's own
    *  syntax; a binding that merely holds it elsewhere does not count. */
   readonly exported: boolean;
+  /** The names the file exports it under (`*` for any: `module.exports = ...`); set when exported. */
+  readonly exportedAs?: readonly string[];
   /** The signature as written, with layout, comments and trailing commas left out; see
    *  src/extract/javascript-contract.ts. Never inferred: a missing return type stays missing. */
   readonly signature: string;
@@ -61,6 +63,8 @@ export interface ImportSite {
   readonly syntax: ImportSyntax;
   readonly typeOnly: boolean;
   readonly target: ImportSiteTarget;
+  readonly names: ImportedNames;
+  readonly reexports?: ImportReexports;
   /** The whole statement or call, end exclusive. */
   readonly start: number;
   readonly end: number;
