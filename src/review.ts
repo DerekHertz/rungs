@@ -152,15 +152,24 @@ export function labelOf(node: ModuleNode & { readonly qualifiedName: string }): 
   return `${last.text.slice(0, -" callback".length)}${last.ordinal > 1 ? `@${last.ordinal}` : ""}`;
 }
 
-/** The titles a test's qualified name holds, as test-changes.ts joins them with " > ", or undefined when a segment is not a labelled test or describe callback. */
+/** Callees that make a test (not a suite) in test-changes.ts. */
+const TEST_CALLEES = new Set(["test", "it", "xit", "fit", "xtest", "specify"]);
+
+/**
+ * The titles a test's qualified name holds, as test-changes.ts joins them with " > ", or undefined
+ * when a segment is not a labelled callback or the last one is not a plain test (a suite, or a
+ * modifier like `only` that does not say which).
+ */
 function titlePathOf(qualifiedName: string): string | undefined {
   const titles: string[] = [];
+  let callee = "";
   for (const segment of segmentsOf(qualifiedName)) {
-    const match = /^[\w.]+\("(.*)"\) callback$/su.exec(segment.text);
+    const match = /^([\w.]+)\("(.*)"\) callback$/su.exec(segment.text);
     if (match === null) return undefined;
-    titles.push(match[1]!);
+    callee = match[1]!;
+    titles.push(match[2]!);
   }
-  return titles.join(" > ");
+  return TEST_CALLEES.has(callee) ? titles.join(" > ") : undefined;
 }
 
 type Kinds = { -readonly [K in ChangeKind]: number };
@@ -313,12 +322,15 @@ export function unmentioned(
   };
 
   // A removed test and an added one that testChanges paired as renamed are one `~` row under the new name.
-  const testsBy = (kind: ModuleChange["kind"]): Map<string, ModuleChange> => {
-    const by = new Map<string, ModuleChange>();
+  const testsBy = (kind: ModuleChange["kind"]): Map<string, ModuleChange | null> => {
+    const by = new Map<string, ModuleChange | null>();
     for (const change of comparison.changes) {
       if (change.kind !== kind || change.node.level !== "function") continue;
       const titles = titlePathOf(change.node.qualifiedName);
-      if (titles !== undefined) by.set(`${change.node.path}\0${titles}`, change);
+      if (titles === undefined) continue;
+      const key = `${change.node.path}\0${titles}`;
+      // Two tests under one title path do not map one-to-one: neither is paired.
+      by.set(key, by.has(key) ? null : change);
     }
     return by;
   };
@@ -329,7 +341,7 @@ export function unmentioned(
   for (const { file, from, to } of tests.renamed) {
     const was = removedTests.get(`${file}\0${from}`);
     const now = addedTests.get(`${file}\0${to}`);
-    if (was === undefined || now === undefined) continue;
+    if (was === undefined || was === null || now === undefined || now === null) continue;
     renamedFrom.set(now.node.id, { was, weakened: tests.weakened.some((test) => test.file === file && test.name === to) });
     renamedAway.add(was.node.id);
   }

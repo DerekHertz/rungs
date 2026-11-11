@@ -398,3 +398,11 @@ test("a removed test and an added one that are not paired stay two rows", () => 
   const rows = reviewTests(base, head, "").entries[0]!.children.filter((child) => child.label.startsWith("it("));
   expect(rows.every((child) => child.level !== "function" || child.renamedFrom === undefined)).toBe(true);
 });
+
+test("a suite with the same title as a renamed test is not paired with it", () => {
+  const body = (title: string): string => `import { it, suite, expect } from "vitest";\nit("${title}", () => {\n  expect(a).toBe(1);\n${title === "old" ? "  expect(b).toBe(2);\n" : ""}});\n${title === "old" ? 'suite("old", () => {\n  setup();\n});\n' : ""}`;
+  const entry = reviewTests({ "t.test.ts": body("old") }, { "t.test.ts": body("new") }, "").entries[0]!;
+  expect(entry.children.map((child) => child.label)).toContain('suite("old")');
+  const renamed = entry.children.filter((child) => child.level === "function" && child.renamedFrom !== undefined);
+  expect(renamed.map((child) => [child.label, child.level === "function" ? child.renamedFrom : ""])).toEqual([['it("new")', 'it("old")']]);
+});
