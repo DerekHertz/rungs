@@ -1,6 +1,6 @@
-import { argTokens, isCodeNode, targetText } from "./graph.ts";
+import { isCodeNode, targetText } from "./graph.ts";
 import type { CodeNode, EffectEdge, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
-import { effectLabel, resourceKindOf } from "./effects.ts";
+import { resourceKindOf } from "./effects.ts";
 import type { Comparison, Overlay } from "./compare.ts";
 import { AXIS } from "./town.ts";
 
@@ -63,19 +63,10 @@ export function marksOf(comparison: Comparison, overlay: Overlay, fileId: NodeId
   for (const change of comparison.changes) {
     if (change.node.level === "function" && change.node.path === path && (change.kind === "altered" || change.kind === "added")) changed.add(change.node.id);
   }
-  // A call is the one a change reports when its owner, its label (resource, operation, target), its lines
-  // and the arguments the change added all match; two calls on one line differ in at least their label or arguments.
-  const same = (edge: EffectEdge): boolean =>
-    comparison.changedEffects.some((change) => {
-      if (change.owner !== edge.from || change.label !== effectLabel(edge)) return false;
-      if (!change.ranges.some((range) => range.start === edge.range.start && range.end === edge.range.end)) return false;
-      const tokens = argTokens(edge.args);
-      return change.added.every((token) => tokens.includes(token));
-    });
   return {
     existed: overlay.entry(fileId)?.kind !== "added",
     changed,
-    altered: (edge) => overlay.freshEdge(edge) || same(edge),
+    altered: (edge) => overlay.freshEdge(edge) || overlay.changedEdge(edge),
   };
 }
 

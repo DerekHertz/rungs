@@ -1,5 +1,5 @@
-import { canonicalEdge, canonicalImport, canonicalNode, compareIds, isCodeNode, nodeId, targetText } from "./graph.ts";
-import { changedEffects, diffEffects, effectSets } from "./effects.ts";
+import { argTokens, canonicalEdge, canonicalImport, canonicalNode, compareIds, isCodeNode, nodeId } from "./graph.ts";
+import { callKey, changedEffects, diffEffects, effectLabel, effectSets, occurrences } from "./effects.ts";
 import { diffImports } from "./imports.ts";
 import type { ImportChange } from "./imports.ts";
 import type { ChangedEffect, EffectChange } from "./effects.ts";
@@ -300,7 +300,7 @@ export function serializeComparison(comparison: Comparison): string {
         return { kind: change.kind, node: canonicalNode(change.node), from: canonicalNode(change.from) };
     }
   });
-  const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge) }));
+  const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge), nth: change.nth }));
   const imports = comparison.imports.map((change) => ({ kind: change.kind, edge: canonicalImport(change.edge) }));
   return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports }, null, 2)}\n`;
 }
@@ -319,8 +319,10 @@ export interface Overlay {
    * included. Zeros for anything else, and for what has not changed.
    */
   tally(id: NodeId): Tally;
-  /** True for an effect edge of the head graph that the comparison lists as added. */
+  /** True for an effect edge of the head graph that the comparison lists as added: that very call, not its identical twin or a call on the same line. */
   freshEdge(edge: EffectEdge): boolean;
+  /** True for an effect edge of the head graph whose arguments the comparison lists as changed: that very call. */
+  changedEdge(edge: EffectEdge): boolean;
 }
 
 export interface Picture {
@@ -342,8 +344,6 @@ function ancestorsOf(path: string): string[] {
   return dirs;
 }
 
-const edgeKey = (edge: EffectEdge): string =>
-  `${edge.from}\0${edge.to}\0${edge.operation}\0${targetText(edge.target)}\0${edge.range.start}\0${edge.range.end}`;
 
 /** `pictureOf(head, null)` is the plain picture. It lays nothing out; town.ts does. */
 export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
@@ -410,9 +410,13 @@ export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
     count[change.kind] += 1;
     codeTallies.set(change.node.path, count);
   }
-  const freshKeys = new Set(comparison.effects.flatMap((change) => (change.kind === "added" ? [edgeKey(change.edge)] : [])));
+  // A call is told by its owner, resource, operation, target and arguments, and which of its identical twins it is.
+  const freshKeys = new Set(comparison.effects.flatMap((change) => (change.kind === "added" ? [`${callKey(change.edge)}\0${change.nth}`] : [])));
+  const changedKeys = new Set(comparison.changedEffects.flatMap((change) => change.calls.map((call) => `${change.owner}\0${change.label}\0${call.tokens.join("\u0000")}\0${call.nth}`)));
+  const nthOf = occurrences(head.edges);
   const overlay: Overlay = {
-    freshEdge: (edge) => freshKeys.has(edgeKey(edge)),
+    freshEdge: (edge) => freshKeys.has(`${callKey(edge)}\0${nthOf.get(edge) ?? 0}`),
+    changedEdge: (edge) => changedKeys.has(`${edge.from}\0${effectLabel(edge)}\0${argTokens(edge.args).join("\u0000")}\0${nthOf.get(edge) ?? 0}`),
     change: (id) => entries.get(id)?.kind ?? "unchanged",
     entry: (id) => entries.get(id),
     tally(id) {

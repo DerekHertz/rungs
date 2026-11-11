@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { compare, pictureOf } from "../src/compare.ts";
+import { compare, pictureOf, serializeComparison } from "../src/compare.ts";
+import type { Comparison } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree, Graph, NodeId } from "../src/graph.ts";
 import { insideOf, marksOf, objectSpriteName, roomNamesAt, ROOM_STEPS, sideOfLines } from "../src/town-inside.ts";
@@ -187,6 +188,41 @@ class Box { open() { return fs.readFileSync("y"); } }
     const change = compare(one, two);
     const there = insideOf(two, FILE, SHEET, marksOf(change, pictureOf(two, change).overlay!, FILE, "a.js"))!;
     expect(there.rooms[0]!.objects.map((object) => [object.target, object.altered])).toEqual([['"/a"', true], ['"/b"', false]]);
+  });
+
+  describe("calls that share a line are matched exactly, occurrence by occurrence (#125)", () => {
+    /** The calls of the one function `f`, in source order, as [arguments, rung]. */
+    const rung = (before: string, after: string): [string, boolean][] => {
+      const one = extract(treeOf({ "a.js": `function f() { ${before} }\n` }));
+      const two = extract(treeOf({ "a.js": `function f() { ${after} }\n` }));
+      const change = compare(one, two);
+      const there = insideOf(two, FILE, SHEET, marksOf(change, pictureOf(two, change).overlay!, FILE, "a.js"))!;
+      return there.rooms[0]!.objects.map((object, index) => [`${index}`, object.altered]);
+    };
+    test("removing an argument rings only the call that lost it", () => {
+      expect(rung('fetch("/a", opts); fetch("/a", other);', 'fetch("/a"); fetch("/a", other);')).toEqual([["0", true], ["1", false]]);
+    });
+    test("a call added after an identical one on the line rings only the added call", () => {
+      expect(rung('fetch("/a");', 'fetch("/a"); fetch("/a", opts);')).toEqual([["0", false], ["1", true]]);
+      expect(rung('fetch("/a");', 'fetch("/a", opts); fetch("/a");')).toEqual([["0", true], ["1", false]]);
+    });
+    test("an identical call added on the line rings the later one", () => {
+      expect(rung('fetch("/a");', 'fetch("/a"); fetch("/a");')).toEqual([["0", false], ["1", true]]);
+    });
+    test("calls pair with their identical twin first, so the odd one out rings", () => {
+      expect(rung('fetch("/a", b); fetch("/a");', 'fetch("/a"); fetch("/a");')).toEqual([["0", false], ["1", true]]);
+    });
+    test("the rings survive the JSON round trip the browser reads", () => {
+      const one = extract(treeOf({ "a.js": `function f() { fetch("/a"); fetch("/b", x); }\n` }));
+      const two = extract(treeOf({ "a.js": `function f() { fetch("/a"); fetch("/a"); fetch("/b", y); }\n` }));
+      const sent = JSON.parse(serializeComparison(compare(one, two))) as Comparison;
+      const there = insideOf(two, FILE, SHEET, marksOf(sent, pictureOf(two, sent).overlay!, FILE, "a.js"))!;
+      expect(there.rooms[0]!.objects.map((object) => object.altered)).toEqual([false, true, true]);
+    });
+    test("an added argument still rings the call, and a call that did not change does not", () => {
+      expect(rung('fetch("/a", opts); fetch("/a", other);', 'fetch("/a", opts, 1); fetch("/a", other);')).toEqual([["0", true], ["1", false]]);
+      expect(rung('fetch("/a", opts); fetch("/a", other);', 'fetch("/a", opts); fetch("/a", other);')).toEqual([["0", false], ["1", false]]);
+    });
   });
 
   test("rings but never names a call in a file that did not exist", () => {

@@ -16,8 +16,8 @@ import type { Sheet } from "./town-view.ts";
 export interface InsideCallbacks {
   /** A click on a room (its function, or the file for the top-level room) or on an object, with the call's lines for an object. */
   pick(id: NodeId, lines?: LineRange): void;
-  /** What the pointer is over, as words; undefined when over nothing. */
-  hover(text: string | undefined): void;
+  /** What the pointer is over, as words, and where the pointer is (client pixels); undefined text when over nothing. */
+  hover(text: string | undefined, at?: { x: number; y: number }): void;
 }
 
 export interface TownInsideView {
@@ -281,7 +281,7 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
   canvas.addEventListener("pointermove", (event) => {
     const last = pressed.get(event.pointerId);
     if (last === undefined) {
-      callbacks.hover(describe(targetAt(event.clientX, event.clientY)));
+      callbacks.hover(describe(targetAt(event.clientX, event.clientY)), { x: event.clientX, y: event.clientY });
       return;
     }
     pressed.set(event.pointerId, { x: event.clientX, y: event.clientY });
