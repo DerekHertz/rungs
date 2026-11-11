@@ -58,6 +58,15 @@ describe("effect arguments, review round 2", () => {
     expect(graph.edges).toEqual([]);
   });
 
+  test("a chain of CommonJS aliases still reaches the effect", () => {
+    const source = 'const fs = require("fs");\nconst { promisify } = require("util");\nconst read = promisify(fs.readFile);\nread("a");';
+    expect(graphOf(source, "a.cjs").edges.map((e) => e.operation)).toEqual(["fs readFile"]);
+  });
+
+  test("a cyclic initialiser is unknown, not a crash", () => {
+    expect(graphOf("function neverCalled() { const x = x(); }").edges).toEqual([]);
+  });
+
   test("the global require still reaches createRequire through a destructuring", () => {
     expect(graphOf('const { createRequire } = require("module");\ncreateRequire(n);', "a.cjs").edges.map((e) => e.operation)).toEqual(["module createRequire"]);
   });

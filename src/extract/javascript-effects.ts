@@ -191,8 +191,11 @@ class Resolver {
   private call(node: ts.CallExpression, depth: number): Ref | undefined {
     const callee = unwrap(node.expression);
     const [first] = node.arguments;
-    if (this.isCreateRequire(node)) return REQUIRE;
-    const resolver = this.resolve(callee, depth + 1);
+    // An undeclared name is a leaf, so looking it up costs no depth: a chain of const aliases
+    // reaches as far as it did when `require` was matched by name.
+    const leaf = ts.isIdentifier(callee) && this.declarationsOf(callee).length === 0;
+    const resolver = this.resolve(callee, leaf ? depth : depth + 1);
+    if (resolver?.kind === "member" && resolver.module === "module" && resolver.name === "createRequire") return REQUIRE;
     if (resolver?.kind === "member" && resolver.module === null && resolver.name === "require") {
       const specifier = stringOf(first);
       return specifier === undefined || node.arguments.length !== 1
