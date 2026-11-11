@@ -324,12 +324,15 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     return at?.parent === root?.id && at !== undefined ? at.id : undefined;
   };
 
+  // A comparison overlays the head's town: head files lay out exactly as they do with no comparison, and the ghosts come after.
   const filesByBlock = new Map<NodeId, ModuleNode[]>();
+  const ghostsByBlock = new Map<NodeId, ModuleNode[]>();
   for (const node of graph.nodes) {
     if (node.level !== "file") continue;
     const top = node.parent === root?.id ? root.id : topOf(node);
     if (top === undefined) continue;
-    filesByBlock.set(top, [...(filesByBlock.get(top) ?? []), node]);
+    const into = ghosts.has(node.id) ? ghostsByBlock : filesByBlock;
+    into.set(top, [...(into.get(top) ?? []), node]);
   }
 
   const foldersByBlock = new Map<NodeId, NodeId[]>();
@@ -340,20 +343,26 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
   }
 
   const countOf = (path: string): number => (classes.get(path) ?? 0) + (functions.get(path) ?? 0);
-  const measured = [...filesByBlock.values()].flat().filter((file) => file.level === "file" && file.role !== "generated" && !ghosts.has(file.id)).map((file) => countOf(file.path));
+  const measured = [...filesByBlock.values()].flat().filter((file) => file.level === "file" && file.role !== "generated").map((file) => countOf(file.path));
   const fewest = measured.length === 0 ? 0 : Math.min(...measured);
   const most = measured.length === 0 ? 0 : Math.max(...measured);
 
   // Size every block, then pack them in shelves, largest first.
-  const sized = [...filesByBlock]
-    .map(([id, files]) => {
-      const cols = Math.max(1, Math.ceil(Math.sqrt(files.length)));
-      const rows = Math.ceil(files.length / cols);
-      const container = nodes.get(id);
-      const name = id === root?.id ? "(root files)" : (container?.name ?? id);
-      return { id, name, files: [...files].sort((a, b) => byCodeUnits(a.path, b.path)), cols, rows, w: cols * LOT + 2 * PAD, d: rows * LOT + 2 * PAD };
-    })
-    .sort((a, b) => b.files.length - a.files.length || byCodeUnits(a.name, b.name) || byCodeUnits(a.id, b.id));
+  const sizedBlock = (id: NodeId) => {
+    const own = [...(filesByBlock.get(id) ?? [])].sort((a, b) => byCodeUnits(a.path, b.path));
+    const gone = [...(ghostsByBlock.get(id) ?? [])].sort((a, b) => byCodeUnits(a.path, b.path));
+    const files = [...own, ...gone];
+    // The grid is as wide as the head's own files make it, so ghosts only add rows after them.
+    const cols = Math.max(1, Math.ceil(Math.sqrt(own.length > 0 ? own.length : files.length)));
+    const rows = Math.ceil(files.length / cols);
+    const container = nodes.get(id);
+    const name = id === root?.id ? "(root files)" : (container?.name ?? id);
+    return { id, name, files, own: own.length, cols, rows, w: cols * LOT + 2 * PAD, d: rows * LOT + 2 * PAD };
+  };
+  // Blocks with head files in the order they have without a comparison, then the blocks only ghosts stand in.
+  const sized = [...new Set([...filesByBlock.keys(), ...ghostsByBlock.keys()])]
+    .map(sizedBlock)
+    .sort((a, b) => b.own - a.own || (a.own > 0 ? 0 : b.files.length - a.files.length) || byCodeUnits(a.name, b.name) || byCodeUnits(a.id, b.id));
   const target = Math.sqrt(sized.reduce((sum, block) => sum + (block.w + GAP) * (block.d + GAP), 0)) * 1.3;
   const places = new Map<NodeId, { x: number; z: number }>();
   let x = 0;

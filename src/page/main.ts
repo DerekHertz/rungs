@@ -120,6 +120,11 @@ const handlers: CityHandlers = {
     // first click's selection.
     cancelPending();
     if (hit?.kind === "building" || hit?.kind === "resource") return;
+    // A block only a moved file's old path stands in has no node in the picture's graph to focus: frame it alone.
+    if (hit?.kind === "district" && !nodes.has(hit.id)) {
+      view.flyTo(hit.id);
+      return;
+    }
     const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
     if (to !== undefined) focusOn(to);
   },
