@@ -103,6 +103,13 @@ describe("diffLines", () => {
 });
 
 describe("diffText", () => {
+  test("a 150k-line insertion or deletion diffs without overflowing the stack", () => {
+    const big = "x\n".repeat(150000);
+    expect(diffText("", big)).toHaveLength(150000);
+    expect(diffText(big, "")).toHaveLength(150000);
+    expect(diffText(big, `${big}y\n`)!.filter((op) => op.kind !== "same")).toHaveLength(1);
+  });
+
   test("a final newline added or dropped is a change to the last line", () => {
     const added = diffText("a\nb", "a\nb\n")!;
     expect(added.filter((op) => op.kind !== "same").map((op) => `${op.kind[0]}:${op.text}`)).toEqual(["r:b", "a:b"]);

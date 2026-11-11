@@ -221,7 +221,14 @@ export async function serve(
     if (node.level === "package" || node.level === "folder" || kindOf.get(node.id) === "moved") return undefined;
     const text = tree.get(node.path);
     if (text === undefined) return undefined;
-    if (!opsByPath.has(node.path)) opsByPath.set(node.path, diffText(baseTree.get(node.path) ?? "", text));
+    if (!opsByPath.has(node.path)) {
+      try {
+        opsByPath.set(node.path, diffText(baseTree.get(node.path) ?? "", text));
+      } catch {
+        // Whatever goes wrong inside a diff, the page is told it is too large and the server stays up.
+        opsByPath.set(node.path, undefined);
+      }
+    }
     const ops = opsByPath.get(node.path);
     if (ops === undefined) return `${JSON.stringify({ tier: "derived", id, tooLarge: true, added: 0, removed: 0, rows: [] }, null, 2)}\n`;
     const before = baseNodes.get(node.id);
