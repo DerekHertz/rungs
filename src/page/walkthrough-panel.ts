@@ -1,7 +1,8 @@
+import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "../observed-types.ts";
 import { ROLLUP_OVER, signatureDiff } from "../review.ts";
 import type { LineRange, NodeId } from "../graph.ts";
 import { coverageLine, walkSummary } from "../stops.ts";
-import type { Observed, StopEffect, StopFacts, WalkNote } from "../stops.ts";
+import type { Observed, StopEffect, StopFacts, StopTest, WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 import { markRange } from "./mark.ts";
 import { element } from "./review-panel.ts";
@@ -150,11 +151,46 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
     facts.replaceChildren(...moveRows(found), ...effectRows(found.effects, choose));
     if (facts.childElementCount === 0) facts.append(element("p", "review-empty", "No contract moved and no new call reaches outside at this stop."));
 
-    observedBody.replaceChildren(element("p", "walk-observed", input.observed(stop).status), element("p", "review-empty", "No test run is recorded for this stop."));
+    observedBody.replaceChildren(...observedRows(input.observed(stop)));
 
     const first = sentences[0];
     if (first !== undefined) first.click();
     else void show(stop.ids[0]!, undefined);
+  }
+
+  function observedRows(observed: Observed): HTMLElement[] {
+    if (observed.status === "not run") return [element("p", "walk-observed", "not run"), element("p", "review-empty", "No test run is recorded for this stop.")];
+    const rows: HTMLElement[] = [element("p", "review-summary observed-trust", EVIDENCE_LINE)];
+    if (observed.unsandboxed) rows.push(element("p", "review-warning", `Tests ${UNSANDBOXED_LINE}.`));
+    if (observed.status !== "ran") {
+      rows.push(element("p", "review-warning", `Tests ${observed.status === "refused" || observed.status === "unsupported" ? "not run" : observed.status === "failed" ? "run failed" : "results unreliable"}: ${observed.why}.`));
+      return rows;
+    }
+    const mark = (outcome: StopTest["outcome"]): string => (outcome === "fail" ? "✗" : outcome === "pass" ? "✓" : "·");
+    const list = (tests: readonly StopTest[]): HTMLElement => {
+      const made = element("ul", "review-list");
+      for (const test of tests) {
+        const item = element("li", "review-row observed-loose");
+        const text = element("span", "contract-text");
+        text.append(element("span", "review-label", test.name || "(the whole file)"), element("span", "contract-where", test.why === undefined ? test.file : `${test.file} · ${test.why}`));
+        if (test.message !== undefined) text.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
+        item.append(element("span", `review-mark observed-${test.outcome}`, mark(test.outcome)), text);
+        made.append(item);
+      }
+      return made;
+    };
+    if (observed.results.length > 0) rows.push(element("p", "walk-observed", "main's tests at this stop"), list(observed.results));
+    if (observed.written.length > 0) {
+      const head = element("p", "walk-observed", "written by this PR (claimed)");
+      head.append(element("span", "review-tag claimed", "claimed"));
+      rows.push(head, element("p", "review-empty", "Not evidence: the PR wrote these tests."), list(observed.written));
+    }
+    if (observed.changes.length > 0) {
+      rows.push(element("p", "walk-observed", "this PR changed the tests here"));
+      for (const change of observed.changes) rows.push(element("p", "walk-fact", change));
+    }
+    if (observed.results.length === 0 && observed.written.length === 0) rows.push(element("p", "review-empty", "no test attached"));
+    return rows;
   }
 
   function moveRows(found: StopFacts): HTMLElement[] {

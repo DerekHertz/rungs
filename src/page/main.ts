@@ -19,7 +19,7 @@ import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
 import type { Walk } from "./walkthrough-panel.ts";
-import { NOT_RUN, stopFacts, tourCoverage } from "../stops.ts";
+import { observedAt, stopFacts, tourCoverage } from "../stops.ts";
 import type { WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 import type { NarratedDoc } from "../narration.ts";
@@ -498,7 +498,7 @@ if (comparison !== null) {
     coverage: tourCoverage(tour.stops, comparison),
     claims: claims.claims,
     facts: (stop) => stopFacts(stop, comparison, picture.graph, moves),
-    observed: () => NOT_RUN,
+    observed: (stop) => observedAt(stop, picture.graph, comparison, observed, testChanges),
     describe(id) {
       const node = nodes.get(id) ?? changed.get(id);
       if (node === undefined) return { label: id, first: 1 };
