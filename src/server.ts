@@ -22,6 +22,7 @@ import type { Asked, LinkOutcome } from "./link.ts";
 import { observedDocument, treeDigest } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
 import { testChanges } from "./test-changes.ts";
+import { risksOf } from "./risks.ts";
 import type { TourOutcome } from "./walkthrough.ts";
 import type { NarrateRequest } from "./narrate.ts";
 
@@ -59,7 +60,7 @@ interface Resource {
  * same snapshot on request and never stored (404 for anything but a function; a removed one is
  * outlined from the base tree). The page's source panel and the walkthrough's Code column read it.
  *
- * Given `base`, it also serves `GET /comparison.json`, `GET /contracts.json`, `GET /test-changes.json`
+ * Given `base`, it also serves `GET /comparison.json`, `GET /contracts.json`, `GET /test-changes.json`, `GET /risks.json` (the ranked risks, derived: see src/risks.ts)
  * and `GET /claims.json` (404 otherwise). The test changes are what the change did to the tests,
  * derived from the two trees' text alone: deleted files, removed names, skips, weakened tests. The contracts are the comparison's contract moves as a derived fact, kept in
  * their own resource so `/comparison.json` stays the plain diff of the two graphs. A
@@ -162,6 +163,8 @@ export async function serve(
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
     const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(baseTree ?? new Map(), tree) }, null, 2)}\n`;
     resources.set("/test-changes.json", { contentType: "application/json; charset=utf-8", body: testsChanged });
+    const risks = `${JSON.stringify({ tier: "derived", risks: risksOf(comparison, baseGraph, graph, testChanges(baseTree ?? new Map(), tree)) }, null, 2)}\n`;
+    resources.set("/risks.json", { contentType: "application/json; charset=utf-8", body: risks });
   }
 
   const narrations = new Map<NodeId, Promise<NarratedDoc>>();
