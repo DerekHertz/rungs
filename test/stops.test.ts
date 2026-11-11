@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { compare, contractsMoved, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
-import { NOT_RUN, stopFacts } from "../src/stops.ts";
+import { NOT_RUN, stopFacts, tourCoverage } from "../src/stops.ts";
 import type { Stop } from "../src/tour.ts";
 
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
@@ -96,4 +96,56 @@ test("more than three unnamed added exports are one note, so a new file does not
 
 test("what was observed at a stop is not run until something records it", () => {
   expect(NOT_RUN).toEqual({ status: "not run" });
+});
+
+const factsOf = (before: Record<string, string>, after: Record<string, string>, ids: string[], ...texts: string[]) => {
+  const was = extract(tree({ "package.json": "{}\n", ...before }));
+  const now = extract(tree({ "package.json": "{}\n", ...after }));
+  const diff = compare(was, now);
+  return stopFacts(stop(ids, ...texts), diff, pictureOf(now, diff).graph, contractsMoved(diff, was, now));
+};
+
+test("an effect a stop's code no longer makes is a fact there, and is noted unless a sentence names the effect itself", () => {
+  const before = { "src/send.ts": 'export function send() {\n  fetch("https://audit.example");\n}\n' };
+  const after = { "src/send.ts": "export function send() {}\n" };
+  const found = factsOf(before, after, ["function:src/send.ts#send"], "Updates send.");
+  expect(found.effects.map((effect) => [effect.kind, effect.label, effect.at, effect.mentioned])).toEqual([
+    ["removed", 'network fetch "https://audit.example"', "function:src/send.ts#send", false],
+  ]);
+  expect(found.moves.map((entry) => [entry.move.kind, entry.move.effects])).toEqual([["effects", { added: [], removed: ['network fetch "https://audit.example"'] }]]);
+  expect(found.notes).toEqual(["agent did not mention: removed network https://audit.example"]);
+  expect(factsOf(before, after, ["file:src/send.ts"], "send no longer calls fetch.").notes).toEqual([]);
+  expect(factsOf(before, after, ["file:src/send.ts"], "Tidies the file.").notes).toEqual([
+    "agent did not mention: removed network https://audit.example",
+    "agent did not mention: contract effects send",
+  ]);
+});
+
+test("an effect removed with the function that made it is a fact at a stop on that function or its file", () => {
+  const before = { "src/send.ts": 'export function send() {\n  fetch("https://audit.example");\n}\nexport function keep() {}\n' };
+  const after = { "src/send.ts": "export function keep() {}\n" };
+  expect(factsOf(before, after, ["file:src/send.ts"], "Drops send.").notes).toEqual(["agent did not mention: removed network https://audit.example"]);
+  expect(factsOf(before, after, ["function:src/send.ts#send"], "Drops send.").effects.map((effect) => effect.kind)).toEqual(["removed"]);
+  expect(factsOf(before, after, ["function:src/send.ts#keep"], "Keeps keep.").effects).toEqual([]);
+});
+
+test("unnamed effects in test files are one note for the stop, however many files and calls", () => {
+  const imports = 'import { mkdirSync, rmSync } from "node:fs";\n';
+  const body = `${imports}mkdirSync("tmp");\nrmSync("tmp");\n`;
+  const after = { "test/a.test.ts": body, "test/b.test.ts": body, "src/run.ts": `${imports}export function run() {\n  mkdirSync("out");\n}\n` };
+  const ids = ["file:test/a.test.ts", "file:test/b.test.ts", "function:src/run.ts#run"];
+  expect(factsOf({}, after, ids, "Adds run and its tests.").notes).toEqual([
+    "agent did not mention: file system out",
+    "agent did not mention: 4 effect edges changed in 2 test files",
+  ]);
+  expect(factsOf({}, after, ids, "run makes out; the tests use mkdirSync.").notes).toEqual(["agent did not mention: 2 effect edges changed in 2 test files"]);
+  expect(factsOf({}, after, ["file:test/a.test.ts"], "Uses mkdirSync.").notes).toEqual(["agent did not mention: 1 effect edge changed in 1 test file"]);
+  expect(factsOf({}, after, ["file:test/a.test.ts"], "Tests.").effects).toHaveLength(2);
+});
+
+test("the tour covers the changed files its stops point into, and no others", () => {
+  const first = stop(["function:src/git.ts#head", "file:src/api.ts"]);
+  const second = stop(["file:src/api.ts", "file:src/nowhere.ts"]);
+  expect(tourCoverage([first, second], comparison)).toEqual({ covered: 2, changed: 4 });
+  expect(tourCoverage([], comparison)).toEqual({ covered: 0, changed: 4 });
 });

@@ -15,15 +15,19 @@ export type Observed = { readonly status: "not run" };
 
 export const NOT_RUN: Observed = { status: "not run" };
 
-/** A new effect edge at a stop. */
+/** An effect edge that appeared or went away at a stop. */
 export interface StopEffect {
+  readonly kind: "added" | "removed";
   /** As effectLabel writes it. */
   readonly label: string;
   /** The class, function or file that makes the call. */
   readonly owner: NodeId;
   /** The stop's own node the call is written in: the owner, or the nearest node around it. */
   readonly at: NodeId;
+  /** The call's lines: in the head for an added edge, in the base for a removed one. */
   readonly range: LineRange;
+  /** The call is in a file whose role is tests. */
+  readonly tests: boolean;
   /** The stop's narration names its literal target or its API. */
   readonly mentioned: boolean;
 }
@@ -55,14 +59,16 @@ function names(text: string, needle: string): boolean {
  * The derived facts at one stop, and what its narration leaves out. A stop holds its own nodes
  * and all code written inside them, so a file holds its functions and a function its closures.
  *
- * Its effects are the comparison's added effect edges made there; its moves are the contract
- * moves of nodes there. An effect is mentioned when a sentence of the stop names its literal
- * target or its API's own name ("git", "execFileSync"). A move is mentioned when a sentence names
- * the class or function, and a move of the effect set alone also when every effect in it is
- * mentioned. Only kept sentences count, since only they are shown.
+ * Its effects are the comparison's effect edges that appeared or went away there; its moves are
+ * the contract moves of nodes there. An effect is mentioned when a sentence of the stop names its
+ * literal target or its API's own name ("git", "execFileSync"), and only then: naming the function
+ * that lost a call does not mention the call. A move is mentioned when a sentence names the class
+ * or function, and a move of the effect set alone also when every effect in it is mentioned. Only
+ * kept sentences count, since only they are shown.
  *
- * Notes list what is not mentioned: effects once per resource and target, then moves by id. More
- * than ROLLUP_OVER unnamed added (or moved) exports are one note. `graph` is the picture's graph.
+ * Notes list what is not mentioned: effects once per resource and target, added then removed,
+ * then one line for all of those in test files, then moves by id. More than ROLLUP_OVER unnamed
+ * added (or moved) exports are one note. `graph` is the picture's graph.
  */
 export function stopFacts(stop: Stop, comparison: Comparison, graph: Graph, moves: readonly ContractMove[]): StopFacts {
   const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
@@ -80,12 +86,17 @@ export function stopFacts(stop: Stop, comparison: Comparison, graph: Graph, move
     return names(said, name) || (literal !== undefined && names(said, literal));
   };
 
+  const inTests = (owner: NodeId): boolean => {
+    const path = nodes.get(owner)?.path;
+    const file = path === undefined ? undefined : nodes.get(`file:${path}` as NodeId);
+    return file?.level === "file" && file.role === "tests";
+  };
   const effects: StopEffect[] = [];
-  for (const change of comparison.effects) {
-    const holder = change.kind === "added" ? here(change.edge.from) : undefined;
+  for (const { kind, edge } of comparison.effects) {
+    const holder = here(edge.from);
     if (holder === undefined) continue;
-    const label = effectLabel(change.edge);
-    effects.push({ label, owner: change.edge.from, at: holder, range: change.edge.range, mentioned: saysEffect(label) });
+    const label = effectLabel(edge);
+    effects.push({ kind, label, owner: edge.from, at: holder, range: edge.range, tests: inTests(edge.from), mentioned: saysEffect(label) });
   }
 
   const found: StopMove[] = [];
@@ -98,8 +109,22 @@ export function stopFacts(stop: Stop, comparison: Comparison, graph: Graph, move
   }
 
   const calls = new Map<string, number>();
-  for (const effect of effects) if (!effect.mentioned) calls.set(effectChip(effect.label), (calls.get(effectChip(effect.label)) ?? 0) + 1);
+  const testFiles = new Set<string>();
+  let testEdges = 0;
+  for (const effect of [...effects].sort((x, y) => Number(x.kind === "removed") - Number(y.kind === "removed"))) {
+    if (effect.mentioned) continue;
+    if (effect.tests) {
+      testEdges++;
+      testFiles.add(nodes.get(effect.owner)!.path);
+      continue;
+    }
+    const chip = `${effect.kind === "removed" ? "removed " : ""}${effectChip(effect.label)}`;
+    calls.set(chip, (calls.get(chip) ?? 0) + 1);
+  }
   const notes = [...calls].map(([chip, count]) => `agent did not mention: ${chip}${count === 1 ? "" : ` (${count} calls)`}`);
+  if (testEdges > 0) {
+    notes.push(`agent did not mention: ${testEdges} effect ${testEdges === 1 ? "edge" : "edges"} changed in ${testFiles.size} test ${testFiles.size === 1 ? "file" : "files"}`);
+  }
   const unsaid = found.filter((move) => !move.mentioned);
   const bulk = new Set<string>();
   for (const kind of ["added", "moved"] as const) {
@@ -109,4 +134,19 @@ export function stopFacts(stop: Stop, comparison: Comparison, graph: Graph, move
   for (const move of unsaid) if (!bulk.has(move.move.kind)) notes.push(`agent did not mention: contract ${move.move.kind} ${move.label}`);
   for (const kind of bulk) notes.push(`agent did not mention: ${unsaid.filter((move) => move.move.kind === kind).length} ${kind} exports`);
   return { effects, moves: found, notes };
+}
+
+/** How many of the changed files the tour's stops point at or into. A stop id that is no changed file's counts for nothing. */
+export function tourCoverage(stops: readonly Stop[], comparison: Comparison): { readonly covered: number; readonly changed: number } {
+  const pathOf = new Map<NodeId, string>(comparison.changes.map((change) => [change.node.id, change.node.path]));
+  const files = new Set<string>();
+  for (const change of comparison.changes) if (change.node.level === "file") files.add(change.node.path);
+  const covered = new Set<string>();
+  for (const stop of stops) {
+    for (const id of stop.ids) {
+      const path = pathOf.get(id);
+      if (path !== undefined && files.has(path)) covered.add(path);
+    }
+  }
+  return { covered: covered.size, changed: files.size };
 }
