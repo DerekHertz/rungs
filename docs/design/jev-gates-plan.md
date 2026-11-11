@@ -1,7 +1,7 @@
 # Jev as a gate: plan
 
-Proposed 2026-11-11. Not adopted. Nothing here changes [SPEC.md](../../SPEC.md) until Derek says so;
-the wording it would need is at the end.
+Adopted 2026-11-11. The wording at the end is now in [SPEC.md](../../SPEC.md) (PR 206). The build is
+issue 184 and its sub-issues; no gate is built yet.
 
 ## The idea
 
@@ -154,7 +154,7 @@ Each step names the north-star question it moves.
 - How low must coverage be before proposed terms are used?
 - Should certification be storable in the repository as well as in the cache, for teams that own it?
 
-## SPEC wording this would need
+## SPEC wording adopted
 
 **Rule 1**, unchanged. Jev never writes a graph fact.
 
