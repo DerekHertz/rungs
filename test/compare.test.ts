@@ -555,10 +555,10 @@ describe("contractsMoved with effects", () => {
   });
 
   test("an added exported function brings its set as added, a removed one as removed", () => {
-    expect(moves({ "a.mjs": "export const x = 1;\n" }, { "a.mjs": withImport(exported('spawn("g");')) })).toEqual([
+    expect(moves({ "a.mjs": "const x = 1;\n" }, { "a.mjs": withImport(exported('spawn("g");')) })).toEqual([
       'added function:a.mjs#f +[process child_process spawn "g"] -[]',
     ]);
-    expect(moves({ "a.mjs": withImport(exported('spawn("g");')) }, { "a.mjs": "export const x = 1;\n" })).toEqual([
+    expect(moves({ "a.mjs": withImport(exported('spawn("g");')) }, { "a.mjs": "const x = 1;\n" })).toEqual([
       'removed function:a.mjs#f +[] -[process child_process spawn "g"]',
     ]);
   });

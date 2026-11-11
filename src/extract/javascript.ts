@@ -3,7 +3,7 @@ import ts from "typescript";
 import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
 import { effectSites, resolutionSites } from "./javascript-effects.ts";
 import { ImportResolver, importSites } from "./javascript-imports.ts";
-import { exportedNodes, exportedTypes, renderSignature, signatureTokens } from "./javascript-contract.ts";
+import { constantSignature, constantSites, exportedNodes, exportedTypes, renderSignature, signatureTokens } from "./javascript-contract.ts";
 
 // Built over the tree's own files and nothing else, with no default library and no module
 // resolution, so the binder's answers cannot depend on what is installed on this machine.
@@ -108,7 +108,19 @@ function outline(file: ts.SourceFile): Declaration[] {
     });
     return found;
   };
-  return within(file);
+  // An exported constant is a leaf: functions inside its initializer stay where they were, named
+  // as before, so no existing node changes identity.
+  const constants = constantSites(exported, file).map((site): Declaration => ({
+    level: "constant",
+    text: site.text,
+    start: site.span.getStart(file),
+    end: site.span.end,
+    exported: true,
+    exportedAs: [...exported.get(site.node)!].sort(),
+    signature: constantSignature(site.node, file),
+    children: [],
+  }));
+  return [...within(file), ...constants];
 }
 
 // What the runtime calls the node in its scope: Function.name where the language gives one,

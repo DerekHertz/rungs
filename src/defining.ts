@@ -31,7 +31,7 @@ export interface Why {
 
 export interface Block {
   readonly id: NodeId;
-  readonly level: "class" | "function";
+  readonly level: "class" | "function" | "constant";
   readonly label: string;
   readonly range: LineRange;
   /** Why it is defining, most important first; empty for another changed block. */

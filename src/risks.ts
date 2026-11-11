@@ -111,12 +111,14 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     // A block is exported under the names its head and base forms carry. A type's contract name is not an export name when it is a wildcard re-export or `export =` (any importer may use it: all),
     // and a dotted one is either a namespace member (exported as its first segment) or a quoted name with a dot, so both are asked for.
     const of =
-      move.type === undefined
+      move.exportName !== undefined
+        ? [move.exportName]
+        : move.type === undefined
         ? exportNamesOf([headNodes.get(move.id), was].filter((found) => found !== undefined))
         : move.type.name.includes("* from") || move.type.name.includes("export=")
           ? "all"
           : [...new Set([move.type.name, move.type.name.split(".")[0]!])];
-    items.push({ kind: "contract", label: `${name} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
+    items.push({ kind: "contract", label: `${name}${move.exportName === undefined ? "" : ` as ${move.exportName}`} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
   }
 
   /** Effects by test-ness, new or changed, resource and target: one item each, its radius the union of its holders'. */

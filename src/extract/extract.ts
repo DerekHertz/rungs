@@ -8,7 +8,7 @@ import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "18";
+export const EXTRACTOR_VERSION = "19";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -128,8 +128,10 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
   const visit = (siblings: readonly Declaration[], parent: NodeId, parentName: string, depth: number): void => {
     const seen = new Map<string, number>();
     for (const declaration of [...siblings].sort((a, b) => a.start - b.start)) {
-      const ordinal = (seen.get(declaration.text) ?? 0) + 1;
-      seen.set(declaration.text, ordinal);
+      // Constants count apart, so one never moves the ordinal of a function or class of the same name.
+      const key = declaration.level === "constant" ? `\0${declaration.text}` : declaration.text;
+      const ordinal = (seen.get(key) ?? 0) + 1;
+      seen.set(key, ordinal);
       const name = qualifiedName(parentName, declaration.text, ordinal);
       const id = nodeId(declaration.level, path, name);
       nodes.push({
@@ -145,7 +147,8 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
         ...(declaration.exportedAs === undefined ? {} : { exportedAs: declaration.exportedAs }),
         signature: declaration.signature,
       });
-      spans.push({ id, start: declaration.start, end: declaration.end, depth });
+      // A constant owns no effects: a call in its initializer runs at module top level, as before.
+      if (declaration.level !== "constant") spans.push({ id, start: declaration.start, end: declaration.end, depth });
       visit(declaration.children, id, name, depth + 1);
     }
   };

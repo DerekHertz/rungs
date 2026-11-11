@@ -594,7 +594,7 @@ export function contractsReport(
     }
     if (node === undefined || !isCodeNode(node)) continue;
     counts[move.kind] += 1;
-    rows.push({ kind: "row", move, id: move.id, label: node.qualifiedName, path: node.path, level: node.level, unmentioned: unmentionedSet.has(move.id) });
+    rows.push({ kind: "row", move, id: move.id, label: move.exportName === undefined ? node.qualifiedName : `${node.qualifiedName} as ${move.exportName}`, path: node.path, level: node.level, unmentioned: unmentionedSet.has(move.id) });
   }
 
   const entries: (ContractRow | ContractRollup)[] = [];

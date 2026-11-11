@@ -211,6 +211,8 @@ export interface ContractMove {
   readonly before: string | null;
   /** The exported signature after; null when the node is gone or is no longer exported. */
   readonly after: string | null;
+  /** Only for a node still exported under other names: the one name this move is about ("added" or "removed"). */
+  readonly exportName?: string;
   /** Only for an exported interface or type alias: its name and kind. Its `id` is then its file's,
    *  and only "added", "removed" and "changed" occur. */
   readonly type?: { readonly name: string; readonly kind: "interface" | "type" | "re-export" };
@@ -226,9 +228,9 @@ export interface ContractMove {
  * being ("exposed", "unexported"), or an exported node moved to another path, which changes how
  * it is imported ("moved"). A body edit that leaves the signature and the effects alone is not a
  * move. A move of any kind carries the effects its set gained and lost when those differ: an
- * added or exposed node gains its whole set, a removed or unexported one loses it. Exports that
- * are not functions or classes are not recorded yet, so not reported. Effect sets are direct
- * only; see effectSets.
+ * added or exposed node gains its whole set, a removed or unexported one loses it.
+ * Effect sets are direct only; see effectSets. An exported constant is one of these nodes, its
+ * signature its type, literal value or the kind of its initializer.
  */
 export function contractsMoved(comparison: Comparison, base: Graph, head: Graph): ContractMove[] {
   const side = (node: CodeNode): string | null => (node.exported ? node.signature : null);
@@ -284,8 +286,18 @@ export function contractsMoved(comparison: Comparison, base: Graph, head: Graph)
     const { effects } = effectsBetween(node.id, node.id);
     if (effects !== undefined) moves.push({ kind: "effects", id: node.id, before: before.signature, after: node.signature, effects });
   }
+  // A node that gained or lost a name it is exported under, with the node itself unchanged otherwise.
+  for (const node of head.nodes) {
+    if (!isCodeNode(node) || !node.exported) continue;
+    const before = baseExported.get(node.id);
+    if (before === undefined) continue;
+    const was = new Set(before.exportedAs ?? []);
+    const now = new Set(node.exportedAs ?? []);
+    for (const name of [...was].filter((n) => !now.has(n)).sort()) moves.push({ kind: "removed", id: node.id, exportName: name, before: before.signature, after: null });
+    for (const name of [...now].filter((n) => !was.has(n)).sort()) moves.push({ kind: "added", id: node.id, exportName: name, before: null, after: node.signature });
+  }
   moves.push(...typeMoves(comparison, base, head));
-  return moves.sort((a, b) => compareIds(a.id, b.id) || (a.type?.name ?? "").localeCompare(b.type?.name ?? ""));
+  return moves.sort((a, b) => compareIds(a.id, b.id) || (a.type?.name ?? "").localeCompare(b.type?.name ?? "") || (a.exportName ?? "").localeCompare(b.exportName ?? ""));
 }
 
 /** The exported interfaces and type aliases that appeared, went or changed shape, by file. A file that only moved pairs with itself. */
