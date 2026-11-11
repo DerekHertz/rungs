@@ -128,8 +128,10 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
   const visit = (siblings: readonly Declaration[], parent: NodeId, parentName: string, depth: number): void => {
     const seen = new Map<string, number>();
     for (const declaration of [...siblings].sort((a, b) => a.start - b.start)) {
-      const ordinal = (seen.get(declaration.text) ?? 0) + 1;
-      seen.set(declaration.text, ordinal);
+      // Constants count apart, so one never moves the ordinal of a function or class of the same name.
+      const key = declaration.level === "constant" ? `\0${declaration.text}` : declaration.text;
+      const ordinal = (seen.get(key) ?? 0) + 1;
+      seen.set(key, ordinal);
       const name = qualifiedName(parentName, declaration.text, ordinal);
       const id = nodeId(declaration.level, path, name);
       nodes.push({

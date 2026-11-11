@@ -116,7 +116,7 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
         : move.type.name.includes("* from") || move.type.name.includes("export=")
           ? "all"
           : [...new Set([move.type.name, move.type.name.split(".")[0]!])];
-    items.push({ kind: "contract", label: `${name} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
+    items.push({ kind: "contract", label: `${name}${move.exportName === undefined ? "" : ` as ${move.exportName}`} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
   }
 
   /** Effects by test-ness, new or changed, resource and target: one item each, its radius the union of its holders'. */

@@ -23,6 +23,24 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return current;
 }
 
+const isCodeNode = (node: ts.Node | undefined): boolean => node !== undefined && !ts.isVariableDeclaration(node) && !ts.isBindingElement(node);
+
+/** The variables a declaration binds: the declaration itself for a plain name, each bound name of a destructuring pattern. */
+function variableTargets(declaration: ts.VariableDeclaration): { readonly node: ts.VariableDeclaration | ts.BindingElement; readonly name: string }[] {
+  if (ts.isIdentifier(declaration.name)) return [{ node: declaration, name: declaration.name.text }];
+  const found: { node: ts.BindingElement; name: string }[] = [];
+  const walk = (pattern: ts.BindingName): void => {
+    if (ts.isIdentifier(pattern)) return;
+    for (const element of pattern.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      if (ts.isIdentifier(element.name)) found.push({ node: element, name: element.name.text });
+      else walk(element.name);
+    }
+  };
+  walk(declaration.name);
+  return found;
+}
+
 const isCodeValue = (expression: ts.Expression): expression is ts.FunctionExpression | ts.ArrowFunction | ts.ClassExpression =>
   ts.isFunctionExpression(expression) || ts.isArrowFunction(expression) || ts.isClassExpression(expression);
 
@@ -58,9 +76,10 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
       if (statement.name !== undefined) locals.set(statement.name.text, statement);
     } else if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
+        if (hasModifier(statement, ts.SyntaxKind.DeclareKeyword)) continue;
         const value = declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
-        if (!ts.isIdentifier(declaration.name) || hasModifier(statement, ts.SyntaxKind.DeclareKeyword)) continue;
-        locals.set(declaration.name.text, value !== undefined && isCodeValue(value) ? value : declaration);
+        if (ts.isIdentifier(declaration.name) && value !== undefined && isCodeValue(value)) locals.set(declaration.name.text, value);
+        else for (const target of variableTargets(declaration)) locals.set(target.name, target.node);
       }
     }
   }
@@ -74,6 +93,14 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
   const markLocal = (name: string, as: string): void => {
     const node = locals.get(name);
     if (node !== undefined) mark(node, as);
+  };
+  // An export of a value that is not code is itself the export: a constant named `as`. A function
+  // or class it names is exported under that name instead, as before; a constant it names is not
+  // exported, so one export is one contract.
+  const markBinding = (value: ts.Expression, constant: ts.Node, as: string): void => {
+    if (isCodeValue(value)) mark(value, as);
+    else if (ts.isIdentifier(value) && isCodeNode(locals.get(value.text))) markLocal(value.text, as);
+    else mark(constant, as);
   };
   const markValue = (expression: ts.Expression, objects: boolean, as: string): void => {
     const value = unwrap(expression);
@@ -99,9 +126,9 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
       if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
       if (hasModifier(statement, ts.SyntaxKind.DeclareKeyword)) continue;
       for (const declaration of statement.declarationList.declarations) {
-        if (declaration.initializer !== undefined) markValue(declaration.initializer, false, ts.isIdentifier(declaration.name) ? declaration.name.text : "*");
         const value = declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
-        if (ts.isIdentifier(declaration.name) && (value === undefined || !isCodeValue(value))) mark(declaration, declaration.name.text);
+        if (ts.isIdentifier(declaration.name) && value !== undefined) markBinding(value, declaration, declaration.name.text);
+        else for (const target of variableTargets(declaration)) mark(target.node, target.name);
       }
     } else if (ts.isExportAssignment(statement)) {
       markValue(statement.expression, true, statement.isExportEquals === true ? "*" : "default");
@@ -126,8 +153,7 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
           const as = name.slice(name.lastIndexOf(".") + 1);
           // An ES importer's `default` is the whole CommonJS module, so every export answers to it.
           for (const exportedName of [as, "default"]) {
-            markValue(value, false, exportedName);
-            if (!isCodeValue(value) && !ts.isIdentifier(value)) mark(assignment, exportedName);
+            markBinding(value, assignment, exportedName);
           }
         }
       }
@@ -152,14 +178,32 @@ function isPrimitiveLiteral(value: ts.Expression): boolean {
   );
 }
 
-const isAsConst = (expression: ts.Expression): boolean => {
+/** Looks through parentheses, `satisfies`, `!` and assertions for an `as const`. */
+function hasAsConst(expression: ts.Expression): boolean {
   let current = expression;
-  while (ts.isParenthesizedExpression(current)) current = current.expression;
-  return ts.isAsExpression(current) && ts.isTypeReferenceNode(current.type) && current.type.typeName.getText() === "const";
-};
+  for (;;) {
+    if (ts.isAsExpression(current) && ts.isTypeReferenceNode(current.type) && current.type.typeName.getText() === "const") return true;
+    if (!(ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isSatisfiesExpression(current) || ts.isNonNullExpression(current) || ts.isTypeAssertionExpression(current))) return false;
+    current = current.expression;
+  }
+}
 
-/** What kind of value an initializer is, when nothing else is written down about it. */
-function kindOf(value: ts.Expression): string {
+/** The type of the outermost non-const assertion (`x as T`, `<T>x`), which is the type the value is exported at. */
+function assertedType(expression: ts.Expression): ts.TypeNode | undefined {
+  let current = expression;
+  while (ts.isParenthesizedExpression(current) || ts.isSatisfiesExpression(current) || ts.isNonNullExpression(current) || ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
+    if ((ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) && !(ts.isTypeReferenceNode(current.type) && current.type.typeName.getText() === "const")) return current.type;
+    current = current.expression;
+  }
+  return undefined;
+}
+
+/**
+ * What kind of value an initializer is, for the ones whose changes show as an altered block
+ * anyway: an object or array not written `as const`, a call, a `new`, a function or class. Any
+ * other expression has no kind, and its signature is its own text.
+ */
+function kindOf(value: ts.Expression): string | undefined {
   if (ts.isObjectLiteralExpression(value)) return "object";
   if (ts.isArrayLiteralExpression(value)) return "array";
   if (ts.isCallExpression(value)) return "call";
@@ -167,39 +211,41 @@ function kindOf(value: ts.Expression): string {
   if (ts.isArrowFunction(value)) return "arrow function";
   if (ts.isFunctionExpression(value)) return "function";
   if (ts.isClassExpression(value)) return "class";
-  if (ts.isTemplateExpression(value) || ts.isTaggedTemplateExpression(value)) return "template";
   if (ts.isIdentifier(value)) return "identifier";
-  if (ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value)) return "member access";
-  if (ts.isAwaitExpression(value)) return "await";
-  if (ts.isConditionalExpression(value)) return "conditional";
-  if (ts.isBinaryExpression(value)) return "expression";
-  return "expression";
+  return undefined;
+}
+
+/** Tokens with layout and comments gone; a trailing comma after an element goes, a comma that makes an array hole stays. */
+function literalTokens(expression: ts.Node, file: ts.SourceFile): string[] {
+  return tokensOf(expression, file).filter((token, index, all) => !(token === "," && (all[index + 1] === "}" || all[index + 1] === "]") && all[index - 1] !== "," && all[index - 1] !== "["));
 }
 
 /**
  * The signature of an exported constant, the first of these that applies: its declared type
- * annotation; its initializer's text as written when that is a primitive literal; the text of an
- * `as const` object or array literal, laid out the way type text is; otherwise the kind of
- * initializer ("object", "array", "call", ...), so a change inside it is an altered block and not
- * a contract move. A variable with neither type nor initializer reads "uninitialised".
+ * annotation (or the type it is asserted at); its initializer's text as written when that is a
+ * primitive literal; the text of an `as const` object or array literal, laid out the way type
+ * text is; the kind of initializer ("object", "array", "call", ...) when a change inside it shows
+ * as an altered block and not as a contract move; otherwise the initializer's own text, so no
+ * change to something unreadable goes unseen. A destructured name reads "destructured".
  */
-export function constantSignature(node: ts.VariableDeclaration | ts.BinaryExpression, file: ts.SourceFile): string {
-  const type = ts.isVariableDeclaration(node) ? node.type : undefined;
+export function constantSignature(node: ts.VariableDeclaration | ts.BindingElement | ts.BinaryExpression, file: ts.SourceFile): string {
+  const declaration = ts.isBindingElement(node) ? ts.walkUpBindingElementsAndPatterns(node) : node;
+  const type = ts.isBinaryExpression(declaration) ? undefined : declaration.type;
   if (type !== undefined) return renderSignature(tokensOf(type, file));
-  const initializer = ts.isVariableDeclaration(node) ? node.initializer : node.right;
+  if (ts.isBindingElement(node)) return "destructured";
+  const initializer = ts.isVariableDeclaration(node) ? node.initializer : (node as ts.BinaryExpression).right;
   if (initializer === undefined) return "uninitialised";
+  const asserted = assertedType(initializer);
+  if (asserted !== undefined) return renderSignature(tokensOf(asserted, file));
   const value = unwrap(initializer);
   if (isPrimitiveLiteral(value)) return value.getText(file);
-  if (isAsConst(initializer) && (ts.isObjectLiteralExpression(value) || ts.isArrayLiteralExpression(value))) {
-    const tokens = tokensOf(value, file).filter((token, index, all) => !(token === "," && (all[index + 1] === "}" || all[index + 1] === "]")));
-    return renderSignature(tokens);
-  }
-  return kindOf(value);
+  if (hasAsConst(initializer) && (ts.isObjectLiteralExpression(value) || ts.isArrayLiteralExpression(value))) return renderSignature(literalTokens(value, file));
+  return kindOf(value) ?? literalTokens(value, file).join(" ");
 }
 
 /** A constant as the outline records it: the node it is, what to name it, and the node whose text it spans. */
 export interface ConstantSite {
-  readonly node: ts.VariableDeclaration | ts.BinaryExpression;
+  readonly node: ts.VariableDeclaration | ts.BindingElement | ts.BinaryExpression;
   readonly text: string;
   readonly span: ts.Node;
 }
@@ -211,9 +257,12 @@ export interface ConstantSite {
 export function constantSites(exported: ReadonlyMap<ts.Node, readonly string[]>, file: ts.SourceFile): ConstantSite[] {
   const sites: ConstantSite[] = [];
   for (const node of exported.keys()) {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      const statement = node.parent.parent;
-      sites.push({ node, text: node.name.text, span: ts.isVariableStatement(statement) && (node.parent as ts.VariableDeclarationList).declarations.length === 1 ? statement : node });
+    if (ts.isVariableDeclaration(node) || ts.isBindingElement(node)) {
+      const declaration = ts.isBindingElement(node) ? ts.walkUpBindingElementsAndPatterns(node) : node;
+      const statement = declaration.parent.parent;
+      const lone = ts.isVariableStatement(statement) && (declaration.parent as ts.VariableDeclarationList).declarations.length === 1;
+      const name = (node.name as ts.Identifier).text;
+      sites.push({ node, text: name, span: lone ? statement : declaration });
     } else if (ts.isBinaryExpression(node)) {
       const statement = node.parent;
       sites.push({ node, text: chainText(node.left) ?? node.left.getText(file), span: ts.isExpressionStatement(statement) ? statement : node });

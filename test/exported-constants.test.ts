@@ -79,7 +79,7 @@ test("the signature reads: annotation, then literal, then as-const text, then th
     k: "array",
     l: "call",
     m: "new",
-    n: "template",
+    n: "`x${ y }`",
     o: "uninitialised",
   });
   expect(found.every((node) => node.exported)).toBe(true);
