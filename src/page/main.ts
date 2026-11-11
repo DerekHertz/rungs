@@ -241,7 +241,7 @@ function showCity(root: NodeId): void {
   const city = cityOf(picture, root);
   buildings = new Map(city.buildings.map((building) => [building.id, building]));
   if (townView !== undefined && sheet !== undefined) {
-    const town = townOf(graph, new Set(Object.keys(sheet.sizes)));
+    const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)));
     townView.show(town);
     showTownLegend(town);
   } else {
