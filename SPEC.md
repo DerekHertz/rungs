@@ -63,6 +63,7 @@ Each level is computed from the one below it. Only the graph is stored; the rest
   `peerDependencies` and `optionalDependencies`: each one's name, the range written and its list.
   They are read from `package.json` only, never from a lockfile.
 - **Edges:** calls, imports, type references and effects, each pinned to file and line ranges.
+  An import edge also records the export names it takes and, for `export ... from`, the names it passes on.
 - **Effects** are found with a hand-maintained catalog of declarations, starting with the
   runtime's built-ins and versioned with the extractor.
 - **An altered effect** is one whose call kept its owner, resource and target but whose own
@@ -153,8 +154,11 @@ altered, removed or moved. Moved means identical text under a new path, never a 
 
 **Risks.** The panel opens on risks, ranked by what could break, all derived:
 
-1. Contracts moved, each with its blast radius: the files that rest on it through import edges,
-   directly or indirectly, counted, with the list behind the number.
+1. Contracts moved, each with its blast radius: the files that rest on that export through import
+   edges, directly or indirectly, counted, with the list behind the number. An import edge records
+   the names it takes (named, default, all for `* as ns`, none for a side-effect import), so a
+   changed export counts the files that import that name, or all of the file, directly or through
+   re-exports, and the files resting on those. A use the extractor cannot name counts as all.
 2. New or changed effects that reach a process, the file system or the network, by target.
 3. Tests weakened, removed or skipped, and base test files the change edited.
 4. Dependency changes.

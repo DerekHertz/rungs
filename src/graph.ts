@@ -76,6 +76,8 @@ export interface CodeNode extends NodeBase {
   readonly digest: string;
   /** True when the file exports this node from its top level. Methods and nested code never are. */
   readonly exported: boolean;
+  /** The names the file exports it under, set when exported; `*` stands for any name (`module.exports = ...`). */
+  readonly exportedAs?: readonly string[];
   /**
    * The signature as written, whitespace and comments normalised away so reformatting is not a
    * change. A function: modifiers, type parameters, parameter list, return type annotation. A
@@ -218,6 +220,20 @@ export type ImportSyntax = "import" | "export from" | "require" | "import()";
  */
 export type ImportTarget = { readonly file: NodeId } | { readonly external: string } | { readonly unresolved: true; readonly reason?: string };
 
+/**
+ * The exports an import takes from its target, as the target names them: `default`, each named
+ * one, or "all" for `* as ns`, a module bound whole, `export *`, or any use the code does not
+ * spell out (a non-literal key, a rest element). A side-effect import takes none.
+ */
+export type ImportedNames = readonly string[] | "all";
+
+/**
+ * What an `export ... from` passes on: "star" for `export *` (every name but `default`, under its
+ * own name), or each `name` taken and the name it is `as` exported under; the name `*` is
+ * `export * as ns`, which passes the whole module on as `ns`.
+ */
+export type ImportReexports = "star" | readonly { readonly name: string; readonly as: string }[];
+
 /** One static import, `export ... from`, or `require` / `import()` of a string literal, pinned to its lines. */
 export interface ImportEdge {
   /** The file node that holds it. */
@@ -228,6 +244,10 @@ export interface ImportEdge {
   /** `import type` and `export type ... from`: erased before the code runs. */
   readonly typeOnly: boolean;
   readonly target: ImportTarget;
+  /** The exports it takes from the target; see ImportedNames. */
+  readonly names: ImportedNames;
+  /** Only on `export ... from`: what it passes on to the file's own importers. */
+  readonly reexports?: ImportReexports;
   readonly range: LineRange;
 }
 
@@ -246,6 +266,8 @@ export function canonicalImport(edge: ImportEdge): object {
     syntax: edge.syntax,
     typeOnly: edge.typeOnly,
     target: edge.target,
+    names: edge.names,
+    ...(edge.reexports === undefined ? {} : { reexports: edge.reexports }),
     range: { start: edge.range.start, end: edge.range.end },
   };
 }
@@ -383,6 +405,7 @@ export function canonicalNode(node: ModuleNode): object {
         range: { start: node.range.start, end: node.range.end },
         digest: node.digest,
         exported: node.exported,
+        ...(node.exportedAs === undefined ? {} : { exportedAs: node.exportedAs }),
         signature: node.signature,
       };
   }

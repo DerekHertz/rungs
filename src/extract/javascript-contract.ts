@@ -46,9 +46,11 @@ function chainText(target: ts.Expression): string | undefined {
  * `export default`, `export { f }` and `export = f`, and in plain JavaScript `module.exports = ...`,
  * `module.exports.f = ...` and `exports.f = ...`. A name resolves only to a top-level function or
  * class declaration, or a top-level variable initialised with a function or class expression.
- * Exported bindings that are not functions or classes are left out.
+ * Exported bindings that are not functions or classes are left out. Each node comes with the
+ * names it is exported under: `default`, the name a specifier or `exports.f` gives, or `*` when
+ * any name may reach it (`module.exports = ...`, `export =`).
  */
-export function exportedNodes(file: ts.SourceFile): ReadonlySet<ts.Node> {
+export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonly string[]> {
   const locals = new Map<string, ts.Node>();
   for (const statement of file.statements) {
     if ((ts.isFunctionDeclaration(statement) && statement.body !== undefined) || ts.isClassDeclaration(statement)) {
@@ -63,20 +65,25 @@ export function exportedNodes(file: ts.SourceFile): ReadonlySet<ts.Node> {
     }
   }
 
-  const exported = new Set<ts.Node>();
-  const markLocal = (name: string): void => {
-    const node = locals.get(name);
-    if (node !== undefined) exported.add(node);
+  const exported = new Map<ts.Node, string[]>();
+  const mark = (node: ts.Node, as: string): void => {
+    const names = exported.get(node) ?? [];
+    if (!names.includes(as)) names.push(as);
+    exported.set(node, names);
   };
-  const markValue = (expression: ts.Expression, objects: boolean): void => {
+  const markLocal = (name: string, as: string): void => {
+    const node = locals.get(name);
+    if (node !== undefined) mark(node, as);
+  };
+  const markValue = (expression: ts.Expression, objects: boolean, as: string): void => {
     const value = unwrap(expression);
-    if (isCodeValue(value)) exported.add(value);
-    else if (ts.isIdentifier(value)) markLocal(value.text);
+    if (isCodeValue(value)) mark(value, as);
+    else if (ts.isIdentifier(value)) markLocal(value.text, as);
     else if (objects && ts.isObjectLiteralExpression(value)) {
       for (const property of value.properties) {
-        if (ts.isShorthandPropertyAssignment(property)) markLocal(property.name.text);
-        else if (ts.isPropertyAssignment(property)) markValue(property.initializer, false);
-        else if (ts.isMethodDeclaration(property) || ts.isAccessor(property)) exported.add(property);
+        if (ts.isShorthandPropertyAssignment(property)) markLocal(property.name.text, as);
+        else if (ts.isPropertyAssignment(property)) markValue(property.initializer, false, as);
+        else if (ts.isMethodDeclaration(property) || ts.isAccessor(property)) mark(property, as);
       }
     }
   };
@@ -84,20 +91,22 @@ export function exportedNodes(file: ts.SourceFile): ReadonlySet<ts.Node> {
   for (const statement of file.statements) {
     if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
       if (hasModifier(statement, ts.SyntaxKind.ExportKeyword) && !hasModifier(statement, ts.SyntaxKind.DeclareKeyword)) {
-        if (!ts.isFunctionDeclaration(statement) || statement.body !== undefined) exported.add(statement);
+        if (!ts.isFunctionDeclaration(statement) || statement.body !== undefined) {
+          mark(statement, hasModifier(statement, ts.SyntaxKind.DefaultKeyword) ? "default" : (statement.name?.text ?? "default"));
+        }
       }
     } else if (ts.isVariableStatement(statement)) {
       if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
       for (const declaration of statement.declarationList.declarations) {
-        if (declaration.initializer !== undefined) markValue(declaration.initializer, false);
+        if (declaration.initializer !== undefined) markValue(declaration.initializer, false, ts.isIdentifier(declaration.name) ? declaration.name.text : "*");
       }
     } else if (ts.isExportAssignment(statement)) {
-      markValue(statement.expression, true);
+      markValue(statement.expression, true, statement.isExportEquals === true ? "*" : "default");
     } else if (ts.isExportDeclaration(statement)) {
       const clause = statement.exportClause;
       if (statement.moduleSpecifier !== undefined || statement.isTypeOnly || clause === undefined || !ts.isNamedExports(clause)) continue;
       for (const specifier of clause.elements) {
-        if (!specifier.isTypeOnly) markLocal((specifier.propertyName ?? specifier.name).text);
+        if (!specifier.isTypeOnly) markLocal((specifier.propertyName ?? specifier.name).text, specifier.name.text);
       }
     } else if (ts.isExpressionStatement(statement)) {
       const targets: string[] = [];
@@ -107,8 +116,10 @@ export function exportedNodes(file: ts.SourceFile): ReadonlySet<ts.Node> {
         if (target !== undefined) targets.push(target);
         value = unwrap(value.right);
       }
-      if (targets.includes("module.exports")) markValue(value, true);
-      else if (targets.some((target) => /^(module\.)?exports\.[^.]+$/.test(target))) markValue(value, false);
+      if (targets.includes("module.exports")) markValue(value, true, "*");
+      else {
+        for (const target of targets) if (/^(module\.)?exports\.[^.]+$/.test(target)) markValue(value, false, target.slice(target.lastIndexOf(".") + 1));
+      }
     }
   }
   return exported;

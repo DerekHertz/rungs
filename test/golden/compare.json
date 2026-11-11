@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "17",
+  "extractorVersion": "18",
   "changes": [
     {
       "kind": "added",
@@ -314,6 +314,9 @@
         },
         "digest": "e899a2594bd5311cb7652bbc7f02ec7c",
         "exported": true,
+        "exportedAs": [
+          "Gadget"
+        ],
         "signature": "()"
       }
     },
@@ -332,6 +335,9 @@
         },
         "digest": "4726333faa03d21d74696b722e265659",
         "exported": true,
+        "exportedAs": [
+          "*"
+        ],
         "signature": "()"
       },
       "from": {
@@ -347,6 +353,9 @@
         },
         "digest": "4726333faa03d21d74696b722e265659",
         "exported": true,
+        "exportedAs": [
+          "*"
+        ],
         "signature": "()"
       }
     },
@@ -365,6 +374,9 @@
         },
         "digest": "d968824e6bd58fce6e66666945afc002",
         "exported": true,
+        "exportedAs": [
+          "save"
+        ],
         "signature": "async (path, data)"
       },
       "before": {
@@ -380,6 +392,9 @@
         },
         "digest": "6550a4357f8dfe6f65c2a4f7fb4cd474",
         "exported": true,
+        "exportedAs": [
+          "save"
+        ],
         "signature": "async (path, data)"
       }
     },
@@ -398,6 +413,9 @@
         },
         "digest": "032dfd5d737f7581329c41993275ad64",
         "exported": true,
+        "exportedAs": [
+          "serve"
+        ],
         "signature": "(port)"
       },
       "before": {
@@ -413,6 +431,9 @@
         },
         "digest": "bd93b03f1fef262fc99760463e30ae45",
         "exported": true,
+        "exportedAs": [
+          "serve"
+        ],
         "signature": "(port)"
       }
     },
@@ -431,6 +452,9 @@
         },
         "digest": "b714079a4c56f5fdfefaec0f790f5a0a",
         "exported": true,
+        "exportedAs": [
+          "tag"
+        ],
         "signature": "(name)"
       }
     },
@@ -449,6 +473,9 @@
         },
         "digest": "6f6182f080fc5be91a28fab1cd026f75",
         "exported": true,
+        "exportedAs": [
+          "main"
+        ],
         "signature": "(): number"
       }
     },
@@ -467,6 +494,9 @@
         },
         "digest": "0331b57eeaf75580e4be36f366f07f69",
         "exported": true,
+        "exportedAs": [
+          "main"
+        ],
         "signature": "(): number"
       }
     },
@@ -485,6 +515,9 @@
         },
         "digest": "114b279c606006a7d6314947da1a94d0",
         "exported": true,
+        "exportedAs": [
+          "double"
+        ],
         "signature": "(n: number): number"
       },
       "from": {
@@ -500,6 +533,9 @@
         },
         "digest": "114b279c606006a7d6314947da1a94d0",
         "exported": true,
+        "exportedAs": [
+          "double"
+        ],
         "signature": "(n: number): number"
       }
     },
@@ -518,6 +554,9 @@
         },
         "digest": "adebcd9971b55e7b771448b123240b76",
         "exported": true,
+        "exportedAs": [
+          "format"
+        ],
         "signature": "(n: number): string"
       }
     },
@@ -536,6 +575,9 @@
         },
         "digest": "8efccf5a62d0a8c95f65e002151799c6",
         "exported": true,
+        "exportedAs": [
+          "add"
+        ],
         "signature": "(a: number, b: number): number"
       },
       "before": {
@@ -551,6 +593,9 @@
         },
         "digest": "445deb8dc986398848dfa385a0b10fbe",
         "exported": true,
+        "exportedAs": [
+          "add"
+        ],
         "signature": "(a: number, b: number): number"
       }
     },
@@ -569,6 +614,9 @@
         },
         "digest": "5d4a11a2e4af6235826ccb82d6089787",
         "exported": true,
+        "exportedAs": [
+          "sub"
+        ],
         "signature": "(a: number, b: number): number"
       }
     },
@@ -675,6 +723,9 @@
         "target": {
           "file": "file:src/util/math.ts"
         },
+        "names": [
+          "add"
+        ],
         "range": {
           "start": 1,
           "end": 1
@@ -691,6 +742,9 @@
         "target": {
           "file": "file:src/util/math.ts"
         },
+        "names": [
+          "add"
+        ],
         "range": {
           "start": 1,
           "end": 1

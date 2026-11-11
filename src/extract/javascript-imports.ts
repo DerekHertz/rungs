@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import ts from "typescript";
 import type { ImportSite, ImportSiteTarget } from "./adapters.ts";
-import type { FileTree, ImportSyntax } from "../graph.ts";
+import type { FileTree, ImportReexports, ImportSyntax, ImportedNames } from "../graph.ts";
 
 // The tree is mounted here, not at "/", so a path that climbs out of it stays outside: the
 // host answers "no such file" for anything not under this root, where "/" would clamp it back in.
@@ -235,6 +235,71 @@ function explicitMode(attributes: ts.ImportAttributes | undefined): ResolutionMo
   return undefined;
 }
 
+const nameOf = (name: ts.ModuleExportName | ts.PropertyName): string | undefined =>
+  ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isPrivateIdentifier(name) ? name.text : undefined;
+
+const unique = (names: readonly string[]): string[] => [...new Set(names)].sort();
+
+/** The names an `import` declaration takes from the module: `default`, each named one, all for `* as ns`, none for a bare import. */
+function importedNames(node: ts.ImportDeclaration): ImportedNames {
+  const clause = node.importClause;
+  if (clause === undefined) return [];
+  const names: string[] = clause.name === undefined ? [] : ["default"];
+  const bindings = clause.namedBindings;
+  if (bindings !== undefined) {
+    if (ts.isNamespaceImport(bindings)) return "all";
+    for (const element of bindings.elements) names.push(nameOf(element.propertyName ?? element.name) ?? "*");
+  }
+  return names.includes("*") ? "all" : unique(names);
+}
+
+/** What `export ... from` takes from the module and passes on. `export *` takes and passes all (never `default`). */
+function reexported(node: ts.ExportDeclaration): { names: ImportedNames; reexports: ImportReexports } {
+  const clause = node.exportClause;
+  if (clause === undefined) return { names: "all", reexports: "star" };
+  if (ts.isNamespaceExport(clause)) return { names: "all", reexports: [{ name: "*", as: nameOf(clause.name) ?? "*" }] };
+  const pairs = clause.elements.map((element) => ({ name: nameOf(element.propertyName ?? element.name) ?? "*", as: nameOf(element.name) ?? "*" }));
+  return {
+    names: pairs.some((pair) => pair.name === "*") ? "all" : unique(pairs.map((pair) => pair.name)),
+    reexports: pairs.sort((a, b) => (a.as < b.as ? -1 : a.as > b.as ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+  };
+}
+
+const bindingNames = (pattern: ts.ObjectBindingPattern): ImportedNames => {
+  const names: string[] = [];
+  for (const element of pattern.elements) {
+    const key = element.propertyName ?? element.name;
+    const name = element.dotDotDotToken === undefined && (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) ? key.text : undefined;
+    if (name === undefined) return "all";
+    names.push(name);
+  }
+  return unique(names);
+};
+
+/**
+ * The names a `require()` or `import()` call takes, where the code says so: a destructuring
+ * binding, a property read straight off the call, or none when the call stands alone as a
+ * statement. Anything else (the module bound to a name, passed on, awaited into a `.then`) is all.
+ */
+function calledNames(call: ts.Expression): ImportedNames {
+  let outer: ts.Node = call;
+  while (
+    ts.isParenthesizedExpression(outer.parent) ||
+    ts.isAwaitExpression(outer.parent) ||
+    ts.isAsExpression(outer.parent) ||
+    ts.isNonNullExpression(outer.parent) ||
+    ts.isSatisfiesExpression(outer.parent)
+  ) {
+    outer = outer.parent;
+  }
+  const parent = outer.parent;
+  if (ts.isExpressionStatement(parent)) return [];
+  if (ts.isVariableDeclaration(parent) && parent.initializer === outer && ts.isObjectBindingPattern(parent.name)) return bindingNames(parent.name);
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === outer) return nameOf(parent.name) === undefined ? "all" : [parent.name.text];
+  if (ts.isElementAccessExpression(parent) && parent.expression === outer && ts.isStringLiteralLike(parent.argumentExpression)) return [parent.argumentExpression.text];
+  return "all";
+}
+
 /**
  * Every static `import`, `export ... from`, `import x = require()`, and `require` or `import()`
  * whose argument is a string literal. `require` counts only when it is the global one: any
@@ -249,7 +314,9 @@ export function importSites(file: ts.SourceFile, checker: ts.TypeChecker, resolv
     syntax: ImportSyntax,
     mode: ResolutionMode,
     typeOnly: boolean,
-    attributes?: ts.ImportAttributes,
+    attributes: ts.ImportAttributes | undefined,
+    names: ImportedNames,
+    reexports?: ImportReexports,
   ): void => {
     if (spec === undefined || !ts.isStringLiteralLike(spec)) return;
     sites.push({
@@ -257,20 +324,25 @@ export function importSites(file: ts.SourceFile, checker: ts.TypeChecker, resolv
       syntax,
       typeOnly,
       target: resolver.resolve(spec.text, path, typeOnly ? (explicitMode(attributes) ?? mode) : mode),
+      names,
+      ...(reexports === undefined ? {} : { reexports }),
       start: node.getStart(file),
       end: node.end,
     });
   };
   const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node)) add(node, node.moduleSpecifier, "import", "esm", importIsTypeOnly(node), node.attributes);
-    else if (ts.isExportDeclaration(node)) add(node, node.moduleSpecifier, "export from", "esm", exportIsTypeOnly(node), node.attributes);
+    if (ts.isImportDeclaration(node)) add(node, node.moduleSpecifier, "import", "esm", importIsTypeOnly(node), node.attributes, importedNames(node));
+    else if (ts.isExportDeclaration(node)) {
+      const passed = reexported(node);
+      add(node, node.moduleSpecifier, "export from", "esm", exportIsTypeOnly(node), node.attributes, passed.names, passed.reexports);
+    }
     else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
-      add(node, node.moduleReference.expression, "import", "cjs", node.isTypeOnly);
+      add(node, node.moduleReference.expression, "import", "cjs", node.isTypeOnly, undefined, "all");
     } else if (ts.isCallExpression(node) && node.arguments.length > 0) {
       const callee = node.expression;
-      if (callee.kind === ts.SyntaxKind.ImportKeyword) add(node, node.arguments[0], "import()", "esm", false);
+      if (callee.kind === ts.SyntaxKind.ImportKeyword) add(node, node.arguments[0], "import()", "esm", false, undefined, calledNames(node));
       else if (ts.isIdentifier(callee) && callee.text === "require" && (checker.getSymbolAtLocation(callee)?.declarations ?? []).length === 0) {
-        add(node, node.arguments[0], "require", "cjs", false);
+        add(node, node.arguments[0], "require", "cjs", false, undefined, calledNames(node));
       }
     }
     node.forEachChild(visit);
