@@ -2,6 +2,7 @@ import { LOCKFILE_NAMES, RESOURCE_ORDER, isCodeNode, lineCount, nodeId, targetTe
 import type { CodeLevel, EffectTarget, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
 import type { DependencyChange } from "./dependencies.ts";
 import { resourceKindOf } from "./effects.ts";
+import { typeChange } from "./type-change.ts";
 import type { ChangedEffect } from "./effects.ts";
 import type { SectionChange } from "./sections.ts";
 import type { ChangeKind, Comparison, ContractMove, ContractMoveKind, ModuleChange, Tally } from "./compare.ts";
@@ -473,6 +474,8 @@ export interface ContractRow {
   readonly level: CodeLevel | "interface" | "type" | "re-export";
   /** No claim covers the change to this node. */
   readonly unmentioned: boolean;
+  /** A changed interface or type alias: one line per member, union arm or clause that was added, removed or changed. Null when its text cannot be read apart, so the whole before and after is shown instead. */
+  readonly members?: readonly string[] | null;
 }
 
 /** Many added or moved exports of one file, kept to one row so the changed ones stay on screen. */
@@ -532,7 +535,8 @@ export function contractsReport(
     const node = nodeOf.get(move.id);
     if (move.type !== undefined) {
       counts[move.kind] += 1;
-      rows.push({ kind: "row", move, id: move.id, label: move.type.name, path: node?.path ?? move.id.replace(/^file:/, ""), level: move.type.kind, unmentioned: unmentionedSet.has(move.id) });
+      const members = move.kind === "changed" && move.before !== null && move.after !== null ? typeChange(move.before, move.after) : undefined;
+      rows.push({ kind: "row", move, id: move.id, label: move.type.name, path: node?.path ?? move.id.replace(/^file:/, ""), level: move.type.kind, unmentioned: unmentionedSet.has(move.id), ...(members === undefined ? {} : { members: members === null || members.length === 0 ? null : members }) });
       continue;
     }
     if (node === undefined || !isCodeNode(node)) continue;
