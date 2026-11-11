@@ -92,8 +92,10 @@ export function diffSections(base: Graph, head: Graph, pairs: readonly FilePair[
       // Too large to diff: what the two sides share at their start and end is unchanged, and the
       // middle between is credited to the sections it overlaps. A section whose own text is the
       // same on both sides is never changed, whatever the middle overlaps.
-      const a = splitLines(baseText);
-      const b = splitLines(headText);
+      // A last line with no "\n" after it differs from the same line with one, as diffText counts it.
+      const open = (lines: string[], text: string): string[] => (text !== "" && !text.endsWith("\n") ? [...lines.slice(0, -1), `${lines.at(-1)}\u0000no newline at end of file`] : lines);
+      const a = open(splitLines(baseText), baseText);
+      const b = open(splitLines(headText), headText);
       let top = 0;
       while (top < a.length && top < b.length && a[top] === b[top]) top++;
       let bottom = 0;
