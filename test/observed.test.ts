@@ -44,9 +44,9 @@ test("node's events become reports with each test's suite path, suites themselve
   const lines = [
     { type: "test:pass", file: "test/a.test.mjs", name: "one", nesting: 1, kind: "test", ms: 0.5 },
     { type: "test:fail", file: "test/a.test.mjs", name: "two", nesting: 2, kind: "test", ms: 0.25, error: "boom" },
-    { type: "test:fail", file: "test/a.test.mjs", name: "inner", nesting: 1, kind: "suite", ms: 1, error: "1 subtest failed" },
+    { type: "test:fail", file: "test/a.test.mjs", name: "inner", nesting: 1, kind: "suite", ms: 1, error: "1 subtest failed", failure: "subtestsFailed" },
     { type: "test:pass", file: "test/b.test.mjs", name: "lone", nesting: 0, kind: "test", ms: 3 },
-    { type: "test:fail", file: "test/a.test.mjs", name: "outer", nesting: 0, kind: "suite", ms: 2, error: "1 subtest failed" },
+    { type: "test:fail", file: "test/a.test.mjs", name: "outer", nesting: 0, kind: "suite", ms: 2, error: "1 subtest failed", failure: "subtestsFailed" },
     { type: "test:pass", file: "test/a.test.mjs", name: "sub", nesting: 1, kind: "test", ms: 0.1 },
     { type: "test:pass", file: "test/a.test.mjs", name: "top", nesting: 0, kind: "test", ms: 1.2 },
     { type: "test:pass", file: "test/a.test.mjs", name: "skipped", nesting: 0, kind: "test", ms: 0.1, skip: true },
@@ -60,6 +60,20 @@ test("node's events become reports with each test's suite path, suites themselve
     { file: "test/a.test.mjs", path: ["top"], outcome: "pass", ms: 1.2 },
     { file: "test/a.test.mjs", path: ["skipped"], outcome: "skip", ms: 0.1 },
     { file: "test/a.test.mjs", path: ["later"], outcome: "skip", ms: 0.1 },
+  ]);
+});
+
+test("a suite that failed on its own, in a hook, is a failure of its own and is not dropped; one that only holds a failed test is not counted twice", () => {
+  const lines = [
+    { type: "test:pass", file: "a.test.mjs", name: "passes", nesting: 1, kind: "test", ms: 1 },
+    { type: "test:fail", file: "a.test.mjs", name: "suite", nesting: 0, kind: "suite", ms: 2, error: "after hook broke" },
+    { type: "test:fail", file: "b.test.mjs", name: "fails", nesting: 1, kind: "test", ms: 1, error: "no" },
+    { type: "test:fail", file: "b.test.mjs", name: "holder", nesting: 0, kind: "suite", ms: 2, error: "1 subtest failed", failure: "subtestsFailed" },
+  ];
+  expect(parseNodeEvents(lines.map((line) => JSON.stringify(line)).join("\n"))).toEqual<TestReport[]>([
+    { file: "a.test.mjs", path: ["suite", "passes"], outcome: "pass", ms: 1 },
+    { file: "a.test.mjs", path: ["suite"], outcome: "fail", ms: 2, message: "after hook broke", suite: true },
+    { file: "b.test.mjs", path: ["holder", "fails"], outcome: "fail", ms: 1, message: "no" },
   ]);
 });
 

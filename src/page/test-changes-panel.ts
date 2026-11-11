@@ -2,7 +2,7 @@ import type { TestChanges } from "../test-changes-types.ts";
 import { element } from "./review-panel.ts";
 
 /** What the panel says for each kind of change; the heading says "derived", since nothing ran. */
-const MARKER_TEXT = { skip: "skipped", todo: "marked todo", only: "marked only (the rest of the file is skipped)" } as const;
+const MARKER_TEXT = { skip: "skipped", todo: "marked todo", only: "given a focus marker (.only), which does nothing to other tests unless the runner is told to honour it" } as const;
 
 /** The derived facts of what a change did to the tests, or null when it did nothing to them. */
 export function testChangesBlock(changes: TestChanges): HTMLElement | null {

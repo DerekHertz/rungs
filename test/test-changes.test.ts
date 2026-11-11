@@ -15,6 +15,16 @@ describe("files", () => {
     expect(testChanges(base, tree({ "src/a.ts": "export {};\n" }))).toMatchObject({ deletedFiles: [{ path: T, tests: 2 }] });
   });
 
+  test("identical files do not hide a deletion: a move pairs one deleted file with one added file", () => {
+    const text = file('test("one", () => { assert.equal(1, 1 + 0); });');
+    const result = testChanges(tree({ "test/a.test.mjs": text, "test/b.test.mjs": text }), tree({ "test/b.test.mjs": text }));
+    expect(result.deletedFiles).toEqual([{ path: "test/a.test.mjs", tests: 1 }]);
+    const moved = testChanges(tree({ "test/a.test.mjs": text, "test/b.test.mjs": text }), tree({ "test/b.test.mjs": text, "test/c.test.mjs": text }));
+    expect(moved.deletedFiles).toEqual([]);
+    const twice = testChanges(tree({ "test/a.test.mjs": text, "test/b.test.mjs": text }), tree({ "test/c.test.mjs": text }));
+    expect(twice.deletedFiles).toHaveLength(1);
+  });
+
   test("a test file moved with its text unchanged is not deleted", () => {
     const text = file('test("one", () => { assert.equal(1, 1 + 0); });');
     expect(testChanges(tree({ [T]: text }), tree({ "test/b.test.mjs": text })).deletedFiles).toEqual([]);
@@ -82,6 +92,15 @@ describe("skip, todo and only", () => {
     expect(change(before, after).markers).toEqual([{ file: T, name: "s", marker: "skip" }]);
   });
 
+  test("a subtest of a node test is found by its name path, whatever the context is called", () => {
+    const before = file('test("parent", async (t) => { await t.test("child", () => { assert.equal(f(), 1); }); });');
+    const after = file('test("parent", async (t) => { await t.test("child", { skip: true }, () => { assert.equal(f(), 1); }); });');
+    expect(change(before, after).markers).toEqual([{ file: T, name: "parent > child", marker: "skip" }]);
+    expect(change(before, file('test("parent", async (ctx) => { await ctx.test.skip("child", () => { assert.equal(f(), 1); }); });')).markers).toEqual([{ file: T, name: "parent > child", marker: "skip" }]);
+    expect(change(before, file('test("parent", async (t) => {});')).removedTests).toEqual([{ file: T, name: "parent > child" }]);
+    expect(change(before, file('test("parent", async (t) => { await t.test("child", () => {}); });')).weakened).toEqual([{ file: T, name: "parent > child", why: "1 assertion became 0" }]);
+  });
+
   test("a skip that was already there is not new", () => {
     const text = file('test.skip("t", () => { assert.equal(f(), 1); });');
     expect(change(text, text).markers).toEqual([]);
@@ -131,10 +150,28 @@ describe("weakened tests", () => {
 
   test("an exact assertion swapped for a loose one", () => {
     const before = file('test("t", () => { assert.equal(f(), 1); });');
-    expect(change(before, file('test("t", () => { assert.ok(f()); });')).weakened).toEqual([{ file: T, name: "t", why: "1 assertion loosened (ok, toBeTruthy, toBeDefined or a bare assert)" }]);
+    expect(change(before, file('test("t", () => { assert.ok(f()); });')).weakened).toEqual([{ file: T, name: "t", why: "1 assertion loosened (ok, toBeTruthy, toBeDefined, a bare assert, or equal in place of strictEqual)" }]);
     expect(change(file('test("t", () => { expect(f()).toBe(1); });'), file('test("t", () => { expect(f()).toBeTruthy(); });')).weakened).toHaveLength(1);
     expect(change(file('test("t", () => { expect(f()).toBe(1); });'), file('test("t", () => { expect(f()).toBeDefined(); });')).weakened).toHaveLength(1);
     expect(change(before, file('test("t", () => { assert(f()); });')).weakened).toHaveLength(1);
+  });
+
+  test("a strict assertion swapped for its coercing twin is loosened", () => {
+    for (const [strict, legacy] of [["strictEqual", "equal"], ["deepStrictEqual", "deepEqual"], ["notStrictEqual", "notEqual"], ["notDeepStrictEqual", "notDeepEqual"]]) {
+      const head = `import assert from "node:assert";\n`;
+      const before = `${head}import { test } from "node:test";\ntest("t", () => { assert.${strict}(f(), 1); });\n`;
+      const after = `${head}import { test } from "node:test";\ntest("t", () => { assert.${legacy}(f(), 1); });\n`;
+      expect([strict, change(before, after).weakened.length]).toEqual([strict, 1]);
+    }
+  });
+
+  test("switching the import from node:assert/strict to node:assert loosens every equal in it", () => {
+    const body = 'test("t", () => { assert.equal(f(), 1); });';
+    const before = `import assert from "node:assert/strict";\nimport { test } from "node:test";\n${body}\n`;
+    const after = `import assert from "node:assert";\nimport { test } from "node:test";\n${body}\n`;
+    expect(change(before, after).weakened).toHaveLength(1);
+    expect(change(after, after).weakened).toEqual([]);
+    expect(change(after, before).weakened).toEqual([]);
   });
 
   test("a stricter or equal test is not weakened", () => {

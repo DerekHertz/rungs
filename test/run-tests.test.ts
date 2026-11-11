@@ -405,3 +405,17 @@ test("a PR that moves the test script from vitest to node --test does not get it
   const head = new Map([["package.json", manifest], ["test/a.test.mjs", `import { test } from "node:test";\ntest("x", () => {});\n`]]);
   expect(await runTests(vitest, head, new Set(), bwrap, 1000)).toEqual({ status: "unsupported", why: "vitest is chosen by the PR" });
 });
+
+test("a suite whose after hook throws is shown failing though every test in it passed", async () => {
+  const files = new Map([
+    ["package.json", manifest],
+    ["test/a.test.mjs", `import { after, describe, it } from "node:test";\ndescribe("suite", () => {\n  after(() => { throw new Error("teardown broke"); });\n  it("passes", () => {});\n});\n`],
+    ["test/b.test.mjs", `import { test } from "node:test";\ntest("fails", () => { throw new Error("no"); });\n`],
+  ]);
+  const run = await runTests(files, files, new Set(), bwrap, 60_000);
+  const doc = document(run, files);
+  expect(doc).toMatchObject({ status: "ran", counts: { pass: 1, fail: 2, skip: 0 } });
+  expect(doc.status === "ran" ? doc.unmatched : doc).toEqual([
+    expect.objectContaining({ file: "test/a.test.mjs", name: "suite", outcome: "fail", why: "the suite failed outside its tests (a hook or setup)", message: expect.stringContaining("teardown broke") }),
+  ]);
+});
