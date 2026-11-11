@@ -144,7 +144,8 @@ interface Camera {
 export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set(), reaches: ReadonlyMap<NodeId, Reach> = new Map(), testFiles: ReadonlyMap<NodeId, TestMark> = new Map()): TownView {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
-  canvas.setAttribute("aria-label", "Town of the repository");
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", "Town of the repository: one building per file. Press / to find a file by its path.");
   host.prepend(canvas);
   const ctx = canvas.getContext("2d")!;
 

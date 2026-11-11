@@ -7,6 +7,7 @@ import type { Stop } from "../tour.ts";
 import { changeNote, drawRows, markRows } from "./code-rows.ts";
 import type { Drawn, Loaded } from "./code-rows.ts";
 import { element } from "./review-panel.ts";
+import { outcomeMark } from "./observed-panel.ts";
 
 export interface WalkInput {
   readonly note: WalkNote;
@@ -182,7 +183,6 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
       changes();
       return rows;
     }
-    const mark = (outcome: StopTest["outcome"]): string => (outcome === "fail" ? "✗" : outcome === "pass" ? "✓" : "·");
     const list = (tests: readonly StopTest[]): HTMLElement => {
       const made = element("ul", "review-list");
       for (const test of tests) {
@@ -190,7 +190,7 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
         const text = element("span", "contract-text");
         text.append(element("span", "review-label", test.name || "(the whole file)"), element("span", "contract-where", test.why === undefined ? test.file : `${test.file} · ${test.why}`));
         if (test.message !== undefined) text.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
-        item.append(element("span", `review-mark observed-${test.outcome}`, mark(test.outcome)), text);
+        item.append(outcomeMark(test.outcome), text);
         made.append(item);
       }
       return made;

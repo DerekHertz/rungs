@@ -4,7 +4,9 @@ import type { Counts, ObservedDocument, UnmatchedTest } from "../observed-types.
 import { failingHeading } from "../arrival.ts";
 import { unreliableText } from "../observed-report.ts";
 import type { FailingTest, FileResults, ObservedReport, WrittenReport } from "../observed-report.ts";
-import { element } from "./review-panel.ts";
+import { element, markPick, markSpan } from "./review-panel.ts";
+import { OUTCOME_GLYPH, OUTCOME_WORD } from "../mark-text.ts";
+import type { Outcome } from "../mark-text.ts";
 
 export interface ObservedInput {
   readonly document: ObservedDocument;
@@ -99,13 +101,18 @@ function writtenBlock(written: WrittenReport): HTMLElement {
           const item = element("li", "review-row observed-loose");
           const text = element("span", "contract-text");
           text.append(element("span", "review-label", test.name), element("span", "contract-where", test.file));
-          item.append(element("span", "review-mark observed-fail", "✗"), text);
+          item.append(outcomeMark("fail"), text);
           return item;
         }),
       ),
     );
   }
   return wrap;
+}
+
+/** A test's mark: the glyph for the eye, the word for a screen reader. */
+export function outcomeMark(outcome: Outcome): HTMLElement {
+  return markSpan(`review-mark observed-${outcome}`, OUTCOME_GLYPH[outcome], OUTCOME_WORD[outcome]);
 }
 
 function list(items: readonly HTMLElement[]): HTMLElement {
@@ -117,7 +124,10 @@ function list(items: readonly HTMLElement[]): HTMLElement {
 function pickButton(onClick: () => void): HTMLButtonElement {
   const pick = element("button", "review-pick");
   pick.type = "button";
-  pick.addEventListener("click", onClick);
+  pick.addEventListener("click", () => {
+    markPick(pick);
+    onClick();
+  });
   return pick;
 }
 
@@ -128,7 +138,7 @@ function fileRow(file: FileResults, report: ObservedReport, pickNode: (id: NodeI
   pick.classList.add("observed-file");
   const state = file.counts.fail > 0 ? "fail" : file.counts.pass + file.counts.skip === 0 ? "none" : "pass";
   pick.append(
-    element("span", `review-mark observed-${state}`, state === "fail" ? "✗" : state === "pass" ? "✓" : "·"),
+    outcomeMark(state),
     element("span", "review-label", file.path),
     ...(report.deleted.includes(file.path) ? [element("span", "review-flag", "deleted by this PR")] : report.edited.includes(file.path) ? [element("span", "review-flag", "edited by this PR")] : []),
     element("span", "review-size", countsText(file.counts)),
@@ -152,7 +162,7 @@ function failingRow(test: FailingTest, pickNode: (id: NodeId) => void): HTMLElem
   pick.title = test.message === undefined ? `${test.name} (${test.file})` : `${test.name} (${test.file}): ${test.message}`;
   const text = element("span", "contract-text");
   text.append(element("span", "review-label", test.name), element("span", "contract-where", test.file));
-  pick.append(element("span", "review-mark observed-fail", "✗"), text);
+  pick.append(outcomeMark("fail"), text);
   item.append(pick);
   if (detail.childElementCount > 0) item.append(detail);
   return item;
@@ -162,6 +172,6 @@ function unmatchedRow(test: UnmatchedTest): HTMLElement {
   const item = element("li", "review-row observed-loose");
   const text = element("span", "contract-text");
   text.append(element("span", "review-label", test.name || "(the whole file)"), element("span", "contract-where", `${test.file} · ${test.why}`));
-  item.append(element("span", `review-mark observed-${test.outcome}`, test.outcome === "fail" ? "✗" : test.outcome === "pass" ? "✓" : "·"), text);
+  item.append(outcomeMark(test.outcome), text);
   return item;
 }

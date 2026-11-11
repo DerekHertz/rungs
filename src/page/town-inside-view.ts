@@ -53,7 +53,8 @@ interface Camera {
 export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbacks, sheet: Sheet): TownInsideView {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = `position:absolute;inset:0;width:100%;height:100%;display:none;touch-action:none;background:${COLOUR.sea}`;
-  canvas.setAttribute("aria-label", "Inside of a file");
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", "Inside of a file: its functions as rooms. Press Escape to leave.");
   // Just above the town's canvas and below the page's own controls.
   if (host.firstElementChild === null) host.prepend(canvas);
   else host.firstElementChild.after(canvas);
