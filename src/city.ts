@@ -13,6 +13,8 @@ export const PLATE_HEIGHT = 2.5;
 
 /** A building with the repository's fewest classes and functions, kept visible above its plate. */
 export const MIN_HEIGHT = 5;
+/** The thinnest slice of an altered building that is drawn as changed, so one changed function in a big file still shows. */
+export const BAND_MIN = 5;
 /** The most, a quarter of the plan's depth. */
 export const MAX_HEIGHT = PLAN_DEPTH / 4;
 
@@ -88,6 +90,11 @@ export interface Building {
   readonly change: Change | null;
   /** The file's changed classes and functions, by kind; null when not a comparison. */
   readonly tally: Tally | null;
+  /**
+   * How much of the roof end of an altered file is drawn as changed: the share of its floors
+   * (classes and functions) that are altered or added. Absent for any other file.
+   */
+  readonly band?: number;
   /** What the file's own and nested code reaches. */
   readonly reach: Reach;
 }
@@ -183,6 +190,18 @@ export function cityOf(picture: Picture, root: NodeId): City {
   return buildCity(picture, layout(withoutCode(picture.graph), root, PLAN_WIDTH, PLAN_DEPTH));
 }
 
+/**
+ * The height of the changed slice of an altered file of `height`, which has `floors` classes and
+ * functions: their altered and added ones take that share of the height, never less than BAND_MIN.
+ * A function that was removed has no floor left, and a file with no code (or all of it changed) is
+ * changed throughout.
+ */
+export function changedBand(height: number, floors: number, tally: Tally): number {
+  if (floors === 0) return height;
+  const share = (height * Math.min(tally.altered + tally.added, floors)) / floors;
+  return Math.min(height, Math.max(BAND_MIN, share));
+}
+
 /** `rects` are a layout of `picture.graph`; the rects of classes and functions are ignored. */
 export function buildCity(picture: Picture, rects: readonly Rect[]): City {
   const { graph, overlay } = picture;
@@ -232,6 +251,9 @@ export function buildCity(picture: Picture, rects: readonly Rect[]): City {
     const file = nodes.get(rect.id)!;
     const parentLevel = file.parent === null ? undefined : levels.get(file.parent);
     const inset = FOOTPRINT_INSET * Math.min(rect.w, rect.h);
+    const height = isGenerated(file) ? MIN_HEIGHT : scale.height(countOf(file.path));
+    const change = overlay?.change(rect.id) ?? null;
+    const tally = overlay?.tally(rect.id) ?? null;
     buildings.push({
       id: rect.id,
       name: file.name,
@@ -240,13 +262,14 @@ export function buildCity(picture: Picture, rects: readonly Rect[]): City {
       w: rect.w - 2 * inset,
       d: rect.h - 2 * inset,
       base: parentLevel === undefined ? 0 : (parentLevel + 1) * PLATE_HEIGHT,
-      height: isGenerated(file) ? MIN_HEIGHT : scale.height(countOf(file.path)),
+      height,
       role: file.level === "file" ? file.role : null,
       analysed: file.level === "file" && file.analysis === "analysed",
       classes: classes.get(file.path) ?? 0,
       functions: functions.get(file.path) ?? 0,
-      change: overlay?.change(rect.id) ?? null,
-      tally: overlay?.tally(rect.id) ?? null,
+      change,
+      tally,
+      ...(change === "altered" && tally !== null ? { band: changedBand(height, countOf(file.path), tally) } : {}),
       reach: reaches.get(rect.id) ?? NO_REACH,
     });
   }

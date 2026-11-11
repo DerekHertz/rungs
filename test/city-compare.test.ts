@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { cityOf } from "../src/city.ts";
+import { BAND_MIN, changedBand, cityOf } from "../src/city.ts";
 import type { Building, District } from "../src/city.ts";
 import { compare, pictureOf, tallyText } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
@@ -79,5 +79,39 @@ describe("tallyText", () => {
     expect(tallyText({ added: 3, altered: 5, removed: 1, moved: 2 })).toBe("+3 ~5 −1 →2");
     expect(tallyText({ added: 0, altered: 2, removed: 0, moved: 0 })).toBe("~2");
     expect(tallyText({ added: 0, altered: 0, removed: 0, moved: 0 })).toBe("");
+  });
+});
+
+describe("changedBand", () => {
+  const none = { added: 0, altered: 0, removed: 0, moved: 0 };
+
+  test("is the share of a file's floors that are changed code, at least the visible minimum", () => {
+    expect(changedBand(100, 10, { ...none, altered: 2, added: 3 })).toBe(50);
+    expect(changedBand(100, 40, { ...none, altered: 1 })).toBe(BAND_MIN);
+  });
+
+  test("is the whole building when every floor changed, or a file with no code changed", () => {
+    expect(changedBand(40, 4, { ...none, altered: 4 })).toBe(40);
+    expect(changedBand(40, 0, { ...none, altered: 1 })).toBe(40);
+  });
+
+  test("a removed function takes no floor, but an altered file with only removals still shows the minimum", () => {
+    expect(changedBand(100, 9, { ...none, removed: 4 })).toBe(BAND_MIN);
+  });
+
+  test("never taller than the building", () => {
+    expect(changedBand(BAND_MIN - 1, 9, { ...none, altered: 1 })).toBe(BAND_MIN - 1);
+  });
+});
+
+describe("a building's band in the city", () => {
+  const city = cityOf(pictureOf(head, compare(base, head)), root);
+  const building = (path: string): Building => city.buildings.find((b) => b.id === `file:${path}`)!;
+
+  test("only an altered file has one, and it is part of its height", () => {
+    const altered = building("src/util/math.ts");
+    expect(altered.band).toBeGreaterThan(0);
+    expect(altered.band!).toBeLessThanOrEqual(altered.height);
+    for (const path of ["README.md", "src/main.ts", "src/compat/legacy.js", "src/index.ts"]) expect(building(path).band, path).toBeUndefined();
   });
 });

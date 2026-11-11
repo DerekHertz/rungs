@@ -200,7 +200,7 @@ function showLegend(city: City): void {
   }
   if (comparison !== null) {
     const against = document.createElement("div");
-    against.textContent = `against ${comparison.against.ref} at ${comparison.against.commit.slice(0, 7)}: dim unchanged \u00b7 bright altered \u00b7 white roof added \u00b7 grey roof moved \u00b7 ghost removed`;
+    against.textContent = `against ${comparison.against.ref} at ${comparison.against.commit.slice(0, 7)}: dim unchanged \u00b7 bright floors of an altered file: its changed functions \u00b7 white roof added \u00b7 grey roof moved \u00b7 ghost removed`;
     parts.push(against);
   }
   legend.replaceChildren(...parts);
