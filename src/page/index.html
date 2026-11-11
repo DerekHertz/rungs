@@ -40,7 +40,7 @@
         position: absolute;
         left: 10px;
         bottom: 10px;
-        max-width: 420px;
+        max-width: min(420px, calc(100% - 20px));
         padding: 6px 8px;
         background: #000a;
         color: #b8c8de;
@@ -57,6 +57,9 @@
       }
       #legend section {
         margin-top: 4px;
+        max-height: min(40vh, 360px);
+        overflow: auto;
+        pointer-events: auto;
       }
       #legend section[hidden] {
         display: none;
@@ -226,7 +229,7 @@
         flex: none;
         display: flex;
         flex-direction: column;
-        max-height: 45%;
+        max-height: 35%;
         border-top: 1px solid #263140;
       }
       .rv-about-body {
@@ -575,7 +578,10 @@
         display: none;
       }
       #source header {
-        flex: none;
+        flex: 0 1 auto;
+        min-height: 0;
+        max-height: 25%;
+        overflow: auto;
         position: relative;
         padding: 8px 32px 8px 10px;
         border-bottom: 1px solid #263140;
@@ -604,7 +610,8 @@
         color: #e8edf2;
       }
       #outline {
-        flex: none;
+        flex: 0 1 auto;
+        min-height: 0;
         max-height: 60%;
         overflow: auto;
         padding: 4px 0;
@@ -615,8 +622,9 @@
         display: none;
       }
       #why {
-        flex: none;
-        max-height: 45%;
+        flex: 0 1 auto;
+        min-height: 0;
+        max-height: 38%;
         overflow: auto;
         padding: 6px 10px;
         border-bottom: 1px solid #263140;
@@ -746,7 +754,8 @@
         display: none;
       }
       #narration {
-        flex: none;
+        flex: 0 1 auto;
+        min-height: 0;
         max-height: 40%;
         overflow: auto;
         padding: 6px 10px;
@@ -830,7 +839,7 @@
       }
       #source-body {
         position: relative;
-        flex: 1;
+        flex: 1 1 40%;
         min-height: 0;
         display: flex;
         overflow: auto;
@@ -921,7 +930,16 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 0 10px 4px 0;
+        padding: 4px 10px 4px 10px;
+      }
+      .walk-bar .review-title {
+        flex: none;
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
       }
       .walk-status {
         flex: 1;

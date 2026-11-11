@@ -320,10 +320,8 @@ function showTownLegend(town: Town): void {
     toggle.textContent = open ? "Legend \u25be" : "Legend \u25b8";
     toggle.setAttribute("aria-expanded", String(open));
   };
-  // Open the first time a viewer sees the town, then collapsed to its one line, as the viewer last left it.
-  const remembered = legendState();
-  show(remembered !== "closed");
-  if (remembered === undefined) rememberLegend("closed");
+  // Collapsed to its one line so it never covers the picture, open only if the viewer left it open.
+  show(legendState() === "open");
   toggle.addEventListener("click", () => {
     const open = lines.hidden === true;
     show(open);

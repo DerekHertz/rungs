@@ -611,6 +611,11 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   };
 
   const sections: HTMLElement[] = [];
+  const summaryOf = (text: string): HTMLElement => {
+    const span = element("span", "rv-summary", text);
+    span.title = text;
+    return span;
+  };
   for (const question of questions) {
     const wrap = element("section", "rv-row");
     const head = element("h2", "rv-head");
@@ -620,7 +625,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     const bodyId = `review-body-${question.id}`;
     button.setAttribute("aria-controls", bodyId);
     const chevron = element("span", "rv-chevron", "▸");
-    button.append(chevron, element("span", "rv-name-label", `${question.name}:`), element("span", "rv-summary", question.summary), element("span", `review-tag ${question.tag}`, question.tag));
+    button.append(chevron, element("span", "rv-name-label", `${question.name}:`), summaryOf(question.summary), element("span", `review-tag ${question.tag}`, question.tag));
     if (question.about !== undefined) button.title = question.about;
     head.append(button);
     const body = element("div", "rv-body");
