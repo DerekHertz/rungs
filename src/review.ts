@@ -53,7 +53,9 @@ export type ReviewEntry =
       readonly folded?: readonly NodeId[];
     })
   /** A folder or package whose changed files are all unmentioned, rolled up. `children` are its files. */
-  | (EntryBase & { readonly level: "district"; readonly files: number; readonly kinds: Tally });
+  | (EntryBase & { readonly level: "district"; readonly files: number; readonly kinds: Tally })
+  /** Files whose text is identical under a new path, all from one folder to one folder: one fact, not one item each. `children` are the moved files. */
+  | (EntryBase & { readonly level: "moves"; readonly files: number; readonly from: string; readonly to: string });
 
 export interface Unmentioned {
   /** Every changed file, mentioned or not. */
@@ -66,6 +68,11 @@ export interface Unmentioned {
   readonly entries: readonly ReviewEntry[];
   /** "Linked by the agent only": not mentioned, but an agent linked a claim to the file or to code in it. A claimed fact. */
   readonly linkedEntries: readonly ReviewEntry[];
+  /** Move groups listed, in either list. A group stands for several files in `unmentionedFiles`. */
+  readonly moveGroups: number;
+  /** Move groups in `entries`, and the files they hold: the summary counts each group as one item. */
+  readonly unlinkedMoveGroups: number;
+  readonly unlinkedMovedFiles: number;
 }
 
 interface Segment {
@@ -135,7 +142,9 @@ function sizeOf(node: ModuleNode): number | null {
 
 function bySeverity(a: ReviewEntry, b: ReviewEntry): number {
   const rank = (entry: ReviewEntry): number =>
-    entry.level === "district"
+    entry.level === "moves"
+      ? URGENCY.moved
+      : entry.level === "district"
       ? Math.min(...(["removed", "altered", "added", "moved"] as const).filter((kind) => entry.kinds[kind] > 0).map((kind) => URGENCY[kind]))
       : URGENCY[entry.change];
   // A binary file has no size to rank by: it follows the sized rows of its urgency, then goes by label.
@@ -198,6 +207,34 @@ export function unmentioned(
   const fileChanges = comparison.changes.filter((change) => change.node.level === "file");
   const { pathMentioned, fileMentioned, nameCovered } = mentionRules(comparison, description);
 
+  // Moved files by (old folder, new folder). A group of two or more is one fact, mentioned when the
+  // description names either folder or a folder above one; its files then count as mentioned.
+  const moveGroupOf = (change: ModuleChange): string | undefined =>
+    change.kind === "moved" && change.node.level === "file" ? `${directoryOf(change.from.path)}\0${directoryOf(change.node.path)}` : undefined;
+  const movedTogether = new Map<string, number>();
+  for (const change of fileChanges) {
+    const key = moveGroupOf(change);
+    if (key !== undefined) movedTogether.set(key, (movedTogether.get(key) ?? 0) + 1);
+  }
+  // A folder is named as a path, bare or with a trailing slash (never as the start of a file's path).
+  // Only the group's own folder may be a bare word; a folder above it needs a slash: `themes/town` or `themes/`.
+  // The path token ends after the slash: at white space, the end, a closing quote or bracket, or
+  // sentence punctuation that is itself followed by one of those. `new/@scope/x.ts` and `new/.env` go on.
+  const tokenEnd = "(?=$|[\\s\"'`)\\]}>]|[.,;:!?](?=$|[\\s\"'`)\\]}>]))";
+  const slashed = (dir: string): boolean => new RegExp(`(?<![\\p{ID_Continue}\\u200C\\u200D_./-])${escape(dir)}/${tokenEnd}`, "u").test(description);
+  const folderNamed = (dir: string): boolean => {
+    for (let at = dir; at !== ""; at = directoryOf(at)) {
+      if ((at === dir || at.includes("/")) && appears(description, "path", at)) return true;
+      if (slashed(at)) return true;
+    }
+    return false;
+  };
+  const groupMentioned = (change: ModuleChange): boolean => {
+    const key = moveGroupOf(change);
+    if (key === undefined || (movedTogether.get(key) ?? 0) < 2) return false;
+    return key.split("\0").some(folderNamed);
+  };
+
   const changeOf = new Map<NodeId, ModuleChange>(comparison.changes.map((change) => [change.node.id, change]));
   // Removed nodes are not in the picture graph; their parents are the base graph's, read from the change itself.
   const nodeOf = new Map<NodeId, ModuleNode>([...comparison.changes.map((change): [NodeId, ModuleNode] => [change.node.id, change.node]), ...graph.nodes.map((node): [NodeId, ModuleNode] => [node.id, node])]);
@@ -243,10 +280,10 @@ export function unmentioned(
   for (const change of fileChanges) {
     const node = change.node;
     for (let dir = directoryOf(node.path); dir !== ""; dir = directoryOf(dir)) dirsChanged.set(dir, (dirsChanged.get(dir) ?? 0) + 1);
-    if (fileMentioned(change)) continue;
+    if (fileMentioned(change) || groupMentioned(change)) continue;
     const agent = linked.has(node.id) || linkedPaths.has(node.path);
     const children = (codeBy.get(node.path) ?? [])
-      .map((child): ReviewEntry => (linked.has(child.id) && child.level !== "district" ? { ...child, linked: true } : child))
+      .map((child): ReviewEntry => (linked.has(child.id) && child.level !== "district" && child.level !== "moves" ? { ...child, linked: true } : child))
       .sort(bySeverity);
     const entry: ReviewEntry = {
       id: node.id,
@@ -263,6 +300,35 @@ export function unmentioned(
 
   const containerAt = new Map<string, NodeId>();
   for (const node of graph.nodes) if (node.level === "package" || node.level === "folder") containerAt.set(node.path, node.id);
+
+  /** Moved files that share both folders become one entry each, at two or more; the rest of the list is returned as it was. */
+  function groupMoves(files: readonly ReviewEntry[]): { rest: ReviewEntry[]; groups: ReviewEntry[] } {
+    const by = new Map<string, ReviewEntry[]>();
+    for (const file of files) {
+      if (file.level !== "file" || file.from === undefined) continue;
+      const key = `${directoryOf(file.from)}\0${directoryOf(file.label)}`;
+      by.set(key, [...(by.get(key) ?? []), file]);
+    }
+    const grouped = new Set<ReviewEntry>();
+    const groups: ReviewEntry[] = [];
+    for (const [key, inside] of by) {
+      if (inside.length < 2) continue;
+      const [from, to] = key.split("\0") as [string, string];
+      inside.sort(bySeverity);
+      for (const file of inside) grouped.add(file);
+      groups.push({
+        id: inside[0]!.id,
+        level: "moves",
+        label: `${inside.length} files moved unchanged: ${from === "" ? "(root)" : from} → ${to === "" ? "(root)" : to}`,
+        files: inside.length,
+        from,
+        to,
+        lines: inside.reduce((sum, file) => sum + (file.lines ?? 0), 0),
+        children: inside,
+      });
+    }
+    return { rest: files.filter((file) => !grouped.has(file)), groups };
+  }
 
   /** A folder rolls up in a list when two or more of its changed files are in it and no changed file of the folder is elsewhere. */
   function rollUp(files: readonly ReviewEntry[]): ReviewEntry[] {
@@ -308,12 +374,17 @@ export function unmentioned(
     return entries.sort(bySeverity);
   }
 
+  const unlinked = groupMoves(none);
+  const linkedGroups = groupMoves(byAgent);
   return {
     changedFiles: fileChanges.length,
     unmentionedFiles: none.length + byAgent.length,
     linkedFiles: byAgent.length,
-    entries: rollUp(none),
-    linkedEntries: rollUp(byAgent),
+    entries: [...rollUp(unlinked.rest), ...unlinked.groups].sort(bySeverity),
+    linkedEntries: [...rollUp(linkedGroups.rest), ...linkedGroups.groups].sort(bySeverity),
+    moveGroups: unlinked.groups.length + linkedGroups.groups.length,
+    unlinkedMoveGroups: unlinked.groups.length,
+    unlinkedMovedFiles: none.length - unlinked.rest.length,
   };
 }
 
@@ -323,7 +394,7 @@ export function unmentionedIds(result: Unmentioned): Set<NodeId> {
   const visit = (entries: readonly ReviewEntry[]): void => {
     for (const entry of entries) {
       ids.add(entry.id);
-      if (entry.level !== "district") for (const id of entry.folded ?? []) ids.add(id);
+      if (entry.level !== "district" && entry.level !== "moves") for (const id of entry.folded ?? []) ids.add(id);
       visit(entry.children);
     }
   };
