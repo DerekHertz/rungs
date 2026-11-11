@@ -63,8 +63,8 @@ describe("effect edges", () => {
   });
 
   test("resource ids are one per kind and never a module id", () => {
-    expect(RESOURCE_ORDER).toEqual(["process", "network", "queue", "file system", "timer"]);
-    expect(new Set(RESOURCE_ORDER.map(resourceId)).size).toBe(5);
+    expect(RESOURCE_ORDER).toEqual(["process", "network", "queue", "file system", "timer", "code loaded at run time"]);
+    expect(new Set(RESOURCE_ORDER.map(resourceId)).size).toBe(6);
     expect(resourceId("file system")).toBe("resource:file system");
   });
 

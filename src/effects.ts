@@ -12,7 +12,7 @@ export interface EffectChange {
 
 export const resourceKindOf = (edge: EffectEdge): ResourceKind => edge.to.slice("resource:".length) as ResourceKind;
 
-/** "process child_process execFileSync "git"", "network fetch (target unknown)", "timer setTimeout". */
+/** "process child_process execFileSync "git"", "network fetch (target unknown)", "timer setTimeout", "code loaded at run time import() (target unknown)". */
 export function effectLabel(edge: EffectEdge): string {
   const head = `${resourceKindOf(edge)} ${edge.operation}`;
   if (edge.target === "none") return head;
@@ -56,7 +56,7 @@ export interface ChangedEffect {
   readonly kind: "changed";
   /** The head owner: the class, function or file that holds the calls. */
   readonly owner: NodeId;
-  /** "process child_process execFileSync "git"", or "module createRequire" for a resolution. */
+  /** "process child_process execFileSync "git"", or "require.resolve" for a resolution. */
   readonly label: string;
   /** Arguments the head has and the base lacks, as `"literal"` or `?expression`; repeats count. */
   readonly added: readonly string[];

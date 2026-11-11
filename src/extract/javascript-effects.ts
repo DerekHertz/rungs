@@ -63,6 +63,12 @@ class Resolver {
     return ref?.kind === "member" && ref.module === "module" && ref.name === "createRequire";
   }
 
+  /** A call of the global `require`, not one this file declares. */
+  isGlobalRequire(call: ts.CallExpression): boolean {
+    const callee = unwrap(call.expression);
+    return ts.isIdentifier(callee) && callee.text === "require" && this.declarationsOf(callee).length === 0;
+  }
+
   /** `require.resolve`, with the global `require`. */
   isRequireResolve(call: ts.CallExpression): boolean {
     const callee = unwrap(call.expression);
@@ -285,12 +291,37 @@ function targetOf(call: ts.CallExpression | ts.NewExpression, index: number | nu
   return literal === undefined ? "unknown" : { literal };
 }
 
+/**
+ * Code loaded at run time: a `require` or `import()` whose first argument is not a string literal,
+ * or a `createRequire`. Its target is always unknown, because what loads is decided at run time.
+ */
+function runTimeLoad(resolver: Resolver, call: ts.CallExpression): string | undefined {
+  const [first] = call.arguments;
+  const literal = first !== undefined && stringOf(unwrap(first)) !== undefined;
+  if (ts.isToken(call.expression) && call.expression.kind === ts.SyntaxKind.ImportKeyword) return literal ? undefined : "import()";
+  if (resolver.isCreateRequire(call)) return "module createRequire";
+  return resolver.isGlobalRequire(call) && !literal ? "require" : undefined;
+}
+
 /** Every call in the file that reaches a catalog resource, in source order. */
 export function effectSites(file: ts.SourceFile, checker: ts.TypeChecker): EffectSite[] {
   if (file.isDeclarationFile) return [];
   const resolver = new Resolver(file, checker);
   const sites: EffectSite[] = [];
   const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const operation = runTimeLoad(resolver, node);
+      if (operation !== undefined) {
+        sites.push({
+          resource: "code loaded at run time",
+          operation,
+          target: "unknown",
+          args: resolver.elements(node.arguments, 0),
+          start: node.getStart(file),
+          end: node.end,
+        });
+      }
+    }
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
       const entry = resolver.resolveCallee(node);
       if (entry !== undefined) {
@@ -310,20 +341,22 @@ export function effectSites(file: ts.SourceFile, checker: ts.TypeChecker): Effec
   return sites;
 }
 
-/** Calls that decide which file a module name or path means: createRequire, require.resolve, import(). */
+/**
+ * Calls that decide which file a module name or path means and load nothing at run time:
+ * require.resolve and import() of a literal. The others are effects (see runTimeLoad).
+ */
 export function resolutionSites(file: ts.SourceFile, checker: ts.TypeChecker): ResolutionSite[] {
   if (file.isDeclarationFile) return [];
   const resolver = new Resolver(file, checker);
   const sites: ResolutionSite[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
-      const operation = ts.isToken(node.expression) && node.expression.kind === ts.SyntaxKind.ImportKeyword
-        ? "import()"
-        : resolver.isCreateRequire(node)
-          ? "module createRequire"
-          : resolver.isRequireResolve(node)
-            ? "require.resolve"
-            : undefined;
+      const isImport = ts.isToken(node.expression) && node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const operation = isImport
+        ? runTimeLoad(resolver, node) === undefined ? "import()" : undefined
+        : resolver.isRequireResolve(node)
+          ? "require.resolve"
+          : undefined;
       if (operation !== undefined) {
         sites.push({ operation, args: resolver.elements(node.arguments, 0), start: node.getStart(file), end: node.end });
       }
