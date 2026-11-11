@@ -1,10 +1,10 @@
 # Rungs
 
-Coding agents now open pull requests of thousands of lines, and someone still has to decide whether to merge them. Reading the diff does not scale, and a summary written by the same agent is a claim, not evidence. Rungs computes a picture of the code itself, a city you can turn and zoom into, so a reviewer can approve a large change the way they would approve a design: by seeing what it touches, and opening the exact source lines behind anything they doubt.
+Coding agents now open pull requests of thousands of lines, and someone still has to decide whether to merge them. Reading the diff does not scale, and a summary written by the same agent is a claim, not evidence. Rungs computes a picture of the code itself, a pixel-art town you can pan and zoom into, so a reviewer can approve a large change the way they would approve a design: by seeing what it touches, and opening the exact source lines behind anything they doubt.
 
-![Rungs' own repository drawn as a code city: districts for src, test and docs, buildings coloured by role and sized by line count, with floating district names.](docs/media/city.png)
+![Rungs' own repository drawn as a town.](docs/media/town.png)
 
-*Rungs drawing its own repository. Blue buildings are source, green are tests, yellow are docs, dark blue is config and orange is generated. Height is the number of classes and functions in a file. Striped buildings are files Rungs cannot analyse yet.*
+*Rungs drawing its own repository. A workshop is source, a lab is tests, a library is docs, a shed is config and build, a warehouse is generated and a hut is a file with no role. A building's size is the number of classes and functions in the file, and the stone it stands on is how much rests on it through imports.*
 
 **The target.** Run one command on a real agent-written change of 10,000 lines or more, and approve or reject it in 15 minutes without opening a diff. To decide, a reviewer needs three answers: what the change claims to do, what it touches that nobody mentioned, and which contracts moved. The test case is [a 14,370-line agent-written pull request](https://github.com/DerekHertz/docviz/pull/18).
 
@@ -14,14 +14,14 @@ The name comes from a ladder of abstraction. Each rung is computed from the one 
 
 1. **Read the checkout.** Rungs lists the files git tracks plus untracked ones not ignored, and reads them from the working tree, so uncommitted changes are included. A symlink reads as its target path, the way git stores it, so nothing outside the checkout leaks in.
 2. **Extract a graph.** A pure, deterministic function turns the file tree into a graph of packages, folders, files, classes and functions, each with a line range and a role (source, tests, config, docs or generated). JavaScript and TypeScript go through the TypeScript compiler. No model is called.
-3. **Lay out a ground plan.** A squarified treemap places every package, folder and file. The layout depends only on the graph, so neither the camera nor the theme ever moves anything.
-4. **Draw a city.** Districts are raised plates and files are buildings, rendered with three.js. Drag to pan, right-drag to turn, scroll to zoom, double-click a district to fly to it. Click a building to read its source, served from the same snapshot the graph came from.
-5. **Compare against a base.** `rungs compare <base>` reads the base revision at the merge base, the same base GitHub diffs a pull request against, and extracts both graphs. Every module carries a digest of its text, so the comparison pairs nodes by identity and finds what was added, altered, removed or moved without reading a diff. Unchanged buildings dim, changed ones stay bright, and removed files stand as see-through ghosts you can still open.
-6. **Answer the three questions.** A panel beside the city lists the description's claims, the changes no claim covers, and the contracts that moved: exported signatures and the outside resources each function reaches (processes, network, file system, timers, code loaded at run time), drawn as plates at the edge of the city. Every entry flies the camera to its place and opens its exact lines.
+3. **Lay out a town.** Each top-level folder is a block of lots, one lot per file, and every file is a building whose kind is its role. The layout depends only on the graph, so neither the camera nor the theme ever moves anything.
+4. **Draw it in pixel art.** The town is drawn from a sprite sheet on a 2D canvas, from one fixed isometric angle. Drag to pan, scroll to zoom, double-click a building to open it with its walls down. Click a building to read its source, served from the same snapshot the graph came from.
+5. **Compare against a base.** `rungs compare <base>` reads the base revision at the merge base, the same base GitHub diffs a pull request against, and extracts both graphs. Every module carries a digest of its text, so the comparison pairs nodes by identity and finds what was added, altered, removed or moved without reading a diff. Altered files stand under scaffolding with a crane, added files on bare earth, and removed files leave rubble you can still open.
+6. **Answer the three questions.** A panel beside the town lists the description's claims, the changes no claim covers, and the contracts that moved: exported signatures and the outside resources each function reaches (processes, network, file system, timers, code loaded at run time), each outside resource a structure in the harbour. Every entry flies the camera to its place and opens its exact lines.
 
-![Rungs comparing a 14,370-line agent-written pull request: the review panel lists claims, 119 new calls to the outside world no claim covers, and two changed signatures; the city dims unchanged code and draws process, network, file system and timer plates at its edge.](docs/media/review.png)
+![Rungs comparing a 14,370-line agent-written pull request: the review panel lists claims, 119 new calls to the outside world no claim covers, and two changed signatures; the town marks altered files with scaffolding and draws the outside resources it reaches in its harbour.](docs/media/review.png)
 
-*Rungs reviewing the target pull request. The panel shows which claims the agent linked to code, what reaches the outside world without being mentioned, and the two exported functions whose parameters changed.*
+*Rungs reviewing the target pull request. The panel lists the claims, the changes no claim covers and the exported functions whose contracts moved; each entry selects its place in the town.*
 
 ## System design
 
@@ -40,7 +40,7 @@ The architecture borrows from operating systems and distributed systems: Ensembl
 | **The pull request is untrusted input.** The base is read through a temporary index and a scratch checkout, never by parsing git's output by content, and the agent sees names, never source text. | A file crafted to look like git's reply framing cannot make another file read wrong, and a description cannot inject into the page or the agent's command. |
 | **Lazy release consistency for expensive views.** Pseudocode, narration and call edges are computed when a view first opens them, and ahead of time only for contracts that moved. | Opening a function is the acquire. Nobody pays for analysis of code they never look at, which matters on a change of thousands of lines. Part of the specification, not built yet. |
 | **A cache with recorded reads.** Each record lists everything it read, including lookups that found nothing, and is valid only while all of those are unchanged. | An incremental update must equal a build from nothing, byte for byte, which is checked with random edits. Part of the specification, not built yet. |
-| **One meaning per visual channel.** Colour shows role, from a colour-blind-safe palette. Height shows classes and functions per file, on a square-root scale. Stripes mark files with no language adapter. | People read only a few features at a glance, and each can carry one message ([research notes](docs/research/visual-understanding-for-review.md)). Stripes follow the rule that Rungs never guesses: what it cannot analyse is shown as exactly that. |
+| **One meaning per visual channel.** Kind of building shows role. Size shows classes and functions per file, on a square-root scale. Plinth height shows what rests on the file through imports. | People read only a few features at a glance, and each can carry one message ([research notes](docs/research/visual-understanding-for-review.md)). The rule that Rungs never guesses holds here too: a file with no role is a hut, and a code file nothing reaches shows "nothing reaches it", never "dead". |
 
 ## Try it
 
@@ -52,7 +52,7 @@ npm run rungs -- /path/to/a/git/checkout
 npm run rungs -- compare main /path/to/a/git/checkout --description pr.md --link
 ```
 
-The first command builds the graph, starts a local server on 127.0.0.1 and opens the city in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. Press R to reset the view and P to cycle the pixel-art render mode. Stop the server with Ctrl+C.
+The first command builds the graph, starts a local server on 127.0.0.1 and opens the town in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. Press R to reset the view. Stop the server with Ctrl+C.
 
 `rungs compare <base> [dir]` takes these flags, all optional:
 
@@ -93,7 +93,7 @@ Run `npm run lint`, `npm run typecheck` and `npm test`. CI runs the same three o
 - the extractor against a golden fixture, including the version ledger;
 - qualified names over 2,070 adversarial inputs, checked to be unique and never empty;
 - line counting with CRLF and Unicode line separators, from a single definition of a line;
-- layout proportions, the height scale, and the label and fading decisions;
+- the town's layout, sprite choices and picking;
 - a server that returns exactly a function's lines;
 - comparison properties over generated tree pairs, and goldens for the comparison and the effect catalog;
 - reading a base revision, including a file built to imitate git's reply framing;

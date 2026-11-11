@@ -3,7 +3,6 @@ import { allBlocks, AXIS, blockAtGround, blockLabel, blockNamedAt, CRANE_AT, GAT
 import { pickAt } from "../town-pick.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
-import type { CityHandlers } from "./city-view.ts";
 import { EFFECT_COLOR } from "./palette.ts";
 
 /*
@@ -45,16 +44,35 @@ export async function loadSheet(): Promise<Sheet> {
   return { sizes, images };
 }
 
+interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** What a double-click landed on: a building, the block under it, or an outside resource's structure. */
+export type Hit =
+  | { readonly kind: "building" | "district"; readonly id: NodeId }
+  | { readonly kind: "resource"; readonly resource: ResourceKind };
+
+export interface TownHandlers {
+  /** The building under the pointer, or undefined; fires as the pointer or the camera moves. */
+  hover(id: NodeId | undefined, at: Point): void;
+  /** `clicks` is 1 for a single click and counts up with a double-click. */
+  click(id: NodeId | undefined, clicks: number): void;
+  /** A single click on a harbour structure. */
+  resource(kind: ResourceKind): void;
+  /** `hit` is undefined on empty ground. */
+  doubleClick(hit: Hit | undefined): void;
+}
+
 export interface TownView {
   show(town: Town): void;
   select(id: NodeId | undefined): void;
-  /** Outlines these buildings together; `chosen` lights that resource's structure and outlines them in its colour. */
-  highlight(ids: readonly NodeId[], chosen?: ResourceKind): void;
+  /** Outlines these buildings together; `chosen` lights those resources' structures and outlines them in its colour. */
+  highlight(ids: readonly NodeId[], chosen?: ResourceKind | readonly ResourceKind[]): void;
   /** Frames the block holding this folder. */
   flyTo(id: NodeId): void;
   reset(): void;
-  /** The town is already pixel art, so pixel mode has nothing to step; always 1. */
-  cyclePixel(): 1;
 }
 
 const COLOUR = {
@@ -65,11 +83,13 @@ const COLOUR = {
 /** Screen pixels a metre of height rises in the sheet (see project). */
 const RISE_UNIT = 48 * Math.cos(Math.PI / 6);
 const ZOOM = { fitFill: 0.92, min: 0.5, max: 1.5 };
+/** Where the pennant of a file with a failing test stands, from the lot's middle (the crane is on the other side). */
+const FLAG_AT = { X: 1.75, Y: 1.75 } as const;
 const CLICK_SLOP = 4;
 const FLIGHT_MS = 260;
 
 /** Which sprite of a lot this is: the building (or rubble), or a mark standing on it. */
-type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign";
+type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag";
 
 type Thing =
   | { readonly kind: "lot"; readonly lot: Lot; readonly part: Part; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number }
@@ -92,7 +112,7 @@ interface Camera {
   cy: number;
 }
 
-export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet: Sheet): TownView {
+export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set()): TownView {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
   canvas.setAttribute("aria-label", "Town of the repository");
@@ -106,7 +126,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   let flight: { from: Camera; to: Camera; start: number } | undefined;
   let selected: NodeId | undefined;
   let highlighted: ReadonlySet<NodeId> = new Set();
-  let chosen: ResourceKind | undefined;
+  let chosen: ReadonlySet<ResourceKind> = new Set();
   let hovered: Pick | undefined;
   /** The block the camera was last sent to: its name is shown first and at any zoom. */
   let focused: NodeId | undefined;
@@ -244,10 +264,10 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   /** The colour a thing is outlined in: selected or highlighted, or pointed at. */
   function outlineOf(thing: Thing): string | undefined {
     if (thing.kind === "mark") return undefined;
-    if (thing.kind === "pier") return thing.pier.kind === chosen ? COLOUR.select : thing === hovered ? COLOUR.hover : undefined;
+    if (thing.kind === "pier") return chosen.has(thing.pier.kind) ? COLOUR.select : thing === hovered ? COLOUR.hover : undefined;
     if (thing.part !== "building") return undefined;
     if (thing.lot.id === selected) return COLOUR.select;
-    if (highlighted.has(thing.lot.id)) return chosen === undefined ? COLOUR.select : EFFECT_COLOR;
+    if (highlighted.has(thing.lot.id)) return chosen.size === 0 ? COLOUR.select : EFFECT_COLOR;
     return thing === hovered ? COLOUR.hover : undefined;
   }
 
@@ -589,6 +609,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
           ...(lot.overlay === null ? [] : [mark("scaffold", lot.overlay, lot.X, lot.Y, 0.01, lot.raise)]),
           ...(lot.gate ? [mark("gate", "gate", lot.X, lot.Y - GATE_FRONT, 0)] : []),
           ...(lot.crane ? [mark("crane", "crane", lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, -0.2)] : []),
+          ...(failing.has(lot.id) && sheet.sizes["flag-failing"] !== undefined ? [mark("flag", "flag-failing", lot.X + FLAG_AT.X, lot.Y + FLAG_AT.Y, 0.2, lot.raise)] : []),
           ...(lot.movedTo === null ? [] : [mark("moved-sign", "sign-moved", lot.X + MOVED_SIGN_AT.X, lot.Y + MOVED_SIGN_AT.Y, 0)]),
         ];
       };
@@ -621,18 +642,21 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       focused = undefined;
       selected = undefined;
       highlighted = new Set();
-      chosen = undefined;
+      chosen = new Set();
       resize();
       camera = fitCamera();
       dirty = true;
     },
     select(id) {
+      // Any new selection, or none, replaces what a claim, a stop or a resource had lit.
       selected = id;
+      highlighted = new Set();
+      chosen = new Set();
       dirty = true;
     },
     highlight(ids, kind) {
       highlighted = new Set(ids);
-      chosen = kind;
+      chosen = new Set(kind === undefined ? [] : typeof kind === "string" ? [kind] : kind);
       dirty = true;
     },
     flyTo(id) {
@@ -648,6 +672,5 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       focused = undefined;
       flyTo(fitCamera());
     },
-    cyclePixel: () => 1,
   };
 }

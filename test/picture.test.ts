@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { cityOf } from "../src/city.ts";
 import { compare, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import { rootOf } from "../src/graph.ts";
@@ -24,14 +22,6 @@ describe("pictureOf without a comparison", () => {
     const plain = pictureOf(head, null);
     expect(plain.graph).toBe(head);
     expect(plain.overlay).toBeNull();
-  });
-
-  test("lays out the same city it always did (golden from before comparisons existed)", () => {
-    const plain = JSON.parse(JSON.stringify(cityOf(pictureOf({ ...head, edges: [] }, null), rootOf(head)))) as Record<string, unknown>;
-    const stripped = JSON.parse(
-      JSON.stringify(plain, (key, value: unknown) => (["change", "tally", "ghost", "compared", "reach", "resources"].includes(key) ? undefined : value)),
-    );
-    expect(stripped).toEqual(JSON.parse(readFileSync(fixtureUrl("../golden/city-plain.json"), "utf8")));
   });
 });
 
@@ -104,7 +94,7 @@ describe("pictureOf under the small fixture's comparison", () => {
   test("is a pure function of head and comparison", () => {
     const again = pictureOf(head, compare(base, head));
     expect(again.graph).toEqual(picture.graph);
-    expect(cityOf(again, rootOf(head))).toEqual(cityOf(picture, rootOf(head)));
+    expect(again.overlay!.tally(rootOf(head))).toEqual(picture.overlay!.tally(rootOf(head)));
   });
 });
 
@@ -119,28 +109,19 @@ describe("a function removed from a file that stays", () => {
     expect(pic.graph.nodes.map((n) => n.id)).toEqual(after.nodes.map((n) => n.id));
     expect(pic.overlay!.tally(id("file:a.ts"))).toEqual({ added: 0, altered: 0, removed: 2, moved: 0 });
   });
-
-  test("leaves the file as tall as its head code says", () => {
-    const city = cityOf(pic, rootOf(after));
-    expect(city.buildings.find((b) => b.id === "file:a.ts")!.functions).toBe(1);
-  });
 });
 
-describe("a removed file moves its lines into the layout at its old height", () => {
+describe("a removed file", () => {
   const before = treeGraph({
     "keep.ts": "export function a() {}\n".repeat(5),
-    "gone.ts": "export function x() {}\nexport function y() {}\nexport function z() {}\n".repeat(1),
+    "gone.ts": "export function x() {}\nexport function y() {}\nexport function z() {}\n",
   });
   const after = treeGraph({ "keep.ts": "export function a() {}\n".repeat(5) });
   const pic = pictureOf(after, compare(before, after));
 
-  test("a ghost takes room by its base lines and counts its base functions", () => {
-    const city = cityOf(pic, rootOf(after));
-    const ghost = city.buildings.find((b) => b.id === "file:gone.ts")!;
-    expect(ghost.change).toBe("removed");
-    expect(ghost.functions).toBe(3);
-    expect(ghost.w * ghost.d).toBeGreaterThan(0);
-    expect(city.buildings.map((b) => b.id).sort()).toEqual(["file:gone.ts", "file:keep.ts"]);
+  test("stays in the graph as a ghost with its base functions", () => {
+    expect(pic.overlay!.change(id("file:gone.ts"))).toBe("removed");
+    expect(pic.graph.nodes.filter((n) => n.level === "function" && n.path === "gone.ts")).toHaveLength(3);
   });
 });
 
@@ -150,17 +131,16 @@ describe("ghosts carry everything their base file had", () => {
     const a = treeGraph(after);
     const pic = pictureOf(a, compare(b, a));
     const had = new Set(a.nodes.map((n) => n.id));
-    return { pic, city: cityOf(pic, rootOf(a)), ghosts: pic.graph.nodes.filter((n) => !had.has(n.id)).map((n) => n.id).sort() };
+    return { pic, ghosts: pic.graph.nodes.filter((n) => !had.has(n.id)).map((n) => n.id).sort() };
   };
 
   test("a function that moved out of a removed file is still in its ghost", () => {
-    const { ghosts, city } = ghostsOf(
+    const { ghosts } = ghostsOf(
       { "old/a.ts": "export function keep() {}\nexport function moved() {\n  return 1;\n}\n", "b.ts": "export const x = 1;\n" },
       { "b.ts": "export const x = 1;\nexport function moved() {\n  return 1;\n}\n" },
     );
     expect(ghosts).toContain("function:old/a.ts#keep");
     expect(ghosts).toContain("function:old/a.ts#moved");
-    expect(city.buildings.find((b) => b.id === "file:old/a.ts")!.functions).toBe(2);
   });
 
   test("nested code in a removed file is kept whatever order the ids sort in", () => {
