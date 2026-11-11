@@ -27,10 +27,23 @@ export interface FindInput {
 export function wireFind({ box, results, status, files, choose }: FindInput): void {
   let hits: Found<FileHit> = { shown: [], total: 0 };
   let lit = -1;
+  /** True once the reviewer asked for every match instead of the first screenful. */
+  let all = false;
+  const more = (): boolean => !all && hits.total > hits.shown.length;
+  const count = (): number => hits.shown.length + (more() ? 1 : 0);
+  const search = (): void => {
+    hits = filterFiles(files, box.value, all ? Infinity : 50);
+  };
+  const showAll = (): void => {
+    all = true;
+    search();
+    paint();
+  };
 
   function paint(): void {
     const open = hits.shown.length > 0;
     results.hidden = !open;
+    if (!open) all = false;
     box.setAttribute("aria-expanded", String(open));
     results.replaceChildren(
       ...hits.shown.map((hit, index) => {
@@ -52,12 +65,15 @@ export function wireFind({ box, results, status, files, choose }: FindInput): vo
         return option;
       }),
     );
-    if (hits.total > hits.shown.length) {
-      const more = document.createElement("li");
-      more.className = "find-more";
-      more.setAttribute("role", "presentation");
-      more.textContent = `${hits.total - hits.shown.length} more match; type more to narrow them`;
-      results.append(more);
+    if (more()) {
+      const rest = document.createElement("li");
+      rest.id = `find-option-${hits.shown.length}`;
+      rest.className = "find-more";
+      rest.setAttribute("role", "option");
+      rest.setAttribute("aria-selected", String(lit === hits.shown.length));
+      rest.textContent = `Show all ${hits.total} matches (or keep typing to narrow them)`;
+      rest.addEventListener("click", showAll);
+      results.append(rest);
     }
     if (lit >= 0) box.setAttribute("aria-activedescendant", `find-option-${lit}`);
     else box.removeAttribute("aria-activedescendant");
@@ -78,23 +94,26 @@ export function wireFind({ box, results, status, files, choose }: FindInput): vo
   }
 
   box.addEventListener("input", () => {
-    hits = filterFiles(files, box.value);
+    all = false;
+    search();
     lit = hits.shown.length > 0 ? 0 : -1;
     paint();
   });
   box.addEventListener("keydown", (event) => {
+    // Keys that choose a candidate in an input method are not the search's.
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (hits.shown.length === 0) {
-        hits = filterFiles(files, box.value);
-        lit = hits.shown.length > 0 ? (event.key === "ArrowDown" ? 0 : hits.shown.length - 1) : -1;
-      } else lit = moveActive(lit, event.key, hits.shown.length);
+        search();
+        lit = hits.shown.length > 0 ? (event.key === "ArrowDown" ? 0 : count() - 1) : -1;
+      } else lit = moveActive(lit, event.key, count());
       paint();
     } else if (event.key === "Enter") {
-      const hit = hits.shown[lit];
-      if (hit === undefined) return;
       event.preventDefault();
-      pick(hit);
+      const hit = hits.shown[lit];
+      if (hit !== undefined) pick(hit);
+      else if (more() && lit === hits.shown.length) showAll();
     } else if (event.key === "Escape" && hits.shown.length > 0) {
       // The first Escape closes the list; the next one is the page's.
       event.stopPropagation();

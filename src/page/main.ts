@@ -48,7 +48,7 @@ import { renderNarration } from "./narration-panel.ts";
 import { activatable } from "./activatable.ts";
 import { backLabel, firstView, nextView } from "../narrow-view.ts";
 import type { ViewEvent, ViewState } from "../narrow-view.ts";
-import { isTyping } from "../find-files.ts";
+import { isTyping, searchEntries } from "../find-files.ts";
 import { wireFind } from "./find-panel.ts";
 import type { FileHit } from "./find-panel.ts";
 
@@ -492,6 +492,11 @@ function dismiss(): void {
   if (to?.isConnected === true) to.focus({ preventScroll: narrowScreen.matches });
 }
 
+/** A pick that only outlines places opens no evidence, so a narrow screen shows the town to make it visible; the list keeps its row and scroll. */
+function showPick(): void {
+  if (narrowScreen.matches) setView({ type: "show", view: "town", evidence: selected !== undefined });
+}
+
 /** The control that was focused when the evidence opened, which gets focus back when it closes. */
 let opener: HTMLElement | undefined;
 function rememberOpener(): void {
@@ -713,6 +718,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
 /** An entry of the review panel: fly to its district, and select the file or code it names. */
 function pickEntry(entry: ReviewEntry): void {
   endTour();
+  if (entry.level === "district" || entry.level === "moves") showPick();
   if (entry.level === "district") {
     leaveInside();
     cancelPending();
@@ -767,6 +773,7 @@ function placeOf(id: string): NodeId | undefined {
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
 function pickClaim(claim: ClaimRow): void {
   endTour();
+  showPick();
   if (claim.ids.length === 0) {
     // No places: nothing stays lit from the claim before.
     leaveInside();
@@ -923,7 +930,10 @@ if (comparison !== null && testChanges !== null) {
     observed: observed === null ? null : { document: observed, report: observedRun },
     testChanges,
     risks,
-    pickRisk: (risk: RiskItem) => pickPlaces(risk.ids),
+    pickRisk: (risk: RiskItem) => {
+      showPick();
+      pickPlaces(risk.ids);
+    },
   });
 
   const run = (await (await fetch("/run.json")).json()) as { repo: string | null };
@@ -969,9 +979,8 @@ if (comparison !== null && testChanges !== null) {
 }
 
 /** Every file of the picture, the ones a move left behind included: the search reaches each, with or without a risk. */
-const fileHits: FileHit[] = [...new Map([...nodes, ...ghostFiles]).values()]
-  .filter((node): node is FileNode => node.level === "file")
-  .map((file) => ({ id: file.id, path: file.path, change: picture.overlay === null ? "" : (picture.overlay.entry(file.id)?.kind ?? "unchanged") }));
+const movedTo = new Map<string, { id: string; path: string }>((comparison?.changes ?? []).flatMap((change) => (change.kind === "moved" && change.from.level === "file" ? [[change.from.id, { id: change.node.id, path: change.node.path }] as const] : [])));
+const fileHits = searchEntries([...new Map([...nodes, ...ghostFiles]).values()].filter((node): node is FileNode => node.level === "file"), (id) => picture.overlay?.entry(id as NodeId)?.kind, movedTo, picture.overlay !== null) as FileHit[];
 // A result selects the file the way clicking its building does, and flies the camera to it so it is in view.
 wireFind({ box: findBox, results: findResults, status: findStatus, files: fileHits, choose: (hit) => pickNode(hit.id) });
 

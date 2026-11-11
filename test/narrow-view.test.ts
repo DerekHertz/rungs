@@ -67,6 +67,12 @@ test("a pick that ends the tour keeps the town, so Back from its evidence return
   expect(run(ended, { type: "opened" })).toMatchObject({ view: "evidence", from: "town" });
 });
 
+test("a pick that only outlines the town shows the town, and the list tab returns to the list", () => {
+  const state = run(firstView(true), { type: "show", view: "town", evidence: false });
+  expect(state.view).toBe("town");
+  expect(run(state, { type: "show", view: "list", evidence: false }).view).toBe("list");
+});
+
 test("Back names where it goes, the tests when that row is open", () => {
   expect(backLabel("list", "tests")).toBe("Back to tests");
   expect(backLabel("list", "claims")).toBe("Back to list");
