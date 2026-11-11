@@ -185,8 +185,8 @@ export function validate(output: unknown, claims: readonly Claim[], known: Reado
     if (row !== undefined) {
       row.sources.push(i);
     } else {
-      const ok = usable(i);
-      if (!ok || badMerge) dropped.restatements++;
+      const ok = usable(i) && !badMerge;
+      if (!ok) dropped.restatements++;
       at.set(i, shown.length);
       shown.push({ text: ok ? said[i]! : claims[i]!.text, restated: ok, sources: [i], ids: [] });
     }

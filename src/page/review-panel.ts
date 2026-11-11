@@ -106,14 +106,16 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       pick.type = "button";
       pick.append(element("span", "review-label review-claim", claim.text));
       if (input.link.status === "ok") pick.append(element("span", "review-size", claim.ids.length === 0 ? "no links" : `${claim.ids.length} linked`));
-      pick.disabled = claim.ids.length === 0;
+      // A restated claim stays clickable without links: selecting it is how its source sentences are reached.
+      pick.disabled = claim.ids.length === 0 && !claim.restated;
+      if (claim.restated) pick.title = claim.sources.map((source) => source.text).join(" ");
       pick.addEventListener("click", () => {
         active?.classList.remove("active");
         active = pick;
         pick.classList.add("active");
         for (const shown of list.querySelectorAll(".review-source")) shown.remove();
         if (claim.restated) item.append(element("blockquote", "review-source", claim.sources.map((source) => source.text).join(" ")));
-        input.pickClaim(claim);
+        if (claim.ids.length > 0) input.pickClaim(claim);
       });
       item.append(pick);
       list.append(item);

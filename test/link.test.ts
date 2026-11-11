@@ -87,15 +87,17 @@ test("an invalid restatement falls back to the original text: too long, empty, m
   expect(out.shown.map((row) => [row.text, row.restated, row.sources])).toEqual([
     ["Speeds up alpha.", false, [0]],
     ["Found by the security review.", false, [1]],
-    ["Fine", true, [2]],
+    ["Alpha now runs faster.", false, [2]],
   ]);
   expect(out.dropped.restatements).toBe(3);
+  const badMerge = check([say(0, "Accepts alpha", [], 99), say(1, "context"), say(2, "Fine")]);
+  expect(badMerge.shown[0]).toMatchObject({ text: "Speeds up alpha.", restated: false });
   const missing = check([say(1, "Found it")]);
   expect(missing.shown.map((row) => row.restated)).toEqual([false, true, false]);
   const chain = check([say(0, "A one", [], 1), say(1, "B two", [], 2), say(2, "C three")]);
   expect(chain.shown.map((row) => row.sources)).toEqual([[0], [1, 2]]);
   const intoContext = check([say(0, "A one", [], 1), say(1, "context"), say(2, "C three")]);
-  expect(intoContext.shown.map((row) => [row.text, row.sources])).toEqual([["A one", [0]], ["C three", [2]]]);
+  expect(intoContext.shown.map((row) => [row.text, row.sources])).toEqual([["Speeds up alpha.", [0]], ["C three", [2]]]);
 });
 
 test("the prompt asks for restatements and context, and tells the agent to see no source text", () => {
@@ -108,6 +110,13 @@ test("the prompt asks for restatements and context, and tells the agent to see n
 test("footers are stripped by rule before the agent sees the claims", () => {
   const found = splitClaims("Adds a thing.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nGenerated with [Claude Code](https://claude.com/claude-code)\n");
   expect(found.map((claim) => claim.text)).toEqual(["Adds a thing."]);
+});
+
+test("only the footer line goes: text next to it stays a claim, at its own span", () => {
+  const description = "- Adds logging.\n\n🤖 Generated with [Claude](https://example.com)\nRejects expired tokens.";
+  const found = splitClaims(description);
+  expect(found.map((claim) => claim.text)).toEqual(["Adds logging.", "Rejects expired tokens."]);
+  for (const claim of found) expect(description.slice(claim.start, claim.end)).toBe(claim.text);
 });
 
 test("validation refuses output that is not the schema's shape", () => {

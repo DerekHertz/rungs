@@ -13,7 +13,7 @@ const FENCE = /^[ \t]{0,3}(?:```|~~~)/;
 const SENTENCE_END = /[.!?]["')\]`*_]*(?=\s+(?![\p{Ll}]))/gu;
 
 // A tool's footer, not a claim: a line starting with the robot emoji, or a "Generated with" link.
-const FOOTER = /^🤖|^\W*generated (?:with|by)\b.*\]\(/iu;
+const FOOTER = /^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?(?:🤖|\W*generated (?:with|by)\b.*\]\()/iu;
 
 interface Line {
   readonly text: string;
@@ -50,7 +50,7 @@ export function splitClaims(description: string): Claim[] {
     if (FENCE.test(line.text)) {
       close();
       fenced = !fenced;
-    } else if (fenced || HEADING.test(line.text) || line.text.trim() === "") {
+    } else if (fenced || HEADING.test(line.text) || line.text.trim() === "" || FOOTER.test(line.text)) {
       close();
     } else {
       const bullet = BULLET.exec(line.text);
@@ -68,7 +68,7 @@ export function splitClaims(description: string): Claim[] {
 
   return spans
     .map(([start, end]) => trimmed(description, start, end))
-    .filter(([start, end]) => /[\p{L}\p{N}]/u.test(description.slice(start, end)) && !FOOTER.test(description.slice(start, end)))
+    .filter(([start, end]) => /[\p{L}\p{N}]/u.test(description.slice(start, end)))
     .map(([start, end], index) => ({ index, text: description.slice(start, end), start, end }));
 }
 
