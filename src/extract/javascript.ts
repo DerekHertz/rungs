@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import ts from "typescript";
 import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
-import { effectSites } from "./javascript-effects.ts";
+import { effectSites, resolutionSites } from "./javascript-effects.ts";
 import { exportedNodes, renderSignature, signatureTokens } from "./javascript-contract.ts";
 
 // Built over the tree's own files and nothing else, with no default library and no module
@@ -49,7 +49,7 @@ export const javaScriptAndTypeScript: LanguageAdapter = {
         const source =
           program.getSourceFile(`/${file.path}`) ??
           ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true, scriptKind(file.path));
-        return [file.path, { declarations: outline(source), effects: effectSites(source, checker) }];
+        return [file.path, { declarations: outline(source), effects: effectSites(source, checker), resolutions: resolutionSites(source, checker) }];
       }),
     );
   },

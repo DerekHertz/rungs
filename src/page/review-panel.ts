@@ -1,7 +1,8 @@
 import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
+import { shortToken } from "../effects.ts";
 import { effectChip, signatureDiff } from "../review.ts";
-import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
+import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
 import { observedSection } from "./observed-panel.ts";
 import type { ObservedInput } from "./observed-panel.ts";
@@ -26,6 +27,10 @@ const MARK: Record<ChangeKind, string> = { added: "+", altered: "~", removed: "�
 export interface ClaimRow {
   readonly index: number;
   readonly text: string;
+  /** The agent's short restatement; false when the row shows the description's own words. */
+  readonly restated: boolean;
+  /** The description's own sentences behind this row, shown when it is selected. */
+  readonly sources: readonly { readonly text: string }[];
   readonly ids: readonly string[];
 }
 
@@ -36,7 +41,7 @@ export type LinkNote =
       readonly status: "ok";
       readonly model: string;
       readonly promptVersion: string;
-      readonly dropped: { readonly ids: number; readonly claims: number };
+      readonly dropped: { readonly ids: number; readonly claims: number; readonly restatements: number };
       readonly cached: boolean;
     }
   | { readonly status: "failed"; readonly message: string };
@@ -45,6 +50,8 @@ export interface ReviewInput {
   /** The claimed description, or null when none was given. */
   readonly description: string | null;
   readonly claims: readonly ClaimRow[];
+  /** Lines the agent called context, counted and kept out of the claims list. */
+  readonly context: readonly { readonly text: string }[];
   readonly link: LinkNote;
   /** The user picked a claim; the host selects its linked modules and flies to them. */
   readonly pickClaim: (claim: ClaimRow) => void;
@@ -74,6 +81,13 @@ export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className
   return made;
 }
 
+function contextList(context: readonly { readonly text: string }[]): HTMLElement {
+  const more = element("details", "review-context");
+  more.append(element("summary", "review-summary", `${context.length} context ${context.length === 1 ? "line" : "lines"} not shown`));
+  for (const line of context) more.append(element("p", "review-source", line.text));
+  return more;
+}
+
 export function section(title: string, tag: string): [HTMLElement, HTMLElement] {
   const wrap = element("section", "review-section");
   const head = element("h2", "review-title", title);
@@ -89,6 +103,9 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   const [claims, claimsBody] = section("Claims", "claimed");
   if (input.description === null) {
     claimsBody.append(element("p", "review-empty", "No description was given."));
+  } else if (input.claims.length === 0 && input.context.length > 0) {
+    claimsBody.append(element("p", "review-empty", `No claims; ${input.context.length} context ${input.context.length === 1 ? "line" : "lines"} not shown`));
+    claimsBody.append(contextList(input.context));
   } else if (input.claims.length === 0) {
     claimsBody.append(element("pre", "review-claim", input.description));
   } else {
@@ -100,17 +117,22 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       pick.type = "button";
       pick.append(element("span", "review-label review-claim", claim.text));
       if (input.link.status === "ok") pick.append(element("span", "review-size", claim.ids.length === 0 ? "no links" : `${claim.ids.length} linked`));
-      pick.disabled = claim.ids.length === 0;
+      // A restated claim stays clickable without links: selecting it is how its source sentences are reached.
+      pick.disabled = claim.ids.length === 0 && !claim.restated;
+      if (claim.restated) pick.title = claim.sources.map((source) => source.text).join(" ");
       pick.addEventListener("click", () => {
         active?.classList.remove("active");
         active = pick;
         pick.classList.add("active");
-        input.pickClaim(claim);
+        for (const shown of list.querySelectorAll(".review-source")) shown.remove();
+        if (claim.restated) item.append(element("blockquote", "review-source", claim.sources.map((source) => source.text).join(" ")));
+        if (claim.ids.length > 0) input.pickClaim(claim);
       });
       item.append(pick);
       list.append(item);
     }
     claimsBody.append(list);
+    if (input.context.length > 0) claimsBody.append(contextList(input.context));
   }
 
   const [unmentioned, unmentionedBody] = section("Unmentioned", "derived");
@@ -137,6 +159,12 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       for (const entry of result.linkedEntries) linkedList.append(row(entry, true));
       unmentionedBody.append(linkedList);
     }
+  }
+  if (input.effects !== null && input.effects.changed.none.length > 0) {
+    const title = element("h3", "review-subtitle", `Effects changed, no claim covers them (${input.effects.changed.none.length})`);
+    const changed = element("ul", "review-list");
+    for (const row of input.effects.changed.none) changed.append(effectsChangedRow(row));
+    unmentionedBody.append(title, changed);
   }
   const tests = testChangesBlock(input.testChanges);
   if (tests !== null) unmentionedBody.append(tests);
@@ -239,7 +267,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     if (link.status === "ok") {
       const dropped = link.dropped.ids + link.dropped.claims;
       const where = link.cached ? "cached links" : "links";
-      return `Agent ${where} by ${link.model} (prompt ${link.promptVersion}); dropped ${link.dropped.ids} unknown ids and ${link.dropped.claims} bad claim numbers${dropped === 0 ? "" : ", not shown"}. Select a claim to see what it covers.`;
+      return `Agent ${where} by ${link.model} (prompt ${link.promptVersion}); dropped ${link.dropped.ids} unknown ids and ${link.dropped.claims} bad claim numbers, kept the original words for ${link.dropped.restatements} unusable restatements${dropped === 0 ? "" : ", not shown"}. Select a claim to see what it covers.`;
     }
     if (link.status === "failed") return `No agent links: ${link.message}. Only paths and names count as mentions.`;
     return "No agent links; run with --link to link claims to the modules they describe.";
@@ -291,17 +319,42 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
 
   const [contracts, contractsBody] = section("Contracts moved", "derived");
   const report = input.contracts;
-  if (report === null || report.entries.length === 0) {
+  if (report === null || (report.entries.length === 0 && report.effectsChanged.length === 0)) {
     contractsBody.append(element("p", "review-empty", "No exported signature changed."));
   } else {
     const c = report.counts;
     const parts = (["changed", "effects", "removed", "unexported", "exposed", "moved", "added"] as const)
       .filter((kind) => c[kind] > 0)
       .map((kind) => `${c[kind]} ${kind}`);
+    if (report.effectsChanged.length > 0) parts.push(`${report.effectsChanged.length} effects changed`);
     contractsBody.append(element("p", "review-summary", `${parts.join(", ")}.`));
     const list = element("ul", "review-list");
     for (const entry of report.entries) list.append(entry.kind === "row" ? contractRow(entry) : rollupRow(entry));
+    for (const row of report.effectsChanged) list.append(effectsChangedRow(row));
     contractsBody.append(list);
+  }
+
+  /** A call whose arguments changed: the holder, what the call reaches, and the arguments gained and lost. */
+  function effectsChangedRow(row: EffectsChangedRow): HTMLElement {
+    const item = element("li", "review-row contract contract-effects");
+    const line = element("div", "review-line");
+    line.append(element("span", "review-toggle"));
+    const pick = element("button", "review-pick contract-pick");
+    pick.type = "button";
+    pick.dataset.id = row.id;
+    pick.append(element("span", "review-mark contract-effects", "≈"));
+    const text = element("span", "contract-text");
+    const head = element("span", "contract-head");
+    const { change } = row;
+    head.append(element("span", "review-label", row.label), element("span", "review-size", `effects changed${change.count > 1 ? ` ×${change.count}` : ""}`));
+    if (row.coverage !== "claimed") head.append(element("span", "review-flag", "unmentioned"));
+    text.append(head, element("span", "contract-where", change.label));
+    text.append(chips(change.added, "+", "added", true), chips(change.removed, "−", "removed", true));
+    pick.append(text);
+    pick.addEventListener("click", () => choose(pick, row.id));
+    line.append(pick);
+    item.append(line);
+    return item;
   }
 
   function choose(pick: HTMLElement, id: NodeId): void {
@@ -349,13 +402,13 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     return item;
   }
 
-  function chips(labels: readonly string[], mark: string, kind: "added" | "removed"): DocumentFragment {
+  function chips(labels: readonly string[], mark: string, kind: "added" | "removed", plain = false): DocumentFragment {
     const shown = labels.slice(0, MAX_CHIPS);
     const fragment = document.createDocumentFragment();
     if (shown.length === 0) return fragment;
     const line = element("span", "effect-chips");
     for (const label of shown) {
-      const chip = element("span", `effect-chip ${kind}`, `${mark}${effectChip(label)}`);
+      const chip = element("span", `effect-chip ${kind}`, `${mark}${plain ? shortToken(label) : effectChip(label)}`);
       chip.title = label;
       line.append(chip);
     }

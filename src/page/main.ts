@@ -6,7 +6,7 @@ import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
 import type { FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
-import { contractsReport, newEffects, unmentioned, unmentionedIds } from "../review.ts";
+import { contractsReport, effectsChangedRows, newEffects, unmentioned, unmentionedIds } from "../review.ts";
 import type { EffectRow, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
@@ -467,21 +467,23 @@ window.addEventListener("keydown", (event) => {
 });
 
 if (comparison !== null) {
-  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; link: LinkNote };
+  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; sentences: { index: number; text: string }[]; context: { text: string }[]; link: LinkNote };
   const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
   const testChanges = (await (await fetch("/test-changes.json")).json()) as TestChanges;
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
   const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked);
+  const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
   renderReview(review, {
     description: claims.description,
     claims: claims.claims,
+    context: claims.context,
     link: claims.link,
     pickClaim,
     unmentioned: claimed,
-    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed), picture.graph),
-    effects: newEffects(comparison, picture.graph, claims.description ?? "", linked),
+    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed), picture.graph, effectsChangedRows(comparison, picture.graph, claims.description ?? "", linked)),
+    effects,
     pick: pickEntry,
     pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
     pickNode,
@@ -496,7 +498,7 @@ if (comparison !== null) {
     note: tour.walkthrough,
     stops: tour.stops,
     coverage: tourCoverage(tour.stops, comparison),
-    claims: claims.claims,
+    claims: claims.sentences,
     facts: (stop) => stopFacts(stop, comparison, picture.graph, moves),
     observed: (stop) => observedAt(stop, picture.graph, comparison, observed, testChanges),
     describe(id) {
