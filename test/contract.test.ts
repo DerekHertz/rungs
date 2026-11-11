@@ -61,13 +61,13 @@ describe("what a file exports, in CommonJS", () => {
     expect(exportedNames("c.js", "module.exports = class {};\n")).toEqual(["\"module.exports\""]);
   });
 
-  test("module.exports = { ... } exports its function-valued members", () => {
+  test("module.exports = { ... } exports its function-valued members, and its other values as constants", () => {
     expect(
       exportedNames(
         "a.js",
         "function a() {}\nfunction b() {}\nfunction c() {}\nmodule.exports = { a, y: b, m() {}, n: () => 1, k: 3 };\n",
       ),
-    ).toEqual(["\"module.exports.m\"", "\"module.exports.n\"", "a", "b"]);
+    ).toEqual(["\"module.exports{k}\"", "\"module.exports.m\"", "\"module.exports.n\"", "a", "b"]);
   });
 
   test("string-literal element access counts as dot access; a computed key is not guessed", () => {
