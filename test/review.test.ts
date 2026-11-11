@@ -363,7 +363,7 @@ const assertsTwo = "    expect(a).toBe(1);\n    expect(b).toBe(2);\n";
 function reviewTests(base: Record<string, string>, head: Record<string, string>, description: string) {
   const headGraph = extract(tree(head));
   const comparison = compare(extract(tree(base)), headGraph);
-  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(), testChanges(tree(base), tree(head)));
+  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(), testChanges(tree(base), tree(head), { places: true }));
 }
 
 test("a renamed test is one ~ row under its new name, with the old name as detail", () => {
@@ -403,6 +403,26 @@ test("a suite with the same title as a renamed test is not paired with it", () =
   const body = (title: string): string => `import { it, suite, expect } from "vitest";\nit("${title}", () => {\n  expect(a).toBe(1);\n${title === "old" ? "  expect(b).toBe(2);\n" : ""}});\n${title === "old" ? 'suite("old", () => {\n  setup();\n});\n' : ""}`;
   const entry = reviewTests({ "t.test.ts": body("old") }, { "t.test.ts": body("new") }, "").entries[0]!;
   expect(entry.children.map((child) => child.label)).toContain('suite("old")');
-  const renamed = entry.children.filter((child) => child.level === "function" && child.renamedFrom !== undefined);
-  expect(renamed.map((child) => [child.label, child.level === "function" ? child.renamedFrom : ""])).toEqual([['it("new")', 'it("old")']]);
+  // The name is shared by a suite and a test in the base, so testChanges gives no place for it: nothing is paired.
+  expect(entry.children.some((child) => child.level === "function" && child.renamedFrom !== undefined)).toBe(false);
+  expect(entry.children.map((child) => child.label)).toContain('it("old")');
+});
+
+test.each(["xit", "fit", "xtest", "specify"])("a test written with %s keeps its renamed row", (callee) => {
+  const text = (title: string, body: string): string => `import { ${callee}, expect } from "vitest";\n${callee}("${title}", () => {\n${body}});\n`;
+  const base = { "t.test.ts": text("old", "  expect(a).toBe(1);\n  expect(b).toBe(2);\n") };
+  const head = { "t.test.ts": text("new", "  expect(a).toBe(1);\n") };
+  const row = reviewTests(base, head, "").entries[0]!.children[0]!;
+  expect(row.label).toBe(`${callee}("new")`);
+  expect(row.level === "function" && [row.renamedFrom, row.weakened]).toEqual([`${callee}("old")`, true]);
+});
+
+test("a member callee's callbacks do not inherit the rename of the real test", () => {
+  const text = (title: string, real: string, helper: string): string =>
+    `import { it, expect } from "vitest";\nit("${title}", function actual() {\n${real}});\nhelper.it("${title}", () => {\n  ${helper}();\n});\n`;
+  const base = { "t.test.ts": text("old", "  expect(a).toBe(1);\n  expect(b).toBe(2);\n", "doA") };
+  const head = { "t.test.ts": text("new", "  expect(a).toBe(1);\n", "doB") };
+  const rows = reviewTests(base, head, "").entries[0]!.children;
+  expect(rows.some((child) => child.level === "function" && child.renamedFrom !== undefined)).toBe(false);
+  expect(rows.map((child) => child.label)).toEqual(expect.arrayContaining(['it("old")', 'it("new")']));
 });

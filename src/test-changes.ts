@@ -349,7 +349,7 @@ export function testChanges(base: FileTree, head: FileTree, options: { readonly 
     const callback = entries?.length === 1 ? entries[0]?.callback : undefined;
     return callback === undefined ? {} : { callback };
   };
-  const renamed: { file: string; from: string; to: string }[] = [];
+  const renamed: { file: string; from: string; to: string; fromCallback?: CallbackLines; callback?: CallbackLines }[] = [];
   const markersOf = (parsed: Parsed): Set<string> => {
     const set = new Set<string>();
     for (const [name, entries] of parsed.found) for (const found of entries) for (const marker of found.markers) set.add(JSON.stringify([name, marker]));
@@ -391,7 +391,8 @@ export function testChanges(base: FileTree, head: FileTree, options: { readonly 
     }
     if (was === undefined) continue;
     for (const { from, to } of pairs) {
-      renamed.push({ file: path, from, to });
+      const fromCallback = was.found.get(from)?.length === 1 ? was.found.get(from)?.[0]?.callback : undefined;
+      renamed.push({ file: path, from, to, ...(options.places === true && fromCallback !== undefined ? { fromCallback } : {}), ...placeOf(now, to, was, from) });
       const why = weakness(totalsOf(was.found.get(from)), totalsOf(now.found.get(to)));
       if (why !== undefined) weakened.push({ file: path, name: to, why: `renamed from "${from}"; ${why}`, ...placeOf(now, to, was, from) });
     }
