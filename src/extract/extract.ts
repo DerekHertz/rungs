@@ -8,7 +8,7 @@ import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "19";
+export const EXTRACTOR_VERSION = "21";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);

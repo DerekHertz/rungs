@@ -1,8 +1,9 @@
-import { splitLines } from "../lines.ts";
+import { parse, postprocess, preprocess } from "micromark";
+import { countLines, lineRangeOf, lineStarts } from "../lines.ts";
 
-/** One ATX heading and the lines it covers, 1-based and inclusive. */
+/** One heading and the lines it covers, 1-based and inclusive. */
 export interface Heading {
-  /** The heading's text as written: trimmed, without its opening and closing hashes. */
+  /** The heading's text as written: trimmed, without an ATX heading's opening and closing hashes. */
   readonly text: string;
   /** 1 to 6. */
   readonly level: number;
@@ -11,61 +12,42 @@ export interface Heading {
   readonly end: number;
 }
 
-// Up to three spaces, one to six hashes, then a space, a tab or the end of the line.
-const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/;
-const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-const QUOTE = /^ {0,3}> ?/;
-const ITEM = /^( *)(?:[-*+]|\d{1,9}[.)])( {1,4}|$)/;
-
 /**
- * The ATX headings of a Markdown file in source order. A `#` line inside a fenced code block is
- * not one, and a fence is recognised after block quote markers and inside list items, by the
- * indentation of the item's content. A heading is read only at the top level: not in a list item
- * or a block quote. Setext headings (underlined with = or -) are not read.
+ * The headings of a Markdown file in source order, as CommonMark reads them (micromark's block
+ * parser): ATX and setext headings, wherever a block can stand, so also in a block quote or a list
+ * item. Not headings: a `#` line in fenced or indented code, or in an HTML block; a fence belongs
+ * to its container and ends with it. micromark gives each heading's start offset, and the offset
+ * becomes a line through lines.ts, the one place that decides where a line ends.
  */
 export function markdownSections(text: string): Heading[] {
-  const lines = splitLines(text);
-  const found: { text: string; level: number; start: number }[] = [];
-  let fence: { char: string; length: number } | undefined;
-  // The column where the content of the innermost open list item starts, outside a block quote.
-  let content: number | undefined;
-  lines.forEach((raw, index) => {
-    let line = raw.replace(/\r$/, "");
-    let quoted = false;
-    for (let quote = QUOTE.exec(line); quote !== null; quote = QUOTE.exec(line)) {
-      line = line.slice(quote[0].length);
-      quoted = true;
+  // micromark ends a line at a lone "\r" too, which lines.ts does not: a blank of the same length keeps every offset.
+  const source = text.replace(/\r(?!\n)/g, " ");
+  const events = postprocess(parse().document().write(preprocess()(source, undefined, true)));
+  const found: { text: string; level: number; offset: number }[] = [];
+  let current: { text: string; level: number; offset: number } | undefined;
+  for (const [phase, token, context] of events) {
+    if (phase === "enter") {
+      if (token.type === "atxHeading" || token.type === "setextHeading") current = { text: "", level: 0, offset: token.start.offset };
+      continue;
     }
-    const blank = line.trim() === "";
-    const indent = line.length - line.trimStart().length;
-    let inner = line;
-    const item = quoted ? null : ITEM.exec(line);
-    if (!quoted && !blank && item === null && content !== undefined && indent < content && fence === undefined) content = undefined;
-    if (item !== null && fence === undefined) {
-      content = item[0].length;
-      inner = line.slice(item[0].length);
-    } else if (content !== undefined && indent >= content) inner = line.slice(content);
-    const open = FENCE.exec(inner);
-    if (fence !== undefined) {
-      // A closing fence: the same character, at least as long, and nothing after it.
-      if (open !== null && open[1]![0] === fence.char && open[1]!.length >= fence.length && open[2]!.trim() === "") fence = undefined;
-      return;
+    if (current === undefined) continue;
+    if (token.type === "atxHeadingSequence") current.level = token.end.offset - token.start.offset;
+    else if (token.type === "atxHeadingText") current.text = context.sliceSerialize(token).trim();
+    else if (token.type === "setextHeadingLineSequence") current.level = source[token.start.offset] === "=" ? 1 : 2;
+    else if (token.type === "setextHeadingText") {
+      // Continuation lines of a multi-line heading carry their container's markers: drop them.
+      const [first = "", ...rest] = context.sliceSerialize(token).split(/\r?\n/);
+      current.text = [first, ...rest.map((line) => line.replace(/^[ \t>]+/, ""))].map((line) => line.trim()).join(" ");
+    } else if (token.type === "atxHeading" || token.type === "setextHeading") {
+      found.push(current);
+      current = undefined;
     }
-    // A backtick fence's info string has no backtick.
-    if (open !== null && !(open[1]![0] === "`" && open[2]!.includes("`"))) {
-      fence = { char: open[1]![0]!, length: open[1]!.length };
-      return;
-    }
-    if (quoted || inner !== line || (item === null && content !== undefined && indent >= content)) return;
-    const heading = ATX.exec(line);
-    if (heading === null) return;
-    content = undefined;
-    // A closing run of hashes is not part of the text, but only when a space precedes it.
-    const body = (heading[2] ?? "").replace(/(?:^|[ \t]+)#+$/, "").trim();
-    found.push({ text: body, level: heading[1]!.length, start: index + 1 });
-  });
-  return found.map((heading, index) => {
-    const next = found.slice(index + 1).find((other) => other.level <= heading.level);
-    return { ...heading, end: next === undefined ? lines.length : next.start - 1 };
+  }
+  const starts = lineStarts(text);
+  const total = countLines(text);
+  const lined = found.map((heading) => ({ text: heading.text, level: heading.level, start: lineRangeOf(starts, heading.offset, heading.offset + 1).start }));
+  return lined.map((heading, index) => {
+    const next = lined.slice(index + 1).find((other) => other.level <= heading.level);
+    return { ...heading, end: next === undefined ? total : next.start - 1 };
   });
 }

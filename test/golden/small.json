@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "19",
+  "extractorVersion": "21",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
