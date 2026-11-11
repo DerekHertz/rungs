@@ -81,6 +81,19 @@ export interface TownView {
   /** Frames the block these files' lots stand in (a removed file's rubble may stand in a yard); the whole town when they share none. */
   frame(files: readonly NodeId[]): void;
   reset(): void;
+  /** Where the camera is, or is flying to, so it can be put back exactly. */
+  cameraState(): CameraState;
+  /** Put the camera back at once, with no flight and no reframing. */
+  setCameraState(saved: CameraState): void;
+}
+
+/** The camera as the town view keeps it: pan, zoom, and whether the reviewer or a flight has moved it from the fit. */
+export interface CameraState {
+  readonly zoom: number;
+  readonly cx: number;
+  readonly cy: number;
+  readonly touched: boolean;
+  readonly focused: NodeId | undefined;
 }
 
 const COLOUR = {
@@ -814,6 +827,18 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     },
     frame(files) {
       frameOn(town === undefined ? undefined : standingBlock(town, files));
+    },
+    cameraState() {
+      const at = flight?.to ?? camera;
+      return { zoom: at.zoom, cx: at.cx, cy: at.cy, touched, focused };
+    },
+    setCameraState(saved) {
+      flight = undefined;
+      dropHover();
+      camera = { zoom: saved.zoom, cx: saved.cx, cy: saved.cy };
+      touched = saved.touched;
+      focused = saved.focused;
+      dirty = true;
     },
     reset() {
       touched = false;

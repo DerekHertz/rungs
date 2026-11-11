@@ -9,6 +9,7 @@ import { contractsReport, dependencyReview, effectsChangedRows, newEffects, unme
 import type { EffectRow, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
+import type { CameraState } from "./town-view.ts";
 import type { TownHandlers } from "./town-view.ts";
 import { townOf, withGhosts } from "../town.ts";
 import { callsOut } from "../town-calls.ts";
@@ -32,7 +33,9 @@ import type { TestMark } from "../test-marks.ts";
 import { comparedLine, failingEntry, walkEntry } from "../arrival.ts";
 import { renderArrival } from "./arrival-panel.ts";
 import { renderReview } from "./review-panel.ts";
-import type { ClaimRow, LinkNote } from "./review-panel.ts";
+import type { ClaimRow, LinkNote, ReviewHandle, ReviewSnapshot } from "./review-panel.ts";
+import { enterStop, leaveTour, stopRow } from "../tour-selection.ts";
+import type { SavedSelection } from "../tour-selection.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
 import type { Walk } from "./walkthrough-panel.ts";
 import { observedAt, stopFacts, tourCoverage, coverageLine, walkSummary } from "../stops.ts";
@@ -90,6 +93,8 @@ let focus = townRoot;
 let alone = false;
 let lots = new Map<NodeId, Lot>();
 let selected: NodeId | undefined;
+/** The files a manually picked risk or claim outlines, until something else is picked. */
+let shownPlaces: readonly NodeId[] | undefined;
 let requested = 0;
 let pendingClick: ReturnType<typeof setTimeout> | undefined;
 
@@ -127,6 +132,7 @@ const handlers: TownHandlers = {
   },
   click(id, clicks) {
     if (clicks > 1) return;
+    endTour();
     cancelPending();
     const ticket = requested;
     pendingClick = setTimeout(() => {
@@ -453,6 +459,7 @@ function closePanel(): void {
   cancelPending();
   narrationTicket++;
   selected = undefined;
+  shownPlaces = undefined;
   chosenKind = undefined;
   panel.hidden = true;
   townView.select(undefined);
@@ -606,6 +613,7 @@ async function narrateFunction(node: ModuleNode, fresh: boolean): Promise<void> 
 
 /** Selects `node`, showing its source and outlining `outline` on the picture. */
 async function select(node: ModuleNode, ticket: number, outline: NodeId = node.id, marked?: LineRange): Promise<void> {
+  endTour();
   if (node.id === selected) {
     markLines(marked);
     return;
@@ -634,6 +642,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
 
 /** An entry of the review panel: fly to its district, and select the file or code it names. */
 function pickEntry(entry: ReviewEntry): void {
+  endTour();
   if (entry.level === "district") {
     leaveInside();
     cancelPending();
@@ -651,6 +660,7 @@ function pickEntry(entry: ReviewEntry): void {
 
 /** A node by id, a ghost or a module removed from a surviving file included: fly to its file, select it. */
 function pickNode(id: NodeId, marked?: LineRange, also: readonly NodeId[] = []): void {
+  endTour();
   cancelPending();
   const node = nodes.get(id) ?? changed.get(id);
   if (node === undefined) return;
@@ -686,6 +696,7 @@ function placeOf(id: string): NodeId | undefined {
 
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
 function pickClaim(claim: ClaimRow): void {
+  endTour();
   if (claim.ids.length === 0) {
     // No places: nothing stays lit from the claim before.
     leaveInside();
@@ -700,22 +711,84 @@ function pickClaim(claim: ClaimRow): void {
 
 /** Outline the files of `ids` and fly to the district holding them all. */
 function pickPlaces(ids: readonly string[]): void {
+  endTour();
   leaveInside();
   cancelPending();
   closePanel();
   const places = [...new Set(ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
   chosenKind = undefined;
+  shownPlaces = places;
   townView.highlight(places);
   const district = commonDistrict(tree, places);
   if (district !== undefined) focusOn(district, rubbleAmong(places));
 }
 
+/** What the reviewer had selected by hand before the tour: the open file or the outlined places, where the camera was, and the sidebar. */
+interface Manual {
+  readonly camera: CameraState;
+  readonly selected: NodeId | undefined;
+  readonly places: readonly NodeId[] | undefined;
+  readonly focus: NodeId;
+  readonly alone: boolean;
+  readonly review: ReviewSnapshot | undefined;
+}
+let manual: SavedSelection<Manual>;
+
+/** The reviewer picked something while the tour was open: the tour closes and that pick stands, with nothing to restore. */
+function endTour(): void {
+  if (manual === undefined) return;
+  manual = undefined;
+  walk?.end();
+}
+
+/** Clear the outline a claim, risk or stop put on the town. */
+function clearOutline(): void {
+  shownPlaces = undefined;
+  townView.highlight([]);
+}
+let reviewHandle: ReviewHandle | undefined;
+let risks: readonly RiskItem[] = [];
+
+/** Put back what the reviewer had picked before the tour. */
+function restoreManual(saved: Manual): void {
+  if (saved.selected !== undefined) pickNode(saved.selected);
+  else if (saved.places !== undefined) pickPlaces(saved.places);
+  else {
+    closePanel();
+    clearOutline();
+  }
+  // pickPlaces and pickNode do not touch the sidebar, so it comes back from its own snapshot.
+  if (saved.review !== undefined) reviewHandle?.restore(saved.review);
+  // The camera goes back last, as it was, however the picks above sent it.
+  focus = saved.focus;
+  alone = saved.alone;
+  showTrail();
+  townView.setCameraState(saved.camera);
+}
+
 /** A stop of the walkthrough: outline its nodes' files and fly to the district holding them all. Closing the tour clears the outline. */
 function visitStop(stop: Stop | undefined): void {
+  if (stop === undefined) {
+    const left = leaveTour(manual);
+    manual = left.state;
+    leaveInside();
+    cancelPending();
+    closePanel();
+    clearOutline();
+    if (left.restore !== undefined) restoreManual(left.restore.value);
+    return;
+  }
+  manual = enterStop(manual, () => ({ camera: townView.cameraState(), selected, places: selected === undefined && townView.isDimming() ? shownPlaces : undefined, focus, alone, review: reviewHandle?.snapshot() }));
   leaveInside();
   cancelPending();
   closePanel();
-  const places = [...new Set((stop?.ids ?? []).map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  const places = [...new Set(stop.ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  const held = stop.ids.flatMap((id) => {
+    const node = nodes.get(id) ?? changed.get(id);
+    return node === undefined ? [] : [{ id, path: node.path, level: node.level }];
+  });
+  const row = stopRow(held, risks);
+  reviewHandle?.selectRisk(row === undefined ? undefined : risks[row]);
   townView.highlight(places);
   const district = commonDistrict(tree, places);
   if (district !== undefined) focusOn(district, rubbleAmong(places));
@@ -730,7 +803,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     cancelPending();
     if (insideFile !== undefined) leaveInside();
-    else if (selected === undefined && townView.isDimming()) townView.highlight([]);
+    else if (selected === undefined && townView.isDimming()) clearOutline();
     else if (selected !== undefined) closePanel();
     else {
       const to = escapeStep(focus, alone, townRoot, (id) => zoomOut(tree, id));
@@ -751,7 +824,8 @@ if (comparison !== null && testChanges !== null) {
   const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
   const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
   const coverage = tourCoverage(tour.stops, comparison);
-  const handle = renderReview(review, {
+  risks = ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks;
+  reviewHandle = renderReview(review, {
     walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
     description: claims.description,
     claims: claims.claims,
@@ -767,7 +841,7 @@ if (comparison !== null && testChanges !== null) {
     pickNode,
     observed: observed === null ? null : { document: observed, report: observedRun },
     testChanges,
-    risks: ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks,
+    risks,
     pickRisk: (risk: RiskItem) => pickPlaces(risk.ids),
   });
 
@@ -799,7 +873,15 @@ if (comparison !== null && testChanges !== null) {
       compared: comparedLine(run.repo, comparison.against),
       tests: failingEntry(observed === null ? "absent" : observed.status, failing),
       tour: walkEntry(tour.walkthrough, tour.stops.length, coverage),
-      openTests: () => void handle.openTests(),
+      openTests: () => {
+        // Going to the failing tests is a pick of the reviewer's own: it ends the tour and leaves its selection behind.
+        if (manual !== undefined) {
+          endTour();
+          reviewHandle?.selectRisk(undefined);
+          clearOutline();
+        }
+        void reviewHandle?.openTests();
+      },
       startTour: () => walk?.step(1),
     }),
   );
