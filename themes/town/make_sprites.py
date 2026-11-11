@@ -1,4 +1,4 @@
-# Trial only: builds the town's models and renders each as a pixel-art sprite from one fixed
+# Builds the town's models and renders each as a pixel-art sprite from one fixed
 # isometric camera. Run headless: blender -b --factory-startup --python make_sprites.py -- <out dir>
 import json
 import math
@@ -228,9 +228,13 @@ except Exception as error:  # noqa: BLE001
 SHEET = {}
 
 
-def render(name, top, width=288):
-    """Renders what is in the scene, records where the model's ground origin lands, then clears it."""
-    height = int(top * RISE + 150)
+def render(name, top, width=288, pad=150):
+    """Renders what is in the scene, records where the model's ground origin lands, then clears it.
+
+    The origin recorded in sprites.json (ox, oy) is the model's ground point at (0, 0, 0): the
+    base centre of a building, a tile's centre, the foot of a post, the middle of a gate's gap.
+    """
+    height = int(top * RISE + pad)
     aim = top / 2 - 0.25
     scene.render.resolution_x, scene.render.resolution_y = width, height
     scene.render.resolution_percentage = 100
@@ -469,6 +473,21 @@ def dock_crane():
     return 4.8
 
 
+def dish(at, aim, radius):
+    """A shallow satellite dish on a short arm, its open face turned toward `aim`."""
+    quat = Vector(aim).normalized().to_track_quat("Z", "Y")
+    forward = quat @ Vector((0, 0, 1))
+    start = Vector(at)
+    bowl = frustum(0.05, radius, (0, 0, 0), 0.34, TRIM, 12)
+    face = frustum(radius * 0.9, radius * 0.9, (0, 0, 0.335), 0.02, toon("#9fb3d1"), 12)
+    for part, shift in ((bowl, 0.0), (face, 0.0)):
+        part.rotation_euler = quat.to_euler()
+        part.location = start + forward * (0.22 + shift)
+    beam(tuple(start), tuple(start + forward * 0.25), 0.07, DARK)
+    beam(tuple(start + forward * (0.22 + 0.26)), tuple(start + forward * (0.22 + 0.7)), 0.035, DARK)
+    box((0.07, 0.07, 0.07), tuple(start + forward * (0.22 + 0.7) - Vector((0.035, 0.035, 0.035))), PINK)
+
+
 def radio_mast():
     """The harbour's network structure: a mast with a dish and a relay hut."""
     box((1.2, 1.1, 0.8), (-0.3, 0.5, 0), toon("#cfd3d9"))
@@ -477,10 +496,8 @@ def radio_mast():
     box((0.18, 0.18, 5.2), (0.5, -0.4, 0), METAL)
     for i in range(9):
         box((0.26, 0.26, 0.04), (0.5, -0.4, 0.5 + i * 0.55), DARK)
-    for z, r in ((3.6, 0.55), (4.4, 0.4)):
-        dish = frustum(0.08, r, (0, 0, 0), 0.3, TRIM, 10)
-        dish.rotation_euler = (0, math.radians(70), math.radians(-35))
-        dish.location = (0.62, -0.52, z)
+    for z, r, aim in ((3.5, 0.55, (0.75, -0.65, 0.2)), (4.4, 0.4, (1.0, -0.25, 0.15))):
+        dish((0.5, -0.4, z), aim, r)
     box((0.26, 0.26, 0.26), (0.5, -0.4, 5.2), PINK)
     return 5.6
 
@@ -564,6 +581,272 @@ def sign():
     return 2.9
 
 
+# ---- Sprites added for the adopted SPEC (issue #100). Each is chosen by one fact. ----
+
+RED = toon("#d04f4f")
+ORANGE = toon("#ff8a2a")
+CREAM = toon("#eadfc4")
+
+
+def posed(obj, at, rotation=(0, 0, 0)):
+    """Moves an object made at the origin to `at`, turned by `rotation` about its own base."""
+    obj.rotation_euler = rotation
+    obj.location = at
+    return obj
+
+
+def slab(low, high, material):
+    """A prism between two quads, for hulls, ramps and leaning lids."""
+    return mesh_object("slab", list(low) + list(high), CUBE_FACES, material)
+
+
+def arch(centre, inner, outer, thick, material, segments=9):
+    """A half ring standing in the XZ plane, centred on `centre`, for a gate's arch."""
+    cx, cy, cz = centre
+    verts = []
+    for i in range(segments + 1):
+        a = math.pi * i / segments
+        for r in (inner, outer):
+            for dy in (-thick / 2, thick / 2):
+                verts.append((cx + r * math.cos(a), cy + dy, cz + r * math.sin(a)))
+    faces = []
+    for i in range(segments):
+        a, b = i * 4, (i + 1) * 4
+        faces += [(a, a + 1, b + 1, b), (a + 2, a + 3, b + 3, b + 2), (a, a + 2, b + 2, b), (a + 1, a + 3, b + 3, b + 1)]
+    last = segments * 4
+    faces += [(0, 1, 3, 2), (last, last + 1, last + 3, last + 2)]
+    return mesh_object("arch", verts, faces, material)
+
+
+# Harbour: one structure per kind of outside resource. Queue and code loaded at run time are new.
+def port_queue():
+    """The harbour's queue structure: a quay with a rail line and a train of wagons waiting."""
+    box((3.6, 1.7, 0.2), (0, 0, 0), STONE)
+    for y in (-0.38, 0.38):
+        box((3.5, 0.07, 0.05), (0, y, 0.2), METAL)
+    for i in range(9):
+        box((0.1, 1.0, 0.05), (-1.6 + i * 0.4, 0, 0.2), WOOD)
+    for i, colour in enumerate(("#4f9fd0", "#58b070", "#e8a23c", "#d04f4f")):
+        x = -1.15 + i * 0.78
+        box((0.66, 0.74, 0.5), (x, 0, 0.3), toon(colour))
+        box((0.7, 0.78, 0.07), (x, 0, 0.8), TRIM)
+        for dx in (-0.2, 0.2):
+            box((0.14, 0.78, 0.14), (x + dx, 0, 0.22), DARK)
+    box((0.2, 0.9, 0.5), (1.65, 0, 0.2), RED)
+    box((0.26, 0.96, 0.1), (1.65, 0, 0.7), toon("#f2b632"))
+    return 1.4
+
+
+def port_dynamic_load():
+    """The harbour's code-loaded-at-run-time structure: a cargo barge with its hatch open."""
+    hull = toon("#4a5878")
+    slab([(-1.8, -0.6, 0.0), (1.4, -0.6, 0.0), (1.4, 0.6, 0.0), (-1.8, 0.6, 0.0)], [(-1.95, -0.7, 0.8), (1.8, -0.7, 0.8), (1.8, 0.7, 0.8), (-1.95, 0.7, 0.8)], hull)
+    box((3.7, 1.4, 0.05), (-0.07, 0, 0.8), WOOD)
+    box((0.9, 1.0, 0.9), (-1.25, 0, 0.85), TRIM)
+    box((0.05, 0.6, 0.3), (-0.79, 0, 1.3), PANE)
+    box((1.0, 0.9, 0.5), (-1.25, 0, 1.75), RED)
+    box((1.2, 0.9, 0.04), (0.5, 0, 0.85), glow("#ffd66b", 1.0))
+    box((1.3, 1.0, 0.18), (0.5, 0, 0.8), DARK)
+    box((1.2, 0.9, 0.04), (0.5, 0, 0.98), glow("#ffd66b", 1.0))
+    slab([(-0.1, 0.5, 1.0), (1.1, 0.5, 1.0), (1.1, 0.56, 1.0), (-0.1, 0.56, 1.0)], [(-0.1, 0.5, 1.9), (1.1, 0.5, 1.9), (1.1, 0.56, 1.9), (-0.1, 0.56, 1.9)], WOOD)
+    for x in (1.35, 1.35):
+        box((0.12, 0.12, 0.85), (x, -0.45, 0.8), METAL)
+    box((0.12, 0.12, 0.85), (1.35, 0.45, 0.8), METAL)
+    return 2.5
+
+
+# Plinth: the stone a building stands on, in four steps. The building's own base sits on the top.
+def plinth(height):
+    box((3.4, 3.4, 0.12), (0, 0, 0), STONE)
+    box((3.2, 3.2, height - 0.2), (0, 0, 0.12), toon("#9a968f", "brick", "#8c8882", "#6f6c67", scale=4.0, squash=1.4))
+    box((3.3, 3.3, 0.08), (0, 0, height - 0.08), TRIM)
+    steps = max(1, round(height / 0.3))
+    for i in range(steps):
+        box((0.9, 0.3 * (steps - i), height * (i + 1) / steps), (0, -1.7 - 0.3 * (steps - i), 0), STONE)
+    return height + 0.3
+
+
+def gate():
+    """A way in: an archway across the front of a lot, the gap centred on the origin."""
+    for x in (-0.75, 0.75):
+        box((0.36, 0.5, 1.5), (x, 0, 0), STONE)
+        box((0.46, 0.6, 0.12), (x, 0, 0.0), TRIM)
+        box((0.46, 0.6, 0.12), (x, 0, 1.5), TRIM)
+    arch((0, 0, 1.56), 0.58, 0.93, 0.5, STONE)
+    box((0.3, 0.56, 0.3), (0, 0, 2.38), TRIM)
+    for x in (-0.75, 0.75):
+        box((0.2, 0.2, 0.22), (x, -0.32, 1.62), glow("#ffe08a", 1.0))
+    return 2.8
+
+
+def footpath(along_x):
+    """One metre of footpath, laid from the road to a door. Same stones, kept apart by axis."""
+    slate = toon("#b9b2a4")
+    alt = toon("#a39c8e")
+    box((1.0, 1.0, 0.03), (0, 0, 0), toon("#7d776b"))
+    for i in range(2):
+        for j in range(2):
+            box((0.46, 0.46, 0.045), (-0.25 + i * 0.5, -0.25 + j * 0.5, 0.0), slate if (i + j) % 2 else alt)
+    if along_x:
+        box((1.0, 0.04, 0.05), (0, 0.0, 0.0), toon("#7d776b"))
+    else:
+        box((0.04, 1.0, 0.05), (0, 0.0, 0.0), toon("#7d776b"))
+    return 0.2
+
+
+def rubble():
+    """What a removed or moved file leaves on its lot: broken brick, stone and beams."""
+    items = [
+        ((0.9, 0.7, 0.45), (-0.6, 0.2, 0), (0, 0.1, 0.4), BRICK),
+        ((0.6, 0.5, 0.35), (0.5, 0.4, 0), (0.2, 0, -0.5), STONE),
+        ((0.5, 0.4, 0.3), (0.1, -0.5, 0), (0, -0.2, 0.9), BRICK),
+        ((0.7, 0.5, 0.3), (-0.2, -0.1, 0.3), (0.2, 0.3, 0.2), STONE),
+        ((0.4, 0.4, 0.3), (0.8, -0.4, 0), (0.1, 0.2, 0.3), TRIM),
+        ((0.35, 0.3, 0.25), (-0.9, -0.5, 0), (0, 0, 1.1), STONE),
+        ((0.3, 0.25, 0.2), (0.35, 0.05, 0.28), (0.4, 0.2, 0.2), BRICK),
+    ]
+    for size, at, rot, material in items:
+        posed(box(size, (0, 0, 0), material), at, rot)
+    for at, rot, length in (((-0.3, 0.7, 0.05), (0, 0, 0.3), 1.5), ((0.6, -0.7, 0.05), (0.1, 0.0, -0.4), 1.2), ((-0.1, 0.0, 0.35), (0.3, 0.1, 1.2), 1.0)):
+        posed(box((length, 0.12, 0.12), (0, 0, 0), WOOD), at, rot)
+    return 1.0
+
+
+def sign_moved():
+    """A small signpost with a blank board, for the new path. Board centre is 0.93 m up the post."""
+    for x in (-0.55, 0.55):
+        box((0.09, 0.09, 1.2), (x, 0, 0), DARK)
+    box((1.4, 0.07, 0.62), (0, 0, 0.62), WOOD)
+    box((1.26, 0.05, 0.48), (0, -0.06, 0.69), TRIM)
+    for x in (-0.55, 0.55):
+        box((0.12, 0.12, 0.06), (x, 0, 1.2), ORANGE)
+    return 1.4
+
+
+# Inside a file, walls down. Tiles are one metre; origin is the tile's centre on the floor.
+FLOOR_A = toon("#8a6b4a")
+FLOOR_B = toon("#7a5d3f")
+
+
+def floor_tile():
+    box((1.0, 1.0, 0.06), (0, 0, 0), toon("#5f4a34"))
+    for i in range(4):
+        box((0.23, 0.94, 0.04), (-0.355 + i * 0.237, 0, 0.0), FLOOR_A if i % 2 else FLOOR_B)
+    return 0.2
+
+
+def floor_changed():
+    """The floor of a changed function's room: an orange and cream check."""
+    box((1.0, 1.0, 0.06), (0, 0, 0), toon("#5f4a34"))
+    for i in range(2):
+        for j in range(2):
+            box((0.47, 0.47, 0.045), (-0.25 + i * 0.5, -0.25 + j * 0.5, 0.0), ORANGE if (i + j) % 2 else TRIM)
+    return 0.2
+
+
+def wall_x():
+    """A low wall one metre long, running along X, centred on the origin."""
+    box((1.0, 0.14, 0.55), (0, 0, 0), CREAM)
+    box((1.04, 0.18, 0.06), (0, 0, 0.55), TRIM)
+    return 0.7
+
+
+def wall_y():
+    box((0.14, 1.0, 0.55), (0, 0, 0), CREAM)
+    box((0.18, 1.04, 0.06), (0, 0, 0.55), TRIM)
+    return 0.7
+
+
+def door_outside():
+    """A one-metre wall segment, along X, with an open doorway to the outside."""
+    box((0.3, 0.14, 0.55), (-0.35, 0, 0), CREAM)
+    box((0.3, 0.14, 0.55), (0.35, 0, 0), CREAM)
+    box((0.4, 0.14, 0.1), (0, 0, 0.45), CREAM)
+    box((1.04, 0.18, 0.06), (0, 0, 0.55), TRIM)
+    box((0.4, 0.02, 0.45), (0, 0.04, 0.0), glow("#8fb4ff", 0.9))
+    box((0.07, 0.17, 0.45), (-0.2, 0, 0), WOOD)
+    box((0.07, 0.17, 0.45), (0.2, 0, 0), WOOD)
+    box((0.46, 0.17, 0.05), (0, 0, 0.4), WOOD)
+    box((0.7, 0.24, 0.03), (0, -0.2, 0), toon("#b04a4a"))
+    return 0.7
+
+
+def cone():
+    """A traffic cone, for a changed function's room."""
+    box((0.3, 0.3, 0.04), (0, 0, 0), DARK)
+    frustum(0.13, 0.03, (0, 0, 0.04), 0.46, ORANGE, 8)
+    frustum(0.097, 0.07, (0, 0, 0.2), 0.1, TRIM, 8)
+    return 0.6
+
+
+# Room objects, one per kind of outside call.
+def object_process():
+    """A call that starts a process: a terminal on a desk."""
+    box((0.8, 0.45, 0.04), (0, 0, 0.4), WOOD)
+    for x in (-0.34, 0.34):
+        box((0.06, 0.4, 0.4), (x, 0, 0), WOOD)
+    box((0.1, 0.1, 0.08), (0, 0.05, 0.44), DARK)
+    box((0.5, 0.06, 0.36), (0, 0.04, 0.52), DARK)
+    box((0.44, 0.04, 0.3), (0, -0.0, 0.55), glow("#7be0a0", 1.0))
+    box((0.4, 0.14, 0.03), (0, -0.2, 0.44), METAL)
+    return 1.1
+
+
+def object_network():
+    """A call across the network: an antenna mast on a box."""
+    box((0.5, 0.5, 0.3), (0, 0, 0), toon("#cfd3d9"))
+    box((0.07, 0.07, 1.0), (0, 0, 0.3), METAL)
+    for z, w in ((0.7, 0.5), (0.95, 0.36), (1.18, 0.22)):
+        box((w, 0.04, 0.04), (0, 0, z), DARK)
+    box((0.14, 0.14, 0.14), (0, 0, 1.3), PINK)
+    box((0.05, 0.1, 0.1), (0.26, 0, 0.12), PANE)
+    return 1.6
+
+
+def object_file_system():
+    """A call to the file system: a filing cabinet."""
+    metal = toon("#8fa0b4")
+    box((0.55, 0.5, 0.95), (0, 0, 0), metal)
+    for i in range(3):
+        z = 0.07 + i * 0.3
+        box((0.47, 0.04, 0.24), (0, -0.26, z), toon("#a2b2c4"))
+        box((0.2, 0.06, 0.04), (0, -0.29, z + 0.12), DARK)
+        box((0.2, 0.05, 0.07), (0, -0.28, z + 0.15), TRIM)
+    return 1.15
+
+
+def object_queue():
+    """A call to a queue: a post box with a flag, letters waiting."""
+    box((0.08, 0.08, 0.5), (0, 0, 0), DARK)
+    box((0.7, 0.4, 0.34), (0, 0, 0.5), RED)
+    barrel_roof(0.7, 0.2, (0, 0, 0.84), RED, 8)
+    box((0.34, 0.05, 0.06), (0, -0.21, 0.62), DARK)
+    box((0.04, 0.05, 0.3), (0.38, 0, 0.84), toon("#f2b632"))
+    box((0.1, 0.18, 0.08), (0.38, 0, 1.1), toon("#f2b632"))
+    return 1.35
+
+
+def object_timer():
+    """A call that waits on a timer: a standing clock."""
+    box((0.42, 0.3, 0.2), (0, 0, 0), WOOD)
+    box((0.3, 0.22, 0.7), (0, 0, 0.2), WOOD)
+    box((0.46, 0.34, 0.08), (0, 0, 0.9), WOOD)
+    face = frustum(0.19, 0.19, (0, 0, 0), 0.04, glow("#fffbe8", 1.0), 12)
+    posed(face, (0, -0.11, 0.66), (math.radians(90), 0, 0))
+    box((0.025, 0.03, 0.15), (0, -0.14, 0.66), DARK)
+    box((0.11, 0.03, 0.025), (0.04, -0.14, 0.66), DARK)
+    return 1.2
+
+
+def object_dynamic_load():
+    """A call that loads code at run time: a floor hatch with its lid standing open."""
+    box((0.9, 0.9, 0.06), (0, 0, 0), STONE)
+    box((0.7, 0.7, 0.07), (0, 0, 0.0), glow("#ffd66b", 1.0))
+    box((0.74, 0.74, 0.03), (0, 0, 0.06), toon("#4a5878"))
+    slab([(-0.36, 0.38, 0.06), (0.36, 0.38, 0.06), (0.36, 0.45, 0.06), (-0.36, 0.45, 0.06)], [(-0.36, 0.0, 0.7), (0.36, 0.0, 0.7), (0.36, 0.07, 0.7), (-0.36, 0.07, 0.7)], WOOD)
+    return 1.0
+
+
 for floors in (1, 2, 3):
     render("workshop-%d" % floors, workshop(floors))
 for floors in (1, 2):
@@ -585,6 +868,29 @@ render("lamp", lamp(), 96)
 render("fence-x", fence(True), 112)
 render("fence-y", fence(False), 112)
 render("sign", sign(), 208)
+
+# Added for #100. Names are the fact that chooses the sprite.
+render("port-queue", port_queue(), 288)
+render("port-dynamic-load", port_dynamic_load(), 288)
+for step, height in enumerate((0.3, 0.6, 0.9, 1.2), 1):
+    render("plinth-%d" % step, plinth(height), 288, 190)
+render("gate", gate(), 144, 60)
+render("footpath-x", footpath(True), 96, 30)
+render("footpath-y", footpath(False), 96, 30)
+render("rubble", rubble(), 192, 60)
+render("sign-moved", sign_moved(), 176, 60)
+render("floor", floor_tile(), 96, 30)
+render("floor-changed", floor_changed(), 96, 30)
+render("wall-x", wall_x(), 96, 40)
+render("wall-y", wall_y(), 96, 40)
+render("door-outside", door_outside(), 96, 40)
+render("cone", cone(), 64, 30)
+render("object-process", object_process(), 112, 40)
+render("object-network", object_network(), 96, 40)
+render("object-file-system", object_file_system(), 96, 40)
+render("object-queue", object_queue(), 112, 40)
+render("object-timer", object_timer(), 96, 40)
+render("object-dynamic-load", object_dynamic_load(), 96, 40)
 
 with open(OUT + "\\sprites.json", "w") as handle:
     json.dump(SHEET, handle, indent=1)
