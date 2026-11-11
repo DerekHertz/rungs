@@ -110,8 +110,8 @@ altered, removed or moved. Moved means identical text under a new path, never a 
 - An altered file is under scaffolding with a crane beside it, and is named.
 - An added file stands on bare earth, with no crane and no name, so a large new area does not
   bury the altered files.
-- A block where most files are added has a construction fence and a sign with its counts
-  ("tools · 93 new").
+- A block where more than half the files are added, counting its nested folders, has a
+  construction fence and a sign with its counts ("tools · 93 new").
 - A removed file leaves rubble on its lot. A moved file leaves rubble with a sign naming its new
   path, and stands at its new place with no crane.
 - Inside a file, a changed function's room has a different floor and cones, and an altered or
