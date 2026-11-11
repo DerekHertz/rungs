@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import type { ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -273,6 +274,12 @@ export async function serve(
     return lines === undefined ? undefined : `${JSON.stringify({ tier: "derived", id, lines }, null, 2)}\n`;
   }
 
+  /** The compiler or the resolver went wrong on this tree: say so, and keep the server up. */
+  const failed = (response: ServerResponse, error: unknown): void => {
+    if (!response.headersSent) response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    response.end(`the call edges could not be worked out: ${error instanceof Error ? error.message : String(error)}\n`);
+  };
+
   // Call edges are worked out when a view asks (SPEC rule 4), for the head tree, and kept.
   const calls = new CallResolver(tree, graph);
 
@@ -309,15 +316,23 @@ export async function serve(
       return;
     }
     if (url.pathname === "/file-why") {
-      const found = comparison === undefined || baseGraph === undefined ? undefined : fileWhy((url.searchParams.get("id") ?? "") as NodeId, comparison, baseGraph, graph, isTestFile, calls);
-      if (found === undefined) response.writeHead(404).end();
-      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", ...found }, null, 2)}\n`);
+      try {
+        const found = comparison === undefined || baseGraph === undefined ? undefined : fileWhy((url.searchParams.get("id") ?? "") as NodeId, comparison, baseGraph, graph, isTestFile, calls);
+        if (found === undefined) response.writeHead(404).end();
+        else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", ...found }, null, 2)}\n`);
+      } catch (error) {
+        failed(response, error);
+      }
       return;
     }
     if (url.pathname === "/calls") {
       const id = (url.searchParams.get("id") ?? "") as NodeId;
-      if (!calls.has(id)) response.writeHead(404).end();
-      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", id, callers: calls.callersOf(id), callees: calls.calleesOf(id), effects: effectStepsOf(graph, id) }, null, 2)}\n`);
+      try {
+        if (!calls.has(id)) response.writeHead(404).end();
+        else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", id, callers: calls.callersOf(id), callees: calls.calleesOf(id), effects: effectStepsOf(graph, id) }, null, 2)}\n`);
+      } catch (error) {
+        failed(response, error);
+      }
       return;
     }
     if (url.pathname === "/source") {

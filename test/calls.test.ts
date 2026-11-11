@@ -191,3 +191,47 @@ describe("review round 1: nothing is guessed, no caller is missed", () => {
     expect(texts(record, "a.ts", "f")).toEqual(["obj.p"]);
   });
 });
+
+describe("review round 2", () => {
+  const callees = (record: Record<string, string>, path: string, name: string) => over(files(record)).calleesOf(id(path, name));
+  const texts = (record: Record<string, string>, path: string, name: string): string[] => callees(record, path, name).unresolved.map((call) => call.text);
+
+  test("1. a function inside an exported constant's initializer, named like it, uses the extractor's ids and never throws", () => {
+    const resolver = over(files({ "a.ts": "export const f = [function f(n: number) {\n  if (n) f(n - 1);\n}];\n", "b.ts": 'import { f } from "./a.ts";\nexport function g() {\n  f[0](1);\n}\n' }));
+    expect(resolver.callersOf(id("a.ts", "f"))).toEqual([]);
+    expect(resolver.calleesOf(id("a.ts", "f"))).toEqual({ resolved: [], unresolved: [] });
+    expect(resolver.calleesOf(id("b.ts", "g")).unresolved.map((call) => call.text)).toEqual(["f[0]"]);
+  });
+
+  test("2. a method of an exported constant owns its calls, and the constant does not", () => {
+    const resolver = over(files({ "a.ts": "function helper() {}\nexport const registry = {\n  run() {\n    helper();\n  },\n};\n" }));
+    expect(resolver.calleesOf(id("a.ts", JSON.stringify("registry.run"))).resolved.map((ref) => ref.label)).toEqual(["helper"]);
+    expect(names(resolver.callersOf(id("a.ts", "helper")))).toEqual([JSON.stringify("registry.run")]);
+  });
+
+  test("2b. a call in a constant's initializer, outside any function, belongs to the file", () => {
+    const resolver = over(files({ "a.ts": "function helper() {\n  return 1;\n}\nexport const x = helper();\n" }));
+    expect(resolver.callersOf(id("a.ts", "helper")).map((ref) => [ref.label, ref.level])).toEqual([["(top level)", "file"]]);
+  });
+
+  test("3. a bracket assignment marks the whole object: its methods are unresolved", () => {
+    const record = { "a.ts": 'const o = {\n  run() {\n    return 1;\n  },\n};\no["run"] = () => 2;\nexport function f() {\n  o.run();\n}\n' };
+    expect(callees(record, "a.ts", "f").resolved).toEqual([]);
+    expect(texts(record, "a.ts", "f")).toEqual(["o.run"]);
+  });
+
+  test("4. a shorthand destructuring assignment reassigns the name", () => {
+    const record = { "a.ts": "function f() {}\nfunction other() {}\nexport function g() {\n  ({ f } = { f: other });\n  f();\n}\n" };
+    expect(callees(record, "a.ts", "g").resolved).toEqual([]);
+    expect(texts(record, "a.ts", "g")).toEqual(["f"]);
+  });
+
+  test("5. an assertion anywhere in the receiver chain makes the call unresolved", () => {
+    const record = {
+      "a.ts":
+        "interface C {\n  run(): number;\n}\nconst real = {\n  run() {\n    return 1;\n  },\n};\nexport function f() {\n  (real as C).run();\n  (<C>real).run();\n  (real satisfies C).run();\n  (real!).run();\n  ((real as C)).run();\n}\n",
+    };
+    expect(callees(record, "a.ts", "f").resolved).toEqual([]);
+    expect(texts(record, "a.ts", "f")).toHaveLength(5);
+  });
+});

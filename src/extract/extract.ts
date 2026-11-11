@@ -121,10 +121,11 @@ function manifestsOf(tree: FileTree): Manifest[] {
 
 // The only place code identity is decided: ordinals among siblings with the same text in source
 // order, qualified names, and line ranges through lines.ts.
-function codeNodes(path: string, text: string, declarations: readonly Declaration[]): CodeNodes {
+export function codeNodes(path: string, text: string, declarations: readonly Declaration[]): CodeNodes {
   const starts = lineStarts(text);
   const nodes: CodeNode[] = [];
   const spans: Span[] = [];
+  const byStart = new Map<number, NodeId>();
   const visit = (siblings: readonly Declaration[], parent: NodeId, parentName: string, depth: number): void => {
     const seen = new Map<string, number>();
     for (const declaration of [...siblings].sort((a, b) => a.start - b.start)) {
@@ -148,12 +149,15 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
         signature: declaration.signature,
       });
       // A constant owns no effects: a call in its initializer runs at module top level, as before.
-      if (declaration.level !== "constant") spans.push({ id, start: declaration.start, end: declaration.end, depth });
+      if (declaration.level !== "constant") {
+        spans.push({ id, start: declaration.start, end: declaration.end, depth });
+        byStart.set(declaration.start, id);
+      }
       visit(declaration.children, id, name, depth + 1);
     }
   };
   visit(declarations, nodeId("file", path, ""), "", 1);
-  return { nodes, spans };
+  return { nodes, spans, byStart };
 }
 
 // A section's identity is decided here, like a code node's: ordinals among siblings with the same
@@ -186,21 +190,23 @@ function sectionNodes(path: string, text: string): SectionNode[] {
   return nodes;
 }
 
-interface Span {
+export interface Span {
   readonly id: NodeId;
   readonly start: number;
   readonly end: number;
   readonly depth: number;
 }
 
-interface CodeNodes {
+export interface CodeNodes {
   readonly nodes: CodeNode[];
   readonly spans: readonly Span[];
+  /** The id of each class or function by the offset its declaration starts at; constants are left out. */
+  readonly byStart: ReadonlyMap<number, NodeId>;
 }
 
 // An effect belongs to the innermost class or function whose text contains the whole call, and
 // to the file when none does: module top level, which runs when the file is imported.
-const ownerOf = (path: string, site: { start: number; end: number }, spans: readonly Span[]): NodeId => {
+export const ownerOf = (path: string, site: { start: number; end: number }, spans: readonly Span[]): NodeId => {
   let owner: Span | undefined;
   for (const span of spans) {
     if (span.start <= site.start && site.end <= span.end && (owner === undefined || span.depth > owner.depth)) {

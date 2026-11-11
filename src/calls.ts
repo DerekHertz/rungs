@@ -2,12 +2,13 @@ import { posix } from "node:path";
 import ts from "typescript";
 import type { CallList, CallRef, UnresolvedCall } from "./defining.ts";
 import { adapterFor } from "./extract/adapters.ts";
-import type { Declaration } from "./extract/adapters.ts";
 import { ImportResolver } from "./extract/javascript-imports.ts";
 import type { ResolutionMode } from "./extract/javascript-imports.ts";
+import { codeNodes, ownerOf } from "./extract/extract.ts";
+import type { CodeNodes } from "./extract/extract.ts";
 import { effectSites } from "./extract/javascript-effects.ts";
 import { isCodeSyntax, outline, scriptKind } from "./extract/javascript.ts";
-import { isCodeNode, nodeId, qualifiedName } from "./graph.ts";
+import { isCodeNode } from "./graph.ts";
 import type { FileTree, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 import { isBinary, lineRangeOf, lineStarts } from "./lines.ts";
 import { isAnonymous, labelOf } from "./review.ts";
@@ -34,11 +35,6 @@ interface Site {
   readonly to?: NodeId;
 }
 
-interface Index {
-  readonly spans: readonly { readonly id: NodeId; readonly start: number; readonly end: number; readonly depth: number }[];
-  readonly byStart: ReadonlyMap<number, NodeId>;
-}
-
 const EXTENSIONS: ReadonlyMap<string, ts.Extension> = new Map([
   [".ts", ts.Extension.Ts],
   [".tsx", ts.Extension.Tsx],
@@ -58,7 +54,7 @@ export class CallResolver {
   private readonly nodes: ReadonlyMap<NodeId, ModuleNode>;
   private program: ts.Program | undefined;
   private reassigned: Set<ts.Symbol> | undefined;
-  private readonly indexes = new Map<string, Index>();
+  private readonly indexes = new Map<string, CodeNodes>();
   private readonly found = new Map<string, readonly Site[]>();
   private importersByFile: Map<NodeId, NodeId[]> | undefined;
 
@@ -87,7 +83,7 @@ export class CallResolver {
       else if (site.to !== blockId) resolved.set(site.to, [...(resolved.get(site.to) ?? []), site.at]);
     }
     return {
-      resolved: [...resolved].map(([id, at]) => this.refOf(id, at)).sort(compareRefs),
+      resolved: [...resolved].flatMap(([id, at]) => this.refOf(id, at) ?? []).sort(compareRefs),
       unresolved: unresolved.sort((a, b) => a.at.start - b.at.start || byText(a.text, b.text)),
     };
   }
@@ -104,7 +100,7 @@ export class CallResolver {
         holders.set(holder, [...(holders.get(holder) ?? []), site.at]);
       }
     }
-    return [...holders].map(([id, at]) => this.refOf(id, at)).sort(compareRefs);
+    return [...holders].flatMap(([id, at]) => this.refOf(id, at) ?? []).sort(compareRefs);
   }
 
   /** The files that can call into `file`: itself and every file that imports it, directly or through others. The compiler decides which calls really reach it. */
@@ -143,8 +139,9 @@ export class CallResolver {
     return at === undefined ? owner : at.id;
   }
 
-  private refOf(id: NodeId, at: LineRange[]): CallRef {
-    const node = this.nodes.get(id)!;
+  private refOf(id: NodeId, at: LineRange[]): CallRef | undefined {
+    const node = this.nodes.get(id);
+    if (node === undefined) return undefined;
     return isCodeNode(node)
       ? { id, label: labelOf(node), level: node.level, path: node.path, range: node.range, at }
       : { id, label: "(top level)", level: "file", path: node.path, range: null, at };
@@ -167,7 +164,6 @@ export class CallResolver {
     const checker = program.getTypeChecker();
     const starts = lineStarts(text);
     const index = this.indexOf(path, source);
-    const file = `file:${path}` as NodeId;
     // An effect (fs.readFileSync, fetch) is shown as the effect it is, not as an unresolved call: matched by the call's own start.
     const effects = new Set(effectSites(source, checker).map((site) => site.start));
     const sites: Site[] = [];
@@ -175,8 +171,10 @@ export class CallResolver {
       if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !isModuleLoad(node, checker)) {
         const start = node.getStart(source);
         const at = lineRangeOf(starts, start, Math.max(node.end, start + 1));
-        const owner = innermost(index, start) ?? file;
-        const to = this.targetOf(checker, node);
+        const owner = ownerOf(path, { start, end: node.end }, index.spans);
+        const found = this.targetOf(checker, node);
+        // An id the graph does not have is never an edge.
+        const to = found !== undefined && this.nodes.has(found) ? found : undefined;
         const calleeText = `${ts.isNewExpression(node) ? "new " : ""}${oneLine(node.expression.getText(source))}`;
         if (to !== undefined || !effects.has(start)) sites.push({ owner, text: calleeText, at, ...(to === undefined ? {} : { to }) });
       }
@@ -193,15 +191,19 @@ export class CallResolver {
    */
   private targetOf(checker: ts.TypeChecker, call: ts.CallExpression | ts.NewExpression): NodeId | undefined {
     let callee: ts.Expression = call.expression;
-    while (ts.isParenthesizedExpression(callee) || ts.isNonNullExpression(callee)) callee = callee.expression;
+    while (ts.isParenthesizedExpression(callee)) callee = callee.expression;
     const named = ts.isPropertyAccessExpression(callee) ? callee.name : ts.isIdentifier(callee) ? callee : undefined;
-    if (named === undefined) return undefined;
+    if (named === undefined || (ts.isPropertyAccessExpression(callee) && assertedReceiver(callee.expression))) return undefined;
     // Any value typed `any` (a cast, an annotation) says nothing about what runs.
     if (checker.getTypeAtLocation(callee).flags & ts.TypeFlags.Any) return undefined;
     let symbol = checker.getSymbolAtLocation(named);
     if (symbol !== undefined && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
     const declarations = symbol?.declarations;
-    if (symbol === undefined || declarations === undefined || this.assigned(checker).has(symbol)) return undefined;
+    if (symbol === undefined || declarations === undefined) return undefined;
+    const assigned = this.assigned(checker);
+    if (assigned.has(symbol)) return undefined;
+    // A member written through brackets (`o["run"] = ...`) marks the whole object: nothing called through it is known.
+    if (ts.isPropertyAccessExpression(callee) && receiverSymbols(checker, callee.expression).some((owner) => assigned.has(owner))) return undefined;
     const bodies = new Set<ts.Node>();
     let others = 0;
     for (const declaration of declarations) {
@@ -228,10 +230,17 @@ export class CallResolver {
         const symbol = checker.getSymbolAtLocation(target);
         if (symbol !== undefined) found.add(symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
       } else if (ts.isPropertyAccessExpression(target)) mark(target.name);
+      else if (ts.isElementAccessExpression(target)) {
+        // Any member of the object may now be something else.
+        for (const owner of receiverSymbols(checker, target.expression)) found.add(owner);
+      }
       else if (ts.isArrayLiteralExpression(target)) target.elements.forEach(mark);
       else if (ts.isObjectLiteralExpression(target)) {
         for (const property of target.properties) {
-          if (ts.isShorthandPropertyAssignment(property)) mark(property.name);
+          if (ts.isShorthandPropertyAssignment(property)) {
+            const symbol = checker.getShorthandAssignmentValueSymbol(property);
+            if (symbol !== undefined) found.add(symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
+          }
           else if (ts.isPropertyAssignment(property)) mark(property.initializer);
           else if (ts.isSpreadAssignment(property)) mark(property.expression);
         }
@@ -252,26 +261,11 @@ export class CallResolver {
     return found;
   }
 
-  private indexOf(path: string, source: ts.SourceFile): Index {
+  /** The extractor's own ids, spans and starts for the file, so identity is never worked out twice. */
+  private indexOf(path: string, source: ts.SourceFile): CodeNodes {
     const known = this.indexes.get(path);
     if (known !== undefined) return known;
-    const spans: { id: NodeId; start: number; end: number; depth: number }[] = [];
-    const byStart = new Map<number, NodeId>();
-    // The extractor's own identity: ordinals among siblings with the same text, in source order.
-    const visit = (siblings: readonly Declaration[], parentName: string, depth: number): void => {
-      const seen = new Map<string, number>();
-      for (const declaration of [...siblings].sort((a, b) => a.start - b.start)) {
-        const ordinal = (seen.get(declaration.text) ?? 0) + 1;
-        seen.set(declaration.text, ordinal);
-        const name = qualifiedName(parentName, declaration.text, ordinal);
-        const id = nodeId(declaration.level, path, name);
-        spans.push({ id, start: declaration.start, end: declaration.end, depth });
-        byStart.set(declaration.start, id);
-        visit(declaration.children, name, depth + 1);
-      }
-    };
-    visit(outline(source), "", 1);
-    const made = { spans, byStart };
+    const made = codeNodes(path, this.tree.get(path) ?? "", outline(source));
     this.indexes.set(path, made);
     return made;
   }
@@ -322,12 +316,6 @@ export class CallResolver {
 
 const compareRefs = (a: CallRef, b: CallRef): number => byText(a.path, b.path) || (a.range?.start ?? a.at[0]?.start ?? 0) - (b.range?.start ?? b.at[0]?.start ?? 0) || byText(a.id, b.id);
 
-function innermost(index: Index, offset: number): NodeId | undefined {
-  let best: Index["spans"][number] | undefined;
-  for (const span of index.spans) if (span.start <= offset && offset < span.end && (best === undefined || span.depth > best.depth)) best = span;
-  return best?.id;
-}
-
 const oneLine = (text: string): string => {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > MAX_TEXT ? `${flat.slice(0, MAX_TEXT - 1)}…` : flat;
@@ -360,3 +348,29 @@ function bodyOf(declaration: ts.Declaration): ts.Node | undefined {
 
 /** A function or method signature written without a body, ahead of the one that has it. */
 const isOverload = (declaration: ts.Declaration): boolean => (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) && declaration.body === undefined;
+
+/** True when an assertion (`as`, `<T>`, `satisfies`, `!`) sits anywhere in the receiver chain: the type it names is not what runs. */
+function assertedReceiver(receiver: ts.Expression): boolean {
+  for (let at: ts.Expression = receiver; ; ) {
+    if (ts.isAsExpression(at) || ts.isTypeAssertionExpression(at) || ts.isSatisfiesExpression(at) || ts.isNonNullExpression(at)) return true;
+    if (ts.isParenthesizedExpression(at) || ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at) || ts.isCallExpression(at)) at = at.expression;
+    else return false;
+  }
+}
+
+/** The symbols of the names along a receiver (`a.b.c` gives c, b and a): an assignment through any of them reaches the rest. */
+function receiverSymbols(checker: ts.TypeChecker, receiver: ts.Expression): ts.Symbol[] {
+  const found: ts.Symbol[] = [];
+  for (let at: ts.Expression = receiver; ; ) {
+    if (ts.isParenthesizedExpression(at)) at = at.expression;
+    else if (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at)) {
+      const symbol = ts.isPropertyAccessExpression(at) ? checker.getSymbolAtLocation(at.name) : undefined;
+      if (symbol !== undefined) found.push(symbol);
+      at = at.expression;
+    } else {
+      const symbol = ts.isIdentifier(at) ? checker.getSymbolAtLocation(at) : undefined;
+      if (symbol !== undefined) found.push(symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
+      return found;
+    }
+  }
+}
