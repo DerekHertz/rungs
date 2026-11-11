@@ -323,11 +323,12 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     pick.append(element("span", `review-mark ${entry.level === "district" ? "" : entry.change}`, mark));
     const label = element("span", "review-label", entry.label);
     if (entry.level === "file" && entry.from !== undefined) label.title = `moved from ${entry.from}`;
+    else if (entry.level === "class" || entry.level === "function") label.title = entry.id.slice(entry.id.indexOf("#") + 1);
     pick.append(label);
     const size =
       entry.level === "district"
         ? `${entry.files} files ${tallyText(entry.kinds)}`
-        : `${entry.lines} ${entry.lines === 1 ? "line" : "lines"}`;
+        : `${entry.lines} ${entry.lines === 1 ? "line" : "lines"}${entry.folded === undefined ? "" : ` · +${plural(entry.folded.length, "callback")}`}`;
     pick.append(element("span", "review-size", size));
     line.append(pick);
     item.append(line);

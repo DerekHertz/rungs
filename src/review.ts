@@ -48,6 +48,8 @@ export type ReviewEntry =
       readonly from?: string;
       /** An agent linked a claim to this very module, not only to something in its file. */
       readonly linked?: true;
+      /** Anonymous callbacks inside it whose change is rolled up into this row instead of listed. */
+      readonly folded?: readonly NodeId[];
     })
   /** A folder or package whose changed files are all unmentioned, rolled up. `children` are its files. */
   | (EntryBase & { readonly level: "district"; readonly files: number; readonly kinds: Tally });
@@ -63,6 +65,57 @@ export interface Unmentioned {
   readonly entries: readonly ReviewEntry[];
   /** "Linked by the agent only": not mentioned, but an agent linked a claim to the file or to code in it. A claimed fact. */
   readonly linkedEntries: readonly ReviewEntry[];
+}
+
+interface Segment {
+  readonly text: string;
+  readonly ordinal: number;
+}
+
+/** The (text, ordinal) path a qualified name encodes; see `qualifiedName` in graph.ts. */
+function segmentsOf(name: string): Segment[] {
+  const found: Segment[] = [];
+  let at = 0;
+  while (at < name.length) {
+    let text: string;
+    if (name[at] === '"') {
+      let end = at + 1;
+      while (name[end] !== '"') end += name[end] === "\\" ? 2 : 1;
+      text = JSON.parse(name.slice(at, end + 1)) as string;
+      at = end + 1;
+    } else {
+      const end = name.slice(at).search(/[.@]/u);
+      const stop = end === -1 ? name.length : at + end;
+      text = name.slice(at, stop);
+      at = stop;
+    }
+    let ordinal = 1;
+    if (name[at] === "@") {
+      const digits = /^\d+/u.exec(name.slice(at + 1))![0];
+      ordinal = Number(digits);
+      at += 1 + digits.length;
+    }
+    found.push({ text, ordinal });
+    at += 1;
+  }
+  return found;
+}
+
+const LABELLED_CALLBACK = /^.*\(".*"\) callback$/su;
+
+/** A function the source gives no name a reviewer could tell apart: `map() callback`, `<function>`. */
+function isAnonymous(node: ModuleNode): boolean {
+  if (node.level !== "function" && node.level !== "class") return false;
+  const last = segmentsOf(node.qualifiedName).at(-1)!.text;
+  if (last === "<function>" || last === "<class>") return true;
+  return last.endsWith(" callback") && !LABELLED_CALLBACK.test(last);
+}
+
+/** What a row says: a test or describe callback by its own `test("name")`, anything else by its qualified name. */
+function labelOf(node: ModuleNode & { readonly qualifiedName: string }): string {
+  const last = segmentsOf(node.qualifiedName).at(-1)!;
+  if (!LABELLED_CALLBACK.test(last.text)) return node.qualifiedName;
+  return `${last.text.slice(0, -" callback".length)}${last.ordinal > 1 ? `@${last.ordinal}` : ""}`;
 }
 
 type Kinds = { -readonly [K in ChangeKind]: number };
@@ -137,12 +190,38 @@ export function unmentioned(
   const fileChanges = comparison.changes.filter((change) => change.node.level === "file");
   const { pathMentioned, fileMentioned, nameCovered } = mentionRules(comparison, description);
 
-  const codeBy = new Map<string, ReviewEntry[]>();
+  const changeOf = new Map<NodeId, ModuleChange>(comparison.changes.map((change) => [change.node.id, change]));
+  const nodeOf = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+  /** The nearest enclosing change that is not itself anonymous, or undefined when only the file holds it. */
+  const holderOf = (node: ModuleNode): ModuleChange | undefined => {
+    for (let up = isCodeNode(node) ? nodeOf.get(node.parent) : undefined; up !== undefined && isCodeNode(up); up = nodeOf.get(up.parent)) {
+      const held = changeOf.get(up.id);
+      if (held !== undefined && !isAnonymous(held.node)) return held;
+    }
+    return undefined;
+  };
+
+  const folds = new Map<NodeId, NodeId[]>();
+  const fileFolds = new Map<string, NodeId[]>();
+  const codeChanges: ModuleChange[] = [];
   for (const change of comparison.changes) {
     const node = change.node;
     if (!isCodeNode(node) || pathsOf(change).some(pathMentioned)) continue;
     if (nameCovered(node.qualifiedName)) continue;
-    const entry: ReviewEntry = { id: node.id, level: node.level, label: node.qualifiedName, change: change.kind, lines: sizeOf(node), children: [] };
+    if (!isAnonymous(node)) {
+      codeChanges.push(change);
+      continue;
+    }
+    const holder = holderOf(node);
+    if (holder === undefined) fileFolds.set(node.path, [...(fileFolds.get(node.path) ?? []), node.id]);
+    else folds.set(holder.node.id, [...(folds.get(holder.node.id) ?? []), node.id]);
+  }
+
+  const codeBy = new Map<string, ReviewEntry[]>();
+  for (const change of codeChanges) {
+    const node = change.node as ModuleNode & { readonly level: "class" | "function"; readonly qualifiedName: string };
+    const folded = folds.get(node.id);
+    const entry: ReviewEntry = { id: node.id, level: node.level, label: labelOf(node), change: change.kind, lines: sizeOf(node), children: [], ...(folded === undefined ? {} : { folded }) };
     codeBy.set(node.path, [...(codeBy.get(node.path) ?? []), entry]);
   }
 
@@ -168,6 +247,7 @@ export function unmentioned(
       lines: sizeOf(node),
       children,
       ...(change.kind === "moved" ? { from: change.from.path } : {}),
+      ...(fileFolds.has(node.path) ? { folded: fileFolds.get(node.path)! } : {}),
     };
     (agent ? byAgent : none).push(entry);
   }
@@ -234,6 +314,7 @@ export function unmentionedIds(result: Unmentioned): Set<NodeId> {
   const visit = (entries: readonly ReviewEntry[]): void => {
     for (const entry of entries) {
       ids.add(entry.id);
+      if (entry.level !== "district") for (const id of entry.folded ?? []) ids.add(id);
       visit(entry.children);
     }
   };
