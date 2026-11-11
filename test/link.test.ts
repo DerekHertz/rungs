@@ -163,11 +163,11 @@ function stub(script: string): string {
 }
 const request = { system: "s", prompt: "p", schema: { type: "object" }, timeoutMs: 3000 };
 
-test("the CLI runner passes the prompt on stdin, allows no tools, and reads structured_output and the model", async () => {
+test("the CLI runner passes the prompt on stdin, allows no tools or MCP servers, asks for opus at medium effort, and reads structured_output and the model", async () => {
   const command = stub(`
     let input = ""; process.stdin.on("data", (d) => (input += d)).on("end", () => {
       const args = process.argv.slice(2);
-      const ok = args.includes("-p") && args[args.indexOf("--tools") + 1] === "" && args[args.indexOf("--output-format") + 1] === "json" && args.includes("--json-schema") && input === "p";
+      const ok = args.includes("-p") && args[args.indexOf("--tools") + 1] === "" && args.includes("--strict-mcp-config") && !args.includes("--mcp-config") && args[args.indexOf("--model") + 1] === "opus" && args[args.indexOf("--effort") + 1] === "medium" && args[args.indexOf("--output-format") + 1] === "json" && args.includes("--json-schema") && input === "p";
       console.log(JSON.stringify({ is_error: !ok, result: "bad args " + args.join(" "), structured_output: { links: [] }, modelUsage: { "claude-x": {} } }));
     });`);
   expect(await claudeRunner(command).run(request)).toEqual({ output: { links: [] }, model: "claude-x" });
