@@ -168,6 +168,10 @@ function memberLines(before: readonly string[], now: readonly string[], path: st
   const was = keyed(before);
   const is = keyed(now);
   if (was === undefined || is === undefined) return undefined;
+  // Call and construct signatures are overloads: their order matters, so a reorder cannot be listed as nothing.
+  const calls = (by: ReadonlyMap<string, Member>, other: ReadonlyMap<string, Member>): string =>
+    [...by.values()].filter((read) => read.kind === "other" && /^(new\s*)?[(<]/.test(read.text) && other.has(read.key)).map((read) => read.key).join("\0");
+  if (calls(was, is) !== calls(is, was)) return undefined;
   const lines: string[] = [];
   for (const [key, read] of is) {
     const old = was.get(key);
@@ -224,6 +228,15 @@ function shapeOf(text: string): Shape | undefined {
   return { generics, kind: "interface", heritage, body: rest.slice(open).trim() };
 }
 
+/** True when no `?`, `:` or `=>` stands outside brackets and strings, and the text balances. */
+function plainUnion(text: string): boolean {
+  let plain = true;
+  const ok = atTop(text, (c, i) => {
+    if (c === "?" || c === ":" || (c === "=" && text[i + 1] === ">")) plain = false;
+  });
+  return ok && plain;
+}
+
 const withoutLead = (body: string): string => body.replace(/^[|&]\s*/, "");
 
 function listChange(before: readonly string[], now: readonly string[], mark: string): string[] {
@@ -257,6 +270,8 @@ export function typeChange(before: string, after: string): string[] | null {
     const found = memberLines(wasObject, isObject, "");
     return found === undefined ? null : [...lines, ...found];
   }
+  // Only plain unions and intersections are read apart; a conditional, function or other type with a top-level `?`, `:` or `=>` has `|` that is not an arm.
+  if (!plainUnion(was) || !plainUnion(is)) return null;
   const wasArms = split(was, "|");
   const isArms = split(is, "|");
   if (wasArms === undefined || isArms === undefined || wasArms.length === 0 || isArms.length === 0) return null;

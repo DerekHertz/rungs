@@ -60,3 +60,18 @@ test("text that cannot be read apart falls back to null; arms that differ are li
 test("an intersection's parts are added or removed like union members", () => {
   expect(typeChange("= A & B", "= A & B & C")).toEqual(["+ & C"]);
 });
+
+test("a conditional type is never split into false union arms", () => {
+  const a = '= T extends string ? "a" | "b" : "c"';
+  const b = '= T extends string ? "a" | "d" : "c"';
+  expect(typeChange(a, b)).toBeNull();
+  expect(typeChange("= () => 1 | 2", "= () => 1 | 3")).toBeNull();
+});
+
+test("reordered call signatures are never listed as nothing", () => {
+  const before = '{ (x: string): "str"; (x: unknown): "any"; version: 1 }';
+  const after = '{ (x: unknown): "any"; (x: string): "str"; version: 2 }';
+  expect(typeChange(before, after)).toBeNull();
+  expect(typeChange("{ new (a: 1): A; new (a: 2): B }", "{ new (a: 2): B; new (a: 1): A }")).toBeNull();
+  expect(typeChange('{ (x: string): "str"; v: 1 }', '{ (x: string): "str"; (x: number): "n"; v: 1 }')).toEqual(['+ (x: number): "n"']);
+});
