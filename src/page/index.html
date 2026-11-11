@@ -160,6 +160,46 @@
         overflow: auto;
         padding: 2px 10px 8px;
       }
+      .review-tag.observed {
+        border-style: dotted;
+        color: #7ee0c8;
+        border-color: #7ee0c8;
+      }
+      .review-warning {
+        margin: 2px 0 6px;
+        color: #E69F00;
+      }
+      .review-mark.observed-fail {
+        color: #E69F00;
+      }
+      .review-mark.observed-pass {
+        color: #7ee0c8;
+      }
+      .review-mark.observed-none,
+      .review-mark.observed-skip {
+        color: #5b6b7e;
+      }
+      .observed-message {
+        color: #b8c4d2;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+      .observed-output {
+        margin: 0;
+        font: inherit;
+        font-size: 11px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: #b8c4d2;
+      }
+      .observed-unmatched summary {
+        cursor: pointer;
+      }
+      .observed-loose {
+        display: flex;
+        gap: 6px;
+        padding: 2px 4px;
+      }
       .review-claim {
         margin: 0;
         font: inherit;

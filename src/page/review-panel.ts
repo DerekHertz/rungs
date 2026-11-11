@@ -3,6 +3,8 @@ import type { ChangeKind } from "../compare.ts";
 import { effectChip, signatureDiff } from "../review.ts";
 import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
+import { observedSection } from "./observed-panel.ts";
+import type { ObservedInput } from "./observed-panel.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import { testChangesBlock } from "./test-changes-panel.ts";
 
@@ -58,6 +60,8 @@ export interface ReviewInput {
   readonly pickEffect: (row: EffectRow) => void;
   /** The user picked a contract row or a file rollup; the host selects and flies to the node or file. */
   readonly pickNode: (id: NodeId) => void;
+  /** Null when the tests were not asked to run. */
+  readonly observed: ObservedInput | null;
   /** What the change did to the tests, derived from the two trees. */
   readonly testChanges: TestChanges;
 }
@@ -70,7 +74,7 @@ export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className
   return made;
 }
 
-function section(title: string, tag: string): [HTMLElement, HTMLElement] {
+export function section(title: string, tag: string): [HTMLElement, HTMLElement] {
   const wrap = element("section", "review-section");
   const head = element("h2", "review-title", title);
   head.append(element("span", `review-tag ${tag}`, tag));
@@ -392,5 +396,5 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     return item;
   }
 
-  host.replaceChildren(claims, unmentioned, contracts);
+  host.replaceChildren(claims, ...(input.observed === null ? [] : [observedSection(input.observed, input.pickNode)]), unmentioned, contracts);
 }

@@ -10,7 +10,9 @@ import { contractsReport, newEffects, unmentioned, unmentionedIds } from "../rev
 import type { EffectRow, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
-import { EFFECT_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
+import { EFFECT_COLOR, FAIL_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
+import type { ObservedDocument } from "../observed-types.ts";
+import { observedReport } from "../observed-report.ts";
 import { markRange } from "./mark.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import { renderReview } from "./review-panel.ts";
@@ -50,6 +52,9 @@ const comparison = comparisonResponse.ok
 /** Narration is on offer only when the server was started with --narrate. */
 const narrating = (await fetch("/narrate.json")).ok;
 const picture = pictureOf(graph, comparison);
+const observedResponse = await fetch("/observed.json");
+const observed = observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null;
+const observedRun = observed?.status === "ran" && comparison !== null ? observedReport(observed, picture.graph, comparison) : null;
 // Ghosts are in the picture's graph, so the trail, flying and the source panel reach them too.
 const nodes = new Map<NodeId, ModuleNode>(picture.graph.nodes.map((node) => [node.id, node]));
 // A module removed from a file that stays has no place in the picture, but its base source is served.
@@ -109,7 +114,7 @@ const view = createCityView(stage, {
     const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
     if (to !== undefined) focusOn(to);
   },
-});
+}, observedRun?.failingFiles);
 
 let chosenKind: ResourceKind | undefined;
 const reaches = reachMap(picture);
@@ -175,6 +180,22 @@ function showLegend(city: City): void {
   swatch.style.flex = "none";
   swatch.style.marginTop = "3px";
   const parts = [roles, scale, ...(city.resources.length > 0 ? [effects] : [])];
+  if (observed !== null) {
+    const tests = document.createElement("div");
+    const flag = document.createElement("i");
+    flag.style.background = FAIL_COLOR;
+    const said = document.createElement("span");
+    said.textContent =
+      observed.status === "ran"
+        ? "orange flag: a test in the file failed when main's tests ran against this change (observed, one run; evidence against mistakes, not against a hostile author)"
+        : observed.status === "failed"
+          ? `tests: the run failed (${observed.why})`
+          : observed.status === "unreliable"
+            ? `tests: results unreliable, none shown (${observed.why})`
+          : `tests not run: ${observed.why}`;
+    tests.append(flag, said);
+    parts.push(tests);
+  }
   if (comparison !== null) {
     const against = document.createElement("div");
     against.textContent = `against ${comparison.against.ref} at ${comparison.against.commit.slice(0, 7)}: dim unchanged \u00b7 bright altered \u00b7 white roof added \u00b7 grey roof moved \u00b7 ghost removed`;
@@ -464,6 +485,7 @@ if (comparison !== null) {
     pick: pickEntry,
     pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
     pickNode,
+    observed: observed === null ? null : { document: observed, report: observedRun },
     testChanges,
   });
 
