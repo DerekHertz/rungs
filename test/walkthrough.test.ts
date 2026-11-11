@@ -74,6 +74,15 @@ test("the prompt holds claims, place lines and its version, and never source tex
 
 const stop = (over: Record<string, unknown>) => ({ title: "Git", ids: ["function:src/git.ts#head"], claims: [0], narration: [], ...over });
 
+test("a default value in a signature, now or before, never reaches the tour prompt", () => {
+  const before = extract(tree({ "package.json": "{}\n", "src/d.ts": 'export function d(x = "OLD_SECRET") {\n  return x;\n}\n' }));
+  const after = extract(tree({ "package.json": "{}\n", "src/d.ts": 'export function d(x = "NEW_SECRET", y = a ? b() : c()) {\n  return x;\n}\n' }));
+  const text = placesOf(compare(before, after), after).map((place) => place.line).join("\n");
+  expect(text).toContain("(x = …, y = …)");
+  expect(text).toContain("was (x = …)");
+  expect(text).not.toMatch(/SECRET|a \? b/);
+});
+
 test("a stop keeps only ids that are places, and a stop left with none is dropped and counted", () => {
   const tour = validateTour(
     {

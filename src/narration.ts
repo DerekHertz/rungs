@@ -1,8 +1,8 @@
-// Page-safe: the source panel reads these types, so nothing here may import node:*.
+// Page-safe: the source panel reads these types, so nothing here may import node:*. The page takes only the types, so the signature sanitizer's use of the TypeScript parser stays out of its bundle.
 
-import { effectLabel } from "./effects.ts";
-import type { CodeNode, EffectEdge, LineRange } from "./graph.ts";
+import type { CodeNode, LineRange } from "./graph.ts";
 import type { PseudoLine } from "./pseudo-line.ts";
+import { promptSignature } from "./signature.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached narrations are not reused. */
 export const NARRATION_PROMPT_VERSION = "narration-v1";
@@ -15,13 +15,12 @@ const lines = (range: LineRange): string => (range.start === range.end ? `L${ran
  * expressions are as written), so only its kind, depth and lines reach the agent, plus what the
  * graph already says of it: the effect label of a call, the id of a nested function. No source text.
  */
-export function narrationPrompt(node: CodeNode, outline: readonly PseudoLine[], effects: readonly EffectEdge[]): { system: string; user: string } {
+export function narrationPrompt(node: CodeNode, outline: readonly PseudoLine[]): { system: string; user: string } {
   const rows = outline.map((line, index) => {
-    const effect = line.kind === "effect" ? effects.find((edge) => edge.range.start >= line.range.start && edge.range.end <= line.range.end) : undefined;
-    const note = effect === undefined ? (line.node === undefined ? "" : ` ${line.node}`) : ` ${effectLabel(effect)}`;
+    const note = line.effect !== undefined ? ` ${line.effect}` : line.node === undefined ? "" : ` ${line.node}`;
     return `${index} ${"  ".repeat(line.depth)}${line.kind} ${lines(line.range)}${note}`;
   });
-  const user = [`FUNCTION ${node.id} ${lines(node.range)}${node.exported ? " exported" : ""} ${node.signature}`, "", "OUTLINE", ...rows].join("\n");
+  const user = [`FUNCTION ${node.id} ${lines(node.range)}${node.exported ? " exported" : ""} ${promptSignature(node.signature)}`, "", "OUTLINE", ...rows].join("\n");
   return { system: SYSTEM, user };
 }
 
