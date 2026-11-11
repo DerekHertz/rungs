@@ -62,6 +62,7 @@ export interface ReviewInput {
   readonly observed: ObservedInput | null;
 }
 
+/** A new element with a class and, when given, text; never markup. */
 export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {
   const made = document.createElement(tag);
   made.className = className;

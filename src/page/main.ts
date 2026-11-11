@@ -8,12 +8,19 @@ import type { FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } fro
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
 import { contractsReport, newEffects, unmentioned, unmentionedIds } from "../review.ts";
 import type { EffectRow, ReviewEntry } from "../review.ts";
+import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
 import { EFFECT_COLOR, FAIL_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
+import { markRange } from "./mark.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
+import { renderWalkthrough } from "./walkthrough-panel.ts";
+import type { Walk } from "./walkthrough-panel.ts";
+import { NOT_RUN, stopFacts, tourCoverage } from "../stops.ts";
+import type { WalkNote } from "../stops.ts";
+import type { Stop } from "../tour.ts";
 
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
@@ -27,6 +34,7 @@ const panelFacts = document.querySelector<HTMLElement>("#source-facts")!;
 const panelGutter = document.querySelector<HTMLElement>("#source-gutter")!;
 const panelCode = document.querySelector<HTMLElement>("#source-code")!;
 const panelBody = document.querySelector<HTMLElement>("#source-body")!;
+const outlinePane = document.querySelector<HTMLElement>("#outline")!;
 const panelMark = document.querySelector<HTMLElement>("#source-mark")!;
 const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
 
@@ -254,19 +262,7 @@ function closePanel(): void {
 
 /** Bands the lines of `range` in the source panel and scrolls them into view; clears the band without one. */
 function markLines(node: ModuleNode, range: LineRange | undefined): void {
-  const first = isCodeNode(node) ? node.range.start : 1;
-  if (range === undefined || range.end < first) {
-    panelMark.hidden = true;
-    return;
-  }
-  const style = getComputedStyle(panelCode);
-  const lineHeight = Number.parseFloat(style.lineHeight);
-  const top = Number.parseFloat(style.paddingTop) + (Math.max(range.start, first) - first) * lineHeight;
-  panelMark.style.top = `${top}px`;
-  panelMark.style.height = `${(range.end - Math.max(range.start, first) + 1) * lineHeight}px`;
-  panelMark.style.width = `${panelBody.scrollWidth}px`;
-  panelMark.hidden = false;
-  panelBody.scrollTop = Math.max(0, top - panelBody.clientHeight / 3);
+  markRange({ code: panelCode, body: panelBody, mark: panelMark }, isCodeNode(node) ? node.range.start : 1, range);
 }
 
 function showSource(node: ModuleNode, text: string): void {
@@ -284,7 +280,44 @@ function showSource(node: ModuleNode, text: string): void {
   panelCode.textContent = text;
   panelBody.scrollTop = panelBody.scrollLeft = 0;
   panelMark.hidden = true;
+  outlinePane.hidden = true;
   panel.hidden = false;
+}
+
+const EXIT_KINDS: ReadonlySet<string> = new Set(["return", "throw", "break", "continue"]);
+
+/** The function's outline above its source: a line selects its source lines, a function line also opens that node. */
+function showOutline(node: ModuleNode, lines: readonly PseudoLine[]): void {
+  const rows = lines.map((line) => {
+    const row = document.createElement("div");
+    row.className = "outline-line";
+    row.style.paddingLeft = `calc(10px + ${line.depth * 1.6}ch)`;
+    const at = document.createElement("span");
+    at.className = "at";
+    at.textContent = line.range.start === line.range.end ? `L${line.range.start}` : `L${line.range.start}-${line.range.end}`;
+    const text = document.createElement("span");
+    text.className = EXIT_KINDS.has(line.kind) ? "exit" : line.kind === "effect" ? "effect" : line.kind === "straight" ? "quiet" : "";
+    text.textContent = line.text;
+    row.append(at, text);
+    row.addEventListener("click", () => {
+      for (const other of outlinePane.children) other.classList.toggle("on", other === row);
+      markLines(node, line.range);
+    });
+    if (line.node !== undefined) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = "open";
+      const target = line.node;
+      open.addEventListener("click", (event) => {
+        event.stopPropagation();
+        pickNode(target);
+      });
+      row.append(open);
+    }
+    return row;
+  });
+  outlinePane.replaceChildren(...rows);
+  outlinePane.hidden = rows.length === 0;
 }
 
 /** Selects `node`, showing its source and outlining `outline` on the picture. */
@@ -298,8 +331,12 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   if (!response.ok) return closePanel();
   const text = await response.text();
   if (ticket !== requested) return;
+  const outlined = node.level === "function" ? await fetch(`/pseudocode?id=${encodeURIComponent(node.id)}`) : undefined;
+  const pseudo = outlined?.ok ? ((await outlined.json()) as { lines: PseudoLine[] }).lines : [];
+  if (ticket !== requested) return;
   selected = node.id;
   showSource(node, text);
+  showOutline(node, pseudo);
   markLines(node, marked);
   chosenKind = undefined;
   view.select(outline, isCodeNode(node) ? reachOf(reaches, node.id) : undefined);
@@ -347,6 +384,18 @@ function pickClaim(claim: ClaimRow): void {
   if (district !== undefined) focusOn(district);
 }
 
+/** A stop of the walkthrough: outline its nodes' files and fly to the district holding them all. Closing the tour clears the outline. */
+function visitStop(stop: Stop | undefined): void {
+  cancelPending();
+  closePanel();
+  const places = [...new Set((stop?.ids ?? []).map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  view.highlight(places);
+  const district = commonDistrict(tree, places);
+  if (district !== undefined) focusOn(district);
+}
+
+let walk: Walk | undefined;
+
 function cyclePixel(): void {
   const divisor = view.cyclePixel();
   pixelButton.textContent = `Pixel: ${divisor === 1 ? "off" : `1/${divisor}`} (P)`;
@@ -363,6 +412,8 @@ window.addEventListener("keydown", (event) => {
     else if (focus !== cityRoot) focusOn(zoomOut(tree, focus));
   } else if (event.key === "r" || event.key === "R") resetView();
   else if (event.key === "p" || event.key === "P") cyclePixel();
+  else if (event.key === "ArrowRight") walk?.step(1);
+  else if (event.key === "ArrowLeft") walk?.step(-1);
 });
 
 if (comparison !== null) {
@@ -384,6 +435,28 @@ if (comparison !== null) {
     pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
     pickNode,
     observed: observed === null ? null : { document: observed, report: observedRun },
+  });
+
+  const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
+  const host = document.querySelector<HTMLElement>("#walk")!;
+  host.hidden = false;
+  walk = renderWalkthrough(host, {
+    note: tour.walkthrough,
+    stops: tour.stops,
+    coverage: tourCoverage(tour.stops, comparison),
+    claims: claims.claims,
+    facts: (stop) => stopFacts(stop, comparison, picture.graph, moves),
+    observed: () => NOT_RUN,
+    describe(id) {
+      const node = nodes.get(id) ?? changed.get(id);
+      if (node === undefined) return { label: id, first: 1 };
+      return isCodeNode(node) ? { label: `${node.qualifiedName} in ${node.path}`, first: node.range.start } : { label: node.path, first: 1 };
+    },
+    async source(id) {
+      const response = await fetch(`/source?id=${encodeURIComponent(id)}`);
+      return response.ok ? response.text() : undefined;
+    },
+    visit: visitStop,
   });
 }
 showCity(cityRoot);

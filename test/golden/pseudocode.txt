@@ -1,0 +1,61 @@
+== counter
+L53      for (let i = 0; i < n; i++)
+L53        yield i
+L54      yield* [1, 2]
+
+== everything
+L5-6     2 lines of straight-line code
+L7       if (items.length === 0)
+L7         return null;
+L8       else if (items.length > limit && !options.force)
+L9         throw new Error("too many");
+L10      else
+L11        1 line of straight-line code
+L13      switch (options.mode)
+L14        case "fast":
+L15        case "quick":
+L16          1 line of straight-line code
+L17          break;
+L18        case "slow":
+L19          1 line of straight-line code
+L20          break;
+L22        default:
+L23          1 line of straight-line code
+L25      outer: for (let i = 0; i < items.length; i++)
+L26        for (const item of items[i])
+L27          if (item === undefined)
+L27            continue outer;
+L28          1 line of straight-line code
+L30        for (const key in options)
+L30          1 line of straight-line code
+L32      while (total > 100)
+L32        1 line of straight-line code
+L33      do
+L34        1 line of straight-line code
+L35      while (total < 5)
+L36      try
+L37        effect file system: fs readFileSync "config.json"
+L38        effect process: child_process execFileSync "git"
+L39        1 line of straight-line code
+L40      catch (error)
+L41        1 line of straight-line code
+L42      finally
+L43        1 line of straight-line code
+L45      function helper
+L46      await Promise.resolve(helper(1))
+L47      await effect network: fetch "https://example.test/api"
+L48      for await (const chunk of response.body)
+L48        1 line of straight-line code
+L49      return items.map((item) => item * loaded);
+L49        function map() callback
+
+== paramEffect
+L66      effect file system: fs readFileSync "default.txt"
+L67      return path;
+
+== short
+L57      => a + 1
+
+== straight
+L60-61   2 lines of straight-line code
+L63      return d;

@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--run-tests|--run-tests-unsandboxed] [--port <n>] [--no-open]";
+export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--run-tests|--run-tests-unsandboxed] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
@@ -15,6 +15,10 @@ export interface Options {
   readonly link: boolean;
   /** Set by `--relink`: ask again even when the cache holds an answer. Implies `link`. */
   readonly relink: boolean;
+  /** Set by `--walkthrough`: ask an agent for a tour of the change, stop by stop. */
+  readonly walkthrough: boolean;
+  /** Set by `--rewalk`: ask again even when the cache holds a tour. Implies `walkthrough`. */
+  readonly rewalk: boolean;
   /**
    * Set by `--run-tests`: run the checkout's tests once, in a sandbox. `--run-tests-unsandboxed`
    * also runs them when no sandbox is available.
@@ -34,6 +38,8 @@ export function parseOptions(argv: readonly string[]): Options | string {
         description: { type: "string" },
         link: { type: "boolean", default: false },
         relink: { type: "boolean", default: false },
+        walkthrough: { type: "boolean", default: false },
+        rewalk: { type: "boolean", default: false },
         "run-tests": { type: "boolean", default: false },
         "run-tests-unsandboxed": { type: "boolean", default: false },
       },
@@ -49,10 +55,12 @@ export function parseOptions(argv: readonly string[]): Options | string {
     const link = values.link || values.relink;
     if (link && !comparing) return "--link needs compare: rungs compare <base> --description <file> --link";
     if (link && values.description === undefined) return "--link needs a description: rungs compare <base> --description <file> --link";
+    const walkthrough = values.walkthrough || values.rewalk;
     const tests = values["run-tests-unsandboxed"] ? "unsandboxed allowed" : values["run-tests"] ? "sandboxed" : "off";
     if (tests !== "off" && !comparing) return "--run-tests needs compare: rungs compare <base> --run-tests";
+    if (walkthrough && !comparing) return "--walkthrough needs compare: rungs compare <base> --walkthrough";
     if (rest.length > 1) return "expected at most one directory";
-    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests };
+    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk };
   } catch (error) {
     return (error as Error).message;
   }

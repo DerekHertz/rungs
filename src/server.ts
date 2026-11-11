@@ -10,11 +10,13 @@ import { extract } from "./extract/extract.ts";
 import { isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { sliceLines } from "./lines.ts";
+import { pseudocode } from "./pseudocode.ts";
 import { splitClaims } from "./claims.ts";
 import type { Claim } from "./claims.ts";
 import type { LinkOutcome } from "./link.ts";
 import { observedDocument, treeDigest } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
+import type { TourOutcome } from "./walkthrough.ts";
 
 /** What the checkout is compared against: the merge base's tree and commit, and the ref the user wrote. */
 export interface Against extends Base {
@@ -38,6 +40,11 @@ interface Resource {
  * which answers with exactly the lines of the node with that id from the same snapshot. Packages,
  * folders and unknown ids have no source and get 404.
  *
+ * `GET /pseudocode?id=` answers with one function's outline as a derived fact: its control
+ * structure through a fixed template, each line with its source line range, computed from the
+ * same snapshot on request and never stored (404 for anything but a function; a removed one is
+ * outlined from the base tree). The page's source panel and the walkthrough's Code column read it.
+ *
  * Given `base`, it also serves `GET /comparison.json`, `GET /contracts.json` and `GET /claims.json`
  * (404 otherwise). The contracts are the comparison's contract moves as a derived fact, kept in
  * their own resource so `/comparison.json` stays the plain diff of the two graphs. A
@@ -46,7 +53,9 @@ interface Resource {
  * comparison; `description` is null in them when none was given. The description is split into
  * claims by rules, and `link`, when given, is asked once for the agent's links from each claim to
  * the modules it describes; they are served beside the claims as claimed facts, and a failure is
- * served as a failure with no links.
+ * served as a failure with no links. `GET /walkthrough.json` is the tour `walk` returns, asked once
+ * and at the same time as the links: claimed too, in its own resource, with no stops when it
+ * failed or was not asked for.
  *
  * Given `tests`, one run of the tree's tests, it also serves `GET /observed.json`: the run as an
  * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
@@ -58,6 +67,7 @@ export async function serve(
   base?: Against,
   description?: string,
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
+  walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
   tests?: TestRun,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
@@ -83,7 +93,13 @@ export async function serve(
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
     const claims = splitClaims(description ?? "");
-    const outcome: LinkOutcome = link === undefined || claims.length === 0 ? { status: "off" } : await link(comparison, claims, graph);
+    const [outcome, tour] = await Promise.all([
+      link === undefined || claims.length === 0 ? ({ status: "off" } satisfies LinkOutcome) : link(comparison, claims, graph),
+      walk === undefined ? ({ status: "off" } satisfies TourOutcome) : walk(comparison, claims, graph),
+    ]);
+    const { stops, ...made } = tour.status === "ok" ? tour : { stops: [], ...tour };
+    const walkthrough = `${JSON.stringify({ tier: "claimed", walkthrough: made, stops }, null, 2)}\n`;
+    resources.set("/walkthrough.json", { contentType: "application/json; charset=utf-8", body: walkthrough });
     const { status, ...rest } = outcome;
     const how =
       outcome.status === "ok"
@@ -115,8 +131,23 @@ export async function serve(
     return isCodeNode(node) ? sliceLines(text, node.range) : text;
   }
 
+  function pseudocodeOf(id: string | null): string | undefined {
+    if (id === null) return undefined;
+    const ghost = removed.has(id as NodeId);
+    const lines = ghost
+      ? baseGraph === undefined || baseTree === undefined ? undefined : pseudocode(baseGraph, baseTree, id as NodeId)
+      : pseudocode(graph, tree, id as NodeId);
+    return lines === undefined ? undefined : `${JSON.stringify({ tier: "derived", id, lines }, null, 2)}\n`;
+  }
+
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname === "/pseudocode") {
+      const body = pseudocodeOf(url.searchParams.get("id"));
+      if (body === undefined) response.writeHead(404).end();
+      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(body);
+      return;
+    }
     if (url.pathname === "/source") {
       const text = sourceOf(url.searchParams.get("id"));
       if (text === undefined) response.writeHead(404).end();

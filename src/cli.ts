@@ -11,12 +11,16 @@ import type { TestRun } from "./observed.ts";
 import { chooseIsolation, detectSandbox } from "./sandbox.ts";
 import { serve } from "./server.ts";
 import type { FileTree } from "./graph.ts";
+import { placesOf } from "./tour.ts";
+import { walkthrough } from "./walkthrough.ts";
 import type { Claim } from "./claims.ts";
 import type { Comparison } from "./compare.ts";
 import type { Graph } from "./graph.ts";
 
 /** How long the agent may take before the run goes on without links. */
 const LINK_TIMEOUT_MS = 5 * 60 * 1000;
+/** A tour is a longer answer than the links. */
+const TOUR_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** How long one run of the tests, install included, may take. */
 const TEST_TIMEOUT_MS = 10 * 60 * 1000;
@@ -102,7 +106,29 @@ try {
         }
       : undefined;
     const tests = options.tests === "off" ? undefined : await observeTests(options.dir, tree, options.tests === "unsandboxed allowed");
-    const server = await serve(tree, options.port, against, description, link, tests);
+    const walk = options.walkthrough
+      ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
+          const places = placesOf(comparison, graph);
+          console.error(`rungs: asking claude for a walkthrough of ${places.length} changed files, classes and functions (up to ${TOUR_TIMEOUT_MS / 60000} minutes)`);
+          const started = Date.now();
+          const outcome = await walkthrough({
+            claims,
+            places,
+            runner: claudeRunner("claude"),
+            cacheDir: cacheDirectory(process.env, homedir()),
+            rewalk: options.rewalk,
+            timeoutMs: TOUR_TIMEOUT_MS,
+          });
+          if (outcome.status === "failed") console.error(`rungs: no walkthrough, continuing without it: ${outcome.message}`);
+          else if (outcome.status === "ok") {
+            const how = outcome.cached ? "from the cache" : `by ${outcome.model} in ${Math.round((Date.now() - started) / 1000)}s`;
+            const { stops, ids, claims: numbers, sentences } = outcome.dropped;
+            console.error(`rungs: walkthrough of ${outcome.stops.length} stops ${how} (dropped ${stops} stops, ${ids} unknown ids, ${numbers} bad claim numbers, ${sentences} unanchored sentences)`);
+          }
+          return outcome;
+        }
+      : undefined;
+    const server = await serve(tree, options.port, against, description, link, walk, tests);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;

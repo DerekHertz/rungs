@@ -142,7 +142,7 @@ function effectEdges(path: string, text: string, sites: readonly EffectSite[], s
 }
 
 // node:crypto stays here, out of graph.ts, which the page bundles.
-function digestOf(text: string): string {
+export function digestOf(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 32);
 }
 

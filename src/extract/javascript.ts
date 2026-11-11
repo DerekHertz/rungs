@@ -6,7 +6,7 @@ import { exportedNodes, renderSignature, signatureTokens } from "./javascript-co
 
 // Built over the tree's own files and nothing else, with no default library and no module
 // resolution, so the binder's answers cannot depend on what is installed on this machine.
-function programOver(files: readonly SourceFile[]): ts.Program {
+export function programOver(files: readonly SourceFile[]): ts.Program {
   const byName = new Map(files.map((file) => [`/${file.path}`, file]));
   const host: ts.CompilerHost = {
     getSourceFile: (name, languageVersion) => {
@@ -55,7 +55,7 @@ export const javaScriptAndTypeScript: LanguageAdapter = {
   },
 };
 
-type CodeSyntax = ts.ClassLikeDeclaration | ts.FunctionLikeDeclaration;
+export type CodeSyntax = ts.ClassLikeDeclaration | ts.FunctionLikeDeclaration;
 
 const FUNCTION_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.FunctionDeclaration,
@@ -69,12 +69,12 @@ const FUNCTION_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([
 
 // Every class, and every function with a body, is a node. Overload signatures and abstract
 // methods have no body, so they are not; nor is anything in a .d.ts file or under `declare`.
-function isCodeSyntax(node: ts.Node): node is CodeSyntax {
+export function isCodeSyntax(node: ts.Node): node is CodeSyntax {
   if (ts.isClassLike(node)) return true;
   return FUNCTION_KINDS.has(node.kind) && (node as ts.FunctionLikeDeclaration).body !== undefined;
 }
 
-function isAmbient(node: ts.Node): boolean {
+export function isAmbient(node: ts.Node): boolean {
   return ts.canHaveModifiers(node) && hasModifier(node, ts.SyntaxKind.DeclareKeyword);
 }
 
@@ -233,7 +233,7 @@ function inNamespace(declaration: ts.Node, name: string): string {
   return [...namespaces, name].join(".");
 }
 
-function scriptKind(path: string): ts.ScriptKind {
+export function scriptKind(path: string): ts.ScriptKind {
   switch (posix.extname(path)) {
     case ".jsx":
       return ts.ScriptKind.JSX;
