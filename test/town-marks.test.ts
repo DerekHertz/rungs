@@ -84,12 +84,12 @@ describe("marks under a comparison", () => {
 });
 
 describe("scaffold by size", () => {
-  test("a workshop or lab takes its step, a shed or hut the small, the rest the low", () => {
+  test("a workshop or lab takes its step, a shed or hut the small, a warehouse the low, a library scaffold-1", () => {
     expect(scaffoldOf("workshop-3", SHEET)).toBe("scaffold-3");
     expect(scaffoldOf("lab-1", SHEET)).toBe("scaffold-1");
     expect(scaffoldOf("shed", SHEET)).toBe("scaffold-small");
     expect(scaffoldOf("hut", SHEET)).toBe("scaffold-small");
-    expect(scaffoldOf("library", SHEET)).toBe("scaffold-low");
+    expect(scaffoldOf("library", SHEET)).toBe("scaffold-1");
     expect(scaffoldOf("warehouse", SHEET)).toBe("scaffold-low");
   });
 });

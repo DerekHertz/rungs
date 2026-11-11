@@ -82,12 +82,12 @@ export const FENCE_OUT = 0.4;
 
 /**
  * The scaffolding sprite a building takes, by the building's own sprite: a workshop or lab takes
- * the scaffold of its size step, a shed or hut the small one, and the low buildings the low one.
+ * the scaffold of its size step, a shed or hut the small one, a warehouse the low one, and a library (whose roof and steps reach 1.6 m out on the near side, past the low scaffold's poles) scaffold-1.
  * Null when the sheet has none, so nothing is drawn that the sheet cannot show.
  */
 export function scaffoldOf(sprite: string, sprites: ReadonlySet<string>): string | null {
   const sized = /^(?:workshop|lab)-(\d+)$/.exec(sprite);
-  const wanted = sized !== null ? `scaffold-${sized[1]}` : sprite === "shed" || sprite === "hut" ? "scaffold-small" : "scaffold-low";
+  const wanted = sized !== null ? `scaffold-${sized[1]}` : sprite === "shed" || sprite === "hut" ? "scaffold-small" : sprite === "warehouse" ? "scaffold-low" : "scaffold-1";
   return sprites.has(wanted) ? wanted : null;
 }
 

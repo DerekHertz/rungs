@@ -229,7 +229,7 @@ function showTownLegend(town: Town): void {
       : `harbour: ${town.piers.map((pier) => pier.kind).join(", ")}${town.unpictured.length > 0 ? ` (no sprite yet for ${town.unpictured.join(", ")})` : ""}`;
   const against = document.createElement("div");
   if (comparison !== null) {
-    against.textContent = `against ${comparison.against.ref} at ${comparison.against.commit.slice(0, 7)}: scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
+    against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
   }
   legend.replaceChildren(kinds, size, harbour, ...(comparison === null ? [] : [against]));
 }

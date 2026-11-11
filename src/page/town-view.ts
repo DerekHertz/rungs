@@ -243,7 +243,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
 
   /** The boxes names already took this frame; a name that would cover one is left out, and shows when the camera is closer. */
   let taken: { left: number; top: number; right: number; bottom: number }[] = [];
-  function pill(text: string, x: number, y: number, size: number, edge: string, maxWidth = Infinity, avoid = false, owner?: Thing): void {
+  function pill(text: string, x: number, y: number, size: number, edge: string, maxWidth = Infinity, avoid = false, owner?: Thing): boolean {
     ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
     let shown = text;
     while (shown.length > 1 && ctx.measureText(shown).width + size * 0.8 > maxWidth) shown = `${shown.slice(0, -2)}…`;
@@ -252,7 +252,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     const left = Math.round(x - w / 2);
     const top = Math.round(y - h / 2);
     const box = { left, top, right: left + w, bottom: top + h };
-    if (avoid && taken.some((other) => box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom)) return;
+    if (avoid && taken.some((other) => box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom)) return false;
     taken.push(box);
     if (owner !== undefined) plaques.push({ thing: owner, box: { x: left, y: top, w, h } });
     ctx.fillStyle = COLOUR.pill;
@@ -262,6 +262,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     ctx.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1);
     ctx.fillStyle = COLOUR.name;
     ctx.fillText(shown, Math.round(x), Math.round(y + 1));
+    return true;
   }
 
   /** The new path of a moved file, written on the face of its sign's board and skewed to lie on it. */
@@ -345,9 +346,21 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       pill(pier.kind, at.x, at.y - Math.round((size?.oy ?? 200) * camera.zoom) - Math.round(14 * dpr), Math.round(13 * dpr), COLOUR.pierEdge, Infinity, true, owner);
     }
     const files = namesAt(camera.zoom) === "files";
-    for (const block of town.blocks) {
-      const middle = groundScreen((block.X0 + block.X1) / 2, files ? block.Y1 + 0.9 : (block.Y0 + block.Y1) / 2, files ? 0 : 7);
-      pill(blockLabel(block, town.comparing, !files), middle.x, middle.y, Math.round((files ? 15 : 20) * dpr), block.fence === null ? COLOUR.pillEdge : COLOUR.mark, Infinity, true);
+    // Changed blocks are named first, then the rest from the largest, so a crowded picture loses the quietest names.
+    const touched = (block: Block): boolean => block.changes.added + block.changes.altered + block.changes.removed + block.changes.moved > 0;
+    const named = [...town.blocks].sort((a, b) => Number(touched(b)) - Number(touched(a)));
+    for (const block of named) {
+      const text = blockLabel(block, town.comparing, !files);
+      const edge = block.fence === null ? COLOUR.pillEdge : COLOUR.mark;
+      const midX = (block.X0 + block.X1) / 2;
+      const midY = (block.Y0 + block.Y1) / 2;
+      // Far away a name tries the middle, then each edge, then a smaller size, and the first free place takes it.
+      const spots = files
+        ? [groundScreen(midX, block.Y1 + 0.9, 0)]
+        : [groundScreen(midX, midY, 7), groundScreen(midX, block.Y0, 0), groundScreen(block.X1, midY, 0), groundScreen(block.X0, midY, 0), groundScreen(midX, block.Y1, 0)];
+      for (const size of files ? [15] : [20, 15, 12]) {
+        if (spots.some((spot) => pill(text, spot.x, spot.y, Math.round(size * dpr), edge, Infinity, true))) break;
+      }
       if (files && block.fence !== null) {
         const sign = groundScreen(block.fence.sign.X, block.fence.sign.Y, 3.7);
         pill(block.fence.text, sign.x, sign.y, Math.round(17 * dpr), COLOUR.mark, Infinity, true);
