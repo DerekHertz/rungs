@@ -25,7 +25,7 @@ const run: TestRun = {
   ],
 };
 
-const observed = await serve(head, 0, against, undefined, undefined, undefined, run);
+const observed = await serve(head, 0, against, undefined, undefined, undefined, undefined, run);
 const plain = await serve(head, 0, against);
 afterAll(async () => {
   await observed.close();

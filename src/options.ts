@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--run-tests|--run-tests-unsandboxed] [--port <n>] [--no-open]";
+export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
@@ -24,6 +24,10 @@ export interface Options {
    * also runs them when no sandbox is available.
    */
   readonly tests: "off" | "sandboxed" | "unsandboxed allowed";
+  /** Set by `--narrate`: offer an agent's narration of a function beside its pseudocode, and write it ahead of time for the functions in contracts moved. */
+  readonly narrate: boolean;
+  /** Set by `--renarrate`: write narration again even when the cache holds it. Implies `narrate`. */
+  readonly renarrate: boolean;
 }
 
 /** The options, or a one-line usage error. */
@@ -42,6 +46,8 @@ export function parseOptions(argv: readonly string[]): Options | string {
         rewalk: { type: "boolean", default: false },
         "run-tests": { type: "boolean", default: false },
         "run-tests-unsandboxed": { type: "boolean", default: false },
+        narrate: { type: "boolean", default: false },
+        renarrate: { type: "boolean", default: false },
       },
     });
     const port = Number(values.port);
@@ -59,8 +65,10 @@ export function parseOptions(argv: readonly string[]): Options | string {
     const tests = values["run-tests-unsandboxed"] ? "unsandboxed allowed" : values["run-tests"] ? "sandboxed" : "off";
     if (tests !== "off" && !comparing) return "--run-tests needs compare: rungs compare <base> --run-tests";
     if (walkthrough && !comparing) return "--walkthrough needs compare: rungs compare <base> --walkthrough";
+    const narrate = values.narrate || values.renarrate;
+    if (narrate && !comparing) return "--narrate needs compare: rungs compare <base> --narrate";
     if (rest.length > 1) return "expected at most one directory";
-    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk };
+    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate };
   } catch (error) {
     return (error as Error).message;
   }
