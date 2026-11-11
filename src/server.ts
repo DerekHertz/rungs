@@ -233,7 +233,7 @@ export async function serve(
     if (node === undefined || baseTree === undefined) return undefined;
     if (node.level === "package" || node.level === "folder" || kindOf.get(node.id) === "moved") return undefined;
     const text = tree.get(node.path);
-    if (text === undefined || isBinary(text)) return undefined;
+    if (text === undefined || isBinary(text) || isBinary(baseTree.get(node.path) ?? "")) return undefined;
     if (!opsByPath.has(node.path)) {
       try {
         opsByPath.set(node.path, diffText(baseTree.get(node.path) ?? "", text));

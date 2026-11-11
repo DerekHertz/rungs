@@ -138,7 +138,13 @@ function bySeverity(a: ReviewEntry, b: ReviewEntry): number {
     entry.level === "district"
       ? Math.min(...(["removed", "altered", "added", "moved"] as const).filter((kind) => entry.kinds[kind] > 0).map((kind) => URGENCY[kind]))
       : URGENCY[entry.change];
-  return rank(a) - rank(b) || (b.lines ?? 0) - (a.lines ?? 0) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
+  // A binary file has no size to rank by: it follows the sized rows of its urgency, then goes by label.
+  if (rank(a) !== rank(b)) return rank(a) - rank(b);
+  if (a.lines === null || b.lines === null) {
+    if (a.lines !== b.lines) return a.lines === null ? 1 : -1;
+    return a.label < b.label ? -1 : a.label > b.label ? 1 : 0;
+  }
+  return b.lines - a.lines || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
 }
 
 /**
