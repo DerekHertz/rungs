@@ -75,11 +75,29 @@ test("callees are the block's outside calls, with calls to other functions unres
   ]);
 });
 
-test("callers are the files that import the block's file, opening one step at a time", () => {
+const IMPORTS = "imports this file (calls not resolved)";
+
+test("the files that import a block's file open one step at a time, never named as callers of the block", () => {
   const graph = extract(tree(head));
   expect(callersOf(graph, "function:src/core.ts#api" as NodeId)).toEqual([
-    { label: "src/user.ts", open: "file:src/user.ts" },
-    { label: "callers inside this file", unresolved: true },
+    { label: `src/user.ts ${IMPORTS}`, open: "file:src/user.ts" },
+    { label: "callers of this block", unresolved: true },
   ]);
-  expect(importersOf(graph, "file:src/user.ts" as NodeId).map((step) => step.label)).toEqual(["src/top.ts", "test/core.test.ts"]);
+  expect(importersOf(graph, "file:src/user.ts" as NodeId).map((step) => step.label)).toEqual([`src/top.ts ${IMPORTS}`, `test/core.test.ts ${IMPORTS}`]);
+});
+
+test("a block whose text is unchanged but whose import now reaches an effect is defining", () => {
+  const before = { "package.json": "{}\n", "src/f.ts": 'import { run } from "./r.ts";\nexport function f() {\n  run("x");\n}\nexport function g() {\n  return 1;\n}\n', "src/r.ts": "export function run(a) {\n  return a;\n}\n" };
+  const after = { ...before, "src/f.ts": before["src/f.ts"].replace('import { run } from "./r.ts"', 'import { unlinkSync as run } from "node:fs"') };
+  const found = why(before, after, "src/f.ts")!;
+  expect(found.defining.map((block) => block.label)).toEqual(["f"]);
+  expect(found.defining[0]!.reasons).toEqual(["contract effects changed", "new file system fs unlinkSync \"x\"", "exported"]);
+  expect(found.other).toEqual([]);
+});
+
+test("a changed require.resolve is not an effect", () => {
+  const before = { "package.json": "{}\n", "src/f.ts": 'export function f() {\n  return require.resolve("a");\n}\n' };
+  const found = why(before, { ...before, "src/f.ts": before["src/f.ts"].replace('"a"', '"b"') }, "src/f.ts")!;
+  expect(found.why.effects).toEqual([]);
+  expect(found.defining[0]!.reasons).toEqual(["exported"]);
 });

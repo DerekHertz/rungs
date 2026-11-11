@@ -4,7 +4,7 @@ import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
 import type { CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 import { importanceOf } from "./importance.ts";
-import { isAnonymous, labelOf } from "./review.ts";
+import { effectParts, isAnonymous, labelOf } from "./review.ts";
 
 /*
  * A selected file says why it matters before its lines (SPEC, Review: Risks), all derived.
@@ -94,7 +94,8 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
     if (change.kind === "added" && nodes.get(change.edge.from)?.path === path) noteEffect(change.edge.from, `new ${effectLabel(change.edge)}`);
   }
   for (const change of comparison.changedEffects) {
-    if (nodes.get(change.owner)?.path === path) noteEffect(change.owner, `changed ${change.label}`);
+    // Module resolution is recorded beside effects but names no resource.
+    if (effectParts(change.label).resource !== undefined && nodes.get(change.owner)?.path === path) noteEffect(change.owner, `changed ${change.label}`);
   }
 
   const moveBy = new Map<NodeId, ContractMove>(moves.map((move) => [move.id, move]));
@@ -108,10 +109,12 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
     else folds.set(holder.id, [...(folds.get(holder.id) ?? []), node.id]);
   }
   const blocks: Block[] = [];
-  for (const change of comparison.changes) {
-    const node = change.node;
-    if (change.kind === "removed" || !isCodeNode(node) || node.path !== path || isAnonymous(node)) continue;
+  const changedIds = new Set<NodeId>(comparison.changes.filter((change) => change.kind !== "removed").map((change) => change.node.id));
+  // A block is listed when its text changed, or when a contract moved or an effect arrived at it with the text the same (an import now points elsewhere).
+  for (const node of head.nodes) {
+    if (!isCodeNode(node) || node.path !== path || isAnonymous(node)) continue;
     const move = moveBy.get(node.id);
+    if (!changedIds.has(node.id) && move === undefined && !effectLines.has(node.id)) continue;
     const reasons = [...(move === undefined ? [] : [`contract ${WORD[move.kind]}`]), ...[...(effectLines.get(node.id) ?? [])].sort(byText), ...(node.exported ? ["exported"] : [])];
     blocks.push({ id: node.id, level: node.level, label: labelOf(node), range: node.range, reasons, folded: (folds.get(node.id) ?? []).sort(byText) });
   }
@@ -180,7 +183,7 @@ export function calleesOf(graph: Graph, blockId: NodeId): Step[] {
 export function callersOf(graph: Graph, blockId: NodeId): Step[] {
   const block = graph.nodes.find((node) => node.id === blockId);
   if (block === undefined) return [{ label: "callers", unresolved: true }];
-  return [...importersOf(graph, `file:${block.path}` as NodeId), { label: "callers inside this file", unresolved: true }];
+  return [...importersOf(graph, `file:${block.path}` as NodeId), { label: "callers of this block", unresolved: true }];
 }
 
 /** The files that import `fileId` directly, sorted by path; each can open one step further. */
@@ -188,5 +191,5 @@ export function importersOf(graph: Graph, fileId: NodeId): Step[] {
   const from = new Set<NodeId>();
   for (const edge of graph.imports) if ("file" in edge.target && edge.target.file === fileId && edge.from !== fileId) from.add(edge.from);
   const names = new Map<NodeId, string>(graph.nodes.map((node) => [node.id, node.path]));
-  return [...from].map((id): Step => ({ label: names.get(id) ?? id, open: id })).sort((a, b) => byText(a.label, b.label));
+  return [...from].map((id): Step => ({ label: `${names.get(id) ?? id} imports this file (calls not resolved)`, open: id })).sort((a, b) => byText(a.label, b.label));
 }

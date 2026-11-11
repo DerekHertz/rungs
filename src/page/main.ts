@@ -491,7 +491,7 @@ function drawWhy(found: FileWhy): void {
     pickBlock: (block) => markLines(block.range),
     pickFile: (id) => pickNode(id),
   });
-  folds = collapseRows(drawn, found.defining.map((block) => block.range));
+  folds = collapseRows(drawn, (found.defining.length > 0 ? found.defining : found.other).map((block) => block.range));
 }
 
 function showSource(node: ModuleNode, { rows, tooLarge }: Loaded): void {
@@ -606,6 +606,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   if (loaded === undefined) return closePanel();
   const outlined = node.level === "function" ? await fetch(`/pseudocode?id=${encodeURIComponent(node.id)}`) : undefined;
   const pseudo = outlined?.ok ? ((await outlined.json()) as { lines: PseudoLine[] }).lines : [];
+  if (ticket !== requested) return;
   const why = await showWhy(node, ticket);
   if (ticket !== requested) return;
   selected = node.id;

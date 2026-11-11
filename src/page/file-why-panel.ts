@@ -97,7 +97,7 @@ function blockRow(block: Block, actions: WhyActions): HTMLElement {
   head.addEventListener("click", () => actions.pickBlock(block));
   row.append(head);
   if (block.folded.length > 0) row.append(el("div", "why-folded", `${count(block.folded.length, "unnamed callback")} folded under it`));
-  row.append(neighbours("callers", () => callersOf(actions.graph, block.id), actions), neighbours("callees", () => calleesOf(actions.graph, block.id), actions));
+  row.append(neighbours("files that import this file", () => callersOf(actions.graph, block.id), actions), neighbours("callees", () => calleesOf(actions.graph, block.id), actions));
   return row;
 }
 
