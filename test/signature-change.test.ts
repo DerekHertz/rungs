@@ -57,3 +57,33 @@ test("anything not read exactly gives null", () => {
   expect(signatureSummary("f(a)", "g(a, b)")).toBeNull();
   expect(signatureSummary("f(a)", "f(a)")).toBeNull();
 });
+
+test("regex literals, comparisons and anything the tokenizer cannot split exactly give null", () => {
+  expect(signatureSummary("f(re = /a/)", "f(re = /a,b/)")).toBeNull();
+  expect(signatureSummary("f(a = 1 < 2)", "f(a = 1 < 3)")).toBeNull();
+  expect(signatureSummary("f(a = x > 1)", "f(a = x > 2)")).toBeNull();
+});
+
+test("members both sides share in a different order give null, in a pattern or a list", () => {
+  expect(signatureSummary("f({a = 1, b = a})", "f({b = a, a = 1, c = 2})")).toBeNull();
+  expect(signatureSummary("f(a, b)", "f(b, a, c)")).toBeNull();
+});
+
+test("a nested call signature in the generics is not the parameter list", () => {
+  expect(signatureSummary("f<T extends { (): void }>(x: T)", "f<T extends { (): void }>(x: T, y = 1)")).toEqual(["Added optional parameter: y = 1"]);
+  expect(signatureSummary("f<T extends { (): void }>(x: T)", "f<T extends { (): void }>(x: T)")).toBeNull();
+});
+
+test("an added rest parameter is optional only when its type is a plain array", () => {
+  expect(signatureSummary("f()", "f(...args: [string])")).toBeNull();
+  expect(signatureSummary("f()", "f(...args: string | number[])")).toBeNull();
+  expect(signatureSummary("f()", "f(...args: string[])")).toEqual(["Added optional parameter: ...args: string[]"]);
+  expect(signatureSummary("f()", "f(...args: Array<string>)")).toEqual(["Added optional parameter: ...args: Array<string>"]);
+  expect(signatureSummary("f()", "f(...args)")).toEqual(["Added optional parameter: ...args"]);
+});
+
+test("array patterns and other patterns are never read as a rename or an addition", () => {
+  expect(signatureSummary("f([a, b])", "f([a, b, c])")).toBeNull();
+  expect(signatureSummary("f({ a }, x)", "f({ a, b }, x)")).toBeNull();
+  expect(signatureSummary("f({ a: { x } })", "f({ a: { x, y } })")).toBeNull();
+});
