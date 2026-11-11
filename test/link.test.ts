@@ -11,7 +11,7 @@ import type { AgentRunner } from "../src/link.ts";
 
 const scratch: string[] = [];
 const temp = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "rungs-link-"));
+  const dir = mkdtempSync(join(tmpdir(), "streets-link-"));
   scratch.push(dir);
   return dir;
 };
@@ -216,9 +216,9 @@ test("a failure is not cached", async () => {
 });
 
 test("the cache directory follows XDG_CACHE_HOME, then the home directory", () => {
-  expect(cacheDirectory({ XDG_CACHE_HOME: "/x/cache" }, "/home/u")).toBe("/x/cache/rungs");
-  expect(cacheDirectory({}, "/home/u")).toBe("/home/u/.cache/rungs");
-  expect(cacheDirectory({ XDG_CACHE_HOME: "" }, "/home/u")).toBe("/home/u/.cache/rungs");
+  expect(cacheDirectory({ XDG_CACHE_HOME: "/x/cache" }, "/home/u")).toBe("/x/cache/systems-to-streets");
+  expect(cacheDirectory({}, "/home/u")).toBe("/home/u/.cache/systems-to-streets");
+  expect(cacheDirectory({ XDG_CACHE_HOME: "" }, "/home/u")).toBe("/home/u/.cache/systems-to-streets");
 });
 
 function stub(script: string): string {
@@ -266,7 +266,7 @@ test("the CLI runner fails with one line when the command is missing, exits non-
   }
 });
 
-test.skipIf(process.env.RUNGS_REAL_CLAUDE !== "1")("the real claude CLI links a claim to the module it names", { timeout: 180000 }, async () => {
+test.skipIf(process.env.STREETS_REAL_CLAUDE !== "1")("the real claude CLI links a claim to the module it names", { timeout: 180000 }, async () => {
   const outcome = await linkClaims({
     claims: splitClaims("Makes alpha return a different number."),
     candidates,

@@ -209,7 +209,7 @@ async function withCheckout(
   entries: readonly Entry[],
   read: (root: string) => Promise<void>,
 ): Promise<void> {
-  const scratch = await mkdtemp(join(tmpdir(), "rungs-base-"));
+  const scratch = await mkdtemp(join(tmpdir(), "streets-base-"));
   try {
     const top = (await gitOrFail(dir, ["rev-parse", "--show-toplevel"], commit)).replace(/\n$/, "");
     const root = join(scratch, "tree");

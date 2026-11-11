@@ -6,8 +6,8 @@ import type { TestReport, TestRun } from "../src/observed.ts";
 
 const pkg = (scripts: object, extra: object = {}) => JSON.stringify({ scripts, ...extra });
 
-const BASE_ONLY = "Rungs reads only node --test";
-const FLAG_NOTE = "Rungs runs node --test only with flags that keep the tree's code out of the runner";
+const BASE_ONLY = "Systems to Streets reads only node --test";
+const FLAG_NOTE = "Systems to Streets runs node --test only with flags that keep the tree's code out of the runner";
 
 test("the base's node --test script is read; vitest and anything else is unsupported, never guessed", () => {
   const cases: [string | undefined, unknown][] = [
@@ -47,7 +47,7 @@ test("the head's dependencies are installed from a lockfile only", () => {
   const deps = pkg({ test: "node --test" }, { devDependencies: { x: "1" } });
   expect(installNeeded(new Map([["package.json", pkg({ test: "node --test" })]]))).toEqual({ install: false });
   expect(installNeeded(new Map([["package.json", deps], ...lock]))).toEqual({ install: true });
-  expect(installNeeded(new Map([["package.json", deps]]))).toEqual({ unsupported: "package.json has dependencies but no package-lock.json; Rungs installs only from a lockfile" });
+  expect(installNeeded(new Map([["package.json", deps]]))).toEqual({ unsupported: "package.json has dependencies but no package-lock.json; Systems to Streets installs only from a lockfile" });
   expect(installNeeded(new Map([["package.json", "{ not json"]]))).toEqual({ unsupported: "the head's package.json is not valid JSON" });
 });
 

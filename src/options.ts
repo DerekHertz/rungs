@@ -1,13 +1,13 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: rungs [dir] [--port <n>] [--no-open]\n       rungs compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--port <n>] [--no-open]";
+export const USAGE = "usage: streets [dir] [--port <n>] [--no-open]\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
   readonly port: number;
   readonly open: boolean;
-  /** Set by `rungs compare <base>`: what to compare the checkout against. */
+  /** Set by `streets compare <base>`: what to compare the checkout against. */
   readonly base: string | undefined;
   /** Set by `--description`: a file holding the change's description, or "-" for stdin. */
   readonly description: string | undefined;
@@ -54,19 +54,19 @@ export function parseOptions(argv: readonly string[]): Options | string {
     if (!Number.isInteger(port) || port < 0 || port > 65535) return `invalid port: ${values.port}`;
     const comparing = positionals[0] === "compare";
     const [base, ...rest] = comparing ? positionals.slice(1) : [undefined, ...positionals];
-    if (comparing && base === undefined) return "compare needs a base: rungs compare <base> [dir]";
+    if (comparing && base === undefined) return "compare needs a base: streets compare <base> [dir]";
     if (values.description !== undefined && !comparing) {
-      return "--description needs compare: rungs compare <base> --description <file>";
+      return "--description needs compare: streets compare <base> --description <file>";
     }
     const link = values.link || values.relink;
-    if (link && !comparing) return "--link needs compare: rungs compare <base> --description <file> --link";
-    if (link && values.description === undefined) return "--link needs a description: rungs compare <base> --description <file> --link";
+    if (link && !comparing) return "--link needs compare: streets compare <base> --description <file> --link";
+    if (link && values.description === undefined) return "--link needs a description: streets compare <base> --description <file> --link";
     const walkthrough = values.walkthrough || values.rewalk;
     const tests = values["run-tests-unsandboxed"] ? "unsandboxed allowed" : values["run-tests"] ? "sandboxed" : "off";
-    if (tests !== "off" && !comparing) return "--run-tests needs compare: rungs compare <base> --run-tests";
-    if (walkthrough && !comparing) return "--walkthrough needs compare: rungs compare <base> --walkthrough";
+    if (tests !== "off" && !comparing) return "--run-tests needs compare: streets compare <base> --run-tests";
+    if (walkthrough && !comparing) return "--walkthrough needs compare: streets compare <base> --walkthrough";
     const narrate = values.narrate || values.renarrate;
-    if (narrate && !comparing) return "--narrate needs compare: rungs compare <base> --narrate";
+    if (narrate && !comparing) return "--narrate needs compare: streets compare <base> --narrate";
     if (rest.length > 1) return "expected at most one directory";
     return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate };
   } catch (error) {

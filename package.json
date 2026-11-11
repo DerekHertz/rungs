@@ -1,14 +1,17 @@
 {
-  "name": "rungs",
+  "name": "systems-to-streets",
   "version": "0.0.0",
   "private": true,
-  "description": "Draws a codebase as a pixel-art picture you zoom into, computed from the code.",
+  "description": "Turns a changing codebase into a navigable visual system, from the big picture down to the details of a change.",
   "type": "module",
+  "bin": {
+    "streets": "src/cli.ts"
+  },
   "engines": {
     "node": ">=22.18"
   },
   "scripts": {
-    "rungs": "node src/cli.ts",
+    "streets": "node src/cli.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/page",
     "test": "vitest run"

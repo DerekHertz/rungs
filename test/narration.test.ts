@@ -12,7 +12,7 @@ import { pseudocode } from "../src/pseudocode.ts";
 
 const scratch: string[] = [];
 const temp = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "rungs-narrate-"));
+  const dir = mkdtempSync(join(tmpdir(), "streets-narrate-"));
   scratch.push(dir);
   return dir;
 };

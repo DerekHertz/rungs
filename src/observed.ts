@@ -115,12 +115,12 @@ function parseNodeArgs(words: readonly string[]): { flags: string[]; files: stri
       if (value === undefined) return { unsupported: `the test script gives ${JSON.stringify(name)} no value` };
       if (keep) flags.push(`${name}=${value}`);
     } else if (NODE_BOOLEAN_FLAGS.has(word)) flags.push(word);
-    else return { unsupported: `the test script gives node ${JSON.stringify(word)}; Rungs runs node --test only with flags that keep the tree's code out of the runner` };
+    else return { unsupported: `the test script gives node ${JSON.stringify(word)}; Systems to Streets runs node --test only with flags that keep the tree's code out of the runner` };
   }
   return { flags, files };
 }
 
-const READ = "Rungs reads only node --test";
+const READ = "Systems to Streets reads only node --test";
 const VITEST = "vitest is chosen by the PR";
 
 /**
@@ -167,7 +167,7 @@ export function installNeeded(head: FileTree): { readonly install: boolean } | {
   }
   const install = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).length > 0;
   if (install && !head.has("package-lock.json") && !head.has("npm-shrinkwrap.json")) {
-    return { unsupported: "package.json has dependencies but no package-lock.json; Rungs installs only from a lockfile" };
+    return { unsupported: "package.json has dependencies but no package-lock.json; Systems to Streets installs only from a lockfile" };
   }
   return { install };
 }
@@ -292,7 +292,7 @@ function isRegistryTarball(resolved: string, registry: string): boolean {
 }
 
 /**
- * The only two files the install is given, written by Rungs from what it checked: the tree's
+ * The only two files the install is given, written by Systems to Streets from what it checked: the tree's
  * dependencies and its lockfile's entries, each a registry tarball with a sha512 hash. Nothing
  * else of the tree goes near the network: no scripts, no settings, no program. A lockfile that
  * names anything npm would fetch another way (git, a file, a link, a folder, another server) is
@@ -309,7 +309,7 @@ export function installFiles(tree: FileTree, registry: string = NPM_REGISTRY): {
     if (manifest.overrides !== undefined) asked.overrides = registryOverrides(manifest.overrides);
     const lock = parseTable(tree.get(lockName), lockName);
     if (lock.lockfileVersion !== 2 && lock.lockfileVersion !== 3) {
-      throw new Refusal(`${lockName} has lockfileVersion ${quoted(lock.lockfileVersion)}; Rungs installs only from versions 2 and 3`);
+      throw new Refusal(`${lockName} has lockfileVersion ${quoted(lock.lockfileVersion)}; Systems to Streets installs only from versions 2 and 3`);
     }
     if (!isTable(lock.packages)) throw new Refusal(`${lockName} lists no packages`);
     const packages: Record<string, unknown> = {};
@@ -480,7 +480,7 @@ export async function runTests(
 
 /**
  * Why a run's results cannot be shown as what happened, if they cannot. However the results reach
- * Rungs, they are checked against the one thing the tests do not write, the runner's exit code,
+ * Systems to Streets, they are checked against the one thing the tests do not write, the runner's exit code,
  * and against the test files the run was given. A run that fails any check is shown as unreliable,
  * never as passes.
  */

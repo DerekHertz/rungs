@@ -1,12 +1,12 @@
-# Rungs: founding spec
+# Systems to Streets: founding spec
 
 Settled 2026-11-09. Nothing is built yet. This page is the contract the first code is written to.
 
 ## What it is
 
-Rungs draws a codebase as a pixel-art picture you zoom into, from the whole system down to source
-lines. Everything drawn is computed from the code. It exists so a person can approve large,
-agent-written changes the way they would approve a design, without reading every line.
+Systems to Streets draws a codebase as a pixel-art picture you zoom into, from the whole system
+down to source lines. Everything drawn is computed from the code. It exists so a person can
+approve large, agent-written changes the way they would approve a design, without reading every line.
 
 A reviewer needs three answers to say yes or no: what the change claims to do, what it touches
 that nobody mentioned, and which contracts moved.
@@ -22,14 +22,14 @@ JavaScript.
 
 Left for after the MVP: property nodes, lazily resolved edges, and links between effect sites.
 
-## The rungs
+## The levels
 
-Each rung is computed from the one below it. Only the graph is stored; the rest are views.
+Each level is computed from the one below it. Only the graph is stored; the rest are views.
 
-| Rung | Computed from | What the reviewer sees |
+| Level | Computed from | What the reviewer sees |
 |---|---|---|
 | Source | A file tree: a commit, or a checkout with uncommitted changes | The lines |
-| Graph | Source, by the extractor | Nothing directly. Every rung above is a view of it |
+| Graph | Source, by the extractor | Nothing directly. Every level above is a view of it |
 | Pseudocode | One function's control structure, through a fixed template | An outline of the function, each line linked to its source lines, rendered when the function is opened |
 | Logic | The graph | Each module's interface; each function's case form (`guard ⇒ outcome`); properties written in the repo |
 | Picture | The graph, assembled as a town from a sprite sheet (see The picture) | The whole repo first, then folder, file, function |
@@ -63,7 +63,7 @@ Each rung is computed from the one below it. Only the graph is stored; the rest 
 - **Identity** is (level, path, qualified name). A moved module is paired only when its body is
   identical.
 - **Properties** are invariants written in the repo that name a symbol: assertions, runtime
-  schemas, specification files. Rungs records and links them. It does not prove them.
+  schemas, specification files. Systems to Streets records and links them. It does not prove them.
 - **Generated files** (lockfiles, to start) stay in the graph, marked generated with their true
   line count. The picture gives them a small fixed size so they never crowd out written code.
 - **Role** of a file is one of source, tests, config and build, docs or generated, from a fixed,
@@ -112,7 +112,7 @@ Anything shown can be clicked through to the source lines that produced it.
 A comparison between two trees is an overlay on the picture, switched on by default for a pull
 request.
 
-**Comparison.** Under `rungs compare <base>`, a changed file is one of four kinds: added,
+**Comparison.** Under `streets compare <base>`, a changed file is one of four kinds: added,
 altered, removed or moved. Moved means identical text under a new path, never a guess.
 
 - An altered file is under scaffolding with a crane beside it, and is named.
@@ -134,7 +134,7 @@ A panel answers the three questions, and each entry selects places on the pictur
 - **Contracts moved:** every change to an exported signature, type, case, effect set or linked
   property.
 
-**Observed.** `rungs compare <base> --run-tests` runs tests once, never by default, because a
+**Observed.** `streets compare <base> --run-tests` runs tests once, never by default, because a
 test has to run the change's code and that code is untrusted. The tests that count as evidence
 are main's, not the change's: the base's test files run against the head's code, with the base's
 `test` script deciding the runner, so a change cannot loosen, delete or skip a test to make it
@@ -152,7 +152,7 @@ beside them.
 The run is in a sandbox (bubblewrap): a temporary copy of the tree, no network, none of the user's
 files, a stripped environment, a wall-clock limit. The network and the tree's code are never
 together. Dependencies are fetched first, with the network, by npm alone in a folder that holds
-only two files Rungs wrote: the dependencies asked for and the lockfile's entries. npm reads no
+only two files Systems to Streets wrote: the dependencies asked for and the lockfile's entries. npm reads no
 settings from the tree, the user or the environment, runs no script, and has no git. Every
 lockfile entry must be a registry tarball with a sha512 hash; a git, file, link, folder or
 other-server dependency refuses the run. An npm alias to a registry package is allowed. The

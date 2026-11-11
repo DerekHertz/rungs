@@ -300,10 +300,10 @@ export type LinkOutcome =
   /** One line saying why there are no links. */
   | { readonly status: "failed"; readonly message: string };
 
-/** `$XDG_CACHE_HOME/rungs`, else `~/.cache/rungs`; outside every repository. */
+/** `$XDG_CACHE_HOME/systems-to-streets`, else `~/.cache/systems-to-streets`; outside every repository. */
 export function cacheDirectory(env: Record<string, string | undefined>, home: string): string {
   const base = env.XDG_CACHE_HOME;
-  return join(base !== undefined && base !== "" ? base : join(home, ".cache"), "rungs");
+  return join(base !== undefined && base !== "" ? base : join(home, ".cache"), "systems-to-streets");
 }
 
 /** Hashes exactly what the agent is sent and the model asked, so any difference is a different key. */

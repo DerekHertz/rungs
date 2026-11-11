@@ -82,7 +82,7 @@ export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className
 
 type RowId = "claims" | "unmentioned" | "contracts" | "tests";
 
-const STORE_KEY = "rungs.review.open";
+const STORE_KEY = "streets.review.open";
 
 function remembered(): string | null {
   try {

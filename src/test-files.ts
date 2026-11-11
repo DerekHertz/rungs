@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import { roleOf } from "./extract/roles.ts";
 
-/** What `node --test` finds on its own, beside the files Rungs gives the role "tests". */
+/** What `node --test` finds on its own, beside the files Systems to Streets gives the role "tests". */
 const NODE_TEST_NAME = /^(?:test|.*[-_.]test|test-.*)\.[cm]?[jt]s$/;
 
 /**
