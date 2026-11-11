@@ -52,7 +52,39 @@ npm run rungs -- /path/to/a/git/checkout
 npm run rungs -- compare main /path/to/a/git/checkout --description pr.md --link
 ```
 
-The first command builds the graph, starts a local server on 127.0.0.1 and opens the city in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. `--description` reads the pull request's description as claims, and `--link` asks the Claude Code CLI to link them to the code, using your own login. `--narrate` offers a Narration toggle on each function: plain-English sentences beside its pseudocode, anchored to its lines and always marked claimed. The agent sees only the function's name, signature, line ranges and outline structure, never source text. Functions in contracts moved are narrated ahead of time (at most 30), and a narration is marked stale once the function changes. `--port <n>` picks the port and `--no-open` skips the browser. Press R to reset the view and P to cycle the pixel-art render mode. Stop the server with Ctrl+C.
+The first command builds the graph, starts a local server on 127.0.0.1 and opens the city in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. Press R to reset the view and P to cycle the pixel-art render mode. Stop the server with Ctrl+C.
+
+`rungs compare <base> [dir]` takes these flags, all optional:
+
+- `--description <file>` reads the pull request's description as claims. Use `-` to read it from stdin.
+- `--link` asks the Claude Code CLI, using your own login, to link each claim to the code it describes. It needs `--description`. `--relink` asks again even when a cached answer exists.
+- `--walkthrough` asks the agent for a tour of the change, stop by stop. `--rewalk` asks again.
+- `--narrate` offers plain-English narration beside each function's pseudocode. `--renarrate` writes it again.
+- `--run-tests` runs the base's tests once against the checkout's code, in a sandbox.
+- `--run-tests-unsandboxed` does the same without a sandbox, for when none is available.
+- `--port <n>` picks the port and `--no-open` skips the browser.
+
+## What the page shows
+
+**Three tiers.** Every fact on the page carries one of three tags. *Derived* facts are computed from the code: the graph, the comparison, the contracts that moved, the pseudocode. *Claimed* facts come from people and agents: the description, the agent's links, the tour, the narration. *Observed* facts come from running the code: test results. The tiers are never mixed, and a claim can attach to the graph but never create or change a node.
+
+**The three questions.** The review panel lists what the description claims (claimed), what changed that no claim covers, and the contracts that moved (both derived).
+
+**Pseudocode.** Open a function and Rungs shows an outline of its control structure, each line linked to its source lines. It is computed when you open the function, from the graph alone.
+
+**Walkthrough.** With `--walkthrough`, an agent orders the changed modules into stops. Each stop shows four columns side by side: what the description expects (claimed), what the agent says, with each sentence anchored to lines (claimed), the source lines with the contract moves and new calls there (derived), and what a test run recorded (observed). What the narration leaves out of the derived facts is noted by code, never by the agent. The agent sees names, signatures and line ranges, never source text.
+
+**Narration.** With `--narrate`, each function offers a Narration toggle: plain-English sentences beside its pseudocode, anchored to its lines and always marked claimed. Functions in contracts moved are narrated ahead of time (at most 30), and a narration is marked stale once the function changes.
+
+**Test results.** With `--run-tests`, Rungs runs the base's tests, not the pull request's, against the pull request's code, so a change cannot loosen, delete or skip a test to make it pass. Tests the pull request wrote or edited run apart and are shown as claimed. What the pull request did to the tests (deleted files, removed tests, `.skip`, `.todo`, `.only`, weaker assertions) is read from the two trees without running anything, and listed as unmentioned. Only `node --test` is run. A project that uses another runner is shown as "tests not run", and a run whose results contradict the runner's exit code is shown as unreliable, with its results withheld.
+
+## The sandbox
+
+`--run-tests` needs a sandbox, which today means Linux with [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) installed. Without one, the run is refused and the page says so, unless you pass `--run-tests-unsandboxed`. Those results are labelled "ran without a sandbox: as trustworthy as the PR's author", and the run can reach anything you can.
+
+In the sandbox the tests run in a temporary copy of the tree, with no network, none of your files, a stripped environment and a time limit. Dependencies are fetched first, by npm alone, from the lockfile's registry tarballs with sha512 hashes. Npm runs no install script, and a git, file or other-server dependency refuses the run. The network and the pull request's code are never present together.
+
+The sandbox keeps a hostile change from reading your files or reaching the network while its tests run. It does not make the results trustworthy. The base's tests still import the pull request's code, and that code can fake an outcome from inside the test process. The page says so beside every result: evidence against mistakes, not against a hostile author.
 
 ## Verification and design
 
