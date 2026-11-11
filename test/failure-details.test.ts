@@ -42,9 +42,9 @@ test("a deepStrictEqual mismatch of objects keeps its multiline expected, actual
   });
 });
 
-test("a string mismatch keeps its lines as they are, not as one escaped line", () => {
+test("a multiline string is shown as a labelled quoted block, its lines as they are", () => {
   const [report] = run(`${HEAD}test("lines", () => {\n  assert.strictEqual("one\\ntwo", "one\\nthree");\n});\n`);
-  expect(report?.detail).toMatchObject({ expected: "one\nthree", actual: "one\ntwo", line: 4 });
+  expect(report?.detail).toMatchObject({ expected: 'string:\n"one\nthree"', actual: 'string:\n"one\ntwo"', line: 4 });
 });
 
 test("a thrown Error has its message and the line it was thrown on, and no expected or actual", () => {
@@ -75,8 +75,44 @@ test("long values are cut to a bound and say how much was left out", () => {
   const [report] = run(`${HEAD}test("long", () => {\n  assert.strictEqual("a".repeat(5000), "b");\n});\n`);
   const actual = report?.detail?.actual ?? "";
   expect(actual.length).toBeLessThan(2100);
-  expect(actual).toMatch(/^a{2000}… 3000 more characters$/);
+  expect(actual).toMatch(/^'a{2000}'… 3000 more characters$/);
   expect(report?.message?.length).toBeLessThan(2100);
+});
+
+test("a string and a number that print alike are told apart, and undefined from the string \"undefined\"", () => {
+  const [one] = run(`${HEAD}test("t", () => {\n  assert.strictEqual("1", 1);\n});\n`);
+  expect(one?.detail).toMatchObject({ actual: "'1'", expected: "1" });
+  const [missing] = run(`${HEAD}test("t", () => {\n  assert.strictEqual(undefined, "undefined");\n});\n`);
+  expect(missing?.detail).toMatchObject({ actual: "undefined", expected: "'undefined'" });
+});
+
+test("hostile error fields cannot stop the reporter: the failure is still reported with its message", () => {
+  const source = `${HEAD}test("stack", () => {
+  throw Object.assign(new Error("x"), { stack: { toString: 0 } });
+});
+test("message", () => {
+  throw Object.assign(new Error("y"), { get operator() { throw new Error("no"); }, code: "ERR_ASSERTION" });
+});
+test("values", () => {
+  const bad = new Proxy({}, { ownKeys() { throw new Error("no"); }, getPrototypeOf() { throw new Error("no"); } });
+  assert.strictEqual(bad, 1);
+});
+test("after", () => {
+  assert.strictEqual(1, 2);
+});
+`;
+  const reports = run(source);
+  expect(reports.map((report) => [report.path[0], report.outcome])).toEqual([["stack", "fail"], ["message", "fail"], ["values", "fail"], ["after", "fail"]]);
+  expect(reports[0]).toMatchObject({ message: "x" });
+  expect(reports[0]?.detail).toBeUndefined();
+  expect(reports[3]?.detail).toMatchObject({ expected: "2", actual: "1" });
+});
+
+test("a message that looks like a stack frame is not taken for one", () => {
+  const [report] = run(`${HEAD}test("fake", () => {\n  throw new Error("boom\\n    at fake (" + import.meta.filename + ":5:1)");\n});\n`);
+  expect(report?.detail).toEqual({ line: 4 });
+  const [bare] = run(`${HEAD}test("fake", () => {\n  const error = new Error("boom");\n  error.stack = "Error: boom\\n    at fake (" + import.meta.filename + ":5:1)";\n  throw Object.assign(error, { message: "other" });\n});\n`);
+  expect(bare?.detail).toBeUndefined();
 });
 
 const range = { start: 81, end: 95 };

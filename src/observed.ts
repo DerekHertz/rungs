@@ -184,10 +184,32 @@ import { inspect } from "node:util";
 const where = (file) => { try { return relative(process.cwd(), realpathSync(file)); } catch { return relative(process.cwd(), file); } };
 const LIMIT = ${FAILURE_LIMIT};
 const bound = (text) => (text.length <= LIMIT ? text : text.slice(0, LIMIT) + "… " + (text.length - LIMIT) + " more characters");
-const show = (value) => bound(typeof value === "string" ? value : inspect(value, { depth: 6, compact: false, breakLength: 80, maxArrayLength: 50, maxStringLength: 500, sorted: true }));
-// The first frame of the stack that is in the test's own file; nothing when the stack has none.
-const lineOf = (stack, file) => {
-  for (const frame of String(stack ?? "").split("\\n")) {
+// The test code under review is untrusted: every read of what it threw is guarded, and a read that fails leaves the part out.
+const text = (read) => {
+  try {
+    const value = read();
+    return typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
+  } catch {
+    return "";
+  }
+};
+const cutNote = (length) => (length > LIMIT ? "… " + (length - LIMIT) + " more characters" : "");
+// A string is quoted, a multiline one as a labelled block of its own lines, so that it is never taken for a number.
+const quote = (value) => {
+  const kept = value.slice(0, LIMIT);
+  return (kept.includes("\\n") ? 'string:\\n"' + kept + '"' : inspect(kept, { colors: false })) + cutNote(value.length);
+};
+const show = (value) => {
+  if (typeof value === "string") return quote(value);
+  const printed = inspect(value, { colors: false, depth: 6, compact: false, breakLength: 80, maxArrayLength: 50, maxStringLength: 500, sorted: true });
+  return printed.slice(0, LIMIT) + cutNote(printed.length);
+};
+// The first frame in the test's own file among the frames after the message; nothing when the message cannot be told from the frames.
+const lineOf = (stack, message, file) => {
+  if (typeof stack !== "string" || typeof message !== "string" || message === "") return undefined;
+  const at = stack.indexOf(message);
+  if (at < 0 || stack.slice(0, at).includes("\\n")) return undefined;
+  for (const frame of stack.slice(at + message.length).split("\\n")) {
     const found = /^\\s*at .*?\\(?((?:file:\\/\\/)?\\/[^\\s()]*?):(\\d+):\\d+\\)?\\s*$/.exec(frame);
     if (found === null) continue;
     try {
@@ -197,17 +219,22 @@ const lineOf = (stack, file) => {
   return undefined;
 };
 const detailOf = (cause, file) => {
-  const detail = {};
-  if (cause?.code === "ERR_ASSERTION" && typeof cause.operator === "string") {
-    detail.operator = cause.operator.slice(0, 40);
-    if (cause.operator !== "fail" && Object.hasOwn(cause, "expected") && Object.hasOwn(cause, "actual")) {
-      detail.expected = show(cause.expected);
-      detail.actual = show(cause.actual);
+  try {
+    const detail = {};
+    const operator = cause?.code === "ERR_ASSERTION" ? cause.operator : undefined;
+    if (typeof operator === "string") {
+      detail.operator = operator.slice(0, 40);
+      if (operator !== "fail" && Object.hasOwn(cause, "expected") && Object.hasOwn(cause, "actual")) {
+        detail.expected = show(cause.expected);
+        detail.actual = show(cause.actual);
+      }
     }
+    const line = lineOf(cause?.stack, cause?.message, file);
+    if (line !== undefined) detail.line = line;
+    return Object.keys(detail).length === 0 ? undefined : detail;
+  } catch {
+    return undefined;
   }
-  const line = lineOf(cause?.stack, file);
-  if (line !== undefined) detail.line = line;
-  return Object.keys(detail).length === 0 ? undefined : detail;
 };
 export default async function* reporter(source) {
   for await (const { type, data } of source) {
@@ -224,7 +251,7 @@ export default async function* reporter(source) {
       ms: data.details?.duration_ms ?? 0,
       ...(data.skip !== undefined && data.skip !== false ? { skip: true } : {}),
       ...(data.todo !== undefined && data.todo !== false ? { todo: true } : {}),
-      ...(type === "test:fail" ? { error: String(error?.cause?.message ?? error?.message ?? ""), failure: String(error?.failureType ?? "") } : {}),
+      ...(type === "test:fail" ? { error: text(() => error?.cause?.message ?? error?.message), failure: text(() => error?.failureType) } : {}),
       ...(detail === undefined ? {} : { detail }),
     }) + "\\n";
   }
