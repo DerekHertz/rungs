@@ -90,3 +90,8 @@ export function validateNarration(output: unknown, digest: string, outline: read
 
 /** A narration is stale when the function's digest is no longer the one narrated. */
 export const isStale = (narration: Pick<Narration, "digest">, current: CodeNode): boolean => narration.digest !== current.digest;
+
+/** What `POST /narration` answers: a claimed fact, with the digest it was written for and whether the function has changed since. */
+export type NarratedDoc =
+  | ({ readonly tier: "claimed"; readonly id: string; readonly status: "ok"; readonly narrated: string; readonly stale: boolean } & Omit<Narration, "digest"> & { readonly model: string; readonly promptVersion: string; readonly cached: boolean })
+  | { readonly tier: "claimed"; readonly id: string; readonly status: "failed"; readonly message: string };
