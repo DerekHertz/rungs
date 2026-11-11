@@ -3,6 +3,8 @@ import type { ChangeKind } from "../compare.ts";
 import { effectChip, signatureDiff } from "../review.ts";
 import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
+import type { TestChanges } from "../test-changes-types.ts";
+import { testChangesBlock } from "./test-changes-panel.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   changed: "~",
@@ -56,6 +58,8 @@ export interface ReviewInput {
   readonly pickEffect: (row: EffectRow) => void;
   /** The user picked a contract row or a file rollup; the host selects and flies to the node or file. */
   readonly pickNode: (id: NodeId) => void;
+  /** What the change did to the tests, derived from the two trees. */
+  readonly testChanges: TestChanges;
 }
 
 /** A new element with a class and, when given, text; never markup. */
@@ -130,6 +134,8 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       unmentionedBody.append(linkedList);
     }
   }
+  const tests = testChangesBlock(input.testChanges);
+  if (tests !== null) unmentionedBody.append(tests);
   if (input.effects !== null && input.link.status === "ok" && input.effects.byAgent.edges + input.effects.byAgent.tests.edges > 0) {
     unmentionedBody.append(effectsBlock(input.effects.byAgent, true));
   }
