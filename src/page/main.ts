@@ -657,6 +657,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     cancelPending();
     if (insideFile !== undefined) leaveInside();
+    else if (selected === undefined && townView.isDimming()) townView.highlight([]);
     else if (selected !== undefined) closePanel();
     else {
       const to = escapeStep(focus, alone, townRoot, (id) => zoomOut(tree, id));
