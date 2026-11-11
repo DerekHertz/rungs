@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { constants, existsSync, rmSync } from "node:fs";
+import { chmodSync, constants, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -46,6 +46,11 @@ export interface StepResult {
   /** Standard output and error as they arrived, cut at the run's output limit. */
   readonly output: string;
   readonly truncated: boolean;
+  /**
+   * Set when the step left a process running behind it. Only a run outside bwrap can: it is
+   * killed when it can be found, and says so here either way.
+   */
+  readonly leftover?: string;
 }
 
 /**
@@ -134,6 +139,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
   let child: ReturnType<typeof spawn> | undefined;
   const interrupted = (signal: NodeJS.Signals) => {
     if (child?.pid !== undefined) killTree(child.pid);
+    killStrays(root);
     removeSync(root);
     process.exit(signal === "SIGINT" ? 130 : 143);
   };
@@ -153,9 +159,18 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     const results: StepResult[] = [];
     for (const step of steps) {
       const argv = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, step.network), "--", ...step.argv] : [...step.argv];
-      const result = await runStep(argv, host.work, deadline, request.outputBytes, isolation, (spawned) => {
+      const { open, ...finished } = await runStep(argv, host.work, deadline, request.outputBytes, isolation, root, (spawned) => {
         child = spawned;
       });
+      // In bwrap the namespace dies with the step. Outside it a process can leave the step's group.
+      const killed = isolation.kind === "bwrap" ? 0 : killStrays(root);
+      const leftover =
+        killed > 0
+          ? `${killed} ${killed === 1 ? "process" : "processes"} outlived the step and ${killed === 1 ? "was" : "were"} killed`
+          : open
+            ? "something the step started kept its output open, and no process could be found to kill"
+            : undefined;
+      const result: StepResult = leftover === undefined ? finished : { ...finished, leftover };
       results.push(result);
       if (result.exitCode !== 0 || result.timedOut) break;
     }
@@ -167,6 +182,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     return { steps: results, collected, root };
   } finally {
     process.off("SIGINT", interrupted).off("SIGTERM", interrupted);
+    if (request.isolation.kind !== "bwrap") killStrays(root);
     await remove(root);
   }
 }
@@ -190,12 +206,13 @@ function runStep(
   deadline: number,
   limit: number,
   isolation: Isolation,
+  root: string,
   started: (child: ReturnType<typeof spawn>) => void,
-): Promise<StepResult> {
+): Promise<StepResult & { readonly open: boolean }> {
   const [command, ...args] = argv;
   if (command === undefined) throw new Error("a step has no command");
   const begun = Date.now();
-  const env = isolation.kind === "bwrap" ? {} : { ...ENV, HOME: join(cwd, "..", "home"), TMPDIR: join(cwd, "..", "tmp"), PATH: `${dirname(process.execPath)}:/usr/bin:/bin` };
+  const env = isolation.kind === "bwrap" ? {} : { ...ENV, [RUN_MARK]: root, HOME: join(cwd, "..", "home"), TMPDIR: join(cwd, "..", "tmp"), PATH: `${dirname(process.execPath)}:/usr/bin:/bin` };
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     started(child);
@@ -212,26 +229,86 @@ function runStep(
     };
     child.stdout.on("data", take);
     child.stderr.on("data", take);
+    // The step is over when it exits or is killed. A process it left behind may hold its output
+    // open for ever, so the output gets a moment to close and is then let go.
     let timedOut = false;
+    let exitCode: number | null = null;
+    let settled = false;
+    let letGo: NodeJS.Timeout | undefined;
+    const finish = (open: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(letGo);
+      child.stdout.destroy();
+      child.stderr.destroy();
+      resolve({ exitCode: timedOut ? null : exitCode, timedOut, ms: Date.now() - begun, output: Buffer.concat(chunks).toString("utf8"), truncated, open });
+    };
+    const over = () => {
+      letGo ??= setTimeout(() => finish(true), OUTPUT_GRACE_MS);
+    };
     const timer = setTimeout(() => {
       timedOut = true;
       if (child.pid !== undefined) killTree(child.pid);
+      over();
     }, Math.max(0, deadline - Date.now()));
     child.on("error", (error) => {
       clearTimeout(timer);
+      clearTimeout(letGo);
       reject(error);
     });
+    child.on("exit", (code) => {
+      exitCode = code;
+      over();
+    });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({
-        exitCode: timedOut ? null : code,
-        timedOut,
-        ms: Date.now() - begun,
-        output: Buffer.concat(chunks).toString("utf8"),
-        truncated,
-      });
+      exitCode = code;
+      finish(false);
     });
   });
+}
+
+/** How long a finished step's output may stay open before the run stops waiting for it. */
+const OUTPUT_GRACE_MS = 1000;
+/** Names the run to every process an unsandboxed step starts, so those left behind can be found. */
+const RUN_MARK = "RUNGS_RUN";
+
+/**
+ * Kills what an unsandboxed run left behind and returns how many: every process of this user
+ * that still carries the run's mark or still works inside its folder. A process that dropped
+ * both cannot be found this way; nor can any where there is no /proc.
+ */
+function killStrays(root: string): number {
+  const found = new Set<number>();
+  for (let pass = 0; pass < 3; pass += 1) {
+    let pids: number[];
+    try {
+      pids = readdirSync("/proc").filter((name) => /^\d+$/.test(name)).map(Number);
+    } catch {
+      return found.size;
+    }
+    const fresh = pids.filter((pid) => pid !== process.pid && !found.has(pid) && belongsTo(pid, root));
+    if (fresh.length === 0) break;
+    for (const pid of fresh) {
+      found.add(pid);
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+  return found.size;
+}
+
+function belongsTo(pid: number, root: string): boolean {
+  try {
+    const cwd = readlinkSync(`/proc/${pid}/cwd`);
+    if (cwd === root || cwd.startsWith(`${root}/`)) return true;
+    return readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").includes(`${RUN_MARK}=${root}`);
+  } catch {
+    return false;
+  }
 }
 
 // The step leads its own process group. Under bwrap that group is bwrap alone, and its death
@@ -317,10 +394,24 @@ async function unlock(dir: string): Promise<void> {
   }
 }
 
+// The same removal for a run being interrupted, which cannot wait.
 function removeSync(root: string): void {
   try {
     rmSync(root, { recursive: true, force: true });
   } catch {
-    // Best effort while the process is being stopped.
+    try {
+      unlockSync(root);
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      // Best effort while the process is being stopped.
+    }
+  }
+}
+
+function unlockSync(dir: string): void {
+  chmodSync(dir, 0o700);
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (lstatSync(path).isDirectory()) unlockSync(path);
   }
 }

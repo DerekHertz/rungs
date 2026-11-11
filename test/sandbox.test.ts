@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { AddressInfo, Server } from "node:net";
@@ -290,6 +291,119 @@ test("a result one byte past the limit is too large, not read", async () => {
   });
   expect(run.collected).toEqual(new Map([["a.json", { kind: "too large", bytes: 1001 }]]));
 });
+
+// A process that leaves its step's group and keeps the step's output open must not hold the run.
+const stray = (options: string, after = "") =>
+  `const child = require("child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "inherit"${options} }); console.log(child.pid); child.unref();${after}`;
+
+async function gone(pid: number): Promise<boolean> {
+  for (let tries = 0; tries < 40; tries += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+test("unsandboxed: a process a step leaves behind holding its output is killed and named, and the run goes on", async () => {
+  const started = Date.now();
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: unsandboxed,
+    steps: (places) => [{ argv: [places.node, "-e", stray("")], network: false }, { argv: [places.node, "-e", "console.log('next')"], network: false }],
+    timeoutMs: 30_000,
+    outputBytes: 1024,
+  });
+  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(run.steps[0]).toMatchObject({ exitCode: 0, timedOut: false, leftover: "1 process outlived the step and was killed" });
+  expect(run.steps[1]).toEqual({ exitCode: 0, timedOut: false, truncated: false, ms: expect.any(Number), output: "next\n" });
+  expect(await gone(Number(run.steps[0]?.output))).toBe(true);
+  expect(existsSync(run.root)).toBe(false);
+});
+
+test("unsandboxed: a step past the limit with a process left behind is a timeout, not a wait", async () => {
+  const started = Date.now();
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: unsandboxed,
+    steps: (places) => [{ argv: [places.node, "-e", stray("", " setInterval(() => {}, 1000);")], network: false }],
+    timeoutMs: 1000,
+    outputBytes: 1024,
+  });
+  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(run.steps[0]).toMatchObject({ exitCode: null, timedOut: true, leftover: "1 process outlived the step and was killed" });
+  expect(await gone(Number(run.steps[0]?.output))).toBe(true);
+  expect(existsSync(run.root)).toBe(false);
+});
+
+test("unsandboxed: a left-behind process that hid itself still cannot hold the run, and the result says it is there", async () => {
+  const started = Date.now();
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: unsandboxed,
+    steps: (places) => [{ argv: [places.node, "-e", stray(', env: {}, cwd: "/"')], network: false }],
+    timeoutMs: 30_000,
+    outputBytes: 1024,
+  });
+  const pid = Number(run.steps[0]?.output);
+  try {
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(run.steps[0]).toMatchObject({ exitCode: 0, leftover: "something the step started kept its output open, and no process could be found to kill" });
+    expect(existsSync(run.root)).toBe(false);
+  } finally {
+    process.kill(pid, "SIGKILL");
+  }
+});
+
+test("in the sandbox a process left behind dies with its step: the namespace ends when the step does", async () => {
+  const started = Date.now();
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: bwrap,
+    steps: (places) => [{ argv: [places.node, "-e", stray("")], network: false }, { argv: ["/bin/sh", "-c", "ps -e -o comm= | grep -c node || true"], network: false }],
+    timeoutMs: 30_000,
+    outputBytes: 1024,
+  });
+  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(run.steps[0]).toEqual({ exitCode: 0, timedOut: false, truncated: false, ms: expect.any(Number), output: expect.stringMatching(/^\d+\n$/) });
+  expect(run.steps[0]?.ms).toBeLessThan(900);
+  expect(run.steps[1]?.output).toBe("0\n");
+});
+
+// Ctrl-C must leave nothing behind, even a folder the run locked.
+for (const isolation of [bwrap, unsandboxed]) {
+  test(`${isolation.kind}: an interrupted run removes its folder, locked folders and all`, async () => {
+    const temp = await mkdtemp(join(tmpdir(), "rungs-interrupt-"));
+    const script = `import { runIsolated } from ${JSON.stringify(fileURLToPath(new URL("../src/sandbox.ts", import.meta.url)))};
+await runIsolated({
+  tree: new Map(),
+  isolation: ${JSON.stringify(isolation)},
+  steps: () => [{ argv: ["/bin/sh", "-c", "mkdir -p locked/inner && echo x > locked/inner/file && chmod 000 locked && sleep 60"], network: false }],
+  timeoutMs: 60000,
+  outputBytes: 1024,
+});
+`;
+    await writeFile(join(temp, "run.ts"), script);
+    const child = spawn(process.execPath, [join(temp, "run.ts")], { env: { ...process.env, TMPDIR: temp }, stdio: "ignore" });
+    try {
+      const runs = () => readdirSync(temp).filter((name) => name.startsWith("rungs-run-"));
+      const locked = () => runs().some((name) => existsSync(join(temp, name, "work", "locked")) && (statSync(join(temp, name, "work", "locked")).mode & 0o777) === 0);
+      for (let tries = 0; tries < 100 && !locked(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(locked()).toBe(true);
+      const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
+      child.kill("SIGINT");
+      expect(await exited).toBe(130);
+      expect(runs()).toEqual([]);
+    } finally {
+      child.kill("SIGKILL");
+      execFileSync("chmod", ["-R", "u+rwx", temp]);
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+}
 
 test("a tree path that climbs out of the copy is refused before anything runs", async () => {
   await expect(
