@@ -576,11 +576,11 @@ function pickEntry(entry: ReviewEntry): void {
     focusOn(entry.id);
     return;
   }
-  pickNode(entry.id);
+  pickNode(entry.id, undefined, entry.folded);
 }
 
 /** A node by id, a ghost or a module removed from a surviving file included: fly to its file, select it. */
-function pickNode(id: NodeId, marked?: LineRange): void {
+function pickNode(id: NodeId, marked?: LineRange, also: readonly NodeId[] = []): void {
   cancelPending();
   const node = nodes.get(id) ?? changed.get(id);
   if (node === undefined) return;
@@ -590,7 +590,7 @@ function pickNode(id: NodeId, marked?: LineRange): void {
   const stay = insideFile === place.id;
   if (!stay) leaveInside();
   const ticket = requested;
-  if (stay) insideView.select(node.id);
+  if (stay) insideView.select(node.id, also);
   else if (nodes.has(place.parent)) focusOn(place.parent, rubbleAmong([place.id]));
   // The folder a moved file left may be gone from the picture (the trail has no step for it): frame the rubble where it stands.
   else {

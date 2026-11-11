@@ -24,8 +24,8 @@ export interface TownInsideView {
   open(inside: Inside): void;
   close(): void;
   readonly isOpen: boolean;
-  /** Outlines this room (a function id) as the selected one. */
-  select(id: NodeId | undefined): void;
+  /** Outlines this room (a function id) as the selected one, and `also` beside it (rooms folded into it). */
+  select(id: NodeId | undefined, also?: readonly NodeId[]): void;
 }
 
 const COLOUR = {
@@ -65,6 +65,7 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
   let bounds = { left: 0, right: 1, top: 0, bottom: 1 };
   let camera: Camera = { zoom: 1, cx: 0, cy: 0 };
   let selected: NodeId | undefined;
+  let alsoSelected: readonly NodeId[] = [];
   let touched = false;
   let dirty = true;
   let dpr = 1;
@@ -204,8 +205,10 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
       // Everything drawn is a target in draw order, so a wall hides what stands behind it: it selects its room.
       drawSprite(piece.sprite, piece.X, piece.Y, piece.kind === "object" ? { kind: "object", piece } : room === undefined ? undefined : { kind: "room", room, sprite: piece.sprite });
     }
-    const chosen = selected === undefined ? undefined : roomsById.get(selected);
-    if (chosen !== undefined) diamond(chosen.X0 - 0.5, chosen.Y0 - 0.5, chosen.X0 + chosen.side - 0.5, chosen.Y0 + chosen.side - 0.5, undefined, COLOUR.select, Math.max(2, Math.round(2.5 * dpr)));
+    for (const id of selected === undefined ? [] : [selected, ...alsoSelected]) {
+      const chosen = roomsById.get(id);
+      if (chosen !== undefined) diamond(chosen.X0 - 0.5, chosen.Y0 - 0.5, chosen.X0 + chosen.side - 0.5, chosen.Y0 + chosen.side - 0.5, undefined, COLOUR.select, Math.max(2, Math.round(2.5 * dpr)));
+    }
 
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
@@ -358,6 +361,7 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
         bottom: Math.max(...corners.map((c) => c.y)) + 60,
       };
       selected = undefined;
+      alsoSelected = [];
       touched = false;
       canvas.style.display = "block";
       resize();
@@ -373,8 +377,9 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
     get isOpen() {
       return inside !== undefined;
     },
-    select(id) {
+    select(id, also = []) {
       selected = id;
+      alsoSelected = also;
       dirty = true;
     },
   };
