@@ -453,12 +453,14 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       ctx.fillStyle = "rgba(8,12,18,0.55)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
+    const isLit = (thing: Thing): boolean => dimming && thing.kind === "lot" && thing.part === "building" && highlighted.has(thing.lot.id);
     for (const thing of things) {
-      const lit = thing.kind === "lot" && thing.part === "building" && highlighted.has(thing.lot.id);
-      ctx.globalAlpha = dimming && !lit ? 0.4 : 1;
-      drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z, lit && chosen.size === 0);
-      ctx.globalAlpha = 1;
+      // Lit buildings wait for a last pass, so nothing faded or named is drawn over them.
+      if (isLit(thing)) continue;
+      ctx.globalAlpha = dimming ? 0.4 : 1;
+      drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z);
       if (thing.kind === "lot" && thing.part === "moved-sign" && thing.lot.movedTo !== null) boardText(thing.lot.movedTo.path, thing.X, thing.Y);
+      ctx.globalAlpha = 1;
     }
 
     drawReachLines();
@@ -530,7 +532,9 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
         pill(lot.name, at.x, lot.crane ? at.y : at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), lot.change === "altered" ? COLOUR.mark : COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.9, false, buildingOf.get(lot));
       }
     }
+    // The lit buildings, last: above the faded ones and the names, at full strength with their wide outline.
     ctx.globalAlpha = 1;
+    for (const thing of things) if (isLit(thing)) drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing, thing.Z, true);
   }
 
   // Picking: the topmost sprite whose drawn pixel lies under the pointer, else the lot's ground.
