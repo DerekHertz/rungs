@@ -797,17 +797,21 @@
         border-radius: 2px;
         cursor: pointer;
       }
-      #source-mark {
-        position: absolute;
-        left: 0;
-        z-index: 2;
-        background: #ffd84a2e;
-        border-top: 1px solid #ffd84a99;
-        border-bottom: 1px solid #ffd84a99;
-        pointer-events: none;
+      #source-code .row.band,
+      #source-gutter .row.band {
+        background-image: linear-gradient(#ffd84a2e, #ffd84a2e);
       }
-      #source-mark[hidden] {
-        display: none;
+      #source-code .row.band-first,
+      #source-gutter .row.band-first {
+        box-shadow: inset 0 1px #ffd84a99;
+      }
+      #source-code .row.band-last,
+      #source-gutter .row.band-last {
+        box-shadow: inset 0 -1px #ffd84a99;
+      }
+      #source-code .row.band-first.band-last,
+      #source-gutter .row.band-first.band-last {
+        box-shadow: inset 0 1px #ffd84a99, inset 0 -1px #ffd84a99;
       }
       #source-body {
         position: relative;
@@ -1164,7 +1168,7 @@
         <div id="why" aria-label="Why this file matters" hidden></div>
         <div id="outline" aria-label="Pseudocode" hidden></div>
         <div id="narration" aria-label="Narration" hidden></div>
-        <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre><div id="source-mark" hidden></div></div>
+        <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre></div>
       </aside>
     </div>
     </div>
