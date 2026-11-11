@@ -41,6 +41,8 @@ interface Parsed {
   readonly found: Map<string, Found[]>;
   /** The tests only, counted by name. */
   readonly tests: Map<string, number>;
+  /** Each test once per name, in source order, with where it sits: its describe path, its place among that path's tests, and its callback's text. */
+  readonly places: Map<string, { readonly parent: string; readonly ordinal: number; readonly body: string }>;
 }
 
 const isLiteral = (node: ts.Node): boolean =>
@@ -202,6 +204,8 @@ function parse(text: string, path: string): Parsed {
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, path.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const found = new Map<string, Found[]>();
   const tests = new Map<string, number>();
+  const places = new Map<string, { parent: string; ordinal: number; body: string }>();
+  const siblings = new Map<string, number>();
   const entry = (name: string, kind: "test" | "suite"): Found => {
     const made: Found = { kind, assertions: [], markers: new Set() };
     found.set(name, [...(found.get(name) ?? []), made]);
@@ -223,6 +227,12 @@ function parse(text: string, path: string): Parsed {
         for (const marker of [...test.markers, ...optionMarkers(node)]) made.markers.add(marker);
         if (test.kind === "test") tests.set(name, (tests.get(name) ?? 0) + 1);
         const callback = [...node.arguments].reverse().find((arg) => ts.isFunctionLike(arg));
+        if (test.kind === "test" && !places.has(name)) {
+          const parent = titles.join(" > ");
+          const ordinal = siblings.get(parent) ?? 0;
+          siblings.set(parent, ordinal + 1);
+          places.set(name, { parent, ordinal, body: callback?.getText() ?? "" });
+        }
         const parameter = callback !== undefined && ts.isFunctionLike(callback) ? callback.parameters[0]?.name : undefined;
         const inner = parameter !== undefined && ts.isIdentifier(parameter) ? new Map(contexts).set(parameter.text, made) : contexts;
         for (const arg of node.arguments) visit(arg, path, made, inner);
@@ -240,7 +250,7 @@ function parse(text: string, path: string): Parsed {
     ts.forEachChild(node, (child) => visit(child, titles, current, contexts));
   };
   visit(source, [], outside, new Map());
-  return { found, tests };
+  return { found, tests, places };
 }
 
 interface Totals {
@@ -271,12 +281,35 @@ function weakness(before: Totals, after: Totals): string | undefined {
   return undefined;
 }
 
+/**
+ * The removed tests that are a rename: a describe path that lost exactly one test name and gained
+ * exactly one, each held once, where the new test is the old one's body, or stands at the same place
+ * among that path's tests. Several lost or gained in one path is ambiguous, so none of them pairs.
+ */
+function renames(was: Parsed, now: Parsed): { from: string; to: string }[] {
+  const lost = new Map<string, string[]>();
+  const gained = new Map<string, string[]>();
+  const group = (map: Map<string, string[]>, parent: string, name: string): void => void map.set(parent, [...(map.get(parent) ?? []), name]);
+  for (const [name, place] of was.places) if (!now.tests.has(name)) group(lost, place.parent, name);
+  for (const [name, place] of now.places) if (!was.tests.has(name)) group(gained, place.parent, name);
+  const pairs: { from: string; to: string }[] = [];
+  for (const [parent, [from, ...more]] of lost) {
+    const [to, ...others] = gained.get(parent) ?? [];
+    if (from === undefined || to === undefined || more.length > 0 || others.length > 0) continue;
+    const old = was.places.get(from);
+    const next = now.places.get(to);
+    if (was.tests.get(from) !== 1 || now.tests.get(to) !== 1 || old === undefined || next === undefined) continue;
+    if (old.body === next.body || old.ordinal === next.ordinal) pairs.push({ from, to });
+  }
+  return pairs;
+}
+
 const byFileThenName = (a: { file: string; name: string }, b: { file: string; name: string }): number =>
   a.file < b.file ? -1 : a.file > b.file ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 
 /**
- * Compares the test files of two trees. The changes are found by name, so a renamed test counts as
- * a removed one and a new one: the rules lean toward saying too much, because a quiet miss is the
+ * Compares the test files of two trees. The changes are found by name, so a test gone from its name counts as
+ * removed unless `renames` pairs it with the one test added beside it: the rules lean toward saying too much, because a quiet miss is the
  * failure that matters. Only JavaScript and TypeScript files are read for tests; any other test
  * file is only noticed when it is deleted.
  */
@@ -289,6 +322,7 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
   const removedTests: { file: string; name: string }[] = [];
   const markers: { file: string; name: string; marker: Marker }[] = [];
   const weakened: { file: string; name: string; why: string }[] = [];
+  const renamed: { file: string; from: string; to: string }[] = [];
   const markersOf = (parsed: Parsed): Set<string> => {
     const set = new Set<string>();
     for (const [name, entries] of parsed.found) for (const found of entries) for (const marker of found.markers) set.add(JSON.stringify([name, marker]));
@@ -321,11 +355,18 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
       markers.push({ file: path, name, marker });
     }
     if (was === undefined) continue;
-    for (const [name, count] of was.tests) if ((now.tests.get(name) ?? 0) < count) removedTests.push({ file: path, name });
+    const pairs = renames(was, now);
+    for (const { from, to } of pairs) {
+      renamed.push({ file: path, from, to });
+      const why = weakness(totalsOf(was.found.get(from)), totalsOf(now.found.get(to)));
+      if (why !== undefined) weakened.push({ file: path, name: to, why: `renamed from "${from}"; ${why}` });
+    }
+    const renamedAway = new Set(pairs.map((pair) => pair.from));
+    for (const [name, count] of was.tests) if ((now.tests.get(name) ?? 0) < count && !renamedAway.has(name)) removedTests.push({ file: path, name });
     for (const [name, entries] of was.found) {
       const why = weakness(totalsOf(entries), totalsOf(now.found.get(name)));
       if (why !== undefined && now.found.has(name)) weakened.push({ file: path, name, why });
     }
   }
-  return { deletedFiles, removedTests: removedTests.sort(byFileThenName), markers: markers.sort((a, b) => byFileThenName(a, b) || (a.marker < b.marker ? -1 : 1)), weakened: weakened.sort(byFileThenName) };
+  return { deletedFiles, removedTests: removedTests.sort(byFileThenName), renamed: renamed.sort((a, b) => byFileThenName({ file: a.file, name: a.to }, { file: b.file, name: b.to })), markers: markers.sort((a, b) => byFileThenName(a, b) || (a.marker < b.marker ? -1 : 1)), weakened: weakened.sort(byFileThenName) };
 }

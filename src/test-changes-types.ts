@@ -13,6 +13,8 @@ export interface TestChanges {
   readonly deletedFiles: readonly { readonly path: string; readonly tests: number; readonly movedTo?: string }[];
   /** Tests of a file the head still has whose name is gone, suites included in the name. */
   readonly removedTests: readonly { readonly file: string; readonly name: string }[];
+  /** A removed test paired with the one test added in its describe path: the same test under a new name. Not a removal. */
+  readonly renamed: readonly { readonly file: string; readonly from: string; readonly to: string }[];
   /** A skip, todo or only that the head has and the base did not, on the test or suite it marks. */
   readonly markers: readonly { readonly file: string; readonly name: string; readonly marker: Marker }[];
   readonly weakened: readonly { readonly file: string; readonly name: string; readonly why: string }[];

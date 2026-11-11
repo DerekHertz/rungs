@@ -17,7 +17,7 @@ const loads = 'function:test/api.test.ts#"test(\\"loads\\") callback"' as NodeId
 const fails = 'function:test/api.test.ts#"test(\\"fails\\") callback"' as NodeId;
 
 const stop = (...ids: string[]): Stop => ({ title: "t", ids: ids as NodeId[], claims: [], sentences: [] });
-const none: TestChanges = { deletedFiles: [], removedTests: [], markers: [], weakened: [] };
+const none: TestChanges = { deletedFiles: [], removedTests: [], renamed: [], markers: [], weakened: [] };
 const ran = (over: Partial<Extract<ObservedDocument, { status: "ran" }>> = {}): ObservedDocument => ({
   tier: "observed",
   tree: "t",
@@ -92,6 +92,7 @@ test("tests removed, weakened, skipped or deleted in the stop's files are listed
   const changes: TestChanges = {
     deletedFiles: [{ path: "test/gone.test.ts", tests: 2 }],
     removedTests: [{ file: "test/api.test.ts", name: "old" }],
+    renamed: [],
     markers: [{ file: "test/api.test.ts", name: "fails", marker: "skip" }],
     weakened: [{ file: "test/api.test.ts", name: "loads", why: "fewer assertions" }],
   };

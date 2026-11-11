@@ -154,7 +154,7 @@ pass. In the sandbox those files are mounted read-only. A base test file the cha
 runs, and is shown as deleted by this change. Test files the change wrote or edited run apart and
 are shown as "written by this change", claimed, never as evidence. What the change did to the
 tests is also read from the two trees, without running anything, and listed under Tests:
-test files deleted, tests removed by name, `.skip`, `.todo` or `.only` added, fewer or looser
+test files deleted, tests removed by name (a test lost and one gained in the same describe path, in the same place or with the same body, is "renamed", not removed; it is still weakened if it asserts less), `.skip`, `.todo` or `.only` added, fewer or looser
 assertions.
 
 Even main's tests import the head's code, which can fake an outcome from inside the test process.

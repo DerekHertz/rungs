@@ -45,7 +45,7 @@ describe("files", () => {
 
   test("an unchanged tree has nothing to report", () => {
     const same = tree({ [T]: file('test("one", () => { assert.equal(1, 1 + 0); });') });
-    expect(testChanges(same, same)).toEqual({ deletedFiles: [], removedTests: [], markers: [], weakened: [] });
+    expect(testChanges(same, same)).toEqual({ deletedFiles: [], removedTests: [], renamed: [], markers: [], weakened: [] });
   });
 });
 
@@ -56,10 +56,10 @@ describe("removed tests", () => {
     expect(change(before, after).removedTests).toEqual([{ file: T, name: "sum > carries" }]);
   });
 
-  test("a renamed test counts as removed", () => {
+  test("a renamed test is not a removal, and a renamed one beside others is paired only when unambiguous", () => {
     const before = file('test("old", () => { assert.equal(f(), 1); });');
     const after = file('test("new", () => { assert.equal(f(), 1); });');
-    expect(change(before, after).removedTests).toEqual([{ file: T, name: "old" }]);
+    expect(change(before, after)).toMatchObject({ removedTests: [], renamed: [{ file: T, from: "old", to: "new" }] });
   });
 
   test("a test added is not a removal", () => {
@@ -261,7 +261,7 @@ describe("weakened tests", () => {
 describe("files that are not test code", () => {
   test("only JavaScript and TypeScript test files are read for tests", () => {
     const result = testChanges(tree({ "test/a_test.py": "def test_a():\n    assert f() == 1\n" }), tree({ "test/a_test.py": "def test_a():\n    pass\n" }));
-    expect(result).toEqual({ deletedFiles: [], removedTests: [], markers: [], weakened: [] });
+    expect(result).toEqual({ deletedFiles: [], removedTests: [], renamed: [], markers: [], weakened: [] });
   });
 
   test("a test file that does not parse is read as far as it goes and never throws", () => {
@@ -272,5 +272,60 @@ describe("files that are not test code", () => {
     const before = tree({ "src/a.spec.ts": 'import { it } from "vitest";\nit("t", () => { expect(f()).toBe(1 as number); });\n' });
     const after = tree({ "src/a.spec.ts": 'import { it } from "vitest";\nit.skip("t", () => { expect(f()).toBe(1 as number); });\n' });
     expect(testChanges(before, after).markers).toEqual([{ file: "src/a.spec.ts", name: "t", marker: "skip" }]);
+  });
+});
+
+describe("renamed tests", () => {
+  const two = (name: string) => `test("${name}", () => { assert.equal(f(), 1); assert.equal(g(), 2); });`;
+
+  test("one test lost and one gained in the same place is a rename, not a removal", () => {
+    const result = change(file(two("a local require is not a resolution")), file(two("a local require is not a resolution or an effect")));
+    expect(result.renamed).toEqual([{ file: T, from: "a local require is not a resolution", to: "a local require is not a resolution or an effect" }]);
+    expect(result.removedTests).toEqual([]);
+    expect(result.weakened).toEqual([]);
+  });
+
+  test("a rename that gains assertions is a stronger test and is not weakened", () => {
+    const result = change(file(two("old")), file('test("new", () => { assert.equal(f(), 1); assert.equal(g(), 2); assert.equal(h(), 3); });'));
+    expect(result).toMatchObject({ renamed: [{ from: "old", to: "new" }], removedTests: [], weakened: [] });
+  });
+
+  test("a rename that loses assertions is still reported as weakened", () => {
+    const result = change(file(two("old")), file('test("new", () => { assert.equal(f(), 1); });'));
+    expect(result.removedTests).toEqual([]);
+    expect(result.weakened).toEqual([{ file: T, name: "new", why: 'renamed from "old"; 2 assertions became 1' }]);
+  });
+
+  test("the same body at another place in the describe is a rename too", () => {
+    const before = file('describe("s", () => { test("x", () => { assert.equal(1, f()); }); test("old", () => { assert.equal(2, f()); }); });');
+    const after = file('describe("s", () => { test("new", () => { assert.equal(2, f()); }); test("x", () => { assert.equal(1, f()); }); });');
+    expect(change(before, after)).toMatchObject({ renamed: [{ from: "s > old", to: "s > new" }], removedTests: [] });
+  });
+
+  test("a different body at a different place is a removal and an addition, not a guess", () => {
+    const before = file('describe("s", () => { test("x", () => { assert.equal(1, f()); }); test("old", () => { assert.equal(2, f()); }); });');
+    const after = file('describe("s", () => { test("fresh", () => { assert.equal(3, f()); }); test("x", () => { assert.equal(1, f()); }); });');
+    expect(change(before, after)).toMatchObject({ renamed: [], removedTests: [{ name: "s > old" }] });
+  });
+
+  test("several lost or gained in one describe is ambiguous and stays removed", () => {
+    const result = change(file(two("a"), two("b")), file(two("c"), two("d")));
+    expect(result.renamed).toEqual([]);
+    expect(result.removedTests.map((r) => r.name)).toEqual(["a", "b"]);
+    const oneForTwo = change(file(two("a"), two("b")), file(two("c")));
+    expect(oneForTwo.renamed).toEqual([]);
+    expect(oneForTwo.removedTests).toHaveLength(2);
+  });
+
+  test("a test lost in one describe and gained in another is not paired", () => {
+    const result = change(file('describe("p", () => { test("a", () => { assert.equal(f(), 1); }); });'), file('describe("q", () => { test("a", () => { assert.equal(f(), 1); }); });'));
+    expect(result.renamed).toEqual([]);
+    expect(result.removedTests).toEqual([{ file: T, name: "p > a" }]);
+  });
+
+  test("a test that keeps its name is never paired", () => {
+    const result = change(file(two("keep"), two("gone")), file(two("keep"), two("new")));
+    expect(result.renamed).toEqual([{ file: T, from: "gone", to: "new" }]);
+    expect(result.removedTests).toEqual([]);
   });
 });
