@@ -103,6 +103,36 @@ test("files that depend on each other count one another in a grouped effect", ()
   expect(found.find((item) => item.kind === "effect")!.blast.files).toEqual(["a.ts", "b.ts"]);
 });
 
+const typesFile = "export interface Config {\n  port: number;\n}\n";
+const client = 'import type { Config } from "./types.ts";\nexport const c: Config | undefined = undefined;\n';
+
+test("a moved file that the base imported is a risk even when no contract changed", () => {
+  const found = risks({ "package.json": "{}\n", "types.ts": typesFile, "client.ts": client }, { "package.json": "{}\n", "new.ts": typesFile, "client.ts": client });
+  expect(found.map((item) => item.label)).toEqual(["new.ts moved: 1 file still imports the old path types.ts"]);
+  expect(found[0]!.blast.files).toEqual(["client.ts"]);
+  expect(found[0]!.ids).toEqual(["file:new.ts"]);
+});
+
+test("a removed file that the base imported is a risk in its own right", () => {
+  const found = risks({ "package.json": "{}\n", "types.ts": typesFile, "client.ts": client }, { "package.json": "{}\n", "client.ts": client });
+  expect(found.map((item) => item.label)).toContain("types.ts removed: 1 file still imports it");
+});
+
+test("changed effects group by resource and target like new ones", () => {
+  const write = (arg: string): string => `import { writeFileSync } from "node:fs";\nexport function w() {\n  writeFileSync("data", ${arg});\n}\n`;
+  const b = { "package.json": "{}\n", "a.ts": write('"1"'), "b.ts": write('"1"'), "x.ts": 'import "./a.ts";\nexport const x = 1;\n', "y.ts": 'import "./b.ts";\nexport const y = 1;\n' };
+  const found = risks(b, { ...b, "a.ts": write('"2"'), "b.ts": write('"2"') }).filter((item) => item.kind === "effect");
+  expect(found).toHaveLength(1);
+  expect(found[0]!.blast.files).toEqual(["x.ts", "y.ts"]);
+  expect(found[0]!.ids).toEqual(["function:a.ts#w", "function:b.ts#w"]);
+});
+
+test("an effect is demoted when the test predicate says its file is a test, whatever the graph role", () => {
+  const call = 'export async function f() {\n  await fetch("https://e.com");\n}\n';
+  const found = risks({ "package.json": "{}\n" }, { "package.json": "{}\n", "a-test.js": call, "z.js": call }).filter((item) => item.kind === "effect");
+  expect(found.map((item) => `${item.path} ${item.demoted === true}`)).toEqual(["z.js false", "a-test.js true"]);
+});
+
 test("an edited base file the runner counts as a test is listed even when its role is source", () => {
   const b = { "package.json": "{}\n", "smoke-test.js": "export const a = 1;\n" };
   const found = risks(b, { ...b, "smoke-test.js": "export const a = 2;\n" });

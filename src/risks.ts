@@ -105,39 +105,59 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     items.push({ kind: "contract", label: `${name} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], was === undefined ? [] : [was.path]), ids: [move.id] });
   }
 
-  const groups = new Map<string, { demoted: boolean; resource: ResourceKind; target: string; operations: Set<string>; owners: Set<NodeId>; paths: Set<string> }>();
+  /** Effects by test-ness, new or changed, resource and target: one item each, its radius the union of its holders'. */
+  const groups = new Map<string, { demoted: boolean; word: string; resource: ResourceKind; target: string; notes: Set<string>; owners: Set<NodeId>; paths: Set<string> }>();
+  const addEffect = (word: string, resource: ResourceKind, target: string, owner: ModuleNode, note: string): void => {
+    const demoted = isTest(owner.path) || demotes(fileOf(owner));
+    const key = `${demoted}\0${word}\0${resource}\0${target}`;
+    const group = groups.get(key) ?? { demoted, word, resource, target, notes: new Set(), owners: new Set(), paths: new Set() };
+    group.notes.add(note);
+    group.owners.add(owner.id);
+    group.paths.add(owner.path);
+    groups.set(key, group);
+  };
   for (const change of comparison.effects) {
     if (change.kind !== "added") continue;
     const resource = resourceKindOf(change.edge);
     const owner = headNodes.get(change.edge.from);
-    if (!EFFECT_RESOURCES.has(resource) || owner === undefined) continue;
-    const demoted = demotes(fileOf(owner));
-    const target = targetText(change.edge.target);
-    const key = `${demoted}\0${resource}\0${target}`;
-    const group = groups.get(key) ?? { demoted, resource, target, operations: new Set(), owners: new Set(), paths: new Set() };
-    group.operations.add(change.edge.operation);
-    group.owners.add(owner.id);
-    group.paths.add(owner.path);
-    groups.set(key, group);
+    if (EFFECT_RESOURCES.has(resource) && owner !== undefined) addEffect("new", resource, targetText(change.edge.target), owner, change.edge.operation);
+  }
+  for (const change of comparison.changedEffects) {
+    const { resource, literal } = effectParts(change.label);
+    const owner = headNodes.get(change.owner);
+    if (resource === undefined || !EFFECT_RESOURCES.has(resource) || owner === undefined) continue;
+    const target = literal !== undefined ? `"${literal}"` : change.label.endsWith("(target unknown)") ? "unknown" : "none";
+    const edits = [...change.added.map((token) => `+ ${token}`), ...change.removed.map((token) => `− ${token}`)].join("  ");
+    addEffect("changed", resource, target, owner, edits);
   }
   for (const group of groups.values()) {
     const paths = [...group.paths].sort(byText);
     items.push({
       kind: "effect",
-      label: `new ${group.resource} call ${group.target}`,
+      label: `${group.word} ${group.resource} call ${group.target}`,
       ...(group.demoted ? { demoted: true } : {}),
-      detail: `${[...group.operations].sort(byText).join(", ")} in ${paths.join(", ")}`,
+      detail: `${[...group.notes].sort(byText).join("; ")} in ${paths.join(", ")}`,
       path: paths[0]!,
       blast: blastOf(paths),
       ids: [...group.owners].sort(),
     });
   }
-  for (const change of comparison.changedEffects) {
-    const resource = effectParts(change.label).resource;
-    const owner = headNodes.get(change.owner);
-    if (resource === undefined || !EFFECT_RESOURCES.has(resource) || owner === undefined) continue;
-    const edits = [...change.added.map((token) => `+ ${token}`), ...change.removed.map((token) => `− ${token}`)].join("  ");
-    items.push({ kind: "effect", label: `changed ${change.label}`, detail: `${edits} in ${owner.path}`, path: owner.path, blast: blastOf([owner.path]), ...(demotes(fileOf(owner)) ? { demoted: true } : {}), ids: [owner.id] });
+
+  // A file that moved or went away and that the base imported breaks its importers whether or not its contracts changed.
+  for (const change of comparison.changes) {
+    if (change.node.level !== "file" || (change.kind !== "moved" && change.kind !== "removed")) continue;
+    const old = change.kind === "moved" ? change.from : change.node;
+    const blast = blastOf([change.node.path], [old.path]);
+    if (blast.count === 0) continue;
+    const files = `${blast.count} ${blast.count === 1 ? "file" : "files"}`;
+    items.push({
+      kind: "contract",
+      label: change.kind === "moved" ? `${change.node.path} moved: ${files} still ${blast.count === 1 ? "imports" : "import"} the old path ${old.path}` : `${old.path} removed: ${files} still ${blast.count === 1 ? "imports" : "import"} it`,
+      detail: blast.files.join(", "),
+      path: change.node.path,
+      blast,
+      ids: [change.node.id],
+    });
   }
 
   const testItem = (path: string, label: string, detail: string): RiskItem => ({ kind: "test", label, detail, path, blast: blastOf([path]), ids: [`file:${path}` as NodeId] });
