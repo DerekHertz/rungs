@@ -9,12 +9,32 @@ export const EVIDENCE_LINE = "Evidence against mistakes, not against a hostile a
 /** The label on every result of a run that had no sandbox. */
 export const UNSANDBOXED_LINE = "ran without a sandbox: as trustworthy as the PR's author";
 
+/** What the runner gave of a failure beyond its message; each part only when the run produced it. */
+export interface FailureDetail {
+  /** The assertion's operator, such as "strictEqual". */
+  readonly operator?: string;
+  /** The values an assertion compared, as the runner printed them; multiline ones keep their lines. */
+  readonly expected?: string;
+  readonly actual?: string;
+  /** The line of the test's own file that the failure's stack names first. */
+  readonly line?: number;
+}
+
+/** The longest message or value kept of a failure. */
+export const FAILURE_LIMIT = 2000;
+
+/** `text` cut to `limit` characters, saying how many were left out. */
+export function bounded(text: string, limit: number = FAILURE_LIMIT): string {
+  return text.length <= limit ? text : `${text.slice(0, limit)}… ${text.length - limit} more characters`;
+}
+
 export interface ObservedTest {
   /** The suite titles and the test's own, joined with " > ". */
   readonly name: string;
   readonly outcome: Outcome;
   readonly ms: number;
   readonly message?: string;
+  readonly detail?: FailureDetail;
 }
 
 export interface UnmatchedTest extends ObservedTest {

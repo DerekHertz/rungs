@@ -20,6 +20,7 @@ import { tooltipPosition } from "./tooltip.ts";
 import type { Lot, Town } from "../town.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
+import { markFailedLine, renderFailure } from "./failure-panel.ts";
 import { changeNote, collapseRows, drawRows, loadRows, markRows, revealRange } from "./code-rows.ts";
 import type { CodeParts, Drawn, Fold, Loaded } from "./code-rows.ts";
 import { renderFileWhy } from "./file-why-panel.ts";
@@ -54,6 +55,7 @@ const outlinePane = document.querySelector<HTMLElement>("#outline")!;
 const narrateToggle = document.querySelector<HTMLLabelElement>("#narrate-toggle")!;
 const narrateBox = narrateToggle.querySelector("input")!;
 const narrationPane = document.querySelector<HTMLElement>("#narration")!;
+const failurePane = document.querySelector<HTMLElement>("#failure")!;
 const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
@@ -623,6 +625,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   offerNarration(node);
   // A file opens on its first defining block when nothing else was asked for.
   markLines(marked ?? why?.defining[0]?.range);
+  showFailure(node);
   chosenKind = undefined;
   townView.select(outline, reaches.get(node.id));
   // A function lights the harbour structures it reaches; a file or class lights none.
@@ -789,3 +792,15 @@ if (comparison !== null && testChanges !== null) {
   });
 }
 showTown();
+
+/** A test function that failed in the run: what the runner gave of the failure, and the line its stack named marked in the source. */
+function showFailure(node: ModuleNode): void {
+  const results = observed?.status === "ran" && isCodeNode(node) && node.level === "function" ? observed.tests[node.id] : undefined;
+  if (drawn === undefined || results === undefined || !isCodeNode(node)) {
+    failurePane.hidden = true;
+    return;
+  }
+  const shown = drawn;
+  const mark = renderFailure(failurePane, results, node.range, (line) => markFailedLine(sourceParts, shown, line));
+  markFailedLine(sourceParts, shown, mark);
+}

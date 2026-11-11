@@ -1,0 +1,103 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "vitest";
+import { failureView } from "../src/failure-view.ts";
+import { NODE_REPORTER, parseNodeEvents } from "../src/observed.ts";
+import type { TestReport } from "../src/observed.ts";
+
+/** Real `node --test` output, through the reporter Systems to Streets runs, parsed the way a run is. */
+function run(source: string, flags: string[] = []): TestReport[] {
+  const dir = mkdtempSync(join(tmpdir(), "failure-details-"));
+  mkdirSync(join(dir, "test"));
+  writeFileSync(join(dir, "reporter.mjs"), NODE_REPORTER);
+  writeFileSync(join(dir, "test", "a.test.mjs"), source);
+  const result = spawnSync(process.execPath, ["--test", "--test-reporter=./reporter.mjs", ...flags, "test/a.test.mjs"], { cwd: dir, encoding: "utf8" });
+  return parseNodeEvents(result.stdout);
+}
+
+const HEAD = `import { test } from "node:test";\nimport assert from "node:assert";\n`;
+
+test("a strictEqual mismatch keeps the whole message, expected, actual, operator and the line of the assertion", () => {
+  const [report] = run(`${HEAD}test("strict", () => {\n  const x = 1;\n  assert.strictEqual(x + 1, 3);\n});\n`);
+  expect(report).toMatchObject({
+    file: "test/a.test.mjs",
+    path: ["strict"],
+    outcome: "fail",
+    message: "Expected values to be strictly equal:\n\n2 !== 3\n",
+    detail: { operator: "strictEqual", expected: "3", actual: "2", line: 5 },
+  });
+});
+
+test("a deepStrictEqual mismatch of objects keeps its multiline expected, actual and diff", () => {
+  const [report] = run(`${HEAD}test("deep", () => {\n  assert.deepStrictEqual({ a: 1, b: [1, 2], c: "x\\ny" }, { a: 1, b: [1, 3], c: "x\\nz" });\n});\n`);
+  expect(report?.message).toContain("Expected values to be strictly deep-equal:\n+ actual - expected\n");
+  expect(report?.message).toContain("+     2\n-     3\n");
+  expect(report?.detail).toEqual({
+    operator: "deepStrictEqual",
+    expected: "{\n  a: 1,\n  b: [\n    1,\n    3\n  ],\n  c: 'x\\nz'\n}",
+    actual: "{\n  a: 1,\n  b: [\n    1,\n    2\n  ],\n  c: 'x\\ny'\n}",
+    line: 4,
+  });
+});
+
+test("a string mismatch keeps its lines as they are, not as one escaped line", () => {
+  const [report] = run(`${HEAD}test("lines", () => {\n  assert.strictEqual("one\\ntwo", "one\\nthree");\n});\n`);
+  expect(report?.detail).toMatchObject({ expected: "one\nthree", actual: "one\ntwo", line: 4 });
+});
+
+test("a thrown Error has its message and the line it was thrown on, and no expected or actual", () => {
+  const [report] = run(`${HEAD}test("thrown", () => {\n  throw new Error("kaboom\\nsecond line");\n});\n`);
+  expect(report).toMatchObject({ path: ["thrown"], outcome: "fail", message: "kaboom\nsecond line", detail: { line: 4 } });
+  expect(report?.detail).not.toHaveProperty("expected");
+  expect(report?.detail).not.toHaveProperty("actual");
+  expect(report?.detail).not.toHaveProperty("operator");
+});
+
+test("a timeout has the runner's message and no line, since no assertion ran", () => {
+  const [report] = run(`${HEAD}test("slow", { timeout: 50 }, async () => {\n  await new Promise((resolve) => setTimeout(resolve, 600));\n});\n`);
+  expect(report).toMatchObject({ path: ["slow"], outcome: "fail", message: "test timed out after 50ms" });
+  expect(report?.detail).toBeUndefined();
+});
+
+test("a line that comes from a helper file is not taken for a line of the test file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "failure-details-"));
+  mkdirSync(join(dir, "test"));
+  writeFileSync(join(dir, "reporter.mjs"), NODE_REPORTER);
+  writeFileSync(join(dir, "test", "helper.mjs"), `export const boom = () => {\n  throw new Error("from helper");\n};\n`);
+  writeFileSync(join(dir, "test", "a.test.mjs"), `import { test } from "node:test";\nimport { boom } from "./helper.mjs";\ntest("t", () => {\n  boom();\n});\n`);
+  const result = spawnSync(process.execPath, ["--test", "--test-reporter=./reporter.mjs", "test/a.test.mjs"], { cwd: dir, encoding: "utf8" });
+  expect(parseNodeEvents(result.stdout)[0]?.detail).toEqual({ line: 4 });
+});
+
+test("long values are cut to a bound and say how much was left out", () => {
+  const [report] = run(`${HEAD}test("long", () => {\n  assert.strictEqual("a".repeat(5000), "b");\n});\n`);
+  const actual = report?.detail?.actual ?? "";
+  expect(actual.length).toBeLessThan(2100);
+  expect(actual).toMatch(/^a{2000}… 3000 more characters$/);
+  expect(report?.message?.length).toBeLessThan(2100);
+});
+
+const range = { start: 81, end: 95 };
+
+test("a failure with a line inside the test shows that line, then expected and actual", () => {
+  expect(failureView({ name: "t", outcome: "fail", ms: 1, message: "Expected values to be strictly equal:\n\n1 !== 2\n", detail: { operator: "strictEqual", expected: "2", actual: "1", line: 86 } }, range)).toEqual({
+    kind: "detailed",
+    message: "Expected values to be strictly equal:\n\n1 !== 2\n",
+    operator: "strictEqual",
+    expected: "2",
+    actual: "1",
+    mark: 86,
+  });
+});
+
+test("a line outside the test is stated, not marked in the test's source", () => {
+  const view = failureView({ name: "t", outcome: "fail", ms: 1, message: "no", detail: { line: 12 } }, range);
+  expect(view).toEqual({ kind: "detailed", message: "no", outside: 12 });
+});
+
+test("a message-only failure says that is all the runner reported, and marks nothing", () => {
+  expect(failureView({ name: "t", outcome: "fail", ms: 1, message: "test timed out after 50ms" }, range)).toEqual({ kind: "message-only", text: "the runner reported only: test timed out after 50ms" });
+  expect(failureView({ name: "t", outcome: "fail", ms: 1 }, range)).toEqual({ kind: "message-only", text: "the runner reported no message" });
+});

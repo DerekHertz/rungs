@@ -657,6 +657,70 @@
         border-bottom: 1px solid #263140;
         line-height: 1.5;
       }
+      #failure {
+        flex: 0 1 auto;
+        min-height: 0;
+        max-height: 45%;
+        overflow: auto;
+        padding: 6px 10px;
+        border-bottom: 1px solid #263140;
+        line-height: 1.4;
+      }
+      #failure[hidden] {
+        display: none;
+      }
+      .failure-heading {
+        color: #E69F00;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+      .failure-text {
+        margin: 4px 0;
+        font: inherit;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: #d7dee8;
+      }
+      .failure-note {
+        color: #8a9bb0;
+        font-size: 11px;
+      }
+      .failure-line {
+        font: inherit;
+        font-size: 11px;
+        color: #E69F00;
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+        text-align: left;
+      }
+      .failure-sides {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .failure-value {
+        min-width: 0;
+      }
+      .failure-label {
+        color: #8a9bb0;
+        font-size: 11px;
+      }
+      .failure-value .failure-text {
+        margin: 0;
+        padding: 4px 6px;
+        border: 1px solid #263140;
+        border-radius: 2px;
+        max-height: 12em;
+        overflow: auto;
+      }
+      #source-code .row.failed-line,
+      #source-gutter .row.failed-line {
+        background: #e69f0040;
+        box-shadow: inset 3px 0 0 #E69F00;
+      }
       #why[hidden] {
         display: none;
       }
@@ -1239,6 +1303,7 @@
           <button id="source-close" type="button" aria-label="Close source">&times;</button>
         </header>
         <div id="why" aria-label="Why this file matters" hidden></div>
+        <div id="failure" aria-label="Failure" hidden></div>
         <div id="outline" aria-label="Pseudocode" hidden></div>
         <div id="narration" aria-label="Narration" hidden></div>
         <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre></div>

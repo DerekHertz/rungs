@@ -5,7 +5,8 @@ import { isTestFile } from "./test-files.ts";
 import { titlesOf } from "./test-marks.ts";
 import { runIsolated } from "./sandbox.ts";
 import type { Isolation, Places } from "./sandbox.ts";
-import type { ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest, WrittenDocument } from "./observed-types.ts";
+import { FAILURE_LIMIT, bounded } from "./observed-types.ts";
+import type { FailureDetail, ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest, WrittenDocument } from "./observed-types.ts";
 
 /** One test as its runner reported it: the titles of its suites, then its own. */
 export interface TestReport {
@@ -17,6 +18,8 @@ export interface TestReport {
   readonly ms: number;
   /** A failure's message, as the runner gave it. */
   readonly message?: string;
+  /** What else the runner gave of the failure: the assertion's values and the test file's line. */
+  readonly detail?: FailureDetail;
   /** The suite itself failed, in a hook or its setup, not one of its tests. */
   readonly suite?: true;
 }
@@ -174,16 +177,47 @@ export function installNeeded(head: FileTree): { readonly install: boolean } | {
 }
 
 /** A node test reporter that writes each finished test or suite as one JSON line. */
-const NODE_REPORTER = `import { realpathSync } from "node:fs";
+export const NODE_REPORTER = `import { realpathSync } from "node:fs";
 import { relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import { inspect } from "node:util";
 const where = (file) => { try { return relative(process.cwd(), realpathSync(file)); } catch { return relative(process.cwd(), file); } };
+const LIMIT = ${FAILURE_LIMIT};
+const bound = (text) => (text.length <= LIMIT ? text : text.slice(0, LIMIT) + "… " + (text.length - LIMIT) + " more characters");
+const show = (value) => bound(typeof value === "string" ? value : inspect(value, { depth: 6, compact: false, breakLength: 80, maxArrayLength: 50, maxStringLength: 500, sorted: true }));
+// The first frame of the stack that is in the test's own file; nothing when the stack has none.
+const lineOf = (stack, file) => {
+  for (const frame of String(stack ?? "").split("\\n")) {
+    const found = /^\\s*at .*?\\(?((?:file:\\/\\/)?\\/[^\\s()]*?):(\\d+):\\d+\\)?\\s*$/.exec(frame);
+    if (found === null) continue;
+    try {
+      if (where(found[1].startsWith("file:") ? fileURLToPath(found[1]) : found[1]) === file) return Number(found[2]);
+    } catch {}
+  }
+  return undefined;
+};
+const detailOf = (cause, file) => {
+  const detail = {};
+  if (cause?.code === "ERR_ASSERTION" && typeof cause.operator === "string") {
+    detail.operator = cause.operator.slice(0, 40);
+    if (cause.operator !== "fail" && Object.hasOwn(cause, "expected") && Object.hasOwn(cause, "actual")) {
+      detail.expected = show(cause.expected);
+      detail.actual = show(cause.actual);
+    }
+  }
+  const line = lineOf(cause?.stack, file);
+  if (line !== undefined) detail.line = line;
+  return Object.keys(detail).length === 0 ? undefined : detail;
+};
 export default async function* reporter(source) {
   for await (const { type, data } of source) {
     if (type !== "test:pass" && type !== "test:fail") continue;
     const error = data.details?.error;
+    const file = typeof data.file === "string" ? where(data.file) : "";
+    const detail = type === "test:fail" ? detailOf(error?.cause, file) : undefined;
     yield JSON.stringify({
       type,
-      file: typeof data.file === "string" ? where(data.file) : "",
+      file,
       name: data.name,
       nesting: data.nesting,
       kind: data.details?.type ?? "test",
@@ -191,6 +225,7 @@ export default async function* reporter(source) {
       ...(data.skip !== undefined && data.skip !== false ? { skip: true } : {}),
       ...(data.todo !== undefined && data.todo !== false ? { todo: true } : {}),
       ...(type === "test:fail" ? { error: String(error?.cause?.message ?? error?.message ?? ""), failure: String(error?.failureType ?? "") } : {}),
+      ...(detail === undefined ? {} : { detail }),
     }) + "\\n";
   }
 }
@@ -508,6 +543,26 @@ interface NodeEvent {
   readonly todo?: boolean;
   readonly error?: string;
   readonly failure?: string;
+  readonly detail?: FailureDetail;
+}
+
+/** The limit plus room for the "… N more characters" the reporter already added, so that a cut value is not cut again. */
+const KEPT = FAILURE_LIMIT + 40;
+
+/** Only strings and a line number, whatever else the run wrote; values are cut to the limit. Null when it is not a detail. */
+function readDetail(value: unknown): FailureDetail | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null) return null;
+  const { operator, expected, actual, line } = value as Record<string, unknown>;
+  const text = (field: unknown) => field === undefined || typeof field === "string";
+  if (!text(operator) || !text(expected) || !text(actual) || !(line === undefined || (Number.isInteger(line) && (line as number) > 0))) return null;
+  const detail = {
+    ...(typeof operator === "string" ? { operator: operator.slice(0, 40) } : {}),
+    ...(typeof expected === "string" ? { expected: bounded(expected, KEPT) } : {}),
+    ...(typeof actual === "string" ? { actual: bounded(actual, KEPT) } : {}),
+    ...(typeof line === "number" ? { line } : {}),
+  };
+  return Object.keys(detail).length === 0 ? undefined : detail;
 }
 
 function isNodeEvent(value: unknown): value is NodeEvent {
@@ -523,7 +578,8 @@ function isNodeEvent(value: unknown): value is NodeEvent {
     typeof event.ms === "number" &&
     [event.skip, event.todo].every((flag) => flag === undefined || typeof flag === "boolean") &&
     (event.error === undefined || typeof event.error === "string") &&
-    (event.failure === undefined || typeof event.failure === "string")
+    (event.failure === undefined || typeof event.failure === "string") &&
+    readDetail(event.detail) !== null
   );
 }
 
@@ -556,7 +612,8 @@ export function parseNodeEvents(text: string): TestReport[] {
     if (event.kind === "suite" && (event.type === "test:pass" || event.failure === "subtestsFailed")) return;
     const own = event.kind === "suite";
     const outcome: Outcome = event.skip || event.todo ? "skip" : event.type === "test:pass" ? "pass" : "fail";
-    const report = { file: event.file, path, outcome, ms: event.ms, ...(outcome === "fail" && event.error ? { message: event.error } : {}), ...(own ? { suite: true as const } : {}) };
+    const detail = outcome === "fail" ? readDetail(event.detail) : undefined;
+    const report = { file: event.file, path, outcome, ms: event.ms, ...(outcome === "fail" && event.error ? { message: bounded(event.error) } : {}), ...(detail ? { detail } : {}), ...(own ? { suite: true as const } : {}) };
     reports.push({ report, path });
   });
   return reports.map(({ report, path }) => ({ ...report, path: [...path] }));
@@ -568,8 +625,6 @@ export function treeDigest(tree: FileTree): string {
   for (const path of [...tree.keys()].sort()) hash.update(`${JSON.stringify(path)}:${JSON.stringify(tree.get(path))}\n`);
   return hash.digest("hex").slice(0, 32);
 }
-
-const MESSAGE_LIMIT = 2000;
 
 const SUITE_FAILED = "the suite failed outside its tests (a hook or setup)";
 const EDITED = "main's version of this file ran; this PR edited it";
@@ -583,8 +638,8 @@ function writtenDocument(written: WrittenRun): WrittenDocument {
   const counts = { pass: 0, fail: 0, skip: 0 };
   const tests = outcome.reports.map((report) => {
     counts[report.outcome] += 1;
-    const message = report.message?.slice(0, MESSAGE_LIMIT);
-    return { file: report.file, name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}) };
+    const { message, detail } = report;
+    return { file: report.file, name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}), ...(detail ? { detail } : {}) };
   });
   return { ...about, status: "ran", exitCode: outcome.exitCode, counts, tests };
 }
@@ -617,8 +672,8 @@ export function observedDocument(run: TestRun, graph: Graph, tree: string): Obse
   const counts = { pass: 0, fail: 0, skip: 0 };
   for (const report of run.reports) {
     counts[report.outcome] += 1;
-    const message = report.message?.slice(0, MESSAGE_LIMIT);
-    const observed: ObservedTest = { name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}) };
+    const { message, detail } = report;
+    const observed: ObservedTest = { name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}), ...(detail ? { detail } : {}) };
     const ids = byFile.get(report.file)?.get(JSON.stringify(report.path)) ?? [];
     const [id] = ids;
     const changed = report.suite ? SUITE_FAILED : deleted.has(report.file) ? DELETED : edited.has(report.file) ? EDITED : undefined;
