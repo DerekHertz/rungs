@@ -430,7 +430,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       id: "unmentioned",
       name: "Unmentioned",
       tag: "derived",
-      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, calls: input.effects?.none.edges ?? 0 }),
+      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0) }),
       fill: fillUnmentioned,
     },
     {

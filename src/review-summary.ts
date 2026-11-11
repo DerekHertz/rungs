@@ -61,11 +61,13 @@ function withoutDefault(item: string): string {
   return item;
 }
 
-const keyOf = (item: string): string => /^[^\s:=]+/.exec(withoutDefault(item))?.[0] ?? item;
+const keyOf = (item: string): string => (/^[^\s:=]+/.exec(withoutDefault(item))?.[0] ?? item).replace(/^\.\.\./, "").replace(/\?$/, "");
 
 interface Parsed {
   readonly items: readonly string[];
   readonly rest: string;
+  /** Everything before the parameter list: the name, `async`, `function*`. */
+  readonly prefix: string;
 }
 
 function parse(signature: string): Parsed | undefined {
@@ -75,7 +77,7 @@ function parse(signature: string): Parsed | undefined {
   if (end === -1) return undefined;
   let inside = signature.slice(open + 1, end).trim();
   if (inside.startsWith("{") && closing(inside, 0) === inside.length - 1) inside = inside.slice(1, -1);
-  return { items: splitTop(inside), rest: signature.slice(end + 1).replace(/^\s*:\s*/, "").trim() };
+  return { items: splitTop(inside), prefix: signature.slice(0, open).trim(), rest: signature.slice(end + 1).replace(/^\s*:\s*/, "").trim() };
 }
 
 /** What changed between two signatures: parameters added, removed or re-defaulted, and a changed return type. */
@@ -91,12 +93,12 @@ export interface SignatureChange {
 export function signatureChange(before: string, after: string): SignatureChange {
   const from = parse(before);
   const to = parse(after);
-  const finish = (added: string[], removed: string[], modified: string[], returns: SignatureChange["returns"]): SignatureChange => ({
+  const finish = (added: string[], removed: string[], modified: string[], returns: SignatureChange["returns"], whole?: string): SignatureChange => ({
     added,
     removed,
     modified,
     returns,
-    text: [...added.map((a) => `+ ${a}`), ...removed.map((r) => `− ${r}`), ...modified.map((m) => `~ ${m}`), ...(returns === null ? [] : [`returns ${returns.before || "(none)"} → ${returns.after || "(none)"}`])].join("  "),
+    text: whole ?? [...added.map((a) => `+ ${a}`), ...removed.map((r) => `− ${r}`), ...modified.map((m) => `~ ${m}`), ...(returns === null ? [] : [`returns ${returns.before || "(none)"} → ${returns.after || "(none)"}`])].join("  "),
   });
   if (before === after) return finish([], [], [], null);
   if (from !== undefined && to !== undefined) {
@@ -106,6 +108,9 @@ export function signatureChange(before: string, after: string): SignatureChange 
     const removed = [...was].filter(([key]) => !now.has(key)).map(([, item]) => withoutDefault(item));
     const modified = [...now].filter(([key, item]) => was.has(key) && was.get(key) !== item).map(([key]) => key);
     const returns = from.rest === to.rest ? null : { before: from.rest, after: to.rest };
+    const common = (items: readonly string[], other: ReadonlyMap<string, string>): string[] => items.map(keyOf).filter((key) => other.has(key));
+    const sameOrder = common(from.items, now).join("\0") === common(to.items, was).join("\0");
+    if (from.prefix !== to.prefix || !sameOrder) return finish([], [], [], null, "signature changed");
     const found = finish(added, removed, modified, returns);
     if (found.text !== "") return found;
   }
@@ -176,7 +181,7 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
     if (observed.status === "ran") {
       const { pass, fail, skip } = observed.counts;
       const total = pass + fail + skip;
-      run = total === 0 ? "no results" : fail > 0 ? `${fail} fail of ${total}` : `${total} ran, none fail`;
+      run = total === 0 ? "no results" : fail > 0 ? `${fail} fail of ${total}` : [pass > 0 ? `${pass} pass` : "", skip > 0 ? `${skip} skip` : ""].filter((part) => part !== "").join(" · ");
     } else if (observed.status === "unreliable") run = "results unreliable";
     else if (observed.status === "failed") run = "run failed";
     else run = "not run";

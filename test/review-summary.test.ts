@@ -30,6 +30,15 @@ test("a signature with no parameter list falls back to the differing middle", ()
   expect(signatureChange("class A extends B", "class A extends C").text).toBe("− B  + C");
 });
 
+test("reordering, async and name changes are never summarised as a partial list", () => {
+  expect(signatureChange("function f(a, b)", "async function f(b, a, c)").text).toBe("signature changed");
+  expect(signatureChange("(a, b)", "(b, a)").text).toBe("signature changed");
+  expect(signatureChange("function f(a)", "function* f(a)").text).toBe("signature changed");
+  expect(signatureChange("(a, b)", "(a, b = 1)").text).toBe("~ b");
+  expect(signatureChange("(a, b)", "(a, b?)").text).toBe("~ b");
+  expect(signatureChange("(a, b)", "(a, ...b)").text).toBe("~ b");
+});
+
 test("identical signatures give no change", () => {
   expect(signatureChange("(a)", "(a)").text).toBe("");
 });
@@ -88,7 +97,8 @@ test("each row's number comes first", () => {
 test("the tests row says fail of total, or why there is no run", () => {
   const ran = { tier: "observed", tree: "t", status: "ran", counts: { pass: 187, fail: 23, skip: 0 } } as const;
   expect(testsSummary(ran as never, 0)).toBe("23 fail of 210");
-  expect(testsSummary({ ...ran, counts: { pass: 5, fail: 0, skip: 1 } } as never, 0)).toBe("6 ran, none fail");
+  expect(testsSummary({ ...ran, counts: { pass: 5, fail: 0, skip: 1 } } as never, 0)).toBe("5 pass · 1 skip");
+  expect(testsSummary({ ...ran, counts: { pass: 0, fail: 0, skip: 10 } } as never, 0)).toBe("10 skip");
   expect(testsSummary({ tier: "observed", tree: "t", status: "refused", why: "x" }, 0)).toBe("not run");
   expect(testsSummary({ tier: "observed", tree: "t", status: "unreliable" } as never, 0)).toBe("results unreliable");
   expect(testsSummary({ ...ran, status: "failed" } as never, 0)).toBe("run failed");
