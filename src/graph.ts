@@ -105,10 +105,10 @@ export function qualifiedName(parent: string, text: string, ordinal: number): st
   return parent === "" ? segment : `${parent}.${segment}`;
 }
 
-export type ResourceKind = "process" | "network" | "file system" | "queue" | "timer";
+export type ResourceKind = "process" | "network" | "file system" | "queue" | "timer" | "code loaded at run time";
 
 /** The order a reviewer reads resources in: what reaches furthest out first. */
-export const RESOURCE_ORDER: readonly ResourceKind[] = ["process", "network", "queue", "file system", "timer"];
+export const RESOURCE_ORDER: readonly ResourceKind[] = ["process", "network", "queue", "file system", "timer", "code loaded at run time"];
 
 export type ResourceId = string & { readonly __brand: "ResourceId" };
 
@@ -143,17 +143,60 @@ export interface EffectEdge {
 
 /**
  * A call that decides which file a module name or path means: `createRequire(base)`,
- * `require.resolve(name)`, `import(name)`. Kept apart from effects, which name a resource.
+ * `require.resolve(name)`, `import(name)`. Kept apart from effects, which name a resource; the
+ * ones that load code at run time (a non-literal `import()`, `createRequire`) are effects.
  */
 export interface ResolutionEdge {
   readonly from: NodeId;
-  /** "module createRequire", "require.resolve" or "import()". */
+  /** "require.resolve" or "import()" of a literal. */
   readonly operation: string;
   readonly args: readonly EffectArg[];
   readonly range: LineRange;
 }
 
 export type Edge = EffectEdge;
+
+/** The syntax that made the edge: `import x from`, `export ... from`, `require("x")`, `import("x")`. */
+export type ImportSyntax = "import" | "export from" | "require" | "import()";
+
+/**
+ * Where an import points: a file of the tree, a package outside it named by its specifier (never
+ * a node), or "unresolved" when the specifier is relative, or names a package of this tree, and
+ * no file answers to it. Shown as exactly that, never dropped.
+ */
+export type ImportTarget = { readonly file: NodeId } | { readonly external: string } | { readonly unresolved: true; readonly reason?: string };
+
+/** One static import, `export ... from`, or `require` / `import()` of a string literal, pinned to its lines. */
+export interface ImportEdge {
+  /** The file node that holds it. */
+  readonly from: NodeId;
+  /** The module name as written. */
+  readonly specifier: string;
+  readonly syntax: ImportSyntax;
+  /** `import type` and `export type ... from`: erased before the code runs. */
+  readonly typeOnly: boolean;
+  readonly target: ImportTarget;
+  readonly range: LineRange;
+}
+
+export const importTargetText = (target: ImportTarget): string =>
+  "file" in target ? target.file : "external" in target ? `external:${target.external}` : "unresolved";
+
+export function compareImports(a: ImportEdge, b: ImportEdge): number {
+  const key = (edge: ImportEdge): string => `${edge.syntax}\0${importTargetText(edge.target)}\0${edge.specifier}\0${edge.typeOnly}`;
+  return compareIds(a.from, b.from) || a.range.start - b.range.start || a.range.end - b.range.end || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+}
+
+export function canonicalImport(edge: ImportEdge): object {
+  return {
+    from: edge.from,
+    specifier: edge.specifier,
+    syntax: edge.syntax,
+    typeOnly: edge.typeOnly,
+    target: edge.target,
+    range: { start: edge.range.start, end: edge.range.end },
+  };
+}
 
 export interface Graph {
   readonly extractorVersion: string;
@@ -162,6 +205,8 @@ export interface Graph {
   readonly edges: readonly Edge[];
   /** Sorted by compareResolutions. */
   readonly resolutions: readonly ResolutionEdge[];
+  /** Sorted by compareImports. */
+  readonly imports: readonly ImportEdge[];
 }
 
 /** The resources some edge reaches, in RESOURCE_ORDER. */
@@ -260,5 +305,6 @@ export function serializeGraph(graph: Graph): string {
   const nodes = [...graph.nodes].sort((a, b) => compareIds(a.id, b.id)).map(canonicalNode);
   const edges = [...graph.edges].sort(compareEdges).map(canonicalEdge);
   const resolutions = [...graph.resolutions].sort(compareResolutions).map(canonicalResolution);
-  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions }, null, 2)}\n`;
+  const imports = [...graph.imports].sort(compareImports).map(canonicalImport);
+  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions, imports }, null, 2)}\n`;
 }

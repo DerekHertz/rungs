@@ -12,7 +12,7 @@ export interface EffectChange {
 
 export const resourceKindOf = (edge: EffectEdge): ResourceKind => edge.to.slice("resource:".length) as ResourceKind;
 
-/** "process child_process execFileSync "git"", "network fetch (target unknown)", "timer setTimeout". */
+/** "process child_process execFileSync "git"", "network fetch (target unknown)", "timer setTimeout", "code loaded at run time import() (target unknown)". */
 export function effectLabel(edge: EffectEdge): string {
   const head = `${resourceKindOf(edge)} ${edge.operation}`;
   if (edge.target === "none") return head;
@@ -29,21 +29,30 @@ export function effectLabel(edge: EffectEdge): string {
 export function diffEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<NodeId, NodeId>): EffectChange[] {
   const keyOf = (edge: EffectEdge, owner: NodeId): string =>
     `${owner}\0${edge.to}\0${edge.operation}\0${targetText(edge.target)}`;
+  const sequence = (edge: EffectEdge): string => argTokens(edge.args).join("\u0000");
   const before = new Map<string, EffectEdge[]>();
   for (const edge of base.edges) {
     const key = keyOf(edge, movedTo.get(edge.from) ?? edge.from);
     before.set(key, [...(before.get(key) ?? []), edge]);
   }
+  const heads = new Map<string, EffectEdge[]>();
+  for (const edge of head.edges) heads.set(keyOf(edge, edge.from), [...(heads.get(keyOf(edge, edge.from)) ?? []), edge]);
   const changes: EffectChange[] = [];
-  const seen = new Map<string, number>();
-  for (const edge of head.edges) {
-    const key = keyOf(edge, edge.from);
-    const index = seen.get(key) ?? 0;
-    seen.set(key, index + 1);
-    if (index >= (before.get(key)?.length ?? 0)) changes.push({ kind: "added", edge });
+  for (const [key, edges] of heads) {
+    // Calls with the same arguments pair first, as in changedEffects; the rest pair in source
+    // order, and the surplus is added.
+    const bases = [...(before.get(key) ?? [])];
+    const rest: EffectEdge[] = [];
+    for (const edge of edges) {
+      const same = bases.findIndex((was) => sequence(was) === sequence(edge));
+      if (same === -1) rest.push(edge);
+      else bases.splice(same, 1);
+    }
+    for (const edge of rest.slice(bases.length)) changes.push({ kind: "added", edge });
+    for (const edge of bases.slice(rest.length)) changes.push({ kind: "removed", edge });
   }
   for (const [key, edges] of before) {
-    for (const edge of edges.slice(seen.get(key) ?? 0)) changes.push({ kind: "removed", edge });
+    if (!heads.has(key)) for (const edge of edges) changes.push({ kind: "removed", edge });
   }
   return changes.sort((a, b) => compareEdges(a.edge, b.edge) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
 }
@@ -56,7 +65,7 @@ export interface ChangedEffect {
   readonly kind: "changed";
   /** The head owner: the class, function or file that holds the calls. */
   readonly owner: NodeId;
-  /** "process child_process execFileSync "git"", or "module createRequire" for a resolution. */
+  /** "process child_process execFileSync "git"", or "require.resolve" for a resolution. */
   readonly label: string;
   /** Arguments the head has and the base lacks, as `"literal"` or `?expression`; repeats count. */
   readonly added: readonly string[];

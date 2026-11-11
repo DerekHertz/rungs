@@ -339,11 +339,17 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
     taken = [];
-    for (const pier of town.piers) {
+    // Every harbour structure is named; where far away they would stack on each other, each moves down
+    // out of the previous one's way.
+    let lowest = -Infinity;
+    for (const pier of [...town.piers].reverse()) {
       const size = sheet.sizes[pier.sprite];
       const at = groundScreen(pier.X, pier.Y, 0);
       const owner = things.find((thing) => thing.kind === "pier" && thing.pier === pier);
-      pill(pier.kind, at.x, at.y - Math.round((size?.oy ?? 200) * camera.zoom) - Math.round(14 * dpr), Math.round(13 * dpr), COLOUR.pierEdge, Infinity, true, owner);
+      const height = Math.round(13 * dpr * 1.5);
+      const y = Math.max(at.y - Math.round((size?.oy ?? 200) * camera.zoom) - Math.round(14 * dpr), lowest + height + 2);
+      lowest = y;
+      pill(pier.kind, at.x, y, Math.round(13 * dpr), COLOUR.pierEdge, Infinity, false, owner);
     }
     const files = namesAt(camera.zoom) === "files";
     // Changed blocks are named first, then the rest from the largest, so a crowded picture loses the quietest names.
