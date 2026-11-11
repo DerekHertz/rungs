@@ -6,7 +6,7 @@ import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
 import type { FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
-import { contractsReport, newEffects, unmentioned, unmentionedIds } from "../review.ts";
+import { contractsReport, effectsChangedRows, newEffects, unmentioned, unmentionedIds } from "../review.ts";
 import type { EffectRow, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
@@ -474,14 +474,15 @@ if (comparison !== null) {
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
   const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked);
+  const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
   renderReview(review, {
     description: claims.description,
     claims: claims.claims,
     link: claims.link,
     pickClaim,
     unmentioned: claimed,
-    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed), picture.graph),
-    effects: newEffects(comparison, picture.graph, claims.description ?? "", linked),
+    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed), picture.graph, effectsChangedRows(comparison, picture.graph, claims.description ?? "", linked)),
+    effects,
     pick: pickEntry,
     pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
     pickNode,

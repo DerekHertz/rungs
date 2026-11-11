@@ -1,7 +1,7 @@
 import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
 import { effectChip, signatureDiff } from "../review.ts";
-import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
+import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
 import { observedSection } from "./observed-panel.ts";
 import type { ObservedInput } from "./observed-panel.ts";
@@ -137,6 +137,12 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       for (const entry of result.linkedEntries) linkedList.append(row(entry, true));
       unmentionedBody.append(linkedList);
     }
+  }
+  if (input.effects !== null && input.effects.changed.none.length > 0) {
+    const title = element("h3", "review-subtitle", `Effects changed, no claim covers them (${input.effects.changed.none.length})`);
+    const changed = element("ul", "review-list");
+    for (const row of input.effects.changed.none) changed.append(effectsChangedRow(row));
+    unmentionedBody.append(title, changed);
   }
   const tests = testChangesBlock(input.testChanges);
   if (tests !== null) unmentionedBody.append(tests);
@@ -291,17 +297,42 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
 
   const [contracts, contractsBody] = section("Contracts moved", "derived");
   const report = input.contracts;
-  if (report === null || report.entries.length === 0) {
+  if (report === null || (report.entries.length === 0 && report.effectsChanged.length === 0)) {
     contractsBody.append(element("p", "review-empty", "No exported signature changed."));
   } else {
     const c = report.counts;
     const parts = (["changed", "effects", "removed", "unexported", "exposed", "moved", "added"] as const)
       .filter((kind) => c[kind] > 0)
       .map((kind) => `${c[kind]} ${kind}`);
+    if (report.effectsChanged.length > 0) parts.push(`${report.effectsChanged.length} effects changed`);
     contractsBody.append(element("p", "review-summary", `${parts.join(", ")}.`));
     const list = element("ul", "review-list");
     for (const entry of report.entries) list.append(entry.kind === "row" ? contractRow(entry) : rollupRow(entry));
+    for (const row of report.effectsChanged) list.append(effectsChangedRow(row));
     contractsBody.append(list);
+  }
+
+  /** A call whose arguments changed: the holder, what the call reaches, and the arguments gained and lost. */
+  function effectsChangedRow(row: EffectsChangedRow): HTMLElement {
+    const item = element("li", "review-row contract contract-effects");
+    const line = element("div", "review-line");
+    line.append(element("span", "review-toggle"));
+    const pick = element("button", "review-pick contract-pick");
+    pick.type = "button";
+    pick.dataset.id = row.id;
+    pick.append(element("span", "review-mark contract-effects", "≈"));
+    const text = element("span", "contract-text");
+    const head = element("span", "contract-head");
+    const { change } = row;
+    head.append(element("span", "review-label", row.label), element("span", "review-size", `effects changed${change.count > 1 ? ` ×${change.count}` : ""}`));
+    if (row.coverage !== "claimed") head.append(element("span", "review-flag", "unmentioned"));
+    text.append(head, element("span", "contract-where", change.label));
+    text.append(chips(change.added, "+", "added", true), chips(change.removed, "−", "removed", true));
+    pick.append(text);
+    pick.addEventListener("click", () => choose(pick, row.id));
+    line.append(pick);
+    item.append(line);
+    return item;
   }
 
   function choose(pick: HTMLElement, id: NodeId): void {
@@ -349,13 +380,13 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     return item;
   }
 
-  function chips(labels: readonly string[], mark: string, kind: "added" | "removed"): DocumentFragment {
+  function chips(labels: readonly string[], mark: string, kind: "added" | "removed", plain = false): DocumentFragment {
     const shown = labels.slice(0, MAX_CHIPS);
     const fragment = document.createDocumentFragment();
     if (shown.length === 0) return fragment;
     const line = element("span", "effect-chips");
     for (const label of shown) {
-      const chip = element("span", `effect-chip ${kind}`, `${mark}${effectChip(label)}`);
+      const chip = element("span", `effect-chip ${kind}`, `${mark}${plain ? label : effectChip(label)}`);
       chip.title = label;
       line.append(chip);
     }

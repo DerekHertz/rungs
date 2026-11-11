@@ -140,6 +140,7 @@ test("/contracts.json carries the contracts that moved as a derived fact, and is
       { kind: "added", id: "function:src/new.ts#fresh", before: null, after: "()" },
       { kind: "removed", id: "function:src/old.ts#oldOne", before: "()", after: null },
     ],
+    effectsChanged: [],
   });
   expect((await get(plain, "contracts.json")).status).toBe(404);
 });
