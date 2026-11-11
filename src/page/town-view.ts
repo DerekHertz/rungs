@@ -275,14 +275,16 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     const size = lines.length === 1 ? 26 : 19;
     ctx.save();
     ctx.setTransform(AXIS * k, (AXIS / 2) * k, 0, RISE_UNIT * k, middle.x, middle.y);
-    ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
     ctx.fillStyle = "#2b1d10";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const lineHeight = Math.min(size * 1.15, BOARD.h / lines.length);
     lines.forEach((line, index) => {
+      // Shrink to fit down to a floor, then cut: the end of a path is what tells files apart, so a long one loses its start.
+      ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
+      const fitted = Math.max(11, Math.min(size, (size * BOARD.w) / Math.max(1, ctx.measureText(line).width)));
+      ctx.font = `600 ${fitted}px ui-monospace, Menlo, Consolas, monospace`;
       let shown = line;
-      // The end of a path is what tells files apart, so a long one loses its start.
       while (shown.length > 2 && ctx.measureText(shown).width > BOARD.w) shown = `\u2026${shown.slice(2)}`;
       ctx.fillText(shown, 0, (index - (lines.length - 1) / 2) * lineHeight);
     });
