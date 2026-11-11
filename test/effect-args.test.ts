@@ -135,6 +135,36 @@ describe("code loaded at run time", () => {
     expect(graph.edges.map((e) => e.operation)).toEqual(["import()"]);
   });
 
+  test("a require declared in another script of the repository is not the global one", () => {
+    const graph = extract(
+      new Map([
+        ["a.ts", "const require = (x: string) => x;"],
+        ["b.ts", "function f(n: string) { return require(n); }"],
+      ]),
+    );
+    expect(graph.edges).toEqual([]);
+  });
+
+  test("a call through an alias of require is a load", () => {
+    expect(loads("const load = require;\nfunction f(n) { return load(n); }")).toEqual(["require ?n unknown"]);
+    expect(loads("const load = require;\nfunction f() { return load('a'); }")).toEqual([]);
+  });
+
+  test("inserting a load names the new call, not the unchanged one", () => {
+    const base = "function f(a, b) { require(a); }";
+    const head = "function f(a, b) { require(b); require(a); }";
+    const diff = compare(graphOf(base, "a.cjs"), graphOf(head, "a.cjs"));
+    const added = diff.effects.filter((c) => c.kind === "added").map((c) => c.edge.args.map(argText).join());
+    expect(added).toEqual(["?b"]);
+    expect(diff.effects.filter((c) => c.kind === "removed")).toEqual([]);
+  });
+
+  test("adding a spread to a load is a change", () => {
+    expect(changes("function f(a) { return require(a); }", "function f(a) { return require(...a); }")).toEqual([
+      "f | code loaded at run time require (target unknown) | +?...a -?a | x1",
+    ]);
+  });
+
   test("an altered call shows through changedEffects, an unchanged one does not", () => {
     const base = "function load(p) { return require(p); }";
     const head = "function load(p) { return require(join(ROOT, p)); }";

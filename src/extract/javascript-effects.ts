@@ -63,10 +63,10 @@ class Resolver {
     return ref?.kind === "member" && ref.module === "module" && ref.name === "createRequire";
   }
 
-  /** A call of the global `require`, not one this file declares. */
+  /** A call whose callee is the global `require`, spelled directly or through an alias. */
   isGlobalRequire(call: ts.CallExpression): boolean {
-    const callee = unwrap(call.expression);
-    return ts.isIdentifier(callee) && callee.text === "require" && this.declarationsOf(callee).length === 0;
+    const ref = this.resolve(call.expression, 0);
+    return ref?.kind === "member" && ref.module === null && ref.name === "require";
   }
 
   /** `require.resolve`, with the global `require`. */
@@ -139,10 +139,10 @@ class Resolver {
   }
 
   /** Arguments or array elements as written; a spread of a known array is opened in place. */
-  elements(nodes: readonly ts.Expression[], depth: number): EffectArg[] {
+  elements(nodes: readonly ts.Expression[], depth: number, topLevel = false): EffectArg[] {
     return nodes.flatMap((node): EffectArg[] => {
       if (!ts.isSpreadElement(node)) return [this.arg(node, depth)];
-      return [...(this.spreadElements(node.expression, depth) ?? [{ unknown: written(node.expression, this.file) }])];
+      return [...(this.spreadElements(node.expression, depth) ?? [{ unknown: `${topLevel ? "..." : ""}${written(node.expression, this.file)}` }])];
     });
   }
 
@@ -316,7 +316,7 @@ export function effectSites(file: ts.SourceFile, checker: ts.TypeChecker): Effec
           resource: "code loaded at run time",
           operation,
           target: "unknown",
-          args: resolver.elements(node.arguments, 0),
+          args: resolver.elements(node.arguments, 0, true),
           start: node.getStart(file),
           end: node.end,
         });
@@ -329,7 +329,7 @@ export function effectSites(file: ts.SourceFile, checker: ts.TypeChecker): Effec
           resource: entry.resource,
           operation: effectKey(entry),
           target: targetOf(node, entry.target),
-          args: resolver.elements(node.arguments ?? [], 0),
+          args: resolver.elements(node.arguments ?? [], 0, true),
           start: node.getStart(file),
           end: node.end,
         });
@@ -358,7 +358,7 @@ export function resolutionSites(file: ts.SourceFile, checker: ts.TypeChecker): R
           ? "require.resolve"
           : undefined;
       if (operation !== undefined) {
-        sites.push({ operation, args: resolver.elements(node.arguments, 0), start: node.getStart(file), end: node.end });
+        sites.push({ operation, args: resolver.elements(node.arguments, 0, true), start: node.getStart(file), end: node.end });
       }
     }
     node.forEachChild(visit);
