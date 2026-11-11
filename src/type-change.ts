@@ -249,6 +249,8 @@ function listChange(before: readonly string[], now: readonly string[], mark: str
  * for a type alias "+ arm" or "− arm" per union arm. Null when the text cannot be read apart.
  */
 export function typeChange(before: string, after: string): string[] | null {
+  // Template literal types nest `${...}` and quotes this reader does not parse: show the whole text.
+  if (before.includes("`") || after.includes("`")) return null;
   const from = shapeOf(before);
   const to = shapeOf(after);
   if (from === undefined || to === undefined || from.kind !== to.kind) return null;
@@ -281,6 +283,9 @@ export function typeChange(before: string, after: string): string[] | null {
     const wasParts = split(wasArms[0]!, "&");
     const isParts = split(isArms[0]!, "&");
     if (wasParts === undefined || isParts === undefined || wasParts.length < 2 || isParts.length < 2) return null;
+    // Intersection order can pick an overload, so a reorder of the parts both sides share is not nothing.
+    const shared = (parts: readonly string[], other: readonly string[]): string => parts.filter((part) => other.includes(part)).join("\0");
+    if (shared(wasParts, isParts) !== shared(isParts, wasParts)) return null;
     return [...lines, ...listChange(wasParts, isParts, "& ")];
   }
   return [...lines, ...listChange(wasArms, isArms, "")];

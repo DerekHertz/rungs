@@ -75,3 +75,15 @@ test("reordered call signatures are never listed as nothing", () => {
   expect(typeChange("{ new (a: 1): A; new (a: 2): B }", "{ new (a: 2): B; new (a: 1): A }")).toBeNull();
   expect(typeChange('{ (x: string): "str"; v: 1 }', '{ (x: string): "str"; (x: number): "n"; v: 1 }')).toEqual(['+ (x: number): "n"']);
 });
+
+test("a reordered intersection is never listed as only its other changes", () => {
+  const before = "= { (x: string): 1 } & { (x: unknown): 2 } & { v: 1 }";
+  const after = "= { (x: unknown): 2 } & { (x: string): 1 } & { v: 2 }";
+  expect(typeChange(before, after)).toBeNull();
+  expect(typeChange("= A & B", "= B & A")).toBeNull();
+});
+
+test("template literal types are never split into false arms", () => {
+  expect(typeChange("= `a${`x|y`}` | \"b\"", "= `a${`x|z`}` | \"b\"")).toBeNull();
+  expect(typeChange("{ a: `x${string}` }", "{ a: `y${string}` }")).toBeNull();
+});
