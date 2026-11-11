@@ -281,8 +281,9 @@ const bindingNames = (pattern: ts.ObjectBindingPattern): ImportedNames => {
  * binding, a property read straight off the call, or none when the call stands alone as a
  * statement. Anything else (the module bound to a name, passed on, awaited into a `.then`) is all.
  */
-function calledNames(call: ts.Expression): ImportedNames {
+function calledNames(call: ts.Expression, promise: boolean): ImportedNames {
   let outer: ts.Node = call;
+  let awaited = false;
   while (
     ts.isParenthesizedExpression(outer.parent) ||
     ts.isAwaitExpression(outer.parent) ||
@@ -291,9 +292,12 @@ function calledNames(call: ts.Expression): ImportedNames {
     ts.isSatisfiesExpression(outer.parent)
   ) {
     outer = outer.parent;
+    if (ts.isAwaitExpression(outer)) awaited = true;
   }
   const parent = outer.parent;
   if (ts.isExpressionStatement(parent)) return [];
+  // An import() is a promise: a read or a destructuring names an export only on its awaited value (`.then`, `.catch` and the rest are the promise's).
+  if (promise && !awaited) return "all";
   if (ts.isVariableDeclaration(parent) && parent.initializer === outer && ts.isObjectBindingPattern(parent.name)) return bindingNames(parent.name);
   if (ts.isPropertyAccessExpression(parent) && parent.expression === outer) return nameOf(parent.name) === undefined ? "all" : [parent.name.text];
   if (ts.isElementAccessExpression(parent) && parent.expression === outer && ts.isStringLiteralLike(parent.argumentExpression)) return [parent.argumentExpression.text];
@@ -340,9 +344,9 @@ export function importSites(file: ts.SourceFile, checker: ts.TypeChecker, resolv
       add(node, node.moduleReference.expression, "import", "cjs", node.isTypeOnly, undefined, "all");
     } else if (ts.isCallExpression(node) && node.arguments.length > 0) {
       const callee = node.expression;
-      if (callee.kind === ts.SyntaxKind.ImportKeyword) add(node, node.arguments[0], "import()", "esm", false, undefined, calledNames(node));
+      if (callee.kind === ts.SyntaxKind.ImportKeyword) add(node, node.arguments[0], "import()", "esm", false, undefined, calledNames(node, true));
       else if (ts.isIdentifier(callee) && callee.text === "require" && (checker.getSymbolAtLocation(callee)?.declarations ?? []).length === 0) {
-        add(node, node.arguments[0], "require", "cjs", false, undefined, calledNames(node));
+        add(node, node.arguments[0], "require", "cjs", false, undefined, calledNames(node, false));
       }
     }
     node.forEachChild(visit);

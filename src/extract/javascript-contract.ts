@@ -118,7 +118,12 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
       }
       if (targets.includes("module.exports")) markValue(value, true, "*");
       else {
-        for (const target of targets) if (/^(module\.)?exports\.[^.]+$/.test(target)) markValue(value, false, target.slice(target.lastIndexOf(".") + 1));
+        for (const target of targets) {
+          if (!/^(module\.)?exports\.[^.]+$/.test(target)) continue;
+          markValue(value, false, target.slice(target.lastIndexOf(".") + 1));
+          // An ES importer's `default` is the whole CommonJS module, so every export answers to it.
+          markValue(value, false, "default");
+        }
       }
     }
   }

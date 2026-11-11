@@ -109,7 +109,7 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     const name = move.type?.name ?? (isCodeNode(node) ? node.qualifiedName : node.path);
     const was = baseNodes.get(move.from ?? move.id);
     // A type is exported under its name (the first segment of a namespace member's); a block under the names its head and base forms carry.
-    const of = move.type === undefined ? exportNamesOf([headNodes.get(move.id), was].filter((found) => found !== undefined)) : [move.type.name.split(".")[0]!];
+    const of = move.type === undefined ? exportNamesOf([headNodes.get(move.id), was].filter((found) => found !== undefined)) : move.type.name.includes("* from") ? "all" : [move.type.name.split(".")[0]!]; // a wildcard re-export's name is no export name: every importer of the file counts
     items.push({ kind: "contract", label: `${name} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
   }
 

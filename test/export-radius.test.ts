@@ -85,7 +85,7 @@ describe("the extractor records the names an import takes", () => {
     const as = (path: string): Record<string, unknown> =>
       Object.fromEntries(g.nodes.flatMap((n) => (n.level === "function" && n.path === path && n.exported ? [[n.qualifiedName, n.exportedAs]] : [])));
     expect(as("m.ts")).toEqual({ a: ["a"], b: ["c"], default: ["default"], d: ["d"] });
-    expect(as("cjs.js")).toEqual({ '"exports.e"': ["e"], f: ["g"] });
+    expect(as("cjs.js")).toEqual({ '"exports.e"': ["default", "e"], f: ["default", "g"] });
     expect(as("all.js")).toEqual({ '"module.exports.h"': ["*"] });
   });
 });
