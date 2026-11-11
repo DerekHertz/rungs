@@ -622,6 +622,15 @@ function placeOf(id: string): NodeId | undefined {
 
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
 function pickClaim(claim: ClaimRow): void {
+  if (claim.ids.length === 0) {
+    // No places: nothing stays lit from the claim before.
+    leaveInside();
+    cancelPending();
+    closePanel();
+    chosenKind = undefined;
+    townView.highlight([]);
+    return;
+  }
   pickPlaces(claim.ids);
 }
 

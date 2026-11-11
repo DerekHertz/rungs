@@ -293,6 +293,11 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     return thing === hovered ? COLOUR.hover : undefined;
   }
 
+  /** Whether a thing is a building lit by a claim or a stop, which is drawn above the names. */
+  function isLitThing(thing: Pick): boolean {
+    return highlighted.size > 0 && chosen.size === 0 && thing.kind === "lot" && thing.part === "building" && highlighted.has(thing.lot.id);
+  }
+
   /** The boxes names already took this frame; a name that would cover one is left out, and shows when the camera is closer. */
   let taken: { left: number; top: number; right: number; bottom: number }[] = [];
   function pill(text: string, x: number, y: number, size: number, edge: string, maxWidth = Infinity, avoid = false, owner?: Pick): boolean {
@@ -453,7 +458,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       ctx.fillStyle = "rgba(8,12,18,0.55)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-    const isLit = (thing: Thing): boolean => dimming && thing.kind === "lot" && thing.part === "building" && highlighted.has(thing.lot.id);
+    const isLit = (thing: Thing): boolean => dimming && isLitThing(thing);
     for (const thing of things) {
       // Lit buildings wait for a last pass, so nothing faded or named is drawn over them.
       if (isLit(thing)) continue;
@@ -551,7 +556,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       const mask = maskOf(thing.sprite);
       const size = sheet.sizes[thing.sprite];
       return mask !== undefined && size !== undefined && mask[(row * size.w + column) * 4 + 3]! > 8;
-    });
+    }, (thing) => isLitThing(thing));
     if (found !== undefined) return found;
     // Empty ground in a lot: in the diamond of the lot.
     const ground = groundUnder(px, py);
