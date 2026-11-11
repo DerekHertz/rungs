@@ -101,7 +101,8 @@ function segmentsOf(name: string): Segment[] {
   return found;
 }
 
-const LABELLED_CALLBACK = /^.*\(".*"\) callback$/su;
+/** The callbacks a test runner names: `test("x")`, `describe.only("x")`, `it.skip("x")` (the extractor names a callback by the last name of its callee, so those read `only("x")`, `skip("x")`). Any other callback with a string argument is still anonymous. */
+const LABELLED_CALLBACK = /^(?:test|it|describe|suite|skip|only|todo|concurrent|sequential|fails|failing)\(".*"\) callback$/su;
 
 /** A function the source gives no name a reviewer could tell apart: `map() callback`, `<function>`. */
 function isAnonymous(node: ModuleNode): boolean {
@@ -191,7 +192,8 @@ export function unmentioned(
   const { pathMentioned, fileMentioned, nameCovered } = mentionRules(comparison, description);
 
   const changeOf = new Map<NodeId, ModuleChange>(comparison.changes.map((change) => [change.node.id, change]));
-  const nodeOf = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+  // Removed nodes are not in the picture graph; their parents are the base graph's, read from the change itself.
+  const nodeOf = new Map<NodeId, ModuleNode>([...comparison.changes.map((change): [NodeId, ModuleNode] => [change.node.id, change.node]), ...graph.nodes.map((node): [NodeId, ModuleNode] => [node.id, node])]);
   /** The nearest enclosing change that is not itself anonymous, or undefined when only the file holds it. */
   const holderOf = (node: ModuleNode): ModuleChange | undefined => {
     for (let up = isCodeNode(node) ? nodeOf.get(node.parent) : undefined; up !== undefined && isCodeNode(up); up = nodeOf.get(up.parent)) {
@@ -382,7 +384,8 @@ export function contractsReport(
   effectsChanged: readonly EffectsChangedRow[] = [],
 ): ContractsReport {
   // An effects move can be for a node whose text did not change, so it has no change to read.
-  const nodeOf = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+  // Removed nodes are not in the picture graph; their parents are the base graph's, read from the change itself.
+  const nodeOf = new Map<NodeId, ModuleNode>([...comparison.changes.map((change): [NodeId, ModuleNode] => [change.node.id, change.node]), ...graph.nodes.map((node): [NodeId, ModuleNode] => [node.id, node])]);
   for (const change of comparison.changes) nodeOf.set(change.node.id, change.node);
   const counts: Record<ContractMoveKind, number> = { changed: 0, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 };
   const rows: ContractRow[] = [];

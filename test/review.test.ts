@@ -269,3 +269,22 @@ test("a test callback shows its innermost test name, not the describe prefix", (
   expect(shown).toContain('test("a literal import() stays a resolution")');
   expect(shown.every((label) => !label.includes(" callback"))).toBe(true);
 });
+
+test("an ordinary callback with a string argument folds too; only test runner callbacks keep a row", () => {
+  const code = (n: number): string => `export function setup() {\n  server.on("data", () => consume(${n}));\n}\n`;
+  const none = review({ ...pkg, "src/t.ts": code(1) }, { ...pkg, "src/t.ts": code(2) }, "Nothing.");
+  expect(labels(none.entries[0]!.children)).toEqual(["setup"]);
+  const spec = (n: number): string => `describe.only("d", () => {\n  it.skip("x", () => {\n    f(${n});\n  });\n});\n`;
+  const tests = review({ ...pkg, "src/t.test.ts": spec(1) }, { ...pkg, "src/t.test.ts": spec(2) }, "Nothing.");
+  expect(labels(tests.entries[0]!.children)).toContain('skip("x")');
+});
+
+test("callbacks inside a removed callback fold into the surviving function, not the file", () => {
+  const before = `export function setup() {\n  return [1].map((x) => [2].map((y) => y + 1));\n}\n`;
+  const after = `export function setup() {\n  return [];\n}\n`;
+  const none = review({ ...pkg, "src/t.ts": before }, { ...pkg, "src/t.ts": after }, "Nothing.");
+  const holder = none.entries[0]!.children[0]! as { folded?: unknown[] };
+  expect(labels(none.entries[0]!.children)).toEqual(["setup"]);
+  expect(holder.folded).toHaveLength(2);
+  expect((none.entries[0] as { folded?: unknown[] }).folded).toBeUndefined();
+});
