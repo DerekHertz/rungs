@@ -772,6 +772,48 @@ def flag_failing():
     return 2.75
 
 
+def flag_test_weakened():
+    """A tall hazard banner on a high pole, readable from far zoom: a test in this file was weakened, removed or skipped by the change."""
+    yellow = toon("#ffd21f")
+    box((0.16, 0.16, 6.2), (0, 0, 0), DARK)
+    box((0.3, 0.3, 0.12), (0, 0, 6.2), DARK)
+    box((2.0, 0.08, 1.7), (1.1, 0, 4.4), DARK)
+    for i in range(6):
+        for j in range(5):
+            box((0.3, 0.09, 0.3), (0.3 + i * 0.3, -0.02, 4.5 + j * 0.3), yellow if (i + j) % 2 == 0 else DARK)
+    return 6.35
+
+
+def flag_test_edited():
+    """A violet flag on a tall pole: this base test file was edited by the change."""
+    violet = toon("#8b5cf6")
+    box((0.14, 0.14, 4.6), (0, 0, 0), DARK)
+    box((0.26, 0.26, 0.1), (0, 0, 4.6), DARK)
+    box((1.4, 0.07, 1.2), (0.78, 0, 3.3), violet)
+    box((1.4, 0.08, 0.2), (0.78, -0.01, 3.8), TRIM)
+    return 4.75
+
+
+def sign_test():
+    """A hazard board on a stake, for the room of a weakened or newly skipped test."""
+    yellow = toon("#ffd21f")
+    box((0.08, 0.08, 0.9), (0, 0, 0), DARK)
+    box((0.6, 0.06, 0.5), (0, 0, 0.7), DARK)
+    for i in range(2):
+        for j in range(2):
+            box((0.24, 0.07, 0.19), (-0.13 + i * 0.26, -0.02, 0.8 + j * 0.2 - 0.09), yellow if (i + j) % 2 == 0 else DARK)
+    return 1.3
+
+
+def floor_test():
+    """The floor of a weakened or newly skipped test's room: a yellow and dark check."""
+    box((1.0, 1.0, 0.06), (0, 0, 0), toon("#5f4a34"))
+    for i in range(2):
+        for j in range(2):
+            box((0.47, 0.47, 0.045), (-0.25 + i * 0.5, -0.25 + j * 0.5, 0.05), toon("#ffd21f") if (i + j) % 2 else DARK)
+    return 0.2
+
+
 def mast_call():
     """A pink-tipped mast: new code in this file calls out to the outside world (a new effect edge)."""
     box((0.1, 0.1, 3.4), (0, 0, 0), DARK)
@@ -896,6 +938,10 @@ render("wall-y", wall_y(), 96, 40)
 render("door-outside", door_outside(), 96, 40)
 render("cone", cone(), 64, 30)
 render("flag-failing", flag_failing(), 96, 40)
+render("flag-test-weakened", flag_test_weakened(), 192, 40)
+render("flag-test-edited", flag_test_edited(), 160, 40)
+render("sign-test", sign_test(), 64, 30)
+render("floor-test", floor_test(), 96, 80)
 render("mast-call", mast_call(), 96, 40)
 render("object-process", object_process(), 112, 40)
 render("object-network", object_network(), 96, 40)

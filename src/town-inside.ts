@@ -2,6 +2,7 @@ import { isCodeNode, targetText } from "./graph.ts";
 import type { CodeNode, EffectEdge, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
 import { resourceKindOf } from "./effects.ts";
 import type { Comparison, Overlay } from "./compare.ts";
+import type { CallbackLines } from "./test-changes-types.ts";
 import { AXIS } from "./town.ts";
 
 /*
@@ -55,6 +56,8 @@ export interface InsideMarks {
   readonly changed: ReadonlySet<NodeId>;
   /** True for a call that is new, or whose arguments changed. */
   readonly altered: (edge: EffectEdge) => boolean;
+  /** Callback lines of the tests of a changed test file that the change weakened or newly skipped: their rooms are marked. */
+  readonly tests?: readonly CallbackLines[] | undefined;
 }
 
 /** The marks of the file `fileId` under `comparison`; `overlay` is the picture's. */
@@ -96,6 +99,8 @@ export interface Room {
   readonly range: LineRange | null;
   readonly exported: boolean;
   readonly changed: boolean;
+  /** The room of a test the change weakened or newly skipped. */
+  readonly testMarked: boolean;
   /** Interior tiles on a side. */
   readonly side: number;
   /** The interior's tiles run from (X0, Y0) to (X0 + side - 1, Y0 + side - 1), middles on whole numbers. */
@@ -118,6 +123,7 @@ export interface Inside {
   readonly floors: readonly Tile[];
   /** Walls and doors, one to a tile edge. */
   readonly walls: readonly Tile[];
+  /** Tiles that stand in a room to mark it: cones for a changed function, a sign for a weakened or newly skipped test. */
   readonly cones: readonly Tile[];
   /** Outside calls whose kind the sheet has no object for yet: nothing is drawn for them. */
   readonly unpictured: readonly ResourceKind[];
@@ -170,20 +176,27 @@ export function insideOf(graph: Graph, fileId: NodeId, sprites: ReadonlySet<stri
   }
   for (const calls of callsByRoom.values()) calls.sort((a, b) => a.range.start - b.range.start || a.range.end - b.range.end || byCodeUnits(a.operation, b.operation));
 
+  // A test is found by the lines of its callback, and only when one function holds exactly those lines.
+  const holders = new Map<string, number>();
+  for (const node of code) if (hasRoom(node)) holders.set(`${node.range.start}-${node.range.end}`, (holders.get(`${node.range.start}-${node.range.end}`) ?? 0) + 1);
+  const testMarked = (node: CodeNode | undefined): boolean =>
+    node !== undefined && marks?.tests?.some((lines) => lines.start === node.range.start && lines.end === node.range.end && holders.get(`${lines.start}-${lines.end}`) === 1) === true;
+
   interface Plan {
     readonly id: NodeId;
     readonly node: CodeNode | undefined;
+    readonly marked: boolean;
     readonly name: string;
     readonly calls: readonly EffectEdge[];
     readonly side: number;
   }
-  const plans: Plan[] = code.filter(hasRoom).map((node) => ({ id: node.id, node, name: node.qualifiedName, calls: callsByRoom.get(node.id) ?? [], side: 0 }));
+  const plans: Plan[] = code.filter(hasRoom).map((node) => ({ id: node.id, node, marked: testMarked(node), name: node.qualifiedName, calls: callsByRoom.get(node.id) ?? [], side: 0 }));
   const top = callsByRoom.get(file.id);
-  if (top !== undefined) plans.push({ id: file.id, node: undefined, name: "top level", calls: top, side: 0 });
+  if (top !== undefined) plans.push({ id: file.id, node: undefined, marked: false, name: "top level", calls: top, side: 0 });
   const sized = plans.map((plan): Plan => {
     const exported = plan.node?.exported === true;
     const changed = plan.node !== undefined && marks?.changed.has(plan.id) === true;
-    const needed = plan.calls.length + (exported ? 1 : 0) + (changed ? 2 : 0);
+    const needed = plan.calls.length + (exported ? 1 : 0) + (changed ? 2 : 0) + (plan.marked ? 1 : 0);
     let side = plan.node === undefined ? 3 : sideOfLines(plan.node.range.end - plan.node.range.start + 1);
     while (side * side < needed) side++;
     return { ...plan, side };
@@ -230,7 +243,7 @@ export function insideOf(graph: Graph, fileId: NodeId, sprites: ReadonlySet<stri
       const changed = plan.node !== undefined && marks?.changed.has(plan.id) === true;
       const doorAt = Math.floor(side / 2);
       for (let a = 0; a < side; a++) {
-        for (let b = 0; b < side; b++) floors.push({ sprite: changed && sprites.has("floor-changed") ? "floor-changed" : "floor", X: X0 + a, Y: Y0 + b, room: plan.id });
+        for (let b = 0; b < side; b++) floors.push({ sprite: plan.marked && sprites.has("floor-test") ? "floor-test" : changed && sprites.has("floor-changed") ? "floor-changed" : "floor", X: X0 + a, Y: Y0 + b, room: plan.id });
       }
       for (let a = 0; a < side; a++) {
         wall(exported && a === doorAt && sprites.has("door-outside") ? "door-outside" : "wall-x", X0 + a, Y0 - 0.5, plan.id);
@@ -248,6 +261,10 @@ export function insideOf(graph: Graph, fileId: NodeId, sprites: ReadonlySet<stri
           reserved.add(`${a},${b}`);
           cones.push({ sprite: "cone", X: X0 + a, Y: Y0 + b, room: plan.id });
         }
+      }
+      if (plan.marked && sprites.has("sign-test")) {
+        reserved.add("0,0");
+        cones.push({ sprite: "sign-test", X: X0, Y: Y0, room: plan.id });
       }
       const free: [number, number][] = [];
       for (let b = side - 1; b >= 0; b--) for (let a = 0; a < side; a++) if (!reserved.has(`${a},${b}`)) free.push([a, b]);
@@ -269,7 +286,7 @@ export function insideOf(graph: Graph, fileId: NodeId, sprites: ReadonlySet<stri
           Y: Y0 + b,
         };
       });
-      rooms.push({ id: plan.id, name: plan.name, topLevel: plan.node === undefined, range: plan.node?.range ?? null, exported, changed, side, X0, Y0, objects });
+      rooms.push({ id: plan.id, name: plan.name, topLevel: plan.node === undefined, range: plan.node?.range ?? null, exported, changed, testMarked: plan.marked, side, X0, Y0, objects });
     }
     zTop += height + STREET;
   });

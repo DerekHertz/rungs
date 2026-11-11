@@ -1,5 +1,6 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
-import { allBlocks, AXIS, blockAtGround, blockFor, blockLabel, blockNamedAt, CRANE_AT, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt, namesAt, project, standingBlock, zoomLimits } from "../town.ts";
+import type { TestMark } from "../test-marks.ts";
+import { allBlocks, AXIS, blockAtGround, blockFor, blockLabel, blockNamedAt, CRANE_AT, testsTail, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt, namesAt, project, standingBlock, zoomLimits } from "../town.ts";
 import { pickAt } from "../town-pick.ts";
 import { callsOut, clipToView, fileOfSelection, reachLines, stackTags } from "../town-calls.ts";
 import type { Reach } from "../reach.ts";
@@ -85,7 +86,7 @@ export interface TownView {
 const COLOUR = {
   sea: "#12304a", seaLight: "#1d4a6e", sand: "#5d6072", sandDark: "#3d4050", grass: "#2f5240",
   pad: "#3b674c", pads: ["#3b674c", "#467a58", "#508a64", "#5a9970"], innerKerb: "#a6b8a8", earth: "#6b5236", kerb: "#7d8494", wood: "#7a5a3a", woodDark: "#5a4028", quay: "#6b7080",
-  name: "#f2f4f7", mark: "#ff8a2a", pill: "rgba(5,7,10,0.86)", pillEdge: "#39424e", pierEdge: "#7d8494", select: "#ffffff", hover: "#9aa6b5",
+  name: "#f2f4f7", mark: "#ff8a2a", hazard: "#ffd21f", pill: "rgba(5,7,10,0.86)", pillEdge: "#39424e", pierEdge: "#7d8494", select: "#ffffff", hover: "#9aa6b5",
 };
 /** Screen pixels a metre of height rises in the sheet (see project). */
 const RISE_UNIT = 48 * Math.cos(Math.PI / 6);
@@ -94,13 +95,17 @@ const FIT_FILL = 0.92;
 const FLAG_AT = { X: 1.75, Y: 1.75 } as const;
 /** Where the mast of a new call to the outside stands, from the lot's middle: the corner opposite the pennant (the crane is behind). */
 const CALL_AT = { X: -1.75, Y: -1.75 } as const;
+/** Where the banner of a test file the change weakened or edited stands: the lot's last corner, right of the gate. */
+const TEST_AT = { X: 1.75, Y: -1.75 } as const;
+/** The sprite a test file's mark picks. */
+const TEST_FLAG: Readonly<Record<TestMark, string>> = { weakened: "flag-test-weakened", edited: "flag-test-edited" };
 /** How far inside the screen's edge a line to a harbour structure out of view is cut, in CSS pixels. */
 const LINE_MARGIN = 28;
 const CLICK_SLOP = 4;
 const FLIGHT_MS = 260;
 
 /** Which sprite of a lot this is: the building (or rubble), or a mark standing on it. */
-type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag" | "call-mast";
+type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag" | "test-flag" | "call-mast";
 
 type Thing =
   | { readonly kind: "lot"; readonly lot: Lot; readonly part: Part; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number }
@@ -123,7 +128,7 @@ interface Camera {
   cy: number;
 }
 
-export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set(), reaches: ReadonlyMap<NodeId, Reach> = new Map()): TownView {
+export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set(), reaches: ReadonlyMap<NodeId, Reach> = new Map(), testFiles: ReadonlyMap<NodeId, TestMark> = new Map()): TownView {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
   canvas.setAttribute("aria-label", "Town of the repository");
@@ -300,7 +305,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
 
   /** The boxes names already took this frame; a name that would cover one is left out, and shows when the camera is closer. */
   let taken: { left: number; top: number; right: number; bottom: number }[] = [];
-  function pill(text: string, x: number, y: number, size: number, edge: string, maxWidth = Infinity, avoid = false, owner?: Pick): boolean {
+  function pill(text: string, x: number, y: number, size: number, edge: string, maxWidth = Infinity, avoid = false, owner?: Pick, accent = ""): boolean {
     ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
     let shown = text;
     while (shown.length > 1 && ctx.measureText(shown).width + size * 0.8 > maxWidth) shown = `${shown.slice(0, -2)}…`;
@@ -317,6 +322,18 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     ctx.lineWidth = Math.max(1, Math.round(size / 11));
     ctx.strokeStyle = edge;
     ctx.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1);
+    if (accent !== "" && shown.endsWith(accent)) {
+      // The accented tail stands out in the hazard yellow, the rest in the name's colour.
+      const head = shown.slice(0, -accent.length);
+      const start = Math.round(x - ctx.measureText(shown).width / 2);
+      ctx.textAlign = "left";
+      ctx.fillStyle = COLOUR.name;
+      ctx.fillText(head, start, Math.round(y + 1));
+      ctx.fillStyle = COLOUR.hazard;
+      ctx.fillText(accent, start + Math.round(ctx.measureText(head).width), Math.round(y + 1));
+      ctx.textAlign = "center";
+      return true;
+    }
     ctx.fillStyle = COLOUR.name;
     ctx.fillText(shown, Math.round(x), Math.round(y + 1));
     return true;
@@ -497,7 +514,8 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       .sort((a, b) => Number(b.id === focused) - Number(a.id === focused) || Number(touched(b)) - Number(touched(a)) || a.depth - b.depth);
     for (const block of named) {
       const text = blockLabel(block, town.comparing, !files);
-      const edge = block.fence === null ? COLOUR.pillEdge : COLOUR.mark;
+      const edge = block.testsChanged > 0 ? COLOUR.hazard : block.fence === null ? COLOUR.pillEdge : COLOUR.mark;
+      const accent = block.testsChanged > 0 ? testsTail(block.testsChanged) : "";
       const midX = (block.X0 + block.X1) / 2;
       const midY = (block.Y0 + block.Y1) / 2;
       const owner: BlockName = { kind: "block", block };
@@ -521,7 +539,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
             ? [groundScreen(midX, block.Y1 + 0.9, 0)]
             : [groundScreen(midX, midY, 7), groundScreen(midX, block.Y0, 0), groundScreen(block.X1, midY, 0), groundScreen(block.X0, midY, 0), groundScreen(midX, block.Y1, 0)];
       for (const size of block.depth > 0 ? [13, 11] : files ? [15] : [20, 15, 12]) {
-        if (spots.some((spot) => pill(text, spot.x, spot.y, Math.round(size * dpr), edge, Infinity, true, owner))) break;
+        if (spots.some((spot) => pill(text, spot.x, spot.y, Math.round(size * dpr), edge, Infinity, true, owner, accent))) break;
       }
       if (files && block.fence !== null) {
         const sign = groundScreen(block.fence.sign.X, block.fence.sign.Y, 3.7);
@@ -734,6 +752,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
           ...(lot.crane ? [mark("crane", "crane", lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, -0.2)] : []),
           ...(calls.has(lot.id) && sheet.sizes["mast-call"] !== undefined ? [mark("call-mast", "mast-call", lot.X + CALL_AT.X, lot.Y + CALL_AT.Y, 0.2, lot.raise)] : []),
           ...(failing.has(lot.id) && sheet.sizes["flag-failing"] !== undefined ? [mark("flag", "flag-failing", lot.X + FLAG_AT.X, lot.Y + FLAG_AT.Y, 0.2, lot.raise)] : []),
+          ...(testFiles.has(lot.id) && sheet.sizes[TEST_FLAG[testFiles.get(lot.id)!]] !== undefined ? [mark("test-flag", TEST_FLAG[testFiles.get(lot.id)!], lot.X + TEST_AT.X, lot.Y + TEST_AT.Y, 0.2, lot.raise)] : []),
           ...(lot.movedTo === null ? [] : [mark("moved-sign", "sign-moved", lot.X + MOVED_SIGN_AT.X, lot.Y + MOVED_SIGN_AT.Y, 0)]),
         ];
       };

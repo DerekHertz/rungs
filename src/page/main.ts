@@ -24,6 +24,8 @@ import { changeNote, drawRows, loadRows, markRows } from "./code-rows.ts";
 import type { CodeParts, Drawn, Loaded } from "./code-rows.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import type { RiskItem } from "../risks.ts";
+import { NO_TEST_MARKS, testMarks } from "../test-marks.ts";
+import type { TestMark } from "../test-marks.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
@@ -62,6 +64,9 @@ const narrating = (await fetch("/narrate.json")).ok;
 const picture = pictureOf(graph, comparison);
 /** The base's outside calls in removed files: the picture's graph restores the removed nodes but keeps only the head's edges. */
 const ghostEdges: readonly Edge[] = comparison === null ? [] : (await (await fetch("/ghost-edges.json")).json() as { edges: Edge[] }).edges;
+const testChanges = comparison === null ? null : ((await (await fetch("/test-changes.json")).json()) as TestChanges);
+/** The test files the change weakened or edited, which the town flags and whose weakened tests' rooms are marked. */
+const marksOfTests = comparison === null || testChanges === null ? NO_TEST_MARKS : testMarks(testChanges);
 const observedResponse = await fetch("/observed.json");
 const observed = observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null;
 const observedRun = observed?.status === "ran" && comparison !== null ? observedReport(observed, picture.graph, comparison) : null;
@@ -148,7 +153,8 @@ const handlers: TownHandlers = {
     else if (alone) focusOn(focus, []);
   },
 };
-const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles, reaches);
+const flagged = new Map<NodeId, TestMark>([...marksOfTests.files].map(([path, mark]) => [`file:${path}` as NodeId, mark] as const).filter(([id]) => nodes.has(id)));
+const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles, reaches, flagged);
 const insideView = createTownInsideView(
     stage,
     {
@@ -197,6 +203,7 @@ function describe(id: NodeId): string[] | undefined {
     `role: ${file.role ?? "none"}`,
     ...townFacts(file),
     ...failingFacts(file),
+    ...testMarkFacts(file),
     file.lines === null ? "binary" : `lines: ${file.lines}`,
     file.analysis === "analysed"
       ? `functions: ${lot.functions}   classes: ${lot.classes}`
@@ -205,6 +212,13 @@ function describe(id: NodeId): string[] | undefined {
 }
 
 const TOOLTIP_FILES = 10;
+
+/** What the change did to the file's tests, when it is a test file the town flags. */
+function testMarkFacts(file: FileNode): string[] {
+  const mark = marksOfTests.files.get(file.path);
+  if (mark === undefined) return [];
+  return [mark === "weakened" ? "tests weakened, removed or skipped by this change (derived)" : "base test file edited by this change (derived)"];
+}
 
 /** The tests of the file that failed when main's tests ran against this change. */
 function failingFacts(file: FileNode): string[] {
@@ -280,6 +294,14 @@ function showTownLegend(town: Town): void {
   if (comparison !== null) {
     against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
   }
+  const testMarked = document.createElement("div");
+  const weakenedFiles = [...flagged.values()].filter((mark) => mark === "weakened").length;
+  testMarked.textContent = [
+    weakenedFiles > 0 ? "yellow checked banner: a test file whose tests the change removed, weakened or newly skipped (inside, that test's room has a yellow floor and a hazard sign)" : "",
+    flagged.size > weakenedFiles ? "violet flag: a base test file the change edited" : "",
+  ]
+    .filter((text) => text !== "")
+    .join(" \u00b7 ");
   const outside = document.createElement("div");
   const marked = callsOut(town.lots, reaches).size;
   outside.textContent = [
@@ -289,7 +311,7 @@ function showTownLegend(town: Town): void {
     .filter((text) => text !== "")
     .join(" \u00b7 ");
   const lines = document.createElement("section");
-  lines.append(kinds, size, stone, ways, harbour, ...(outside.textContent === "" ? [] : [outside]), ...(comparison === null ? [] : [against]), ...(observed?.status === "ran" ? [flag] : []));
+  lines.append(kinds, size, stone, ways, harbour, ...(outside.textContent === "" ? [] : [outside]), ...(comparison === null ? [] : [against]), ...(observed?.status === "ran" ? [flag] : []), ...(testMarked.textContent === "" ? [] : [testMarked]));
   const toggle = document.createElement("button");
   toggle.type = "button";
   const show = (open: boolean): void => {
@@ -332,7 +354,7 @@ function rememberLegend(state: "open" | "closed"): void {
 function openInside(fileId: NodeId): void {
   const file = nodes.get(fileId);
   if (file?.level !== "file") return;
-  const marks = comparison === null || picture.overlay === null ? null : marksOf(comparison, picture.overlay, file.id, file.path);
+  const marks = comparison === null || picture.overlay === null ? null : { ...marksOf(comparison, picture.overlay, file.id, file.path), tests: marksOfTests.tests.get(file.path) };
   const inside = insideOf(ghostEdges.length === 0 ? picture.graph : { ...picture.graph, edges: [...picture.graph.edges, ...ghostEdges] }, file.id, new Set(Object.keys(sheet.sizes)), marks);
   if (inside === undefined) return;
   closePanel();
@@ -364,7 +386,7 @@ function showTown(): void {
   chosenKind = undefined;
   panel.hidden = true;
   tooltip.style.display = "none";
-  const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison, waysIn);
+  const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison, waysIn, new Set(marksOfTests.files.keys()));
   lots = new Map(town.lots.map((lot) => [lot.id, lot]));
   townView.show(town);
   showTownLegend(town);
@@ -677,11 +699,10 @@ window.addEventListener("keydown", (event) => {
   else if (event.key === "ArrowLeft") walk?.step(-1);
 });
 
-if (comparison !== null) {
+if (comparison !== null && testChanges !== null) {
   const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; sentences: { index: number; text: string }[]; context: { text: string }[]; link: LinkNote };
   const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
-  const testChanges = (await (await fetch("/test-changes.json")).json()) as TestChanges;
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
   const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked);
