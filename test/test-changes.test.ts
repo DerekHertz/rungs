@@ -329,3 +329,50 @@ describe("renamed tests", () => {
     expect(result.removedTests).toEqual([]);
   });
 });
+
+describe("renamed tests: when in doubt, removed", () => {
+  test("callbacks whose text is unknown never establish equality", () => {
+    const before = file('test("keep", () => {});', 'test("old", oldFn);');
+    const after = file('test("new", newFn);', 'test("keep", () => {});');
+    expect(change(before, after)).toMatchObject({ renamed: [], removedTests: [{ name: "old" }] });
+  });
+
+  test("empty bodies are not known, even at the same place", () => {
+    const result = change(file('test("old", () => {});'), file('test("new", () => {});'));
+    expect(result).toMatchObject({ renamed: [], removedTests: [{ name: "old" }] });
+  });
+
+  test("a renamed skipped test is not a newly skipped test", () => {
+    const body = "() => { assert.equal(f(), 1); }";
+    const result = change(file(`test.skip("old", ${body});`), file(`test.skip("new", ${body});`));
+    expect(result.renamed).toEqual([{ file: T, from: "old", to: "new" }]);
+    expect(result.markers).toEqual([]);
+  });
+
+  test("a renamed test that gains a skip is still reported as skipped", () => {
+    const body = "() => { assert.equal(f(), 1); }";
+    expect(change(file(`test("old", ${body});`), file(`test.skip("new", ${body});`)).markers).toEqual([{ file: T, name: "new", marker: "skip" }]);
+  });
+
+  test("duplicate names still advance the place, so a shifted test is not paired by ordinal", () => {
+    const before = file('test("dup", () => { assert.equal(1, 1 + 0); });', 'test("dup", () => { assert.equal(2, 1 + 1); });', 'test("old", () => { assert.equal(f(), 1); });');
+    const after = file('test("dup", () => { assert.equal(1, 1 + 0); });', 'test("new", () => { assert.equal(g(), 2); });', 'test("dup", () => { assert.equal(2, 1 + 1); });');
+    expect(change(before, after)).toMatchObject({ renamed: [], removedTests: [{ name: "old" }] });
+  });
+
+  test("losing some of a duplicated name is a loss that makes the path ambiguous", () => {
+    const run = "() => { assert.equal(f(), 1); }";
+    const before = file(`test("dup", ${run});`, `test("dup", ${run});`, `test("old", ${run});`);
+    const after = file(`test("dup", ${run});`, `test("new", ${run});`);
+    const result = change(before, after);
+    expect(result.renamed).toEqual([]);
+    expect(result.removedTests.map((r) => r.name).sort()).toEqual(["dup", "old"]);
+  });
+
+  test("a describe titled with the separator is not the same path as a nested describe", () => {
+    const run = "() => { assert.equal(f(), 1); }";
+    const before = file(`describe("a > b", () => { test("old", ${run}); });`);
+    const after = file(`describe("a", () => { describe("b", () => { test("new", ${run}); }); });`);
+    expect(change(before, after)).toMatchObject({ renamed: [], removedTests: [{ name: "a > b > old" }] });
+  });
+});

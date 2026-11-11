@@ -41,8 +41,12 @@ interface Parsed {
   readonly found: Map<string, Found[]>;
   /** The tests only, counted by name. */
   readonly tests: Map<string, number>;
-  /** Each test once per name, in source order, with where it sits: its describe path, its place among that path's tests, and its callback's text. */
-  readonly places: Map<string, { readonly parent: string; readonly ordinal: number; readonly body: string }>;
+  /**
+   * Each test's first appearance by name, with where it sits: its describe path (an array of titles, as
+   * JSON), its place among every test of that path (duplicates included), and its callback's body text,
+   * or undefined when that is not known: a callback passed by reference, or a body with no statements.
+   */
+  readonly places: Map<string, { readonly parent: string; readonly ordinal: number; readonly body: string | undefined }>;
 }
 
 const isLiteral = (node: ts.Node): boolean =>
@@ -204,7 +208,7 @@ function parse(text: string, path: string): Parsed {
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, path.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const found = new Map<string, Found[]>();
   const tests = new Map<string, number>();
-  const places = new Map<string, { parent: string; ordinal: number; body: string }>();
+  const places = new Map<string, { parent: string; ordinal: number; body: string | undefined }>();
   const siblings = new Map<string, number>();
   const entry = (name: string, kind: "test" | "suite"): Found => {
     const made: Found = { kind, assertions: [], markers: new Set() };
@@ -227,11 +231,13 @@ function parse(text: string, path: string): Parsed {
         for (const marker of [...test.markers, ...optionMarkers(node)]) made.markers.add(marker);
         if (test.kind === "test") tests.set(name, (tests.get(name) ?? 0) + 1);
         const callback = [...node.arguments].reverse().find((arg) => ts.isFunctionLike(arg));
-        if (test.kind === "test" && !places.has(name)) {
-          const parent = titles.join(" > ");
+        if (test.kind === "test") {
+          const parent = JSON.stringify(titles);
           const ordinal = siblings.get(parent) ?? 0;
           siblings.set(parent, ordinal + 1);
-          places.set(name, { parent, ordinal, body: callback?.getText() ?? "" });
+          const inside = callback !== undefined && ts.isFunctionLike(callback) ? callback.body : undefined;
+          const known = inside !== undefined && !(ts.isBlock(inside) && inside.statements.length === 0);
+          if (!places.has(name)) places.set(name, { parent, ordinal, body: known ? inside.getText() : undefined });
         }
         const parameter = callback !== undefined && ts.isFunctionLike(callback) ? callback.parameters[0]?.name : undefined;
         const inner = parameter !== undefined && ts.isIdentifier(parameter) ? new Map(contexts).set(parameter.text, made) : contexts;
@@ -282,23 +288,27 @@ function weakness(before: Totals, after: Totals): string | undefined {
 }
 
 /**
- * The removed tests that are a rename: a describe path that lost exactly one test name and gained
- * exactly one, each held once, where the new test is the old one's body, or stands at the same place
- * among that path's tests. Several lost or gained in one path is ambiguous, so none of them pairs.
+ * The removed tests that are a rename: a describe path that lost exactly one test and gained exactly
+ * one, counting every occurrence of a name, where both are held once and both bodies are known, and the
+ * new test has the old one's body or stands at the same place among that path's tests. Anything else,
+ * several lost or gained in one path included, is ambiguous, so none of it pairs.
  */
 function renames(was: Parsed, now: Parsed): { from: string; to: string }[] {
   const lost = new Map<string, string[]>();
   const gained = new Map<string, string[]>();
-  const group = (map: Map<string, string[]>, parent: string, name: string): void => void map.set(parent, [...(map.get(parent) ?? []), name]);
-  for (const [name, place] of was.places) if (!now.tests.has(name)) group(lost, place.parent, name);
-  for (const [name, place] of now.places) if (!was.tests.has(name)) group(gained, place.parent, name);
+  const group = (map: Map<string, string[]>, parent: string, name: string, times: number): void => {
+    for (let n = 0; n < times; n += 1) map.set(parent, [...(map.get(parent) ?? []), name]);
+  };
+  for (const [name, place] of was.places) group(lost, place.parent, name, Math.max(0, (was.tests.get(name) ?? 0) - (now.tests.get(name) ?? 0)));
+  for (const [name, place] of now.places) group(gained, place.parent, name, Math.max(0, (now.tests.get(name) ?? 0) - (was.tests.get(name) ?? 0)));
   const pairs: { from: string; to: string }[] = [];
   for (const [parent, [from, ...more]] of lost) {
     const [to, ...others] = gained.get(parent) ?? [];
     if (from === undefined || to === undefined || more.length > 0 || others.length > 0) continue;
     const old = was.places.get(from);
     const next = now.places.get(to);
-    if (was.tests.get(from) !== 1 || now.tests.get(to) !== 1 || old === undefined || next === undefined) continue;
+    if (was.tests.get(from) !== 1 || now.tests.has(from) || now.tests.get(to) !== 1 || was.tests.has(to) || old === undefined || next === undefined) continue;
+    if (old.body === undefined || next.body === undefined) continue;
     if (old.body === next.body || old.ordinal === next.ordinal) pairs.push({ from, to });
   }
   return pairs;
@@ -348,14 +358,20 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
     if (!reads || before === after) continue;
     const now = parse(after, path);
     const was = before === undefined ? undefined : parse(before, path);
+    const pairs = was === undefined ? [] : renames(was, now);
     const seen = was === undefined ? new Set<string>() : markersOf(was);
+    // A renamed test keeps the markers its old name had.
+    for (const key of [...seen]) {
+      const [name, marker] = JSON.parse(key) as [string, Marker];
+      const pair = pairs.find((candidate) => candidate.from === name);
+      if (pair !== undefined) seen.add(JSON.stringify([pair.to, marker]));
+    }
     for (const key of markersOf(now)) {
       if (seen.has(key)) continue;
       const [name, marker] = JSON.parse(key) as [string, Marker];
       markers.push({ file: path, name, marker });
     }
     if (was === undefined) continue;
-    const pairs = renames(was, now);
     for (const { from, to } of pairs) {
       renamed.push({ file: path, from, to });
       const why = weakness(totalsOf(was.found.get(from)), totalsOf(now.found.get(to)));
