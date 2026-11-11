@@ -42,3 +42,10 @@ function lineAt(starts: readonly number[], offset: number): number {
   }
   return low + 1;
 }
+
+/** The lines of `text`, as `lineStarts` counts them: no entry for the "\n" that ends the last line. */
+export function splitLines(text: string): string[] {
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
