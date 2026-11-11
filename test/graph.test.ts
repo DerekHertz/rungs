@@ -83,6 +83,7 @@ describe("effect edges", () => {
       extractorVersion: "9",
       nodes: [],
       resolutions: [],
+      imports: [],
       edges: [
         { ...edge("function:b.js#f", 1, "x"), target: "unknown" },
         { ...edge("function:a.js#f", 1, "x"), target: "none" },
@@ -95,6 +96,6 @@ describe("effect edges", () => {
       ["function:a.js#f", "none"],
       ["function:b.js#f", "unknown"],
     ]);
-    expect(Object.keys(parsed)).toEqual(["extractorVersion", "nodes", "edges", "resolutions"]);
+    expect(Object.keys(parsed)).toEqual(["extractorVersion", "nodes", "edges", "resolutions", "imports"]);
   });
 });

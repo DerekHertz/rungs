@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "11",
+  "extractorVersion": "12",
   "changes": [
     {
       "kind": "added",
@@ -635,5 +635,39 @@
       }
     }
   ],
-  "changedEffects": []
+  "changedEffects": [],
+  "imports": [
+    {
+      "kind": "removed",
+      "edge": {
+        "from": "file:src/index.ts",
+        "specifier": "./util/math.ts",
+        "syntax": "import",
+        "typeOnly": false,
+        "target": {
+          "file": "file:src/util/math.ts"
+        },
+        "range": {
+          "start": 1,
+          "end": 1
+        }
+      }
+    },
+    {
+      "kind": "added",
+      "edge": {
+        "from": "file:src/main.ts",
+        "specifier": "./util/math.ts",
+        "syntax": "import",
+        "typeOnly": false,
+        "target": {
+          "file": "file:src/util/math.ts"
+        },
+        "range": {
+          "start": 1,
+          "end": 1
+        }
+      }
+    }
+  ]
 }
