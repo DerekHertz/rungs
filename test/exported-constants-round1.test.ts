@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { compare, contractsMoved } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { CodeNode, FileTree } from "../src/graph.ts";
+import { contractsReport } from "../src/review.ts";
 import { risksOf } from "../src/risks.ts";
 import { testChanges } from "../src/test-changes.ts";
 import { isTestFile } from "../src/test-files.ts";
@@ -81,9 +82,9 @@ test("destructured exports are constants, one per bound name", () => {
   expect(found.map((node) => [node.name, node.signature, node.exportedAs]).sort()).toEqual([
     ["P", "number[]", ["P"]],
     ["Q", "number[]", ["Q"]],
-    ["X", "destructured", ["X"]],
-    ["Y", "destructured", ["Y"]],
-    ["rest", "destructured", ["rest"]],
+    ["X", "destructured from object", ["X"]],
+    ["Y", "destructured from object", ["Y"]],
+    ["rest", "destructured from object", ["rest"]],
   ]);
 });
 
@@ -92,4 +93,29 @@ test("an array hole is not a trailing comma", () => {
   expect(sig("[]")).not.toBe(sig("[,]"));
   expect(sig("[1,,]")).not.toBe(sig("[1,]"));
   expect(sig("[1,]")).toBe(sig("[1]"));
+});
+
+test("a destructured export reads its whole initializer, so a literal change is a move", () => {
+  const result = moves("export const { X } = { X: 1 } as const;\n", "export const { X } = { X: 2 } as const;\n");
+  expect(result.moves).toEqual([{ kind: "changed", id: "constant:src/c.ts#X", before: "destructured from { X: 1 }", after: "destructured from { X: 2 }" }]);
+});
+
+test("an alias removed counts only the importers of that name, and the panel row names the alias", () => {
+  const files = (list: string): Record<string, string> => ({
+    "core.ts": `const x = 1;\n${list}\n`,
+    "uses-a.ts": 'import { A } from "./core.ts";\nexport const ua = A;\n',
+    "uses-b.ts": 'import { B } from "./core.ts";\nexport const ub = B;\n',
+  });
+  const [base, head] = [tree(files("export { x as A, x as B };")), tree(files("export { x as A };"))];
+  const [baseGraph, headGraph] = [extract(base), extract(head)];
+  const comparison = compare(baseGraph, headGraph, { base, head });
+  const items = risksOf(comparison, baseGraph, headGraph, testChanges(base, head), isTestFile);
+  const contract = items.filter((item) => item.kind === "contract");
+  expect(contract.map((item) => [item.label, item.blast.files])).toEqual([["x as B removed", ["uses-b.ts"]]]);
+  const report = contractsReport(comparison, contractsMoved(comparison, baseGraph, headGraph), new Set(), headGraph);
+  expect(report.entries.map((entry) => (entry.kind === "row" ? entry.label : "rollup"))).toEqual(["x as B"]);
+  const swap = compare(extract(tree(files("export { x as A };"))), extract(tree(files("export { x as B };"))));
+  const [from, to] = [extract(tree(files("export { x as A };"))), extract(tree(files("export { x as B };")))];
+  const rows = contractsReport(swap, contractsMoved(swap, from, to), new Set(), to).entries.map((entry) => (entry.kind === "row" ? `${entry.label} ${entry.move.kind}` : "rollup"));
+  expect(rows).toEqual(["x as A removed", "x as B added"]);
 });

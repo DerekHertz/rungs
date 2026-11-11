@@ -506,7 +506,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   function contractDetail(entry: ContractRow): HTMLElement {
     const detail = element("div", "rv-detail contract-text");
     detail.hidden = true;
-    detail.append(element("span", "contract-where", `${entry.level} in ${entry.path}`));
+    detail.append(element("span", "contract-where", `${entry.level} in ${entry.path}${entry.move.exportName === undefined ? "" : `, exported as ${entry.move.exportName} ${entry.move.kind}`}`));
     const { before, after } = entry.move;
     if (entry.move.kind !== "effects" && before !== null && after !== null) {
       const diff = signatureDiff(before, after);

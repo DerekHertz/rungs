@@ -226,15 +226,19 @@ function literalTokens(expression: ts.Node, file: ts.SourceFile): string[] {
  * primitive literal; the text of an `as const` object or array literal, laid out the way type
  * text is; the kind of initializer ("object", "array", "call", ...) when a change inside it shows
  * as an altered block and not as a contract move; otherwise the initializer's own text, so no
- * change to something unreadable goes unseen. A destructured name reads "destructured".
+ * change to something unreadable goes unseen. A destructured name reads "destructured from" and the signature of the whole initializer.
  */
 export function constantSignature(node: ts.VariableDeclaration | ts.BindingElement | ts.BinaryExpression, file: ts.SourceFile): string {
   const declaration = ts.isBindingElement(node) ? ts.walkUpBindingElementsAndPatterns(node) : node;
   const type = ts.isBinaryExpression(declaration) ? undefined : declaration.type;
   if (type !== undefined) return renderSignature(tokensOf(type, file));
-  if (ts.isBindingElement(node)) return "destructured";
-  const initializer = ts.isVariableDeclaration(node) ? node.initializer : (node as ts.BinaryExpression).right;
+  const initializer = ts.isBinaryExpression(declaration) ? declaration.right : declaration.initializer;
+  if (ts.isBindingElement(node)) return initializer === undefined ? "destructured" : `destructured from ${initializerSignature(initializer, file)}`;
   if (initializer === undefined) return "uninitialised";
+  return initializerSignature(initializer, file);
+}
+
+function initializerSignature(initializer: ts.Expression, file: ts.SourceFile): string {
   const asserted = assertedType(initializer);
   if (asserted !== undefined) return renderSignature(tokensOf(asserted, file));
   const value = unwrap(initializer);
