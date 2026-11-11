@@ -102,3 +102,13 @@ test("consolidating a merged interface is no change; adding a merged member is",
   expect(one("export interface A { x: string }\nexport interface A { y: number }\n", "export interface A { x: string; y: number }\n")).toEqual([]);
   expect(one("export interface A { x: string }\n", "export interface A { x: string }\nexport interface A { y: number }\n")).toEqual(["changed A"]);
 });
+
+test("a changed interface carries its member changes; an unreadable one carries none", () => {
+  const changed = report(
+    { ...pkg, "src/t.ts": "export interface V {\n  show(): void;\n  gone(): 1;\n}\n" },
+    { ...pkg, "src/t.ts": "export interface V {\n  show(a?: string): void;\n}\n" },
+  );
+  expect(changed.entries[0]).toMatchObject({ kind: "row", members: ["+ show(a?: string)", "− gone(): 1"] });
+  const same = report({ ...pkg, "src/t.ts": "export type K = string;\n" }, { ...pkg, "src/t.ts": "export type K = number;\n" });
+  expect(same.entries[0]).toMatchObject({ kind: "row", members: null });
+});

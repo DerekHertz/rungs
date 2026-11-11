@@ -3,6 +3,7 @@ import type { ChangeKind } from "../compare.ts";
 import { shortToken } from "../effects.ts";
 import { declarationText } from "../dependencies.ts";
 import { effectChip, sectionCount, signatureDiff } from "../review.ts";
+import { MEMBER_CAP, memberTally } from "../type-change.ts";
 import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
 import type { ContractRow, ContractsReport, DependencyReview, DependencyRow, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
@@ -464,14 +465,41 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     line.append(element("span", "review-toggle"));
     const pick = picker("review-pick contract-pick", detail, () => input.pickNode(entry.id));
     pick.dataset.id = entry.id;
-    const change = showChange ? changeLine(entry) : "";
+    const members = showChange && entry.members !== undefined && entry.members !== null ? entry.members : null;
+    const change = showChange ? (members === null ? changeLine(entry) : memberTally(members)) : "";
     pick.title = change === "" ? `${entry.label} in ${entry.path}` : `${entry.label}: ${change}`;
     pick.append(element("span", `review-mark contract-${kind}`, CONTRACT_MARK[kind]), element("span", "review-label rv-name", entry.label));
     pick.append(element("span", "contract-where rv-ellipsis rv-change", showChange ? change : entry.path.slice(entry.path.lastIndexOf("/") + 1)));
     if (entry.unmentioned) pick.append(element("span", "review-flag", "unmentioned"));
     line.append(pick);
-    item.append(line, detail);
+    item.append(line);
+    if (members !== null) item.append(memberLines(members));
+    item.append(detail);
     return item;
+  }
+
+  /** A changed interface's members, one line each; those past the cap wait behind a "+N more" button. */
+  function memberLines(lines: readonly string[]): HTMLElement {
+    const list = element("ul", "contract-members");
+    const add = (text: string): void => {
+      const item = element("li", `contract-member ${text.startsWith("+") ? "added" : text.startsWith("−") ? "removed" : "changed"}`, text);
+      item.title = text;
+      list.append(item);
+    };
+    lines.slice(0, MEMBER_CAP).forEach(add);
+    const hidden = lines.slice(MEMBER_CAP);
+    if (hidden.length > 0) {
+      const more = element("button", "contract-more", `+${hidden.length} more`);
+      more.type = "button";
+      const wrap = element("li", "contract-member-more");
+      more.addEventListener("click", () => {
+        wrap.remove();
+        hidden.forEach(add);
+      });
+      wrap.append(more);
+      list.append(wrap);
+    }
+    return list;
   }
 
   /** What a selected contract adds: where it is, the signatures in full, every effect. */
