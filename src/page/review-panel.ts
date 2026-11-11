@@ -2,6 +2,8 @@ import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
 import { shortToken } from "../effects.ts";
 import { declarationText } from "../dependencies.ts";
+import { restsOnIt } from "../defining.ts";
+import { signatureSummary } from "../signature-change.ts";
 import { effectChip, sectionCount, signatureDiff } from "../review.ts";
 import { MEMBER_CAP, memberTally } from "../type-change.ts";
 import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
@@ -529,23 +531,40 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     return list;
   }
 
+  /** The edit of a changed signature, one line each, read from the code. */
+  function summaryLines(lines: readonly string[]): HTMLElement {
+    const list = element("ul", "signature-summary");
+    for (const line of lines) list.append(element("li", "signature-edit", line));
+    return list;
+  }
+
+  /** The raw before and after, one click away under the summary. */
+  function rawBeside(raw: HTMLElement): HTMLElement {
+    const wrap = element("details", "signature-raw");
+    wrap.append(element("summary", "review-summary", "before and after"), raw);
+    return wrap;
+  }
+
   /** What a selected contract adds: where it is, the signatures in full, every effect. */
   function contractDetail(entry: ContractRow): HTMLElement {
     const detail = element("div", "rv-detail contract-text");
     detail.hidden = true;
     detail.append(element("span", "contract-where", `${entry.level} in ${entry.path}${entry.move.exportName === undefined ? "" : `, exported as ${entry.move.exportName} ${entry.move.kind}`}`));
     const { before, after } = entry.move;
+    const summary = entry.move.kind === "changed" && entry.move.type === undefined && entry.level === "function" && before !== null && after !== null ? signatureSummary(before, after) : null;
+    const raw = summary === null ? detail : element("div", "contract-raw");
+    if (summary !== null) detail.append(summaryLines(summary), rawBeside(raw));
     if (entry.move.kind !== "effects" && before !== null && after !== null) {
       const diff = signatureDiff(before, after);
       const was = element("span", "contract-sig before");
       was.append(element("span", "contract-side", "before"), diff.prefix, element("mark", "removed", diff.removed), diff.suffix);
       const now = element("span", "contract-sig after");
       now.append(element("span", "contract-side", "after"), diff.prefix, element("mark", "added", diff.added), diff.suffix);
-      detail.append(was, now);
+      raw.append(was, now);
     } else if (before !== null || after !== null) {
       const only = element("span", "contract-sig");
       only.append(element("span", "contract-side", before !== null ? "was" : "now"), before ?? after ?? "");
-      detail.append(only);
+      raw.append(only);
     }
     const found = entry.move.effects;
     if (found !== undefined) detail.append(chips(found.added, "+", "added"), chips(found.removed, "−", "removed"));
@@ -581,13 +600,14 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       for (const risk of items) {
         const detail = element("div", "risk-detail");
         detail.hidden = true;
-        detail.append(element("pre", "review-claim", risk.detail));
+        if (risk.summary === undefined) detail.append(element("pre", "review-claim", risk.detail));
+        else detail.append(summaryLines(risk.summary), rawBeside(element("pre", "review-claim", risk.detail)));
         if (risk.blast.count > 0) detail.append(element("p", "review-empty", `Rests on it: ${risk.blast.files.join(", ")}`));
         const item = element("li", "review-row");
         const pick = picker("review-pick", detail, () => input.pickRisk(risk));
         pick.title = risk.path;
         const text = element("span", "contract-text");
-        text.append(element("span", "review-label", risk.label), element("span", "contract-where", risk.blast.count > 0 ? `${risk.path} · ${plural(risk.blast.count, "file")} rest on it` : risk.path));
+        text.append(element("span", "review-label", risk.label), element("span", "contract-where", risk.blast.count > 0 ? `${risk.path} · ${restsOnIt(risk.blast.count)}` : risk.path));
         pick.append(element("span", "review-mark", "!"), text);
         item.append(pick, detail);
         riskPicks.set(risk, { pick, detail });

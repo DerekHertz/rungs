@@ -138,3 +138,18 @@ test("an edited base file the runner counts as a test is listed even when its ro
   const found = risks(b, { ...b, "smoke-test.js": "export const a = 2;\n" });
   expect(found.map((item) => item.label)).toContain("smoke-test.js edited");
 });
+
+test("a changed function signature carries a one-line summary of the edit, and none when it cannot be read", () => {
+  const found = risks(base, { ...base, "src/core.ts": exp("core", "a, b = 1") + exp("other"), "src/leaf.ts": "export function leaf(a, b?: string, ...more: number[]) {\n  return 1;\n}\n" });
+  const core = found.find((item) => item.label === "core signature changed")!;
+  expect(core.summary).toEqual(["Added optional parameter: b = 1"]);
+  expect(core.detail).toContain("before:");
+  expect(found.find((item) => item.label === "leaf signature changed")?.summary).toEqual(["Added optional parameters: b?: string, ...more: number[]"]);
+});
+
+test("a changed exported constant is never summarised as a function", () => {
+  const found = risks({ ...base, "src/k.ts": "export const k: (a: number) => number = null as never;\n" }, { ...base, "src/k.ts": "export const k: (a: number, b?: number) => number = null as never;\n" });
+  const moved = found.filter((item) => item.kind === "contract" && item.path === "src/k.ts");
+  expect(moved.length).toBeGreaterThan(0);
+  for (const item of moved) expect(item.summary).toBeUndefined();
+});

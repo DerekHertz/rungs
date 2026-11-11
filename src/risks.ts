@@ -7,6 +7,7 @@ import type { Graph, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
 import type { ExportRadius } from "./importance.ts";
 import { exportNamesOf, exportRadiusOf } from "./importance.ts";
 import { effectParts } from "./review.ts";
+import { signatureSummary } from "./signature-change.ts";
 import type { TestChanges } from "./test-changes-types.ts";
 
 /*
@@ -35,6 +36,8 @@ export interface RiskItem {
   readonly label: string;
   /** Shown when selected. */
   readonly detail: string;
+  /** For a changed function signature read exactly: the edit, one line each. Absent when it cannot be read, and the detail is the only account. */
+  readonly summary?: readonly string[];
   /** The file the item is about; sorts after blast radius. */
   readonly path: string;
   readonly blast: Blast;
@@ -118,7 +121,8 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
         : move.type.name.includes("* from") || move.type.name.includes("export=")
           ? "all"
           : [...new Set([move.type.name, move.type.name.split(".")[0]!])];
-    items.push({ kind: "contract", label: `${name}${move.exportName === undefined ? "" : ` as ${move.exportName}`} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
+    const summary = move.kind === "changed" && move.type === undefined && isCodeNode(node) && node.level === "function" && move.before !== null && move.after !== null ? signatureSummary(move.before, move.after) : null;
+    items.push({ kind: "contract", label: `${name}${move.exportName === undefined ? "" : ` as ${move.exportName}`} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), ...(summary === null ? {} : { summary }), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
   }
 
   /** Effects by test-ness, new or changed, resource and target: one item each, its radius the union of its holders'. */

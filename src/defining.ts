@@ -240,6 +240,9 @@ export function effectStepsOf(graph: Graph, blockId: NodeId): Step[] {
 
 export const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** "1 file rests on it", "N files rest on it". */
+export const restsOnIt = (n: number): string => `${n} ${n === 1 ? "file rests" : "files rest"} on it`;
+
 /** New and changed effects counted apart: each line from `fileWhy` starts with "new " or "changed ". */
 function effectsText(effects: readonly string[]): string {
   const added = effects.filter((line) => line.startsWith("new ")).length;
@@ -253,7 +256,7 @@ export function whyLine(found: FileWhy): string {
   const { why } = found;
   const parts = [
     why.contracts.length === 0 ? "no contract moved" : `${count(why.contracts.length, "contract")} moved`,
-    why.dependents.length === 0 ? "no file rests on it" : `${count(why.dependents.length, "file")} rest on it`,
+    why.dependents.length === 0 ? "no file rests on it" : restsOnIt(why.dependents.length),
     effectsText(why.effects),
     why.isTest ? "is a test file" : why.testReaches.length === 0 ? "no test reaches it" : `${count(why.testReaches.length, "test file")} reach it`,
   ];
