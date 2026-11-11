@@ -13,12 +13,14 @@ that nobody mentioned, and which contracts moved.
 
 ## North star for the MVP
 
-You run one command on a real agent-written change of 10,000 lines or more and decide to approve
-or reject it in 15 minutes, without opening a diff. Anything on screen that you doubt, you can
-click through to the source lines that produced it.
+You run one command on a real agent-written change and decide to approve or reject it in 15
+minutes, without opening a diff, starting from what could break. Anything on screen that you
+doubt, you can click through to the source lines that produced it.
 
-The test case is pull request #18 of the previous project: 14,370 added lines of plain
-JavaScript.
+The test case is pull request #14 of the previous project: 851 added lines in 8 files of plain
+JavaScript, small enough to judge by hand, so the page can be checked against that judgement. A
+change that a person cannot judge at this size will not be judged at 10,000 lines; pull request
+#18 (14,370 lines) comes after.
 
 Left for after the MVP: property nodes, lazily resolved edges, and links between effect sites.
 
@@ -132,6 +134,18 @@ altered, removed or moved. Moved means identical text under a new path, never a 
 - Inside a file, a changed function's room has a different floor and cones, and an altered or
   new outside call has a ring and the name of its target. An outside call is named only in a file
   that already existed.
+
+**Risks.** The panel opens on risks, ranked by what could break, all derived:
+
+1. Contracts moved, each with its blast radius: the files that rest on it through import edges,
+   directly or indirectly, counted, with the list behind the number.
+2. New or changed effects that reach a process, the file system or the network, by target.
+3. Tests weakened, removed or skipped, and base test files the change edited.
+4. Dependency changes.
+
+Within each kind, a larger blast radius comes first. A selected file says why it matters before
+its lines: its contracts moved, how many files rest on it, its new effects and whether a test
+reaches it. A summary written by an agent may sit beside the risks, claimed, never in their place.
 
 A panel answers the three questions, and each entry selects places on the picture. It shows one summary row per question, number first ("Claims: 10 of 13 linked", "Tests: 23 fail of 210"); one row is open at a time and takes the column's height. Each item is one line, with detail when selected. Explanations and run details sit under "About this run", except the tests' evidence caveat, which stays one hover or click from the Tests row:
 
