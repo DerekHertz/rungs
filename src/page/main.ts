@@ -467,7 +467,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 if (comparison !== null) {
-  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; link: LinkNote };
+  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; sentences: { index: number; text: string }[]; context: { text: string }[]; link: LinkNote };
   const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
   const testChanges = (await (await fetch("/test-changes.json")).json()) as TestChanges;
@@ -477,6 +477,7 @@ if (comparison !== null) {
   renderReview(review, {
     description: claims.description,
     claims: claims.claims,
+    context: claims.context,
     link: claims.link,
     pickClaim,
     unmentioned: claimed,
@@ -496,7 +497,7 @@ if (comparison !== null) {
     note: tour.walkthrough,
     stops: tour.stops,
     coverage: tourCoverage(tour.stops, comparison),
-    claims: claims.claims,
+    claims: claims.sentences,
     facts: (stop) => stopFacts(stop, comparison, picture.graph, moves),
     observed: (stop) => observedAt(stop, picture.graph, comparison, observed, testChanges),
     describe(id) {

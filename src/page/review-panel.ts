@@ -26,6 +26,10 @@ const MARK: Record<ChangeKind, string> = { added: "+", altered: "~", removed: "â
 export interface ClaimRow {
   readonly index: number;
   readonly text: string;
+  /** The agent's short restatement; false when the row shows the description's own words. */
+  readonly restated: boolean;
+  /** The description's own sentences behind this row, shown when it is selected. */
+  readonly sources: readonly { readonly text: string }[];
   readonly ids: readonly string[];
 }
 
@@ -36,7 +40,7 @@ export type LinkNote =
       readonly status: "ok";
       readonly model: string;
       readonly promptVersion: string;
-      readonly dropped: { readonly ids: number; readonly claims: number };
+      readonly dropped: { readonly ids: number; readonly claims: number; readonly restatements: number };
       readonly cached: boolean;
     }
   | { readonly status: "failed"; readonly message: string };
@@ -45,6 +49,8 @@ export interface ReviewInput {
   /** The claimed description, or null when none was given. */
   readonly description: string | null;
   readonly claims: readonly ClaimRow[];
+  /** Lines the agent called context, counted and kept out of the claims list. */
+  readonly context: readonly { readonly text: string }[];
   readonly link: LinkNote;
   /** The user picked a claim; the host selects its linked modules and flies to them. */
   readonly pickClaim: (claim: ClaimRow) => void;
@@ -105,12 +111,20 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
         active?.classList.remove("active");
         active = pick;
         pick.classList.add("active");
+        for (const shown of list.querySelectorAll(".review-source")) shown.remove();
+        if (claim.restated) item.append(element("blockquote", "review-source", claim.sources.map((source) => source.text).join(" ")));
         input.pickClaim(claim);
       });
       item.append(pick);
       list.append(item);
     }
     claimsBody.append(list);
+    if (input.context.length > 0) {
+      const more = element("details", "review-context");
+      more.append(element("summary", "review-summary", `${input.context.length} context ${input.context.length === 1 ? "line" : "lines"} not shown`));
+      for (const line of input.context) more.append(element("p", "review-source", line.text));
+      claimsBody.append(more);
+    }
   }
 
   const [unmentioned, unmentionedBody] = section("Unmentioned", "derived");
@@ -239,7 +253,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     if (link.status === "ok") {
       const dropped = link.dropped.ids + link.dropped.claims;
       const where = link.cached ? "cached links" : "links";
-      return `Agent ${where} by ${link.model} (prompt ${link.promptVersion}); dropped ${link.dropped.ids} unknown ids and ${link.dropped.claims} bad claim numbers${dropped === 0 ? "" : ", not shown"}. Select a claim to see what it covers.`;
+      return `Agent ${where} by ${link.model} (prompt ${link.promptVersion}); dropped ${link.dropped.ids} unknown ids and ${link.dropped.claims} bad claim numbers, kept the original words for ${link.dropped.restatements} unusable restatements${dropped === 0 ? "" : ", not shown"}. Select a claim to see what it covers.`;
     }
     if (link.status === "failed") return `No agent links: ${link.message}. Only paths and names count as mentions.`;
     return "No agent links; run with --link to link claims to the modules they describe.";

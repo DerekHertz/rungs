@@ -132,7 +132,12 @@ export async function serve(
     const document = {
       tier: "claimed",
       description: description ?? null,
-      claims: claims.map((claim, index) => ({ ...claim, ids: outcome.status === "ok" ? (outcome.byClaim[index] ?? []) : [] })),
+      claims:
+        outcome.status === "ok"
+          ? outcome.shown.map((row, index) => ({ index, text: row.text, restated: row.restated, sources: row.sources.map((source) => claims[source]!), ids: row.ids }))
+          : claims.map((claim, index) => ({ index, text: claim.text, restated: false, sources: [claim], ids: [] })),
+      sentences: claims,
+      context: outcome.status === "ok" ? outcome.context.map((source) => claims[source]!) : [],
       link: how,
     };
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
