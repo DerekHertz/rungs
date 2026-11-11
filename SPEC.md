@@ -98,8 +98,8 @@ and never changes the layout.
   through imports has no path, which shows "nothing reaches it" and never calls it dead.
 - **Harbour.** Each kind of outside resource the code reaches is one structure in the harbour,
   and a kind nothing reaches has none.
-- **Names by zoom.** From far away only blocks are named, in large type. Closer in, the files the
-  change touched are named. Names are never hidden by buildings.
+- **Names by zoom.** From far away only blocks are named, in large type. Closer in, files are named;
+  under a comparison, only altered files are. Names are never hidden by buildings.
 - **Inside a file.** Double-clicking a building opens it with its walls down. Each function is a
   room, an exported function's room has a door to the outside, and each outside call is an object
   in its room, its kind shown by the object. Esc or the trail leaves it.
