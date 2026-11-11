@@ -32,12 +32,12 @@ const id = "function:src/git.ts#head" as NodeId;
 function parts(tree: FileTree) {
   const graph = extract(tree);
   const node = graph.nodes.find((candidate): candidate is CodeNode => isCodeNode(candidate) && candidate.id === id)!;
-  return { node, outline: pseudocode(graph, tree, id)!, effects: graph.edges.filter((edge) => edge.from === id) };
+  return { node, outline: pseudocode(graph, tree, id)! };
 }
-const { node, outline, effects } = parts(source("SECRET_LITERAL"));
+const { node, outline } = parts(source("SECRET_LITERAL"));
 
 test("the prompt is the function's lines, signature and outline structure, never a line of text", () => {
-  const prompt = narrationPrompt(node, outline, effects);
+  const prompt = narrationPrompt(node, outline);
   expect(prompt.system).toContain(NARRATION_PROMPT_VERSION);
   expect(prompt.user).toBe(
     [
@@ -54,6 +54,28 @@ test("the prompt is the function's lines, signature and outline structure, never
   expect(outline.map((line) => line.text).join("\n")).toContain("SECRET_LITERAL");
   expect(prompt.user).not.toContain("SECRET_LITERAL");
   expect(prompt.user).not.toContain("rev-parse");
+});
+
+test("a default value in the signature never reaches the prompt", () => {
+  const tree: FileTree = new Map([["package.json", "{}\n"], ["src/f.ts", 'export function f(token = "SECRET_DEFAULT", allowed = user.isAdmin ? allow() : deny()) {\n  return token;\n}\n']]);
+  const graph = extract(tree);
+  const fid = "function:src/f.ts#f" as NodeId;
+  const fnode = graph.nodes.find((candidate): candidate is CodeNode => isCodeNode(candidate) && candidate.id === fid)!;
+  const prompt = narrationPrompt(fnode, pseudocode(graph, tree, fid)!);
+  expect(prompt.user.split("\n")[0]).toBe("FUNCTION function:src/f.ts#f L1-3 exported (token = …, allowed = …)");
+  expect(prompt.user).not.toContain("SECRET_DEFAULT");
+  expect(prompt.user).not.toContain("isAdmin");
+});
+
+test("two effects on one line each keep their own label, from the edge their call position matched", () => {
+  const tree: FileTree = new Map([["package.json", "{}\n"], ["src/e.ts", 'export function f() { fetch("https://a.example"); setTimeout(work, 10); }\nfunction work() {}\n']]);
+  const graph = extract(tree);
+  const fid = "function:src/e.ts#f" as NodeId;
+  const fnode = graph.nodes.find((candidate): candidate is CodeNode => isCodeNode(candidate) && candidate.id === fid)!;
+  const rows = narrationPrompt(fnode, pseudocode(graph, tree, fid)!).user.split("\n").slice(3);
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toMatch(/^0 effect L1 network fetch/);
+  expect(rows[1]).toMatch(/^1 effect L1 timer setTimeout/);
 });
 
 const say = (text: string, from: number, to: number) => ({ text, from, to });
@@ -104,7 +126,7 @@ function counting(output: unknown): AgentRunner & { calls: number; prompts: stri
 test("narrate asks once, caches by prompt, keeps the digest it narrated, and asks again on renarrate", async () => {
   const cacheDir = temp();
   const runner = counting({ narration: [say("Asks git.", 4, 4), say("Nowhere.", 9, 9)] });
-  const request = { node, outline, effects, runner, cacheDir, renarrate: false, timeoutMs: 1000 };
+  const request = { node, outline, runner, cacheDir, renarrate: false, timeoutMs: 1000 };
   const first = await narrate(request);
   expect(first).toMatchObject({ status: "ok", digest: node.digest, dropped: { sentences: 1 }, model: "fake", cached: false });
   const again = await narrate(request);
@@ -124,7 +146,7 @@ test("narrate asks once, caches by prompt, keeps the digest it narrated, and ask
 
 test("a function with no outline is not asked about", async () => {
   const runner = counting({ narration: [] });
-  const result = await narrate({ node, outline: [], effects: [], runner, cacheDir: temp(), renarrate: false, timeoutMs: 1000 });
+  const result = await narrate({ node, outline: [], runner, cacheDir: temp(), renarrate: false, timeoutMs: 1000 });
   expect(result).toMatchObject({ status: "ok", sentences: [] });
   expect(runner.calls).toBe(0);
 });
@@ -132,7 +154,7 @@ test("a function with no outline is not asked about", async () => {
 test("a failing agent is returned as a failure and never cached", async () => {
   const cacheDir = temp();
   const failing: AgentRunner = { run: () => Promise.reject(new Error("claude CLI not found (claude)")) };
-  expect(await narrate({ node, outline, effects, runner: failing, cacheDir, renarrate: false, timeoutMs: 1000 })).toEqual({ status: "failed", message: "claude CLI not found (claude)" });
+  expect(await narrate({ node, outline, runner: failing, cacheDir, renarrate: false, timeoutMs: 1000 })).toEqual({ status: "failed", message: "claude CLI not found (claude)" });
   const runner = counting({ narration: [] });
-  expect(await narrate({ node, outline, effects, runner, cacheDir, renarrate: false, timeoutMs: 1000 })).toMatchObject({ status: "ok", cached: false });
+  expect(await narrate({ node, outline, runner, cacheDir, renarrate: false, timeoutMs: 1000 })).toMatchObject({ status: "ok", cached: false });
 });
