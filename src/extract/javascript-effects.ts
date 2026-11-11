@@ -85,13 +85,51 @@ class Resolver {
       !ts.isVariableDeclaration(declaration) ||
       !isConst(declaration) ||
       !ts.isIdentifier(declaration.name) ||
-      declaration.initializer === undefined ||
-      declaration.parent.parent.parent !== this.file
+      declaration.initializer === undefined
     ) {
       return undefined;
     }
     const init = unwrap(declaration.initializer);
-    return ts.isArrayLiteralExpression(init) ? this.elements(init.elements, depth + 1) : undefined;
+    if (!ts.isArrayLiteralExpression(init)) return undefined;
+    const symbol = this.checker.getSymbolAtLocation(node);
+    return symbol !== undefined && this.onlyRead(symbol, declaration.name) ? this.elements(init.elements, depth + 1) : undefined;
+  }
+
+  private references: Map<ts.Symbol, ts.Identifier[]> | undefined;
+
+  private referencesOf(symbol: ts.Symbol): readonly ts.Identifier[] {
+    if (this.references === undefined) {
+      const found = new Map<ts.Symbol, ts.Identifier[]>();
+      const visit = (node: ts.Node): void => {
+        if (ts.isIdentifier(node)) {
+          const target = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node
+            ? this.checker.getShorthandAssignmentValueSymbol(node.parent)
+            : this.checker.getSymbolAtLocation(node);
+          if (target !== undefined) found.set(target, [...(found.get(target) ?? []), node]);
+        }
+        node.forEachChild(visit);
+      };
+      visit(this.file);
+      this.references = found;
+    }
+    return this.references.get(symbol) ?? [];
+  }
+
+  /** True when every use of the array, besides its declaration, is a spread or an index read. */
+  private onlyRead(symbol: ts.Symbol, declared: ts.Identifier): boolean {
+    return this.referencesOf(symbol).every((use) => {
+      if (use === declared) return true;
+      const parent = use.parent;
+      if (ts.isSpreadElement(parent) && parent.expression === use) return true;
+      if (!ts.isElementAccessExpression(parent) || parent.expression !== use) return false;
+      const outer = parent.parent;
+      const written =
+        (ts.isBinaryExpression(outer) && outer.left === parent && outer.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && outer.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+        ((ts.isPrefixUnaryExpression(outer) || ts.isPostfixUnaryExpression(outer)) && (outer.operator === ts.SyntaxKind.PlusPlusToken || outer.operator === ts.SyntaxKind.MinusMinusToken)) ||
+        ts.isDeleteExpression(outer) ||
+        ((ts.isForOfStatement(outer) || ts.isForInStatement(outer)) && outer.initializer === parent);
+      return !written;
+    });
   }
 
   /** Arguments or array elements as written; a spread of a known array is opened in place. */
@@ -234,10 +272,9 @@ function isConst(declaration: ts.VariableDeclaration): boolean {
   return (ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) !== 0;
 }
 
-/** The expression as written, on one line and at most 80 characters. */
+/** The expression exactly as written; display shortens it, comparison never does. */
 function written(node: ts.Node, file: ts.SourceFile): string {
-  const text = node.getText(file).replace(/\s+/g, " ");
-  return text.length > 80 ? `${text.slice(0, 79)}…` : text;
+  return node.getText(file);
 }
 
 function targetOf(call: ts.CallExpression | ts.NewExpression, index: number | null): EffectTarget {

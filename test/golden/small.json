@@ -1059,7 +1059,7 @@
       "target": "none",
       "args": [
         {
-          "unknown": "(req, res) => { fsp.readFile(\"index.html\").then((page) => res.end(page)); }"
+          "unknown": "(req, res) => {\n      fsp.readFile(\"index.html\").then((page) => res.end(page));\n    }"
         }
       ],
       "range": {

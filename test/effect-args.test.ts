@@ -108,3 +108,48 @@ describe("module resolution", () => {
     expect(graphOf("function f(require) { require.resolve('a'); }").resolutions).toEqual([]);
   });
 });
+
+describe("review round 1", () => {
+  test("swapped calls pair by exact arguments, so a swap reports nothing", () => {
+    const base = `${GIT}function f() { execFileSync("git", ["status"]); execFileSync("git", ["log"]); }`;
+    const head = `${GIT}function f() { execFileSync("git", ["log"]); execFileSync("git", ["status"]); }`;
+    expect(changes(base, head)).toEqual([]);
+  });
+
+  test("a swap plus one edit reports only the edit", () => {
+    const base = `${GIT}function f() { execFileSync("git", ["status"]); execFileSync("git", ["log"]); }`;
+    const head = `${GIT}function f() { execFileSync("git", ["log", "-1"]); execFileSync("git", ["status"]); }`;
+    expect(changes(base, head)).toEqual(['f | process child_process execFileSync "git" | +"-1" | x1']);
+  });
+
+  test("a reordered argument list is a change", () => {
+    const base = `${GIT}function f() { execFileSync("git", ["push", "origin", "main"]); }`;
+    const head = `${GIT}function f() { execFileSync("git", ["push", "main", "origin"]); }`;
+    expect(changes(base, head)).toEqual(['f | process child_process execFileSync "git" | +"main" -"main" | x1']);
+  });
+
+  test("a const array that is mutated anywhere in the file is unknown", () => {
+    for (const use of ['A.push("x")', 'A[0] = "x"', "A.splice(0, 1)", "mutate(A)", "const B = A"]) {
+      const source = `${GIT}const A = ["status"];\nfunction f() { execFileSync("git", [...A]); }\nfunction g() { ${use}; }`;
+      expect(argsOf(source), use).toEqual(['"git"', "[?A]"]);
+    }
+    expect(argsOf(`${GIT}const A = ["status"];\nfunction f() { execFileSync("git", [...A, A[0]]); }`)).toEqual(['"git"', '["status", ?A[0]]']);
+  });
+
+  test("a const array declared in the function is read through, and a change in it reports", () => {
+    const base = `${GIT}function f() { const A = ["status"]; execFileSync("git", [...A]); }`;
+    const head = `${GIT}function f() { const A = ["status", "-s"]; execFileSync("git", [...A]); }`;
+    expect(argsOf(base)).toEqual(['"git"', '["status"]']);
+    expect(changes(base, head)).toEqual(['f | process child_process execFileSync "git" | +"-s" | x1']);
+    expect(argsOf(`${GIT}function f() { const A = ["x"]; A.push("y"); execFileSync("git", [...A]); }`)).toEqual(['"git"', "[?A]"]);
+  });
+
+  test("unknown text is exact: whitespace in a string and a long tail both compare", () => {
+    const base = `${GIT}function f() { execFileSync("git", g("a  b")); }`;
+    const head = `${GIT}function f() { execFileSync("git", g("a b")); }`;
+    expect(changes(base, head).length).toBe(1);
+    const long = `x${"y".repeat(100)}`;
+    expect(changes(`${GIT}function f() { execFileSync("git", g(${long}1)); }`, `${GIT}function f() { execFileSync("git", g(${long}2)); }`).length).toBe(1);
+    expect(argsOf(base)[1]).toBe('?g("a  b")');
+  });
+});

@@ -67,15 +67,29 @@ export interface ChangedEffect {
   readonly ranges: readonly LineRange[];
 }
 
-/** The tokens of `a` that `b` does not have, counting repeats, in order. */
-function without(a: readonly string[], b: readonly string[]): string[] {
-  const left = new Map<string, number>();
-  for (const token of b) left.set(token, (left.get(token) ?? 0) + 1);
-  return a.filter((token) => {
-    const n = left.get(token) ?? 0;
-    if (n > 0) left.set(token, n - 1);
-    return n === 0;
-  });
+/**
+ * What the head's argument list gained and lost against the base's, as sequences: the tokens
+ * outside a longest common subsequence. Two lists with the same tokens in another order differ.
+ */
+function sequenceDiff(was: readonly string[], now: readonly string[]): [string[], string[]] {
+  const table = Array.from({ length: was.length + 1 }, () => new Array<number>(now.length + 1).fill(0));
+  for (let i = was.length - 1; i >= 0; i--) {
+    for (let j = now.length - 1; j >= 0; j--) {
+      table[i]![j] = was[i] === now[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+    }
+  }
+  const added: string[] = [];
+  const removed: string[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < was.length || j < now.length) {
+    if (i < was.length && j < now.length && was[i] === now[j]) {
+      i++;
+      j++;
+    } else if (j < now.length && (i === was.length || table[i]![j + 1]! >= table[i + 1]![j]!)) added.push(now[j++]!);
+    else removed.push(was[i++]!);
+  }
+  return [added, removed];
 }
 
 /**
@@ -113,8 +127,8 @@ export function changedEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<No
     })),
   ];
   const before = new Map<string, Site[]>();
+  const sequence = (site: Site): string => argTokens(site.args).join("\u0000");
   for (const site of sitesOf(base, (id) => movedTo.get(id) ?? id)) before.set(site.key, [...(before.get(site.key) ?? []), site]);
-  const seen = new Map<string, number>();
   const groups = new Map<string, { owner: NodeId; label: string; added: string[]; removed: string[]; ranges: LineRange[] }>();
   const report = (site: Site, added: string[], removed: string[]): void => {
     if (added.length === 0 && removed.length === 0) return;
@@ -123,29 +137,46 @@ export function changedEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<No
     found.ranges.push(site.range);
     groups.set(id, found);
   };
-  for (const site of sitesOf(head, (id) => id)) {
-    const index = seen.get(site.key) ?? 0;
-    seen.set(site.key, index + 1);
-    const was = before.get(site.key)?.[index];
-    if (was === undefined) {
-      if (site.resolution) report(site, argTokens(site.args), []);
-      continue;
+  const now = new Map<string, Site[]>();
+  for (const site of sitesOf(head, (id) => id)) now.set(site.key, [...(now.get(site.key) ?? []), site]);
+  for (const [key, heads] of now) {
+    // Calls with the same arguments pair first, so moving a call within its owner is no change;
+    // the rest pair in source order.
+    const bases = [...(before.get(key) ?? [])];
+    const rest: Site[] = [];
+    for (const site of heads) {
+      const same = bases.findIndex((was) => sequence(was) === sequence(site));
+      if (same === -1) rest.push(site);
+      else bases.splice(same, 1);
     }
-    const now = argTokens(site.args);
-    const then = argTokens(was.args);
-    report(site, without(now, then), without(then, now));
+    rest.forEach((site, index) => {
+      const was = bases[index];
+      if (was === undefined) {
+        if (site.resolution) report(site, argTokens(site.args), []);
+        return;
+      }
+      const [added, removed] = sequenceDiff(argTokens(was.args), argTokens(site.args));
+      report(site, added, removed);
+    });
+    for (const site of bases.slice(rest.length)) if (site.resolution) report(site, [], argTokens(site.args));
   }
   for (const [key, sites] of before) {
-    for (const site of sites.slice(seen.get(key) ?? 0)) if (site.resolution) report(site, [], argTokens(site.args));
+    if (!now.has(key)) for (const site of sites) if (site.resolution) report(site, [], argTokens(site.args));
   }
   return [...groups.values()]
     .map((group) => ({ kind: "changed" as const, ...group, count: group.ranges.length, ranges: group.ranges.sort((a, b) => a.start - b.start) }))
     .sort((a, b) => (a.owner < b.owner ? -1 : a.owner > b.owner ? 1 : 0) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
 }
 
+/** A token for display: on one line and at most 80 characters. Comparison always uses the whole token. */
+export function shortToken(token: string): string {
+  const line = token.replace(/\s+/g, " ");
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+}
+
 /** `+"-c" +"core.fsmonitor=" -?base`: what the head's arguments added and removed. */
 export const changeText = (change: Pick<ChangedEffect, "added" | "removed">): string =>
-  [...change.added.map((token) => `+${token}`), ...change.removed.map((token) => `-${token}`)].join(" ");
+  [...change.added.map((token) => `+${shortToken(token)}`), ...change.removed.map((token) => `-${shortToken(token)}`)].join(" ");
 
 /**
  * For each class and function, the labels of the effects of its own calls and of every class or
