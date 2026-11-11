@@ -1,7 +1,7 @@
 import { reachMap } from "../reach.ts";
 import { pictureOf, tallyText } from "../compare.ts";
 import type { Comparison, ContractMove } from "../compare.ts";
-import { flyTarget } from "../focus.ts";
+import { escapeStep, flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
 import type { Edge, FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
@@ -593,7 +593,11 @@ function pickNode(id: NodeId, marked?: LineRange): void {
   if (stay) insideView.select(node.id);
   else if (nodes.has(place.parent)) focusOn(place.parent, rubbleAmong([place.id]));
   // The folder a moved file left may be gone from the picture (the trail has no step for it): frame the rubble where it stands.
-  else townView.frame([place.id]);
+  else {
+    // Framed alone like a double-clicked rubble block, so Esc and a background double-click zoom back out to `focus`.
+    alone = true;
+    townView.frame([place.id]);
+  }
   void select(node, ticket, place.id, marked);
 }
 
@@ -643,8 +647,10 @@ window.addEventListener("keydown", (event) => {
     cancelPending();
     if (insideFile !== undefined) leaveInside();
     else if (selected !== undefined) closePanel();
-    else if (alone) focusOn(focus, []);
-    else if (focus !== townRoot) focusOn(zoomOut(tree, focus));
+    else {
+      const to = escapeStep(focus, alone, townRoot, (id) => zoomOut(tree, id));
+      if (to !== undefined) focusOn(to, alone ? [] : undefined);
+    }
   } else if (event.key === "r" || event.key === "R") resetView();
   else if (event.key === "ArrowRight") walk?.step(1);
   else if (event.key === "ArrowLeft") walk?.step(-1);
