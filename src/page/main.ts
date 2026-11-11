@@ -70,8 +70,8 @@ const tree = indexGraph(picture.graph);
 const townRoot = tree.root;
 /** The folder the camera frames; the layout never follows it. */
 let focus = townRoot;
-/** A block framed on its own because it has no folder in the picture's graph to focus (rubble only): the camera is there, `focus` is not. */
-let alone: NodeId | undefined;
+/** True while the camera is off `focus`'s folder framing: on a block with no folder to focus (rubble only), or on the yard a removed file's rubble stands in. Cleared only when folder framing is restored. */
+let alone = false;
 let lots = new Map<NodeId, Lot>();
 let selected: NodeId | undefined;
 let requested = 0;
@@ -129,14 +129,14 @@ const handlers: TownHandlers = {
     if (hit?.kind === "building" || hit?.kind === "resource") return;
     // A block only a moved file's old path stands in has no node in the picture's graph to focus: frame it alone.
     if (hit?.kind === "district" && !nodes.has(hit.id)) {
-      alone = hit.id;
+      alone = true;
       townView.flyTo(hit.id);
       return;
     }
     const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
     // From a block framed alone, leaving always moves the camera, even back to the folder `focus` already names.
     if (to !== undefined) focusOn(to);
-    else if (alone !== undefined) focusOn(focus, []);
+    else if (alone) focusOn(focus, []);
   },
 };
 const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles);
@@ -302,7 +302,7 @@ function showTown(): void {
   legend.hidden = false;
   cancelPending();
   focus = townRoot;
-  alone = undefined;
+  alone = false;
   selected = undefined;
   chosenKind = undefined;
   panel.hidden = true;
@@ -319,12 +319,13 @@ function showTown(): void {
  * elsewhere than their folder (a yard): the camera then frames where their lots are, and `id` stays the trail's folder.
  */
 function focusOn(id: NodeId, standing?: readonly NodeId[]): void {
-  const wasAlone = alone !== undefined;
-  alone = undefined;
+  const wasAlone = alone;
+  const displaced = standing !== undefined && standing.length > 0;
+  alone = displaced;
   if (id === focus && !wasAlone && standing === undefined) return;
   focus = id;
   showTrail();
-  if (standing !== undefined && standing.length > 0) townView.frame(standing);
+  if (displaced) townView.frame(standing);
   else townView.flyTo(id);
 }
 
@@ -335,7 +336,7 @@ function resetView(): void {
   leaveInside();
   cancelPending();
   focus = townRoot;
-  alone = undefined;
+  alone = false;
   showTrail();
   townView.reset();
 }
@@ -579,7 +580,7 @@ window.addEventListener("keydown", (event) => {
     cancelPending();
     if (insideFile !== undefined) leaveInside();
     else if (selected !== undefined) closePanel();
-    else if (alone !== undefined) focusOn(focus, []);
+    else if (alone) focusOn(focus, []);
     else if (focus !== townRoot) focusOn(zoomOut(tree, focus));
   } else if (event.key === "r" || event.key === "R") resetView();
   else if (event.key === "ArrowRight") walk?.step(1);

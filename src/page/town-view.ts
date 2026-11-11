@@ -181,7 +181,14 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   const limits = (): { min: number; max: number } => zoomLimits(fitCamera().zoom, dpr);
 
   function resize(): void {
+    const before = dpr;
     dpr = window.devicePixelRatio || 1;
+    if (dpr !== before) {
+      // Zoom is in device pixels: keep the same magnification on screen when the ratio changes.
+      const ratio = dpr / before;
+      camera = { ...camera, zoom: camera.zoom * ratio };
+      if (flight !== undefined) flight = { ...flight, from: { ...flight.from, zoom: flight.from.zoom * ratio }, to: { ...flight.to, zoom: flight.to.zoom * ratio } };
+    }
     const width = Math.max(1, Math.round(host.clientWidth * dpr));
     const height = Math.max(1, Math.round(host.clientHeight * dpr));
     if (canvas.width === width && canvas.height === height) return;
