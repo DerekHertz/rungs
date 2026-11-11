@@ -578,7 +578,10 @@
         display: none;
       }
       #source header {
-        flex: none;
+        flex: 0 1 auto;
+        min-height: 0;
+        max-height: 25%;
+        overflow: auto;
         position: relative;
         padding: 8px 32px 8px 10px;
         border-bottom: 1px solid #263140;
@@ -817,8 +820,8 @@
       }
       #source-body {
         position: relative;
-        flex: 1;
-        min-height: 40%;
+        flex: 1 1 40%;
+        min-height: 0;
         display: flex;
         overflow: auto;
         line-height: 1.5;
