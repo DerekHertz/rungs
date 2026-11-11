@@ -12,6 +12,7 @@ import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
 import { EFFECT_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
 import { markRange } from "./mark.ts";
+import type { TestChanges } from "../test-changes-types.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
@@ -448,6 +449,7 @@ if (comparison !== null) {
   const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; link: LinkNote };
   const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
+  const testChanges = (await (await fetch("/test-changes.json")).json()) as TestChanges;
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
   const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked);
@@ -462,6 +464,7 @@ if (comparison !== null) {
     pick: pickEntry,
     pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
     pickNode,
+    testChanges,
   });
 
   const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
