@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { parseOptions } from "../src/options.ts";
 
 test("a bare invocation plots the current folder", () => {
-  expect(parseOptions([])).toEqual({ dir: resolve("."), port: 0, open: true, base: undefined, description: undefined, link: false, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false });
+  expect(parseOptions([])).toEqual({ dir: resolve("."), port: 0, open: true, base: undefined, description: undefined, link: false, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false, tests: "off" });
 });
 
 test("a directory, a port and --no-open", () => {
@@ -19,11 +19,12 @@ test("a directory, a port and --no-open", () => {
     rewalk: false,
     narrate: false,
     renarrate: false,
+    tests: "off",
   });
 });
 
 test("compare takes the base first and the folder after it", () => {
-  expect(parseOptions(["compare", "main"])).toEqual({ dir: resolve("."), port: 0, open: true, base: "main", description: undefined, link: false, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false });
+  expect(parseOptions(["compare", "main"])).toEqual({ dir: resolve("."), port: 0, open: true, base: "main", description: undefined, link: false, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false, tests: "off" });
   expect(parseOptions(["compare", "origin/main", "../x", "--port", "9"])).toEqual({
     dir: resolve("../x"),
     port: 9,
@@ -36,6 +37,7 @@ test("compare takes the base first and the folder after it", () => {
     rewalk: false,
     narrate: false,
     renarrate: false,
+    tests: "off",
   });
 });
 
@@ -49,7 +51,7 @@ test("compare with too many arguments is a usage error", () => {
 });
 
 test("a folder named compare is reached as ./compare", () => {
-  expect(parseOptions(["./compare"])).toEqual({ dir: resolve("compare"), port: 0, open: true, base: undefined, description: undefined, link: false, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false });
+  expect(parseOptions(["./compare"])).toEqual({ dir: resolve("compare"), port: 0, open: true, base: undefined, description: undefined, link: false, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false, tests: "off" });
 });
 
 test("rejects a bad port and an unknown flag", () => {
@@ -68,11 +70,19 @@ test("--description without compare is a usage error", () => {
 });
 
 test("--link and --relink need compare and a description; --relink implies --link", () => {
-  expect(parseOptions(["compare", "main", "--description", "pr.md", "--link"])).toMatchObject({ link: true, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false });
+  expect(parseOptions(["compare", "main", "--description", "pr.md", "--link"])).toMatchObject({ link: true, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false, tests: "off" });
   expect(parseOptions(["compare", "main", "--description", "pr.md", "--relink"])).toMatchObject({ link: true, relink: true });
   expect(parseOptions(["compare", "main", "--link"])).toBe("--link needs a description: rungs compare <base> --description <file> --link");
   expect(parseOptions(["--link"])).toBe("--link needs compare: rungs compare <base> --description <file> --link");
   expect(parseOptions(["compare", "main", "--relink"])).toBe("--link needs a description: rungs compare <base> --description <file> --link");
+});
+
+test("--run-tests runs the head tree's tests in a sandbox; --run-tests-unsandboxed allows running without one", () => {
+  expect(parseOptions(["compare", "main", "--run-tests"])).toMatchObject({ base: "main", tests: "sandboxed" });
+  expect(parseOptions(["compare", "main", "--run-tests-unsandboxed"])).toMatchObject({ tests: "unsandboxed allowed" });
+  expect(parseOptions(["compare", "main", "--run-tests", "--run-tests-unsandboxed"])).toMatchObject({ tests: "unsandboxed allowed" });
+  expect(parseOptions(["--run-tests"])).toBe("--run-tests needs compare: rungs compare <base> --run-tests");
+  expect(parseOptions(["--run-tests-unsandboxed"])).toBe("--run-tests needs compare: rungs compare <base> --run-tests");
 });
 
 test("--walkthrough and --rewalk need compare, with or without a description; --rewalk implies --walkthrough", () => {

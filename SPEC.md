@@ -94,6 +94,44 @@ A panel answers the three questions, and each entry selects places on the pictur
 - **Contracts moved:** every change to an exported signature, type, case, effect set or linked
   property.
 
+**Observed.** `rungs compare <base> --run-tests` runs tests once, never by default, because a
+test has to run the change's code and that code is untrusted. The tests that count as evidence
+are main's, not the change's: the base's test files run against the head's code, with the base's
+`test` script deciding the runner, so a change cannot loosen, delete or skip a test to make it
+pass. In the sandbox those files are mounted read-only. A base test file the change deleted still
+runs, and is shown as deleted by this change. Test files the change wrote or edited run apart and
+are shown as "written by this change", claimed, never as evidence. What the change did to the
+tests is also read from the two trees, without running anything, and listed under Unmentioned:
+test files deleted, tests removed by name, `.skip`, `.todo` or `.only` added, fewer or looser
+assertions.
+
+Even main's tests import the head's code, which can fake an outcome from inside the test process.
+Observed results are evidence against mistakes, not against a hostile author, and the page says so
+beside them.
+
+The run is in a sandbox (bubblewrap): a temporary copy of the tree, no network, none of the user's
+files, a stripped environment, a wall-clock limit. The network and the tree's code are never
+together. Dependencies are fetched first, with the network, by npm alone in a folder that holds
+only two files Rungs wrote: the dependencies asked for and the lockfile's entries. npm reads no
+settings from the tree, the user or the environment, runs no script, and has no git. Every
+lockfile entry must be a registry tarball with a sha512 hash; a git, file, link, folder or
+other-server dependency refuses the run. An npm alias to a registry package is allowed. The
+installed packages then move into the copy and the tests run with no network. What the run leaves
+behind is read as plain files under their expected names, never followed as links.
+
+`node --test` reports into an open file with no name, which in the sandbox only the runner's
+process can reach, and a test script whose flags would load the tree's code into the runner is
+unsupported. Whatever the results came through, they are checked against the runner's exit code
+and the test files the run was given; a run that fails a check is shown as "results
+unreliable" with why, and none of its results is shown.
+
+Only `node --test` is run. Any other runner is named as unsupported, and a vitest project shows
+"tests not run: vitest is chosen by the PR", because the change installs vitest at a version and
+with a config it picks. Each result attaches to its test function by file and name; a result no
+single test function matches is listed, never dropped. With no sandbox the run is refused, and the
+page says so, unless `--run-tests-unsandboxed` is given; its results are then labelled "ran without
+a sandbox: as trustworthy as the PR's author".
+
 **Walkthrough.** On request, an agent tours the change as an ordered list of stops. A stop points
 at changed modules of the comparison, names the claims it says it fulfils, and narrates in
 sentences, each anchored to lines of one of its modules. Whatever points nowhere is dropped and

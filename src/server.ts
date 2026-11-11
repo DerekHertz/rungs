@@ -16,6 +16,8 @@ import { pseudocode } from "./pseudocode.ts";
 import { splitClaims } from "./claims.ts";
 import type { Claim } from "./claims.ts";
 import type { Asked, LinkOutcome } from "./link.ts";
+import { observedDocument, treeDigest } from "./observed.ts";
+import type { TestRun } from "./observed.ts";
 import { testChanges } from "./test-changes.ts";
 import type { TourOutcome } from "./walkthrough.ts";
 import type { NarrateRequest } from "./narrate.ts";
@@ -67,6 +69,14 @@ interface Resource {
  * and at the same time as the links: claimed too, in its own resource, with no stops when it
  * failed or was not asked for.
  *
+ * Given `tests`, one run of the tree's tests, it also serves `GET /observed.json`: the run as an
+ * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
+ * apart from the graph and the comparison.
+
+ * Given `tests`, one run of the tree's tests, it also serves `GET /observed.json`: the run as an
+ * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
+ * apart from the graph and the comparison.
+ *
  * Given `narrator` (and so `base`), narration is on offer: `GET /narrate.json` lists the
  * functions of "contracts moved" being narrated ahead of time, in the background after the server
  * is up, and `POST /narration?id=` answers with one function's narration as a claimed fact,
@@ -82,6 +92,7 @@ export async function serve(
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
   walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
   narrator?: Narrator,
+  tests?: TestRun,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
@@ -172,6 +183,11 @@ export async function serve(
     void (async () => {
       for (let id = queue.shift(); id !== undefined; id = queue.shift()) await narrationOf(id, false, true);
     })();
+  }
+
+  if (tests !== undefined) {
+    const body = `${JSON.stringify(observedDocument(tests, graph, treeDigest(tree)), null, 2)}\n`;
+    resources.set("/observed.json", { contentType: "application/json; charset=utf-8", body });
   }
 
   function sourceOf(id: string | null): string | undefined {

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
-import { BaseUnavailable, readBase, readCheckout } from "../src/checkout.ts";
+import { BaseUnavailable, readBase, readCheckout, readExecutables } from "../src/checkout.ts";
 
 const repo = mkdtempSync(join(tmpdir(), "rungs-checkout-"));
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
@@ -354,4 +354,14 @@ test("says when the folder is not a git repository", async () => {
 
   expect(error.reason).toBe("not-a-repository");
   expect(error.message).toBe(`${dir} is not a git repository`);
+});
+
+test("reads which files of the tree are executable, never through a symlink", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rungs-exec-"));
+  scratch.push(dir);
+  writeFileSync(join(dir, "run.sh"), "#!/bin/sh\n", { mode: 0o755 });
+  writeFileSync(join(dir, "plain.txt"), "x\n", { mode: 0o644 });
+  symlinkSync("run.sh", join(dir, "link"));
+  const tree = new Map([["run.sh", ""], ["plain.txt", ""], ["link", "run.sh"], ["gone.sh", ""]]);
+  expect(await readExecutables(dir, tree)).toEqual(new Set(["run.sh"]));
 });
