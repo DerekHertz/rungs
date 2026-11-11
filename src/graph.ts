@@ -1,5 +1,5 @@
-export type Level = "package" | "folder" | "file" | "class" | "function";
-export type CodeLevel = "class" | "function";
+export type Level = "package" | "folder" | "file" | "class" | "function" | "constant";
+export type CodeLevel = "class" | "function" | "constant";
 
 export type NodeId = string & { readonly __brand: "NodeId" };
 
@@ -58,7 +58,7 @@ export interface FileNode extends NodeBase {
 }
 
 /**
- * A class or function written in a file. Its parent is the file, or the class or function whose
+ * A class, a function or an exported constant written in a file. Its parent is the file, or the class or function whose
  * source text contains it. It stores a range and no line count, so the two cannot disagree, and
  * a nested node's lines lie inside its parent's range rather than adding to it.
  */
@@ -81,7 +81,8 @@ export interface CodeNode extends NodeBase {
   /**
    * The signature as written, whitespace and comments normalised away so reformatting is not a
    * change. A function: modifiers, type parameters, parameter list, return type annotation. A
-   * class: type parameters, heritage clauses and public method signatures. Never inferred.
+   * class: type parameters, heritage clauses and public method signatures. A constant: its declared
+   * type, else its literal value as written, else the kind of its initializer. Never inferred.
    */
   readonly signature: string;
 }
@@ -131,7 +132,7 @@ export function canonicalSection(node: SectionNode): object {
 export type ModuleNode = ContainerNode | FileNode | CodeNode;
 
 export function isCodeNode(node: ModuleNode): node is CodeNode {
-  return node.level === "class" || node.level === "function";
+  return node.level === "class" || node.level === "function" || node.level === "constant";
 }
 
 /** The lines a node stands for: a container's or file's total, a code node's range length. */
@@ -399,6 +400,7 @@ export function canonicalNode(node: ModuleNode): object {
       return { ...base, lines: node.lines, analysis: node.analysis, role: node.role, digest: node.digest, ...(node.types === undefined ? {} : { types: node.types.map((t) => ({ name: t.name, kind: t.kind, signature: t.signature })) }) };
     case "class":
     case "function":
+    case "constant":
       return {
         ...base,
         qualifiedName: node.qualifiedName,

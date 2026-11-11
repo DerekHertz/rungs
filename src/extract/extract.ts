@@ -8,7 +8,7 @@ import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "18";
+export const EXTRACTOR_VERSION = "19";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -145,7 +145,8 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
         ...(declaration.exportedAs === undefined ? {} : { exportedAs: declaration.exportedAs }),
         signature: declaration.signature,
       });
-      spans.push({ id, start: declaration.start, end: declaration.end, depth });
+      // A constant owns no effects: a call in its initializer runs at module top level, as before.
+      if (declaration.level !== "constant") spans.push({ id, start: declaration.start, end: declaration.end, depth });
       visit(declaration.children, id, name, depth + 1);
     }
   };

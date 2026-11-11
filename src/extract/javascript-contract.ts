@@ -46,8 +46,9 @@ function chainText(target: ts.Expression): string | undefined {
  * `export default`, `export { f }` and `export = f`, and in plain JavaScript `module.exports = ...`,
  * `module.exports.f = ...` and `exports.f = ...`. A name resolves only to a top-level function or
  * class declaration, or a top-level variable initialised with a function or class expression.
- * Exported bindings that are not functions or classes are left out. Each node comes with the
- * names it is exported under: `default`, the name a specifier or `exports.f` gives, or `*` when
+ * Exported variables whose value is not a function or class are nodes too: the variable's
+ * declaration, `exports.X = value` and `module.exports.X = value`; see constantSignature. Each
+ * node comes with the names it is exported under: `default`, the name a specifier or `exports.f` gives, or `*` when
  * any name may reach it (`module.exports = ...`, `export =`).
  */
 export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonly string[]> {
@@ -58,9 +59,8 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
     } else if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
         const value = declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
-        if (ts.isIdentifier(declaration.name) && value !== undefined && isCodeValue(value)) {
-          locals.set(declaration.name.text, value);
-        }
+        if (!ts.isIdentifier(declaration.name) || hasModifier(statement, ts.SyntaxKind.DeclareKeyword)) continue;
+        locals.set(declaration.name.text, value !== undefined && isCodeValue(value) ? value : declaration);
       }
     }
   }
@@ -97,8 +97,11 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
       }
     } else if (ts.isVariableStatement(statement)) {
       if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+      if (hasModifier(statement, ts.SyntaxKind.DeclareKeyword)) continue;
       for (const declaration of statement.declarationList.declarations) {
         if (declaration.initializer !== undefined) markValue(declaration.initializer, false, ts.isIdentifier(declaration.name) ? declaration.name.text : "*");
+        const value = declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
+        if (ts.isIdentifier(declaration.name) && (value === undefined || !isCodeValue(value))) mark(declaration, declaration.name.text);
       }
     } else if (ts.isExportAssignment(statement)) {
       markValue(statement.expression, true, statement.isExportEquals === true ? "*" : "default");
@@ -109,25 +112,114 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
         if (!specifier.isTypeOnly) markLocal((specifier.propertyName ?? specifier.name).text, specifier.name.text);
       }
     } else if (ts.isExpressionStatement(statement)) {
-      const targets: string[] = [];
+      const targets: { readonly name: string; readonly assignment: ts.BinaryExpression }[] = [];
       let value = unwrap(statement.expression);
       while (ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
         const target = chainText(value.left);
-        if (target !== undefined) targets.push(target);
+        if (target !== undefined) targets.push({ name: target, assignment: value });
         value = unwrap(value.right);
       }
-      if (targets.includes("module.exports")) markValue(value, true, "*");
+      if (targets.some((target) => target.name === "module.exports")) markValue(value, true, "*");
       else {
-        for (const target of targets) {
-          if (!/^(module\.)?exports\.[^.]+$/.test(target)) continue;
-          markValue(value, false, target.slice(target.lastIndexOf(".") + 1));
+        for (const { name, assignment } of targets) {
+          if (!/^(module\.)?exports\.[^.]+$/.test(name)) continue;
+          const as = name.slice(name.lastIndexOf(".") + 1);
           // An ES importer's `default` is the whole CommonJS module, so every export answers to it.
-          markValue(value, false, "default");
+          for (const exportedName of [as, "default"]) {
+            markValue(value, false, exportedName);
+            if (!isCodeValue(value) && !ts.isIdentifier(value)) mark(assignment, exportedName);
+          }
         }
       }
     }
   }
   return exported;
+}
+
+/** A literal whose text is its value: a string, number, bigint, boolean, null, regex or a template with no substitutions. */
+function isPrimitiveLiteral(value: ts.Expression): boolean {
+  if (ts.isPrefixUnaryExpression(value) && (value.operator === ts.SyntaxKind.MinusToken || value.operator === ts.SyntaxKind.PlusToken)) {
+    return ts.isNumericLiteral(value.operand) || ts.isBigIntLiteral(value.operand);
+  }
+  return (
+    ts.isStringLiteralLike(value) ||
+    ts.isNumericLiteral(value) ||
+    ts.isBigIntLiteral(value) ||
+    ts.isRegularExpressionLiteral(value) ||
+    value.kind === ts.SyntaxKind.TrueKeyword ||
+    value.kind === ts.SyntaxKind.FalseKeyword ||
+    value.kind === ts.SyntaxKind.NullKeyword
+  );
+}
+
+const isAsConst = (expression: ts.Expression): boolean => {
+  let current = expression;
+  while (ts.isParenthesizedExpression(current)) current = current.expression;
+  return ts.isAsExpression(current) && ts.isTypeReferenceNode(current.type) && current.type.typeName.getText() === "const";
+};
+
+/** What kind of value an initializer is, when nothing else is written down about it. */
+function kindOf(value: ts.Expression): string {
+  if (ts.isObjectLiteralExpression(value)) return "object";
+  if (ts.isArrayLiteralExpression(value)) return "array";
+  if (ts.isCallExpression(value)) return "call";
+  if (ts.isNewExpression(value)) return "new";
+  if (ts.isArrowFunction(value)) return "arrow function";
+  if (ts.isFunctionExpression(value)) return "function";
+  if (ts.isClassExpression(value)) return "class";
+  if (ts.isTemplateExpression(value) || ts.isTaggedTemplateExpression(value)) return "template";
+  if (ts.isIdentifier(value)) return "identifier";
+  if (ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value)) return "member access";
+  if (ts.isAwaitExpression(value)) return "await";
+  if (ts.isConditionalExpression(value)) return "conditional";
+  if (ts.isBinaryExpression(value)) return "expression";
+  return "expression";
+}
+
+/**
+ * The signature of an exported constant, the first of these that applies: its declared type
+ * annotation; its initializer's text as written when that is a primitive literal; the text of an
+ * `as const` object or array literal, laid out the way type text is; otherwise the kind of
+ * initializer ("object", "array", "call", ...), so a change inside it is an altered block and not
+ * a contract move. A variable with neither type nor initializer reads "uninitialised".
+ */
+export function constantSignature(node: ts.VariableDeclaration | ts.BinaryExpression, file: ts.SourceFile): string {
+  const type = ts.isVariableDeclaration(node) ? node.type : undefined;
+  if (type !== undefined) return renderSignature(tokensOf(type, file));
+  const initializer = ts.isVariableDeclaration(node) ? node.initializer : node.right;
+  if (initializer === undefined) return "uninitialised";
+  const value = unwrap(initializer);
+  if (isPrimitiveLiteral(value)) return value.getText(file);
+  if (isAsConst(initializer) && (ts.isObjectLiteralExpression(value) || ts.isArrayLiteralExpression(value))) {
+    const tokens = tokensOf(value, file).filter((token, index, all) => !(token === "," && (all[index + 1] === "}" || all[index + 1] === "]")));
+    return renderSignature(tokens);
+  }
+  return kindOf(value);
+}
+
+/** A constant as the outline records it: the node it is, what to name it, and the node whose text it spans. */
+export interface ConstantSite {
+  readonly node: ts.VariableDeclaration | ts.BinaryExpression;
+  readonly text: string;
+  readonly span: ts.Node;
+}
+
+/**
+ * The constants among a file's exported nodes: a variable that is not a function or class, or a
+ * CommonJS `exports.X = value`. A lone declaration spans its whole statement, `export` included.
+ */
+export function constantSites(exported: ReadonlyMap<ts.Node, readonly string[]>, file: ts.SourceFile): ConstantSite[] {
+  const sites: ConstantSite[] = [];
+  for (const node of exported.keys()) {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const statement = node.parent.parent;
+      sites.push({ node, text: node.name.text, span: ts.isVariableStatement(statement) && (node.parent as ts.VariableDeclarationList).declarations.length === 1 ? statement : node });
+    } else if (ts.isBinaryExpression(node)) {
+      const statement = node.parent;
+      sites.push({ node, text: chainText(node.left) ?? node.left.getText(file), span: ts.isExpressionStatement(statement) ? statement : node });
+    }
+  }
+  return sites;
 }
 
 function leaves(node: ts.Node, file: ts.SourceFile, out: string[]): void {

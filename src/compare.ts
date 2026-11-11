@@ -226,9 +226,9 @@ export interface ContractMove {
  * being ("exposed", "unexported"), or an exported node moved to another path, which changes how
  * it is imported ("moved"). A body edit that leaves the signature and the effects alone is not a
  * move. A move of any kind carries the effects its set gained and lost when those differ: an
- * added or exposed node gains its whole set, a removed or unexported one loses it. Exports that
- * are not functions or classes are not recorded yet, so not reported. Effect sets are direct
- * only; see effectSets.
+ * added or exposed node gains its whole set, a removed or unexported one loses it.
+ * Effect sets are direct only; see effectSets. An exported constant is one of these nodes, its
+ * signature its type, literal value or the kind of its initializer.
  */
 export function contractsMoved(comparison: Comparison, base: Graph, head: Graph): ContractMove[] {
   const side = (node: CodeNode): string | null => (node.exported ? node.signature : null);

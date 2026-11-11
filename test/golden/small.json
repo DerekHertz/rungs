@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "18",
+  "extractorVersion": "19",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -54,6 +54,60 @@
         "Square"
       ],
       "signature": "extends Polygon { static count; constructor(side: number); get side(): number; set side(value: number); area(): number; static area(): number; \"half.size#x\"(): number; onResize = (): void }"
+    },
+    {
+      "id": "constant:src/shapes.ts#doubled",
+      "level": "constant",
+      "path": "src/shapes.ts",
+      "name": "doubled",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "doubled",
+      "range": {
+        "start": 54,
+        "end": 54
+      },
+      "digest": "21f6910a4dadbc3f42be609fcd6f0708",
+      "exported": true,
+      "exportedAs": [
+        "doubled"
+      ],
+      "signature": "call"
+    },
+    {
+      "id": "constant:src/shapes.ts#handlers",
+      "level": "constant",
+      "path": "src/shapes.ts",
+      "name": "handlers",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "handlers",
+      "range": {
+        "start": 56,
+        "end": 62
+      },
+      "digest": "66286c95f2cba3dfcfbb7881589e7e45",
+      "exported": true,
+      "exportedAs": [
+        "handlers"
+      ],
+      "signature": "object"
+    },
+    {
+      "id": "constant:src/shapes.ts#sides",
+      "level": "constant",
+      "path": "src/shapes.ts",
+      "name": "sides",
+      "parent": "file:src/shapes.ts",
+      "qualifiedName": "sides",
+      "range": {
+        "start": 53,
+        "end": 53
+      },
+      "digest": "230190291aec982332c209588ea3e959",
+      "exported": true,
+      "exportedAs": [
+        "sides"
+      ],
+      "signature": "call"
     },
     {
       "id": "file:README.md",

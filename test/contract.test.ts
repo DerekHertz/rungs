@@ -22,10 +22,10 @@ describe("what a file exports, in ECMAScript modules", () => {
     ).toEqual(["C", "default", "f", "g"]);
   });
 
-  test("export const holding a function, arrow or class expression; other bindings are left for later", () => {
+  test("export const holding a function, arrow or class expression; other variables are constants", () => {
     expect(
       exportedNames("a.js", "export const f = (a) => a;\nexport const g = function () {};\nexport const K = class {};\nexport const X = 3;\n"),
-    ).toEqual(["K", "f", "g"]);
+    ).toEqual(["K", "X", "f", "g"]);
   });
 
   test("export { f } and export { f as g } name a local function; a re-export does not", () => {
