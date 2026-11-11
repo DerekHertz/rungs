@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+import { compare, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { Graph } from "../src/graph.ts";
 import { GAP, kindOfRole, LOT, namesAt, pierSpriteName, project, stepOf, stepsOf, townOf } from "../src/town.ts";
@@ -170,5 +171,51 @@ describe("camera maths", () => {
     expect(far.y).toBeLessThan(0);
     expect(right.x / right.y).toBeCloseTo(2, 9);
     expect(project(0, 0, 1).y).toBeLessThan(0);
+  });
+});
+
+function inside(point: readonly [number, number], loop: readonly (readonly [number, number])[]): boolean {
+  let hit = false;
+  for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+    const [xi, yi] = loop[i]!;
+    const [xj, yj] = loop[j]!;
+    if (yi > point[1] !== yj > point[1] && point[0] < ((xj - xi) * (point[1] - yi)) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+}
+
+describe("the island", () => {
+  const trees: [string, Map<string, string>][] = [
+    ["1,600 files in one folder", new Map(Array.from({ length: 1600 }, (_, i) => [`src/f${String(i).padStart(4, "0")}.js`, "let a;\n"]))],
+    ["one huge block and many tiny ones", new Map([...Array.from({ length: 400 }, (_, i) => [`big/f${i}.js`, "let a;\n"] as const), ...Array.from({ length: 30 }, (_, i) => [`d${i}/x.js`, "let a;\n"] as const)])],
+    ["a single file", new Map([["a.js", "let a;\n"]])],
+    ["many one-file blocks", new Map(Array.from({ length: 80 }, (_, i) => [`d${i}/x.js`, "let a;\n"]))],
+  ];
+  test.each(trees)("the lawn and the coast enclose every lot corner and block: %s", (_name, tree) => {
+    const town = townOf(extract(tree), SHEET);
+    for (const lot of town.lots) {
+      for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+        const corner: [number, number] = [lot.X + (dx * LOT) / 2, lot.Y + (dy * LOT) / 2];
+        expect(inside(corner, town.lawn)).toBe(true);
+        expect(inside(corner, town.coast)).toBe(true);
+      }
+    }
+    for (const block of town.blocks) {
+      for (const corner of [[block.X0, block.Y0], [block.X1, block.Y0], [block.X0, block.Y1], [block.X1, block.Y1]] as const) expect(inside(corner, town.lawn)).toBe(true);
+    }
+  });
+});
+
+describe("a comparison's picture", () => {
+  test("a removed file keeps its lot in path order, and a deleted folder keeps its block", () => {
+    const base = extract(new Map([["package.json", "{}\n"], ["src/a.js", fns(1)], ["src/b.js", fns(1)], ["src/c.js", fns(1)], ["gone/x.js", fns(1)]]));
+    const head = extract(new Map([["package.json", "{}\n"], ["src/a.js", fns(1)], ["src/c.js", fns(1)]]));
+    const picture = pictureOf(head, compare(base, head));
+    const town = townOf(picture.graph, SHEET);
+    const src = town.blocks.find((block) => block.name === "src")!;
+    expect(town.lots.filter((lot) => lot.block === src.id).map((lot) => lot.path)).toEqual(["src/a.js", "src/b.js", "src/c.js"]);
+    expect(town.blocks.map((block) => block.name)).toContain("gone");
+    const headOnly = townOf(head, SHEET);
+    expect(headOnly.lots.some((lot) => lot.path === "src/b.js")).toBe(false);
   });
 });
