@@ -90,3 +90,18 @@ test("an unreliable run is said plainly: why, that no result is shown, and never
   );
   expect(unreliableText(document)).not.toMatch(/pass/);
 });
+
+test("a test file moved away with a failing base test keeps its flag: the old path counts as a place of the picture", () => {
+  const text = 'import { test } from "node:test";\ntest("old", () => {});\n';
+  const moveBase: FileTree = new Map([["test/old.test.mjs", text]]);
+  const moveGraph = extract(new Map([["test/new.test.mjs", text]]));
+  const moveComparison = compare(extract(moveBase), moveGraph);
+  const moveDocument = observedDocument(
+    { status: "ran", runner: "node", isolation: "bwrap", seconds: 1, exitCode: 1, reports: [{ file: "test/old.test.mjs", path: ["old"], outcome: "fail", ms: 1 }], deleted: [], edited: [] },
+    extract(moveBase),
+    "t",
+  ) as Extract<ObservedDocument, { status: "ran" }>;
+  const report = observedReport(moveDocument, moveGraph, moveComparison);
+  expect(report.failing.map((test) => test.file)).toEqual(["test/old.test.mjs"]);
+  expect(report.failingFiles).toEqual(new Set(["file:test/old.test.mjs"]));
+});

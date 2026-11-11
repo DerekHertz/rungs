@@ -10,7 +10,7 @@ import type { EffectRow, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
 import type { TownHandlers } from "./town-view.ts";
-import { townOf } from "../town.ts";
+import { townOf, withGhosts } from "../town.ts";
 import { importanceOf, reachedFrom } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
 import { insideOf, marksOf } from "../town-inside.ts";
@@ -66,6 +66,10 @@ const observedRun = observed?.status === "ran" && comparison !== null ? observed
 const nodes = new Map<NodeId, ModuleNode>(picture.graph.nodes.map((node) => [node.id, node]));
 // A module removed from a file that stays has no place in the picture, but its base source is served.
 const changed = new Map<NodeId, ModuleNode>((comparison?.changes ?? []).map((change) => [change.node.id, change.node]));
+// The old path of a moved file stands in the town as rubble but not in the picture's graph: its nodes can still be selected.
+for (const change of comparison?.changes ?? []) if (change.kind === "moved" && !nodes.has(change.from.id)) changed.set(change.from.id, change.from);
+/** The files a moved path left behind: in the town as rubble, so what is reported on them can be selected. */
+const ghostFiles = new Map<NodeId, ModuleNode>(comparison === null ? [] : withGhosts(picture.graph, comparison).graph.nodes.filter((node) => node.level === "file" && !nodes.has(node.id)).map((node) => [node.id, node]));
 const tree = indexGraph(picture.graph);
 const townRoot = tree.root;
 /** The folder the camera frames; the layout never follows it. */
@@ -112,7 +116,7 @@ const handlers: TownHandlers = {
     cancelPending();
     const ticket = requested;
     pendingClick = setTimeout(() => {
-      const node = id === undefined ? undefined : nodes.get(id);
+      const node = id === undefined ? undefined : (nodes.get(id) ?? ghostFiles.get(id));
       if (node === undefined) closePanel();
       else void select(node, ticket);
     }, DOUBLE_CLICK_MS);
@@ -177,7 +181,7 @@ function chooseResource(kind: ResourceKind | undefined): void {
 }
 
 function describe(id: NodeId): string[] | undefined {
-  const file = nodes.get(id);
+  const file = nodes.get(id) ?? ghostFiles.get(id);
   const lot = lots.get(id);
   if (file?.level !== "file" || lot === undefined) return undefined;
   return [
@@ -197,7 +201,7 @@ const TOOLTIP_FILES = 10;
 
 /** The tests of the file that failed when main's tests ran against this change. */
 function failingFacts(file: FileNode): string[] {
-  const failed = (observedRun?.failing ?? []).filter((test) => test.id === file.id);
+  const failed = (observedRun?.failing ?? []).filter((test) => test.file === file.path);
   return failed.length === 0 ? [] : [`failing tests (observed): ${failed.map((test) => test.name).slice(0, 5).join("; ")}${failed.length > 5 ? ` and ${failed.length - 5} more` : ""}`];
 }
 
@@ -233,6 +237,7 @@ function showRests(file: ModuleNode): boolean {
 }
 
 function changeFacts(file: FileNode): string[] {
+  if (!nodes.has(file.id) && lots.get(file.id)?.movedTo != null) return [`moved away to ${lots.get(file.id)?.movedTo?.path}`];
   const entry = picture.overlay?.entry(file.id);
   if (entry === undefined) return picture.overlay === null ? [] : ["change: unchanged"];
   const facts = [`change: ${entry.kind}`];
@@ -268,7 +273,44 @@ function showTownLegend(town: Town): void {
   if (comparison !== null) {
     against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
   }
-  legend.replaceChildren(kinds, size, stone, ways, harbour, ...(comparison === null ? [] : [against]), ...(observed?.status === "ran" ? [flag] : []));
+  const lines = document.createElement("section");
+  lines.append(kinds, size, stone, ways, harbour, ...(comparison === null ? [] : [against]), ...(observed?.status === "ran" ? [flag] : []));
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  const show = (open: boolean): void => {
+    lines.hidden = !open;
+    toggle.textContent = open ? "Legend \u25be" : "Legend \u25b8";
+    toggle.setAttribute("aria-expanded", String(open));
+  };
+  // Open the first time a viewer sees the town, then collapsed to its one line, as the viewer last left it.
+  const remembered = legendState();
+  show(remembered !== "closed");
+  if (remembered === undefined) rememberLegend("closed");
+  toggle.addEventListener("click", () => {
+    const open = lines.hidden === true;
+    show(open);
+    rememberLegend(open ? "open" : "closed");
+  });
+  legend.replaceChildren(toggle, lines);
+}
+
+const LEGEND_KEY = "rungs.legend";
+
+function legendState(): "open" | "closed" | undefined {
+  try {
+    const value = localStorage.getItem(LEGEND_KEY);
+    return value === "open" || value === "closed" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function rememberLegend(state: "open" | "closed"): void {
+  try {
+    localStorage.setItem(LEGEND_KEY, state);
+  } catch {
+    // Without storage the legend simply opens each visit.
+  }
 }
 
 /** Opens a file walls down over the town: its functions as rooms, its outside calls as objects. */
@@ -528,23 +570,30 @@ function pickNode(id: NodeId, marked?: LineRange): void {
   cancelPending();
   const node = nodes.get(id) ?? changed.get(id);
   if (node === undefined) return;
-  const place = nodes.get(node.level === "file" ? node.id : (`file:${node.path}` as NodeId));
+  const place = placeNode(node);
   if (place === undefined || place.parent === null) return;
   // A node in the file that is open stays inside and selects its room; one anywhere else leaves first.
   const stay = insideFile === place.id;
   if (!stay) leaveInside();
   const ticket = requested;
   if (stay) insideView.select(node.id);
-  else focusOn(place.parent, rubbleAmong([place.id]));
+  else if (nodes.has(place.parent)) focusOn(place.parent, rubbleAmong([place.id]));
+  // The folder a moved file left may be gone from the picture (the trail has no step for it): frame the rubble where it stands.
+  else townView.frame([place.id]);
   void select(node, ticket, place.id, marked);
+}
+
+/** The file `node` stands in, its lot in the town included when that is the rubble a moved file left. */
+function placeNode(node: ModuleNode): FileNode | undefined {
+  const id = node.level === "file" ? node.id : (`file:${node.path}` as NodeId);
+  const found = nodes.get(id) ?? ghostFiles.get(id);
+  return found?.level === "file" ? found : undefined;
 }
 
 /** The file a linked module stands in on the picture, if it has a place. */
 function placeOf(id: string): NodeId | undefined {
   const node = nodes.get(id as NodeId) ?? changed.get(id as NodeId);
-  if (node === undefined) return undefined;
-  const place = node.level === "file" ? node.id : (`file:${node.path}` as NodeId);
-  return nodes.has(place) ? place : undefined;
+  return node === undefined ? undefined : placeNode(node)?.id;
 }
 
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */

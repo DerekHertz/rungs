@@ -508,8 +508,8 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   const pressed = new Map<number, { x: number; y: number }>();
   let pressedAt = { x: 0, y: 0 };
   let travelled = 0;
-  /** The file a thing stands for. The rubble a moved file left stands for the file at its new path. */
-  const idOf = (thing: Pick | undefined): NodeId | undefined => (thing?.kind === "lot" ? (thing.lot.movedTo?.id ?? thing.lot.id) : undefined);
+  /** The file a thing stands for. The rubble a moved file left stands for the file at its new path, unless a failing test is reported on the old path. */
+  const idOf = (thing: Pick | undefined): NodeId | undefined => (thing?.kind === "lot" ? (failing.has(thing.lot.id) ? thing.lot.id : (thing.lot.movedTo?.id ?? thing.lot.id)) : undefined);
   function hover(clientX: number, clientY: number): void {
     const thing = thingAt(clientX, clientY);
     if (thing !== hovered) {
