@@ -20,12 +20,15 @@ const head: FileTree = new Map([
   ["src/moved.ts", "export function oldOne() {\n  return 10;\n}\n"],
   ["src/new.ts", "export const fresh = () => 3;\n"],
 ]);
+const huge: FileTree = new Map([...head, ["src/huge.ts", "// x\n".repeat(150000)]]);
 const against = { ref: "main", commit: "3f2a9c1d00000000000000000000000000000000", tree: base };
 const comparing = await serve(head, 0, against);
 const plain = await serve(head, 0);
+const bigServer = await serve(huge, 0, against);
 afterAll(async () => {
   await comparing.close();
   await plain.close();
+  await bigServer.close();
 });
 
 const changes = (server: { url: string }, id: string) => fetch(new URL(`changes?id=${encodeURIComponent(id)}`, server.url));
@@ -81,4 +84,10 @@ test("removed lines are the function's own, from the base's ranges, not by posit
 test("losing the final newline is a change", async () => {
   const body = (await (await changes(comparing, "file:src/eol.ts")).json()) as { added: number; removed: number };
   expect([body.added, body.removed]).toEqual([1, 1]);
+});
+
+test("a 150k-line new file is served as all added and the server stays up", async () => {
+  const body = (await (await changes(bigServer, "file:src/huge.ts")).json()) as { added: number };
+  expect(body.added).toBe(150000);
+  expect((await changes(bigServer, "file:src/a.ts")).status).toBe(200);
 });

@@ -77,7 +77,7 @@ function stepsBetween(a: readonly string[], aLo: number, aHi: number, b: readonl
   const bFrom = bLo + top;
   const bTo = bHi - bottom;
   const middle = shortestEdit(a.slice(from, to), b.slice(bFrom, bTo));
-  if (middle !== undefined) steps.push(...middle);
+  if (middle !== undefined) for (const step of middle) steps.push(step);
   else {
     const anchors = patienceAnchors(a, from, to, b, bFrom, bTo);
     if (anchors.length === 0) {
