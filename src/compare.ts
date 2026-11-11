@@ -345,7 +345,7 @@ function ancestorsOf(path: string): string[] {
 const edgeKey = (edge: EffectEdge): string =>
   `${edge.from}\0${edge.to}\0${edge.operation}\0${targetText(edge.target)}\0${edge.range.start}\0${edge.range.end}`;
 
-/** `pictureOf(head, null)` is the plain picture. It lays nothing out; city.ts does. */
+/** `pictureOf(head, null)` is the plain picture. It lays nothing out; town.ts does. */
 export function pictureOf(head: Graph, comparison: Comparison | null): Picture {
   if (comparison === null) return { graph: head, overlay: null };
 

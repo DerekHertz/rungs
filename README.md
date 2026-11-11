@@ -1,8 +1,8 @@
 # Rungs
 
-Coding agents now open pull requests of thousands of lines, and someone still has to decide whether to merge them. Reading the diff does not scale, and a summary written by the same agent is a claim, not evidence. Rungs computes a picture of the code itself, a city you can turn and zoom into, so a reviewer can approve a large change the way they would approve a design: by seeing what it touches, and opening the exact source lines behind anything they doubt.
+Coding agents now open pull requests of thousands of lines, and someone still has to decide whether to merge them. Reading the diff does not scale, and a summary written by the same agent is a claim, not evidence. Rungs computes a picture of the code itself, a pixel-art town you can pan and zoom into, so a reviewer can approve a large change the way they would approve a design: by seeing what it touches, and opening the exact source lines behind anything they doubt.
 
-![Rungs' own repository drawn as a code city: districts for src, test and docs, buildings coloured by role and sized by line count, with floating district names.](docs/media/city.png)
+![Rungs' own repository drawn as a town.](docs/media/town.png)
 
 *Rungs drawing its own repository. Blue buildings are source, green are tests, yellow are docs, dark blue is config and orange is generated. Height is the number of classes and functions in a file. Striped buildings are files Rungs cannot analyse yet.*
 
@@ -14,14 +14,14 @@ The name comes from a ladder of abstraction. Each rung is computed from the one 
 
 1. **Read the checkout.** Rungs lists the files git tracks plus untracked ones not ignored, and reads them from the working tree, so uncommitted changes are included. A symlink reads as its target path, the way git stores it, so nothing outside the checkout leaks in.
 2. **Extract a graph.** A pure, deterministic function turns the file tree into a graph of packages, folders, files, classes and functions, each with a line range and a role (source, tests, config, docs or generated). JavaScript and TypeScript go through the TypeScript compiler. No model is called.
-3. **Lay out a ground plan.** A squarified treemap places every package, folder and file. The layout depends only on the graph, so neither the camera nor the theme ever moves anything.
-4. **Draw a city.** Districts are raised plates and files are buildings, rendered with three.js. Drag to pan, right-drag to turn, scroll to zoom, double-click a district to fly to it. Click a building to read its source, served from the same snapshot the graph came from.
-5. **Compare against a base.** `rungs compare <base>` reads the base revision at the merge base, the same base GitHub diffs a pull request against, and extracts both graphs. Every module carries a digest of its text, so the comparison pairs nodes by identity and finds what was added, altered, removed or moved without reading a diff. Unchanged buildings dim, changed ones stay bright, and removed files stand as see-through ghosts you can still open.
-6. **Answer the three questions.** A panel beside the city lists the description's claims, the changes no claim covers, and the contracts that moved: exported signatures and the outside resources each function reaches (processes, network, file system, timers, code loaded at run time), drawn as plates at the edge of the city. Every entry flies the camera to its place and opens its exact lines.
+3. **Lay out a town.** Each top-level folder is a block of lots, one lot per file, and every file is a building whose kind is its role. The layout depends only on the graph, so neither the camera nor the theme ever moves anything.
+4. **Draw it in pixel art.** The town is drawn from a sprite sheet on a 2D canvas, from one fixed isometric angle. Drag to pan, scroll to zoom, double-click a building to open it with its walls down. Click a building to read its source, served from the same snapshot the graph came from.
+5. **Compare against a base.** `rungs compare <base>` reads the base revision at the merge base, the same base GitHub diffs a pull request against, and extracts both graphs. Every module carries a digest of its text, so the comparison pairs nodes by identity and finds what was added, altered, removed or moved without reading a diff. Altered files stand under scaffolding with a crane, added files on bare earth, and removed files leave rubble you can still open.
+6. **Answer the three questions.** A panel beside the town lists the description's claims, the changes no claim covers, and the contracts that moved: exported signatures and the outside resources each function reaches (processes, network, file system, timers, code loaded at run time), each outside resource a structure in the harbour. Every entry flies the camera to its place and opens its exact lines.
 
-![Rungs comparing a 14,370-line agent-written pull request: the review panel lists claims, 119 new calls to the outside world no claim covers, and two changed signatures; the city dims unchanged code and draws process, network, file system and timer plates at its edge.](docs/media/review.png)
+![Rungs comparing a 14,370-line agent-written pull request: the review panel lists claims, 119 new calls to the outside world no claim covers, and two changed signatures; the town marks altered files with scaffolding and draws the outside resources it reaches in its harbour.](docs/media/review.png)
 
-*Rungs reviewing the target pull request. The panel shows which claims the agent linked to code, what reaches the outside world without being mentioned, and the two exported functions whose parameters changed.*
+*Rungs reviewing the target pull request. The panel lists the claims, the changes no claim covers and the exported functions whose contracts moved; each entry selects its place in the town.*
 
 ## System design
 
@@ -52,7 +52,7 @@ npm run rungs -- /path/to/a/git/checkout
 npm run rungs -- compare main /path/to/a/git/checkout --description pr.md --link
 ```
 
-The first command builds the graph, starts a local server on 127.0.0.1 and opens the city in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. Press R to reset the view and P to cycle the pixel-art render mode. Stop the server with Ctrl+C.
+The first command builds the graph, starts a local server on 127.0.0.1 and opens the town in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. Press R to reset the view. Stop the server with Ctrl+C.
 
 `rungs compare <base> [dir]` takes these flags, all optional:
 
@@ -93,7 +93,7 @@ Run `npm run lint`, `npm run typecheck` and `npm test`. CI runs the same three o
 - the extractor against a golden fixture, including the version ledger;
 - qualified names over 2,070 adversarial inputs, checked to be unique and never empty;
 - line counting with CRLF and Unicode line separators, from a single definition of a line;
-- layout proportions, the height scale, and the label and fading decisions;
+- the town's layout, sprite choices and picking;
 - a server that returns exactly a function's lines;
 - comparison properties over generated tree pairs, and goldens for the comparison and the effect catalog;
 - reading a base revision, including a file built to imitate git's reply framing;

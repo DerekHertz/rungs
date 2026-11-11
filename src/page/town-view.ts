@@ -3,7 +3,6 @@ import { AXIS, blockLabel, CRANE_AT, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt,
 import { pickAt } from "../town-pick.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
-import type { CityHandlers } from "./city-view.ts";
 import { EFFECT_COLOR } from "./palette.ts";
 
 /*
@@ -45,6 +44,27 @@ export async function loadSheet(): Promise<Sheet> {
   return { sizes, images };
 }
 
+interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** What a double-click landed on: a building, the block under it, or an outside resource's structure. */
+export type Hit =
+  | { readonly kind: "building" | "district"; readonly id: NodeId }
+  | { readonly kind: "resource"; readonly resource: ResourceKind };
+
+export interface TownHandlers {
+  /** The building under the pointer, or undefined; fires as the pointer or the camera moves. */
+  hover(id: NodeId | undefined, at: Point): void;
+  /** `clicks` is 1 for a single click and counts up with a double-click. */
+  click(id: NodeId | undefined, clicks: number): void;
+  /** A single click on a harbour structure. */
+  resource(kind: ResourceKind): void;
+  /** `hit` is undefined on empty ground. */
+  doubleClick(hit: Hit | undefined): void;
+}
+
 export interface TownView {
   show(town: Town): void;
   select(id: NodeId | undefined): void;
@@ -53,8 +73,6 @@ export interface TownView {
   /** Frames the block holding this folder. */
   flyTo(id: NodeId): void;
   reset(): void;
-  /** The town is already pixel art, so pixel mode has nothing to step; always 1. */
-  cyclePixel(): 1;
 }
 
 const COLOUR = {
@@ -84,7 +102,7 @@ interface Camera {
   cy: number;
 }
 
-export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet: Sheet): TownView {
+export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet): TownView {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
   canvas.setAttribute("aria-label", "Town of the repository");
@@ -612,6 +630,5 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       touched = false;
       flyTo(fitCamera());
     },
-    cyclePixel: () => 1,
   };
 }
