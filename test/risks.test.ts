@@ -146,3 +146,10 @@ test("a changed function signature carries a one-line summary of the edit, and n
   expect(core.detail).toContain("before:");
   expect(found.find((item) => item.label === "leaf signature changed")?.summary).toEqual(["Added optional parameters: b?: string, ...more: number[]"]);
 });
+
+test("a changed exported constant is never summarised as a function", () => {
+  const found = risks({ ...base, "src/k.ts": "export const k: (a: number) => number = null as never;\n" }, { ...base, "src/k.ts": "export const k: (a: number, b?: number) => number = null as never;\n" });
+  const moved = found.filter((item) => item.kind === "contract" && item.path === "src/k.ts");
+  expect(moved.length).toBeGreaterThan(0);
+  for (const item of moved) expect(item.summary).toBeUndefined();
+});

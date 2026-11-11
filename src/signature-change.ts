@@ -3,7 +3,7 @@
  * (`({ a, b = 1 }): void`, `async run(a, b = [])`), as one line per edit: parameters added or
  * removed, a default or a type changed, optional and required flipped, a parameter renamed in
  * place, the return type. Text this cannot read exactly (overloads, template literals, unbalanced
- * brackets, a rest parameter that is not last, a reshaped destructuring) gives null, and the caller
+ * brackets, any `<` or `>` other than an arrow, a rest parameter that is not last, a reshaped destructuring) gives null, and the caller
  * shows only the raw before and after: never a guess.
  */
 
@@ -12,7 +12,7 @@ const PAIRS: Readonly<Record<string, string>> = { ")": "(", "]": "[", "}": "{", 
 /**
  * Walks `text` calling `visit(char, index, depth)` outside quotes. False when the text cannot be split
  * exactly: unbalanced or mismatched brackets, a template literal, a regex literal or division (`/`),
- * or a `<` or `>` that is not a type bracket or an arrow.
+ * or any `<` or `>` outside an arrow `=>` (generics lose their summary).
  */
 function walk(text: string, visit: (char: string, index: number, depth: number) => boolean | void): boolean {
   const stack: string[] = [];
@@ -27,8 +27,8 @@ function walk(text: string, visit: (char: string, index: number, depth: number) 
     if (c === "`" || c === "/") return false;
     if (c === '"' || c === "'") quote = c;
     else if (c === ">" && text[i - 1] === "=") continue;
-    else if ("([{".includes(c) || c === "<") {
-      if (c === "<" && !/[\w$>\]]/.test(text[i - 1] ?? "")) return false;
+    else if (c === "<" || c === ">") return false;
+    else if ("([{".includes(c)) {
       if (visit(c, i, stack.length) === true) return true;
       stack.push(c);
     } else if (c in PAIRS) {
@@ -89,12 +89,9 @@ interface Param {
   readonly def: string | undefined;
 }
 
-/** True for an untyped rest or a plain array type (`T[]`, `readonly T[]`, `Array<T>`): the only rests that may be left out. */
+/** True for an untyped rest, or a type that is exactly a name followed by `[]` (`string[]`, `readonly T[][]`): the only rests that may be left out. */
 function plainArray(type: string): boolean {
-  if (type === "") return true;
-  if (/^(keyof|typeof|unique|infer|asserts)\b/.test(type) || firstTop(type, "=") !== -1) return false;
-  if (splitTop(type, "|")?.length !== 1 || splitTop(type, "&")?.length !== 1) return false;
-  return /\[\]$/.test(type) || /^(Readonly)?Array<.*>$/.test(type);
+  return type === "" || /^(readonly\s+)?[A-Za-z_$][\w$]*(\[\])+$/.test(type);
 }
 
 function param(raw: string): Param | undefined {
@@ -161,6 +158,10 @@ function parseAll(raws: readonly string[]): Param[] | undefined {
     const read = raw === "" ? undefined : param(raw);
     if (read === undefined) return undefined;
     params.push(read);
+  }
+  // A parameter is optional only when every one after it is too; a default before a required parameter does not make it optional.
+  for (let i = params.length - 2; i >= 0; i -= 1) {
+    if (!params[i + 1]!.optional && params[i]!.optional) params[i] = { ...params[i]!, optional: false };
   }
   const rests = params.filter((p) => p.rest).length;
   if (rests > 1 || (rests === 1 && !params[params.length - 1]!.rest)) return undefined;

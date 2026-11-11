@@ -524,7 +524,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     detail.hidden = true;
     detail.append(element("span", "contract-where", `${entry.level} in ${entry.path}${entry.move.exportName === undefined ? "" : `, exported as ${entry.move.exportName} ${entry.move.kind}`}`));
     const { before, after } = entry.move;
-    const summary = entry.move.kind === "changed" && entry.move.type === undefined && before !== null && after !== null ? signatureSummary(before, after) : null;
+    const summary = entry.move.kind === "changed" && entry.move.type === undefined && entry.level === "function" && before !== null && after !== null ? signatureSummary(before, after) : null;
     const raw = summary === null ? detail : element("div", "contract-raw");
     if (summary !== null) detail.append(summaryLines(summary), rawBeside(raw));
     if (entry.move.kind !== "effects" && before !== null && after !== null) {

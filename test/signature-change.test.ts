@@ -34,15 +34,15 @@ test("a parameter renamed at the same position with the same type and default", 
 
 test("a parameter type and the return type changed", () => {
   expect(signatureSummary("f(a: string): void", "f(a: number): string")).toEqual(["Type of a: string → number", "Return type changed: void → string"]);
-  expect(signatureSummary("async f(a)", "async f(a): Promise<void>")).toEqual(["Return type changed: (inferred) → Promise<void>"]);
+  expect(signatureSummary("async f(a)", "async f(a): number")).toEqual(["Return type changed: (inferred) → number"]);
 });
 
 test("a destructured member removed", () => {
   expect(signatureSummary("({ a, b = 1 })", "({ a })")).toEqual(["Removed parameter: b = 1"]);
 });
 
-test("types with arrows, generics and nested brackets are read whole", () => {
-  expect(signatureSummary("f(cb: (x: number) => void, m: Map<string, number>)", "f(cb: (x: number) => void, m: Map<string, number>, z = [1, 2])")).toEqual(["Added optional parameter: z = [1, 2]"]);
+test("types with arrows and nested brackets are read whole", () => {
+  expect(signatureSummary("f(cb: (x: number) => void, m: { k: number })", "f(cb: (x: number) => void, m: { k: number }, z = [1, 2])")).toEqual(["Added optional parameter: z = [1, 2]"]);
 });
 
 test("anything not read exactly gives null", () => {
@@ -69,16 +69,24 @@ test("members both sides share in a different order give null, in a pattern or a
   expect(signatureSummary("f(a, b)", "f(b, a, c)")).toBeNull();
 });
 
-test("a nested call signature in the generics is not the parameter list", () => {
-  expect(signatureSummary("f<T extends { (): void }>(x: T)", "f<T extends { (): void }>(x: T, y = 1)")).toEqual(["Added optional parameter: y = 1"]);
-  expect(signatureSummary("f<T extends { (): void }>(x: T)", "f<T extends { (): void }>(x: T)")).toBeNull();
+test("generic signatures lose their summary", () => {
+  expect(signatureSummary("f<T extends { (): void }>(x: T)", "f<T extends { (): void }>(x: T, y = 1)")).toBeNull();
+  expect(signatureSummary("f(a: Map<string, number>)", "f(a: Map<string, number>, b = 1)")).toBeNull();
+  expect(signatureSummary("f(a = 1<2, b = 3> 4)", "f(a = 1<2, b = 3> 5)")).toBeNull();
+});
+
+test("a default before a required parameter does not make it optional", () => {
+  expect(signatureSummary("f(b: number)", "f(a = 1, b: number)")).toEqual(["Added required parameter: a = 1"]);
+  expect(signatureSummary("f(b = 2)", "f(a = 1, b = 2)")).toEqual(["Added optional parameter: a = 1"]);
 });
 
 test("an added rest parameter is optional only when its type is a plain array", () => {
   expect(signatureSummary("f()", "f(...args: [string])")).toBeNull();
   expect(signatureSummary("f()", "f(...args: string | number[])")).toBeNull();
   expect(signatureSummary("f()", "f(...args: string[])")).toEqual(["Added optional parameter: ...args: string[]"]);
-  expect(signatureSummary("f()", "f(...args: Array<string>)")).toEqual(["Added optional parameter: ...args: Array<string>"]);
+  expect(signatureSummary("f()", "f(...args: Array<string>)")).toBeNull();
+  expect(signatureSummary("f()", "f(...args: readonly string[][])")).toEqual(["Added optional parameter: ...args: readonly string[][]"]);
+  expect(signatureSummary("f()", "f(...args: (string | number)[])")).toBeNull();
   expect(signatureSummary("f()", "f(...args)")).toEqual(["Added optional parameter: ...args"]);
 });
 

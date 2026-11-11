@@ -121,7 +121,7 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
         : move.type.name.includes("* from") || move.type.name.includes("export=")
           ? "all"
           : [...new Set([move.type.name, move.type.name.split(".")[0]!])];
-    const summary = move.kind === "changed" && move.type === undefined && move.before !== null && move.after !== null ? signatureSummary(move.before, move.after) : null;
+    const summary = move.kind === "changed" && move.type === undefined && isCodeNode(node) && node.level === "function" && move.before !== null && move.after !== null ? signatureSummary(move.before, move.after) : null;
     items.push({ kind: "contract", label: `${name}${move.exportName === undefined ? "" : ` as ${move.exportName}`} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), ...(summary === null ? {} : { summary }), path: node.path, blast: blastOf([node.path], move.from === undefined || was === undefined ? [] : [was.path], of), ids: [move.id] });
   }
 
