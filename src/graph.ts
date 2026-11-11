@@ -105,10 +105,10 @@ export function qualifiedName(parent: string, text: string, ordinal: number): st
   return parent === "" ? segment : `${parent}.${segment}`;
 }
 
-export type ResourceKind = "process" | "network" | "file system" | "queue" | "timer";
+export type ResourceKind = "process" | "network" | "file system" | "queue" | "timer" | "code loaded at run time";
 
 /** The order a reviewer reads resources in: what reaches furthest out first. */
-export const RESOURCE_ORDER: readonly ResourceKind[] = ["process", "network", "queue", "file system", "timer"];
+export const RESOURCE_ORDER: readonly ResourceKind[] = ["process", "network", "queue", "file system", "timer", "code loaded at run time"];
 
 export type ResourceId = string & { readonly __brand: "ResourceId" };
 
@@ -143,11 +143,12 @@ export interface EffectEdge {
 
 /**
  * A call that decides which file a module name or path means: `createRequire(base)`,
- * `require.resolve(name)`, `import(name)`. Kept apart from effects, which name a resource.
+ * `require.resolve(name)`, `import(name)`. Kept apart from effects, which name a resource; the
+ * ones that load code at run time (a non-literal `import()`, `createRequire`) are effects.
  */
 export interface ResolutionEdge {
   readonly from: NodeId;
-  /** "module createRequire", "require.resolve" or "import()". */
+  /** "require.resolve" or "import()" of a literal. */
   readonly operation: string;
   readonly args: readonly EffectArg[];
   readonly range: LineRange;

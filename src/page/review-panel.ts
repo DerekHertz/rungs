@@ -260,7 +260,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     const { edges, functions } = block;
     const title = element("h3", "review-subtitle", `New calls out${byAgent ? ", linked by the agent" : ""} (${edges} in ${plural(functions, "function")})`);
     if (byAgent) title.append(element("span", "review-tag claimed", "claimed"));
-    if (edges === 0 && block.tests.edges === 0) return [title, element("p", "review-empty", "No new call reaches a process, the network, the file system or a timer.")];
+    if (edges === 0 && block.tests.edges === 0) return [title, element("p", "review-empty", "No new call reaches a process, the network, the file system, a timer or code loaded at run time.")];
     const items = resourceSummaries(block.groups).map(resourceRow);
     if (block.tests.edges > 0) {
       items.push(

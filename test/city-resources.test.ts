@@ -26,6 +26,12 @@ describe("resource slots", () => {
     expect(city.resources[0]!.x + (last.x + last.w - city.resources[0]!.x) / 2).toBeCloseTo(PLAN_WIDTH / 2);
   });
 
+  test("code loaded at run time gets a plate after the others", () => {
+    const loading = extract(new Map([["a.cjs", "const fs = require('fs');\nfunction f(n) { fs.readFileSync(n); return require(n); }"]]));
+    const loadingCity = cityOf(pictureOf(loading, null), rootOf(loading));
+    expect(loadingCity.resources.map((resource) => resource.kind)).toEqual(["file system", "code loaded at run time"]);
+  });
+
   test("a graph without edges has no plates and no reaches", () => {
     const plain = cityOf(pictureOf(bare, null), root);
     expect(plain.resources).toEqual([]);
