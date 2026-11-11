@@ -34,3 +34,15 @@ test("picking inverts the rounded box that was drawn, not the unrounded zoom", (
   expect(pickAt([], [sprite], 17 + 209.9, 10, solid)).toBe("a.js");
   expect(pickAt([], [sprite], 17 + 210, 10, solid)).toBeUndefined();
 });
+
+test("a lit building drawn above the names is picked ahead of a name over it", () => {
+  const sprites: Placement<string>[] = [
+    { thing: "0.js", box: { x: 0, y: 0, w: 50, h: 50 }, cols: 50, rows: 50 },
+    { thing: "other", box: { x: 0, y: 0, w: 50, h: 50 }, cols: 50, rows: 50 },
+  ];
+  const names: Plaque<string>[] = [{ thing: "src", box: { x: 0, y: 20, w: 50, h: 14 } }];
+  expect(pickAt(names, sprites, 10, 25, solid)).toBe("src");
+  expect(pickAt(names, sprites, 10, 25, solid, (thing) => thing === "0.js")).toBe("0.js");
+  // Where the lit building has no opaque pixel the name still wins.
+  expect(pickAt(names, sprites, 10, 25, (thing) => thing !== "0.js", (thing) => thing === "0.js")).toBe("src");
+});

@@ -622,6 +622,15 @@ function placeOf(id: string): NodeId | undefined {
 
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
 function pickClaim(claim: ClaimRow): void {
+  if (claim.ids.length === 0) {
+    // No places: nothing stays lit from the claim before.
+    leaveInside();
+    cancelPending();
+    closePanel();
+    chosenKind = undefined;
+    townView.highlight([]);
+    return;
+  }
   pickPlaces(claim.ids);
 }
 
@@ -657,6 +666,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     cancelPending();
     if (insideFile !== undefined) leaveInside();
+    else if (selected === undefined && townView.isDimming()) townView.highlight([]);
     else if (selected !== undefined) closePanel();
     else {
       const to = escapeStep(focus, alone, townRoot, (id) => zoomOut(tree, id));

@@ -73,6 +73,8 @@ export interface TownView {
   select(id: NodeId | undefined, reach?: Reach): void;
   /** Outlines these buildings together; `chosen` lights those resources' structures and outlines them in its colour. */
   highlight(ids: readonly NodeId[], chosen?: ResourceKind | readonly ResourceKind[]): void;
+  /** Whether places are lit by a claim or a stop (not a resource), so the rest of the town is dimmed. */
+  isDimming(): boolean;
   /** Frames the block holding this folder. */
   flyTo(id: NodeId): void;
   /** Frames the block these files' lots stand in (a removed file's rubble may stand in a yard); the whole town when they share none. */
@@ -256,7 +258,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   /** The building thing of each lot: what its name stands for when picked. */
   const buildingOf = new Map<Lot, Thing>();
   let plaques: Plaque<Pick>[] = [];
-  function drawSprite(name: string, X: number, Y: number, line?: string, owner?: Pick, Z = 0): { x: number; y: number; w: number; h: number } | undefined {
+  function drawSprite(name: string, X: number, Y: number, line?: string, owner?: Pick, Z = 0, thick = false): { x: number; y: number; w: number; h: number } | undefined {
     const image = sheet.images.get(name);
     const size = sheet.sizes[name];
     if (image === undefined || size === undefined) return undefined;
@@ -270,9 +272,13 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     if (box.x > canvas.width || box.y > canvas.height || box.x + box.w < 0 || box.y + box.h < 0) return box;
     if (owner !== undefined) placements.push({ thing: owner, box, cols: size.w, rows: size.h });
     if (line !== undefined) {
-      const spread = Math.max(2, Math.round(2 * dpr));
+      // A place a selection lit gets a wider outline, in screen pixels, so it keeps its width at any zoom.
+      const spread = thick ? Math.max(5, Math.round(5 * dpr)) : Math.max(2, Math.round(2 * dpr));
       const tile = silhouetteOf(name, line);
-      if (tile !== undefined) for (const [dx, dy] of [[spread, 0], [-spread, 0], [0, spread], [0, -spread]] as const) ctx.drawImage(tile, box.x + dx, box.y + dy, box.w, box.h);
+      const reach = thick ? Math.round(spread * 0.7) : 0;
+      const offsets: (readonly [number, number])[] = [[spread, 0], [-spread, 0], [0, spread], [0, -spread]];
+      if (thick) offsets.push([reach, reach], [-reach, reach], [reach, -reach], [-reach, -reach]);
+      if (tile !== undefined) for (const [dx, dy] of offsets) ctx.drawImage(tile, box.x + dx, box.y + dy, box.w, box.h);
     }
     ctx.drawImage(image, box.x, box.y, box.w, box.h);
     return box;
@@ -285,6 +291,11 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     if (thing.lot.id === selected) return COLOUR.select;
     if (highlighted.has(thing.lot.id)) return chosen.size === 0 ? COLOUR.select : EFFECT_COLOR;
     return thing === hovered ? COLOUR.hover : undefined;
+  }
+
+  /** Whether a thing is a building lit by a claim or a stop, which is drawn above the names. */
+  function isLitThing(thing: Pick): boolean {
+    return highlighted.size > 0 && chosen.size === 0 && thing.kind === "lot" && thing.part === "building" && highlighted.has(thing.lot.id);
   }
 
   /** The boxes names already took this frame; a name that would cover one is left out, and shows when the camera is closer. */
@@ -441,9 +452,20 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     plaques = [];
     // Footpaths lie on the ground, under everything that stands.
     for (const lot of town.lots) if (lot.reached && lot.change !== "removed" && lot.change !== "moved-away") drawSprite("footpath-y", footpathAt(lot).X, footpathAt(lot).Y);
+    // While places are lit (a claim, a stop), the ground and every other building recede so the lit ones stand out.
+    const dimming = highlighted.size > 0 && chosen.size === 0;
+    if (dimming) {
+      ctx.fillStyle = "rgba(8,12,18,0.55)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    const isLit = (thing: Thing): boolean => dimming && isLitThing(thing);
     for (const thing of things) {
+      // Lit buildings wait for a last pass, so nothing faded or named is drawn over them.
+      if (isLit(thing)) continue;
+      ctx.globalAlpha = dimming ? 0.4 : 1;
       drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z);
       if (thing.kind === "lot" && thing.part === "moved-sign" && thing.lot.movedTo !== null) boardText(thing.lot.movedTo.path, thing.X, thing.Y);
+      ctx.globalAlpha = 1;
     }
 
     drawReachLines();
@@ -453,6 +475,8 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
     taken = [];
+    // Names fade with the rest while places are lit, so they do not hide the lit buildings under them.
+    ctx.globalAlpha = dimming ? 0.5 : 1;
     // Every harbour structure is named; where far away they would stack on each other, each moves down
     // out of the previous one's way.
     let lowest = -Infinity;
@@ -513,6 +537,9 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
         pill(lot.name, at.x, lot.crane ? at.y : at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), lot.change === "altered" ? COLOUR.mark : COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.9, false, buildingOf.get(lot));
       }
     }
+    // The lit buildings, last: above the faded ones and the names, at full strength with their wide outline.
+    ctx.globalAlpha = 1;
+    for (const thing of things) if (isLit(thing)) drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing, thing.Z, true);
   }
 
   // Picking: the topmost sprite whose drawn pixel lies under the pointer, else the lot's ground.
@@ -529,7 +556,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       const mask = maskOf(thing.sprite);
       const size = sheet.sizes[thing.sprite];
       return mask !== undefined && size !== undefined && mask[(row * size.w + column) * 4 + 3]! > 8;
-    });
+    }, (thing) => isLitThing(thing));
     if (found !== undefined) return found;
     // Empty ground in a lot: in the diamond of the lot.
     const ground = groundUnder(px, py);
@@ -757,6 +784,9 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       highlighted = new Set(ids);
       chosen = new Set(kind === undefined ? [] : typeof kind === "string" ? [kind] : kind);
       dirty = true;
+    },
+    isDimming() {
+      return highlighted.size > 0 && chosen.size === 0;
     },
     flyTo(id) {
       // The smallest block holding the folder: a nested block's own pad when it is one.

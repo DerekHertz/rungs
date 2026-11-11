@@ -26,7 +26,7 @@ const within = (box: Box, px: number, py: number): boolean => px >= box.x && py 
  * What the pixel (px, py) shows: a name first, since names are drawn over everything, then the
  * sprites from the front-most, the first whose drawn pixel is opaque. Both lists are in drawing
  * order, and the boxes are the ones the drawing used, so picking inverts exactly what was drawn,
- * rounding included.
+ * rounding included. Things `front` accepts are drawn last, above the names, so they are tried first.
  */
 export function pickAt<T>(
   plaques: readonly Plaque<T>[],
@@ -34,16 +34,23 @@ export function pickAt<T>(
   px: number,
   py: number,
   opaque: (thing: T, column: number, row: number) => boolean,
+  front?: (thing: T) => boolean,
 ): T | undefined {
+  const hit = (placement: Placement<T>): boolean => {
+    const { thing, box, cols, rows } = placement;
+    if (!within(box, px, py)) return false;
+    const column = Math.min(cols - 1, Math.floor(((px - box.x) * cols) / box.w));
+    const row = Math.min(rows - 1, Math.floor(((py - box.y) * rows) / box.h));
+    return opaque(thing, column, row);
+  };
+  if (front !== undefined) {
+    for (let i = placements.length - 1; i >= 0; i--) if (front(placements[i]!.thing) && hit(placements[i]!)) return placements[i]!.thing;
+  }
   for (let i = plaques.length - 1; i >= 0; i--) {
     if (within(plaques[i]!.box, px, py)) return plaques[i]!.thing;
   }
   for (let i = placements.length - 1; i >= 0; i--) {
-    const { thing, box, cols, rows } = placements[i]!;
-    if (!within(box, px, py)) continue;
-    const column = Math.min(cols - 1, Math.floor(((px - box.x) * cols) / box.w));
-    const row = Math.min(rows - 1, Math.floor(((py - box.y) * rows) / box.h));
-    if (opaque(thing, column, row)) return thing;
+    if (hit(placements[i]!)) return placements[i]!.thing;
   }
   return undefined;
 }

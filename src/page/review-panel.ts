@@ -228,9 +228,8 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     // A restated claim is reached through its source sentences: the description's own words.
     if (claim.restated) full.append(element("blockquote", "review-source", claim.sources.map((source) => source.text).join(" ")));
     full.hidden = true;
-    const pick = picker("review-pick review-claim-row", full, () => {
-      if (claim.ids.length > 0) input.pickClaim(claim);
-    });
+    // A claim with no places is still picked: it clears what the claim before it lit.
+    const pick = picker("review-pick review-claim-row", full, () => input.pickClaim(claim));
     pick.title = claim.text;
     pick.append(element("span", "rv-one review-claim", claim.text));
     if (linked) pick.append(element("span", claim.ids.length === 0 ? "review-flag" : "review-size", claim.ids.length === 0 ? "no places" : plural(claim.ids.length, "place")));
