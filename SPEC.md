@@ -145,7 +145,12 @@ altered, removed or moved. Moved means identical text under a new path, never a 
 
 Within each kind, a larger blast radius comes first. A selected file says why it matters before
 its lines: its contracts moved, how many files rest on it, its new effects and whether a test
-reaches it. A summary written by an agent may sit beside the risks, claimed, never in their place.
+reaches it. It lists its defining blocks first: the changed functions, methods and classes that
+are exported, moved a contract, gained or changed an effect, or have the most dependents, then
+other changed blocks. Imports, unchanged code and unnamed callbacks fold under their holder. In the
+source, the lines of defining blocks are open and the rest collapsed. A block's callers and
+callees, in the file or beyond it, start collapsed and open one step at a time. A summary written
+by an agent may sit beside the risks, claimed, never in their place.
 
 A panel answers the three questions, and each entry selects places on the picture. It shows one summary row per question, number first ("Claims: 10 of 13 linked", "Tests: 23 fail of 210"); one row is open at a time and takes the column's height. Each item is one line, with detail when selected. Explanations and run details sit under "About this run", except the tests' evidence caveat, which stays one hover or click from the Tests row:
 
