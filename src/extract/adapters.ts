@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { CodeLevel, EffectArg, EffectTarget, ResourceKind } from "../graph.ts";
+import type { CodeLevel, EffectArg, EffectTarget, FileTree, ImportSyntax, ResourceKind } from "../graph.ts";
 import { javaScriptAndTypeScript } from "./javascript.ts";
 
 export interface SourceFile {
@@ -52,16 +52,32 @@ export interface ResolutionSite {
   readonly end: number;
 }
 
+/** Where an import points: a tree path, a package outside the tree, or nothing that answers. */
+export type ImportSiteTarget = { readonly file: string } | { readonly external: string } | { readonly unresolved: true };
+
+/** One import of a literal module name, already resolved against the tree. */
+export interface ImportSite {
+  readonly specifier: string;
+  readonly syntax: ImportSyntax;
+  readonly typeOnly: boolean;
+  readonly target: ImportSiteTarget;
+  /** The whole statement or call, end exclusive. */
+  readonly start: number;
+  readonly end: number;
+}
+
 export interface FileOutline {
   readonly declarations: readonly Declaration[];
   readonly effects: readonly EffectSite[];
   readonly resolutions: readonly ResolutionSite[];
+  readonly imports: readonly ImportSite[];
 }
 
 // The language seam in SPEC.md: files of one language in, an outline of each file out.
 export interface LanguageAdapter {
   readonly language: string;
-  analyse(files: readonly SourceFile[]): ReadonlyMap<string, FileOutline>;
+  /** `tree` is every file of the tree, for resolving what a file imports. */
+  analyse(files: readonly SourceFile[], tree: FileTree): ReadonlyMap<string, FileOutline>;
 }
 
 const ADAPTERS_BY_EXTENSION: ReadonlyMap<string, LanguageAdapter> = new Map([

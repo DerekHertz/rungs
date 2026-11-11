@@ -155,6 +155,48 @@ export interface ResolutionEdge {
 
 export type Edge = EffectEdge;
 
+/** The syntax that made the edge: `import x from`, `export ... from`, `require("x")`, `import("x")`. */
+export type ImportSyntax = "import" | "export from" | "require" | "import()";
+
+/**
+ * Where an import points: a file of the tree, a package outside it named by its specifier (never
+ * a node), or "unresolved" when the specifier is relative, or names a package of this tree, and
+ * no file answers to it. Shown as exactly that, never dropped.
+ */
+export type ImportTarget = { readonly file: NodeId } | { readonly external: string } | { readonly unresolved: true };
+
+/** One static import, `export ... from`, or `require` / `import()` of a string literal, pinned to its lines. */
+export interface ImportEdge {
+  /** The file node that holds it. */
+  readonly from: NodeId;
+  /** The module name as written. */
+  readonly specifier: string;
+  readonly syntax: ImportSyntax;
+  /** `import type` and `export type ... from`: erased before the code runs. */
+  readonly typeOnly: boolean;
+  readonly target: ImportTarget;
+  readonly range: LineRange;
+}
+
+export const importTargetText = (target: ImportTarget): string =>
+  "file" in target ? target.file : "external" in target ? `external:${target.external}` : "unresolved";
+
+export function compareImports(a: ImportEdge, b: ImportEdge): number {
+  const key = (edge: ImportEdge): string => `${edge.syntax}\0${importTargetText(edge.target)}\0${edge.specifier}\0${edge.typeOnly}`;
+  return compareIds(a.from, b.from) || a.range.start - b.range.start || a.range.end - b.range.end || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+}
+
+export function canonicalImport(edge: ImportEdge): object {
+  return {
+    from: edge.from,
+    specifier: edge.specifier,
+    syntax: edge.syntax,
+    typeOnly: edge.typeOnly,
+    target: edge.target,
+    range: { start: edge.range.start, end: edge.range.end },
+  };
+}
+
 export interface Graph {
   readonly extractorVersion: string;
   readonly nodes: readonly ModuleNode[];
@@ -162,6 +204,8 @@ export interface Graph {
   readonly edges: readonly Edge[];
   /** Sorted by compareResolutions. */
   readonly resolutions: readonly ResolutionEdge[];
+  /** Sorted by compareImports. */
+  readonly imports: readonly ImportEdge[];
 }
 
 /** The resources some edge reaches, in RESOURCE_ORDER. */
@@ -260,5 +304,6 @@ export function serializeGraph(graph: Graph): string {
   const nodes = [...graph.nodes].sort((a, b) => compareIds(a.id, b.id)).map(canonicalNode);
   const edges = [...graph.edges].sort(compareEdges).map(canonicalEdge);
   const resolutions = [...graph.resolutions].sort(compareResolutions).map(canonicalResolution);
-  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions }, null, 2)}\n`;
+  const imports = [...graph.imports].sort(compareImports).map(canonicalImport);
+  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions, imports }, null, 2)}\n`;
 }

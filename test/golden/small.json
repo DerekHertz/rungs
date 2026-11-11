@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "10",
+  "extractorVersion": "11",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -1111,5 +1111,98 @@
       }
     }
   ],
-  "resolutions": []
+  "resolutions": [],
+  "imports": [
+    {
+      "from": "file:src/effects.cjs",
+      "specifier": "node:fs",
+      "syntax": "require",
+      "typeOnly": false,
+      "target": {
+        "external": "node:fs"
+      },
+      "range": {
+        "start": 1,
+        "end": 1
+      }
+    },
+    {
+      "from": "file:src/effects.cjs",
+      "specifier": "child_process",
+      "syntax": "require",
+      "typeOnly": false,
+      "target": {
+        "external": "child_process"
+      },
+      "range": {
+        "start": 2,
+        "end": 2
+      }
+    },
+    {
+      "from": "file:src/effects.mjs",
+      "specifier": "node:child_process",
+      "syntax": "import",
+      "typeOnly": false,
+      "target": {
+        "external": "node:child_process"
+      },
+      "range": {
+        "start": 1,
+        "end": 1
+      }
+    },
+    {
+      "from": "file:src/effects.mjs",
+      "specifier": "node:fs",
+      "syntax": "import",
+      "typeOnly": false,
+      "target": {
+        "external": "node:fs"
+      },
+      "range": {
+        "start": 2,
+        "end": 2
+      }
+    },
+    {
+      "from": "file:src/effects.mjs",
+      "specifier": "node:http",
+      "syntax": "import",
+      "typeOnly": false,
+      "target": {
+        "external": "node:http"
+      },
+      "range": {
+        "start": 3,
+        "end": 3
+      }
+    },
+    {
+      "from": "file:src/effects.mjs",
+      "specifier": "node:util",
+      "syntax": "import",
+      "typeOnly": false,
+      "target": {
+        "external": "node:util"
+      },
+      "range": {
+        "start": 4,
+        "end": 4
+      }
+    },
+    {
+      "from": "file:src/index.ts",
+      "specifier": "./util/math.ts",
+      "syntax": "import",
+      "typeOnly": false,
+      "target": {
+        "file": "file:src/util/math.ts"
+      },
+      "range": {
+        "start": 1,
+        "end": 1
+      }
+    }
+  ]
 }
