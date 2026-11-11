@@ -1,4 +1,5 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
+import type { TestMark } from "../test-marks.ts";
 import { allBlocks, AXIS, blockAtGround, blockFor, blockLabel, blockNamedAt, CRANE_AT, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt, namesAt, project, standingBlock, zoomLimits } from "../town.ts";
 import { pickAt } from "../town-pick.ts";
 import { callsOut, clipToView, fileOfSelection, reachLines, stackTags } from "../town-calls.ts";
@@ -92,13 +93,17 @@ const FIT_FILL = 0.92;
 const FLAG_AT = { X: 1.75, Y: 1.75 } as const;
 /** Where the mast of a new call to the outside stands, from the lot's middle: the corner opposite the pennant (the crane is behind). */
 const CALL_AT = { X: -1.75, Y: -1.75 } as const;
+/** Where the banner of a test file the change weakened or edited stands: the lot's last corner, right of the gate. */
+const TEST_AT = { X: 1.75, Y: -1.75 } as const;
+/** The sprite a test file's mark picks. */
+const TEST_FLAG: Readonly<Record<TestMark, string>> = { weakened: "flag-test-weakened", edited: "flag-test-edited" };
 /** How far inside the screen's edge a line to a harbour structure out of view is cut, in CSS pixels. */
 const LINE_MARGIN = 28;
 const CLICK_SLOP = 4;
 const FLIGHT_MS = 260;
 
 /** Which sprite of a lot this is: the building (or rubble), or a mark standing on it. */
-type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag" | "call-mast";
+type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag" | "test-flag" | "call-mast";
 
 type Thing =
   | { readonly kind: "lot"; readonly lot: Lot; readonly part: Part; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number }
@@ -121,7 +126,7 @@ interface Camera {
   cy: number;
 }
 
-export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set(), reaches: ReadonlyMap<NodeId, Reach> = new Map()): TownView {
+export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set(), reaches: ReadonlyMap<NodeId, Reach> = new Map(), testFiles: ReadonlyMap<NodeId, TestMark> = new Map()): TownView {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
   canvas.setAttribute("aria-label", "Town of the repository");
@@ -707,6 +712,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
           ...(lot.crane ? [mark("crane", "crane", lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, -0.2)] : []),
           ...(calls.has(lot.id) && sheet.sizes["mast-call"] !== undefined ? [mark("call-mast", "mast-call", lot.X + CALL_AT.X, lot.Y + CALL_AT.Y, 0.2, lot.raise)] : []),
           ...(failing.has(lot.id) && sheet.sizes["flag-failing"] !== undefined ? [mark("flag", "flag-failing", lot.X + FLAG_AT.X, lot.Y + FLAG_AT.Y, 0.2, lot.raise)] : []),
+          ...(testFiles.has(lot.id) && sheet.sizes[TEST_FLAG[testFiles.get(lot.id)!]] !== undefined ? [mark("test-flag", TEST_FLAG[testFiles.get(lot.id)!], lot.X + TEST_AT.X, lot.Y + TEST_AT.Y, 0.2, lot.raise)] : []),
           ...(lot.movedTo === null ? [] : [mark("moved-sign", "sign-moved", lot.X + MOVED_SIGN_AT.X, lot.Y + MOVED_SIGN_AT.Y, 0)]),
         ];
       };

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isCodeNode } from "./graph.ts";
 import type { FileTree, Graph, NodeId } from "./graph.ts";
 import { isTestFile } from "./test-files.ts";
+import { titlesOf } from "./test-marks.ts";
 import { runIsolated } from "./sandbox.ts";
 import type { Isolation, Places } from "./sandbox.ts";
 import type { ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest, WrittenDocument } from "./observed-types.ts";
@@ -568,33 +569,7 @@ export function treeDigest(tree: FileTree): string {
   return hash.digest("hex").slice(0, 32);
 }
 
-const TEST_CALLEES = new Set(["test", "it", "describe", "suite", "context", "skip", "only", "todo", "concurrent", "sequential", "fails"]);
-const CALLBACK = /^([\w$]+)\(("(?:[^"\\]|\\.)*")\) callback$/;
 const MESSAGE_LIMIT = 2000;
-
-/** The (text, ordinal) pairs of a qualified name, as graph.ts's qualifiedName writes them. */
-function segments(name: string): string[] {
-  const texts: string[] = [];
-  let rest = name;
-  while (rest !== "") {
-    const quoted = /^"(?:[^"\\]|\\.)*"/.exec(rest)?.[0];
-    const head = quoted ?? /^[^.@]+/.exec(rest)?.[0] ?? rest;
-    texts.push(quoted === undefined ? head : (JSON.parse(quoted) as string));
-    rest = rest.slice(head.length).replace(/^@\d+/, "").replace(/^\./, "");
-  }
-  return texts;
-}
-
-/** The titles a test function is reported under, or undefined when any level is not a test or suite call. */
-function titlesOf(qualifiedName: string): string[] | undefined {
-  const titles: string[] = [];
-  for (const text of segments(qualifiedName)) {
-    const match = CALLBACK.exec(text);
-    if (match === null || !TEST_CALLEES.has(match[1] ?? "")) return undefined;
-    titles.push(JSON.parse(match[2] ?? '""') as string);
-  }
-  return titles;
-}
 
 const SUITE_FAILED = "the suite failed outside its tests (a hook or setup)";
 const EDITED = "main's version of this file ran; this PR edited it";
