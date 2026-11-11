@@ -58,6 +58,7 @@ describe("effect edges", () => {
     to: resourceId("process"),
     operation,
     target: { literal: "git" },
+    args: [],
     range: { start, end: start },
   });
 
@@ -81,6 +82,7 @@ describe("effect edges", () => {
     const graph: Graph = {
       extractorVersion: "9",
       nodes: [],
+      resolutions: [],
       edges: [
         { ...edge("function:b.js#f", 1, "x"), target: "unknown" },
         { ...edge("function:a.js#f", 1, "x"), target: "none" },
@@ -93,6 +95,6 @@ describe("effect edges", () => {
       ["function:a.js#f", "none"],
       ["function:b.js#f", "unknown"],
     ]);
-    expect(Object.keys(parsed)).toEqual(["extractorVersion", "nodes", "edges"]);
+    expect(Object.keys(parsed)).toEqual(["extractorVersion", "nodes", "edges", "resolutions"]);
   });
 });
