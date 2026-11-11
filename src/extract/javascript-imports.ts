@@ -96,6 +96,9 @@ export class ImportResolver {
       const path = this.real(found.resolvedFileName);
       if (this.tree.has(path)) return { file: path };
     }
+    // moduleSuffixes make TypeScript reject a code file it would otherwise find; that answer stands.
+    const rejected = settings.options.moduleSuffixes !== undefined && CODE_EXTENSION.test(clean);
+    if ((relative || specifier.startsWith("/")) && rejected) return { unresolved: true };
     if (relative || specifier.startsWith("/")) {
       // Not code TypeScript resolves (a stylesheet, an image): the file is still the target.
       const path = posix.normalize(clean.startsWith("/") ? clean.slice(1) : posix.join(posix.dirname(from), clean));
@@ -178,6 +181,8 @@ export class ImportResolver {
 }
 
 // Not a path any tree has: a file named so would need a NUL in it.
+const CODE_EXTENSION = /\.(?:[cm]?[jt]sx?|json)$/;
+
 const OUTSIDE = "\0outside";
 
 const leaves = (path: string): boolean => {

@@ -17,6 +17,11 @@ describe("import edges, review round 2", () => {
     ).toEqual([{ file: file("b.native.ts") }]);
   });
 
+  test("with moduleSuffixes set, a code file the resolver rejected is not linked by its exact name", () => {
+    const files = { "tsconfig.json": '{"compilerOptions":{"moduleSuffixes":[".native"]}}', "a.ts": 'import "./b.js";\nimport "./s.css";', "b.ts": "", "b.js": "", "s.css": "" };
+    expect(targets(files)).toMatchObject([{ unresolved: true }, { file: file("s.css") }]);
+  });
+
   test("customConditions from the tsconfig pick the exports branch", () => {
     expect(
       targets({
