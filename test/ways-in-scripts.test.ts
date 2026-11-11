@@ -108,6 +108,13 @@ describe("round-2 edge cases (#126)", () => {
     expect(scripts("tool.js", ["tool.js"])).toEqual([]);
     expect(scripts("/abs/tool.js", ["abs/tool.js"])).toEqual([]);
   });
+  test("only flags that replace the script skip the command", () => {
+    expect(scripts("node -i app.js", ["app.js"])).toEqual(["app.js"]);
+    expect(scripts("node --interactive app.js", ["app.js"])).toEqual(["app.js"]);
+    expect(scripts("node -c app.js", ["app.js"])).toEqual(["app.js"]);
+    expect(scripts("node --check app.js", ["app.js"])).toEqual(["app.js"]);
+    expect(scripts("node -p 1 app.js", ["app.js"])).toEqual([]);
+  });
   test("tsx has a watch subcommand and takes node's --test", () => {
     expect(scripts("tsx watch app.js", ["app.js"])).toEqual(["app.js"]);
     expect(scripts("tsx --test a.js b.js", ["a.js", "b.js"])).toEqual(["a.js", "b.js"]);

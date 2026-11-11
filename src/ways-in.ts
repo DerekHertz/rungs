@@ -28,7 +28,7 @@ interface Runner {
 }
 const runner = (r: Partial<Runner>): Runner => ({ tries: [""], valued: new Set(), inline: new Set(), subcommands: new Set(), testFlag: false, ...r });
 const NODE_VALUED = ["-r", "--require", "--import", "--loader", "--experimental-loader", "--env-file", "--conditions", "-C", "--input-type", "--title", "--stack-trace-limit", "--max-old-space-size", "--watch-path", "--test-reporter", "--test-reporter-destination", "--test-name-pattern", "--test-concurrency", "--disable-warning"];
-const NODE_INLINE = ["-e", "--eval", "-p", "--print", "-c", "--check", "-i", "--interactive"];
+const NODE_INLINE = ["-e", "--eval", "-p", "--print"];
 /** What a script command starts a file with: only a command's own first word counts, and each runner has its own options and name tries. */
 const RUNNERS: ReadonlyMap<string, Runner> = new Map([
   ["node", runner({ tries: MAIN_TRIES, valued: new Set(NODE_VALUED), inline: new Set(NODE_INLINE), testFlag: true })],
