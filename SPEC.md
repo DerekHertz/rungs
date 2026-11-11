@@ -40,10 +40,12 @@ Each level is computed from the one below it. Only the graph is stored; the rest
 
 1. **One writer.** The extractor is the only module that writes graph facts. It is deterministic,
    makes no model calls, and is a pure function from a file tree to a graph.
-2. **Three tiers, never mixed.** *Derived* facts come from the extractor. *Observed* facts are
+2. **Four tiers, never mixed.** *Derived* facts come from the extractor. *Observed* facts are
    recorded from one run of one tree (test results first). *Claimed* facts come from people and
-   agents (descriptions, narration). Observed and claimed facts attach to graph nodes and can
-   never create or change one. The tiers are stored apart and drawn differently.
+   agents (descriptions, narration). *Judged* facts are a classifier's answer to a typed question
+   about two things already on the page, recorded with the question, what it was shown, its
+   probability and the threshold used. Observed, claimed and judged facts attach to graph nodes
+   and can never create or change one. The tiers are stored apart and drawn differently.
 3. **Nothing is drawn that is not a fact.** A theme may style a fact but may not add an object.
 4. **Lazy.** Pseudocode, narration and call edges are computed when a view needs them.
 5. **Never guess.** An unresolved call, an effect with an unknown target and a file with no
@@ -81,6 +83,14 @@ Each level is computed from the one below it. Only the graph is stored; the rest
 - **Importance** of a module is what stops working if it stops: everything that rests on it
   through import edges, directly or indirectly. The number is always shown with the list behind
   it. A code file (one a language adapter analyses) that no way in reaches is shown as "nothing reaches it", never called dead; other files are never shown that way.
+
+## Vocabulary
+
+A term is a word the repository uses for one of its concepts, taken from its headings, folders,
+exported names and tests, and pinned to those lines. Where these cover too little of the code, a
+model may propose terms, shown as claimed. Whether a module belongs to a term is judged. A module
+may belong to several terms or none. The vocabulary is stored apart from the graph and is marked
+drafted until a person certifies it.
 
 ## The picture
 
@@ -150,7 +160,8 @@ are exported, moved a contract, gained or changed an effect, or have the most de
 other changed blocks. Imports, unchanged code and unnamed callbacks fold under their holder. In the
 source, the lines of defining blocks are open and the rest collapsed. A block's callers and
 callees, in the file or beyond it, start collapsed and open one step at a time. A summary written
-by an agent may sit beside the risks, claimed, never in their place.
+by an agent may sit beside the risks, claimed, never in their place. A judged mark may sit beside
+a risk, saying how sure a classifier is that it matters; it never reorders or removes one.
 
 A panel answers the three questions, and each entry selects places on the picture. It shows one summary row per question, number first ("Claims: 10 of 13 linked", "Tests: 23 fail of 210"); one row is open at a time and takes the column's height. Each item is one line, with detail when selected. Explanations and run details sit under "About this run", except the tests' evidence caveat, which stays one hover or click from the Tests row:
 
@@ -218,6 +229,15 @@ Narration in plain English sits beside the pseudocode as a claimed fact, anchore
 describes and marked stale when the function changes. It is written on request, and ahead of
 time only for functions in "contracts moved".
 
+**Judged.** A judged check compares two things that already exist and returns a probability. It
+writes no text. A threshold, chosen by the change's complexity and stakes from the reviewer's
+table, turns the probability into settled, flagged or undecided. A settled item folds to one line
+and stays in its count; nothing judged ever removes a derived fact. Clicking a judged mark shows
+the question, what the classifier was shown and its answer. A check ships only after a test on
+known cases, and its rate of wrong passes is shown beside it. Without a classifier the page shows
+"not judged". Judged checks send source text to a hosted model and are off unless the reviewer
+turns them on.
+
 ## Seams
 
 | Seam | Interface | First adapter | Next |
@@ -247,7 +267,8 @@ switching theme moves nothing.
 
 A local command builds or updates the graph for the checkout it runs in. A second compares
 against a base. Both open a local page. Agents call the same commands and cannot write to the
-graph.
+graph. `streets setup` builds a repository's vocabulary and stakes once, and stores them with the
+cache.
 
 ## Parked
 
