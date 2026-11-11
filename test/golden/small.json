@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "15",
+  "extractorVersion": "16",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -1228,6 +1228,7 @@
       "level": "section",
       "path": "README.md",
       "name": "Small",
+      "heading": "Small",
       "parent": "file:README.md",
       "headingLevel": 1,
       "qualifiedName": "Small",
