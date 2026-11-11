@@ -18,6 +18,14 @@ export const PAD = 0.5;
 export const GAP = 3.2;
 /** Harbour structures stand this far apart along the east shore. */
 export const PIER_SPACING = 4.4;
+/** The least the coast's wobble takes its radius to: 1 - (0.07 + 0.05 + 0.03). */
+const WOBBLE_LEAST = 0.85;
+/** The lawn is the coast pulled in to this share. */
+const LAWN_SHARE = 0.95;
+/** A chord of the 120-gon lies at least this far inside its circle. */
+const CHORD = 0.99;
+/** Clear ground between the outermost lot and the lawn edge. */
+const ISLAND_MARGIN = 3;
 
 /** Screen pixels per ground unit of the sheet, as the sheet was rendered (see themes/town/make_sprites.py). */
 const PPU = 48;
@@ -254,9 +262,12 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>): Town {
     });
   }
 
-  // The island is an ellipse round the plan with a fixed wobble; the harbour stands on its east shore.
-  const radiusX = (width / 2) * 1.38 + 6;
-  const radiusY = (depth / 2) * 1.38 + 6;
+  // The island is a wobbled ellipse round the plan; the harbour stands on its east shore. The wobble never
+  // takes the radius below WOBBLE_LEAST of its base, so growing the ellipse through the plan's corners
+  // (a margin out) by that and the lawn's share means even the lawn holds the whole plan.
+  const grow = Math.SQRT2 / (WOBBLE_LEAST * LAWN_SHARE * CHORD);
+  const radiusX = (width / 2 + ISLAND_MARGIN) * grow;
+  const radiusY = (depth / 2 + ISLAND_MARGIN) * grow;
   const loop = (scale: number): [number, number][] =>
     Array.from({ length: 120 }, (_, i) => {
       const t = (i / 120) * Math.PI * 2;
