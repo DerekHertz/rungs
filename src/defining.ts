@@ -109,7 +109,7 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
     else folds.set(holder.id, [...(folds.get(holder.id) ?? []), node.id]);
   }
   const blocks: Block[] = [];
-  const changedIds = new Set<NodeId>(comparison.changes.filter((change) => change.kind !== "removed").map((change) => change.node.id));
+  const changedIds = new Set<NodeId>(comparison.changes.filter((change) => change.kind === "altered" || change.kind === "added").map((change) => change.node.id));
   // A block is listed when its text changed, or when a contract moved or an effect arrived at it with the text the same (an import now points elsewhere).
   for (const node of head.nodes) {
     if (!isCodeNode(node) || node.path !== path || isAnonymous(node)) continue;
