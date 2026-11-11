@@ -253,6 +253,11 @@ export function walkSummary(note: WalkNote, stops: number): string {
   return `${stops} ${stops === 1 ? "stop" : "stops"} by ${note.model}${note.cached ? ", cached" : ""} (prompt ${note.promptVersion}); dropped ${d.stops} stops, ${d.ids} unknown ids, ${d.claims} bad claim numbers and ${d.sentences} unanchored sentences, not shown.`;
 }
 
+/** The footer's short status before the tour starts: the stop count, or why there is none. The diagnostics stay in walkSummary, for "About this run". */
+export function walkStatus(note: WalkNote, stops: number): string {
+  return note.status === "ok" ? `${stops} ${stops === 1 ? "stop" : "stops"}` : walkSummary(note, stops);
+}
+
 /** One line on how much of the change the tour covers. */
 export function coverageLine(coverage: { readonly covered: number; readonly changed: number }): string {
   return `The tour covers ${coverage.covered} of ${coverage.changed} changed ${coverage.changed === 1 ? "file" : "files"}.`;

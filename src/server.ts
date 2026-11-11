@@ -110,6 +110,7 @@ export async function serve(
   walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
   narrator?: Narrator,
   tests?: TestRun,
+  repo?: string,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
@@ -133,6 +134,7 @@ export async function serve(
   const resources = new Map<string, Resource>([
     ["/", { contentType: "text/html; charset=utf-8", body: html }],
     ["/main.js", { contentType: "text/javascript; charset=utf-8", body: script }],
+    ["/run.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", repo: repo ?? null }, null, 2)}\n` }],
     ["/graph.json", { contentType: "application/json; charset=utf-8", body: serializeGraph(graph) }],
     ["/ways-in.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", waysIn: waysIn(tree, graph) }, null, 2)}\n` }],
   ]);
