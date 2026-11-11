@@ -1,7 +1,7 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
 import { allBlocks, AXIS, blockAtGround, blockFor, blockLabel, blockNamedAt, CRANE_AT, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt, namesAt, project, standingBlock, zoomLimits } from "../town.ts";
 import { pickAt } from "../town-pick.ts";
-import { callsOut, clipToView, reachLines } from "../town-calls.ts";
+import { callsOut, clipToView, fileOfSelection, reachLines, stackTags } from "../town-calls.ts";
 import type { Reach } from "../reach.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
@@ -345,7 +345,9 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   function drawReachLines(): void {
     if (town === undefined) return;
     const pointed = hovered?.kind === "lot" && hovered.part === "building" ? hovered.lot : undefined;
-    const lot = selected !== undefined ? town.lots.find((candidate) => candidate.id === selected) : pointed;
+    // A function or class stands for the file it is in; its own reach (selectedReach) still decides the lines.
+    const selectedLot = selected === undefined ? undefined : fileOfSelection(selected, town.lots);
+    const lot = selected !== undefined ? town.lots.find((candidate) => candidate.id === selectedLot) : pointed;
     if (lot === undefined) return;
     const reach = selected !== undefined ? selectedReach : reaches.get(lot.id);
     const from = groundScreen(lot.X, lot.Y, lot.raise + 3);
@@ -381,11 +383,20 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     ctx.restore();
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
-    for (const tag of tags) {
-      const size = Math.round(12 * dpr);
-      ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
-      const half = ctx.measureText(tag.text).width / 2 + size * 0.4;
-      pill(tag.text, Math.min(view.width - half - 2, Math.max(half + 2, tag.x)), Math.min(canvas.height - size, Math.max(size, tag.y)), size, EFFECT_COLOR);
+    const size = Math.round(12 * dpr);
+    ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
+    const sized = tags.map((tag) => ({ ...tag, w: Math.ceil(ctx.measureText(tag.text).width + size * 0.8), h: Math.round(size * 1.5) }));
+    // Tags that would overlap are stacked; one moved off its line's end is joined to it by a short leader.
+    for (const tag of stackTags(sized, view)) {
+      if (tag.x !== tag.endX || tag.y !== tag.endY) {
+        ctx.strokeStyle = EFFECT_COLOR;
+        ctx.lineWidth = Math.max(1, Math.round(dpr));
+        ctx.beginPath();
+        ctx.moveTo(tag.endX, tag.endY);
+        ctx.lineTo(tag.x, tag.y);
+        ctx.stroke();
+      }
+      pill(tag.text, tag.x, tag.y, size, EFFECT_COLOR);
     }
   }
 

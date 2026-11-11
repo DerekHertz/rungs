@@ -4,7 +4,7 @@ import { compare, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { NodeId } from "../src/graph.ts";
 import { reachMap } from "../src/reach.ts";
-import { callsOut, clipToView, reachLines } from "../src/town-calls.ts";
+import { callsOut, clipToView, fileOfSelection, reachLines, stackTags } from "../src/town-calls.ts";
 import { townOf } from "../src/town.ts";
 import type { Pier } from "../src/town.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
@@ -96,5 +96,54 @@ describe("keeping a line on the screen", () => {
     expect(clipped.from).toEqual({ x: 10, y: 300 });
     expect(clipped.to).toEqual({ x: 600, y: 300 });
     expect(clipped.cut).toBe(false);
+  });
+});
+
+describe("which building a selection stands for", () => {
+  const lots = [{ id: id("file:src/effects.mjs") }, { id: id("file:src/a#b.ts") }];
+
+  test("a file is its own building", () => {
+    expect(fileOfSelection(id("file:src/effects.mjs"), lots)).toBe(id("file:src/effects.mjs"));
+  });
+
+  test("a function or class stands for the file it is in", () => {
+    expect(fileOfSelection(id("function:src/effects.mjs#serve"), lots)).toBe(id("file:src/effects.mjs"));
+    expect(fileOfSelection(id("class:src/effects.mjs#Server"), lots)).toBe(id("file:src/effects.mjs"));
+    expect(fileOfSelection(id("function:src/effects.mjs#Server.start"), lots)).toBe(id("file:src/effects.mjs"));
+  });
+
+  test("a selection in no building stands for none", () => {
+    expect(fileOfSelection(id("function:src/none.mjs#f"), lots)).toBeUndefined();
+  });
+});
+
+describe("tags of lines cut at the edge", () => {
+  const view = { width: 600, height: 600 };
+  const overlap = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+  test("tags that would overlap are stacked apart, each kept inside the view", () => {
+    const placed = stackTags(
+      [
+        { text: "process \u2192", x: 456, y: 572, w: 90, h: 20 },
+        { text: "network \u2192", x: 507, y: 572, w: 90, h: 20 },
+        { text: "file system \u2192", x: 566, y: 572, w: 120, h: 20 },
+      ],
+      view,
+    );
+    for (const [i, a] of placed.entries()) {
+      expect(a.x - a.w / 2).toBeGreaterThanOrEqual(0);
+      expect(a.x + a.w / 2).toBeLessThanOrEqual(600);
+      expect(a.y - a.h / 2).toBeGreaterThanOrEqual(0);
+      expect(a.y + a.h / 2).toBeLessThanOrEqual(600);
+      for (const b of placed.slice(i + 1)) expect(overlap({ ...a, x: a.x - a.w / 2, y: a.y - a.h / 2 }, { ...b, x: b.x - b.w / 2, y: b.y - b.h / 2 })).toBe(false);
+    }
+  });
+
+  test("a tag that overlaps nothing stays where it is, and each keeps its line's end", () => {
+    const placed = stackTags([{ text: "timer \u2192", x: 300, y: 300, w: 80, h: 20 }], view);
+    expect([placed[0]!.x, placed[0]!.y]).toEqual([300, 300]);
+    const two = stackTags([{ text: "a", x: 500, y: 580, w: 80, h: 20 }, { text: "b", x: 520, y: 580, w: 80, h: 20 }], view);
+    expect(two.map((tag) => [tag.endX, tag.endY])).toEqual([[500, 580], [520, 580]]);
   });
 });
