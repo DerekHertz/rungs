@@ -139,6 +139,13 @@ export interface AgentRunner {
 const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim().slice(0, 300);
 
 /** Runs `claude -p` on the person's own login: no tools, no session saved, no settings, stdin for the prompt. */
+/**
+ * The model and effort every agent question runs on. Passed explicitly because `--setting-sources ""`
+ * also drops the user's chosen model, and the CLI's own default can be its largest model.
+ */
+export const AGENT_MODEL = "opus";
+export const AGENT_EFFORT = "medium";
+
 export function claudeRunner(command = "claude"): AgentRunner {
   return {
     run({ system, prompt, schema, timeoutMs }) {
@@ -149,8 +156,13 @@ export function claudeRunner(command = "claude"): AgentRunner {
           "json",
           "--json-schema",
           JSON.stringify(schema),
+          "--model",
+          AGENT_MODEL,
+          "--effort",
+          AGENT_EFFORT,
           "--tools",
           "",
+          "--strict-mcp-config",
           "--no-session-persistence",
           "--setting-sources",
           "",
@@ -226,8 +238,9 @@ export function cacheDirectory(env: Record<string, string | undefined>, home: st
   return join(base !== undefined && base !== "" ? base : join(home, ".cache"), "rungs");
 }
 
-/** Hashes exactly what the agent is sent, so any difference in the prompt is a different key. */
-const keyOf = (prompt: { system: string; user: string }): string => createHash("sha256").update(JSON.stringify([prompt.system, prompt.user])).digest("hex");
+/** Hashes exactly what the agent is sent and the model asked, so any difference is a different key. */
+const keyOf = (prompt: { system: string; user: string }): string =>
+  createHash("sha256").update(JSON.stringify([AGENT_MODEL, AGENT_EFFORT, prompt.system, prompt.user])).digest("hex");
 
 /** One question for an agent: the exact prompt, the schema, and how to check the answer. */
 export interface Ask<T> {

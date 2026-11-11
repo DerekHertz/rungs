@@ -498,6 +498,69 @@
       .outline-line .quiet {
         color: #8a9bb0;
       }
+      #narrate-toggle {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        margin-top: 4px;
+        color: #8fb4d9;
+        cursor: pointer;
+      }
+      #narrate-toggle[hidden] {
+        display: none;
+      }
+      #narration {
+        flex: none;
+        max-height: 40%;
+        overflow: auto;
+        padding: 6px 10px;
+        border-bottom: 1px solid #263140;
+        line-height: 1.5;
+      }
+      #narration[hidden] {
+        display: none;
+      }
+      .narration-head {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 4px;
+      }
+      .narration-title {
+        color: #e6b85c;
+      }
+      .review-tag.stale {
+        color: #ff9d6b;
+        border-color: #ff9d6b;
+      }
+      .narration-sentence {
+        display: flex;
+        gap: 8px;
+        cursor: pointer;
+        font-style: italic;
+        color: #d9c9a3;
+      }
+      .narration-sentence:hover,
+      .narration-sentence.on {
+        background: #e6b85c1f;
+      }
+      .narration-sentence .at {
+        flex: none;
+        width: 10ch;
+        color: #5b6b7e;
+        font-style: normal;
+      }
+      .narration-note {
+        color: #8a9bb0;
+      }
+      .narration-again {
+        font: inherit;
+        color: #8fb4d9;
+        background: none;
+        border: 1px solid #5b6b7e;
+        border-radius: 2px;
+        cursor: pointer;
+      }
       #source-mark {
         position: absolute;
         left: 0;
@@ -815,9 +878,11 @@
         <header>
           <div id="source-title"></div>
           <div id="source-facts"></div>
+          <label id="narrate-toggle" hidden><input type="checkbox"> Narration</label>
           <button id="source-close" type="button" aria-label="Close source">&times;</button>
         </header>
         <div id="outline" aria-label="Pseudocode" hidden></div>
+        <div id="narration" aria-label="Narration" hidden></div>
         <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre><div id="source-mark" hidden></div></div>
       </aside>
     </div>

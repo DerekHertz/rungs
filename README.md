@@ -52,7 +52,7 @@ npm run rungs -- /path/to/a/git/checkout
 npm run rungs -- compare main /path/to/a/git/checkout --description pr.md --link
 ```
 
-The first command builds the graph, starts a local server on 127.0.0.1 and opens the city in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. `--description` reads the pull request's description as claims, and `--link` asks the Claude Code CLI to link them to the code, using your own login. `--port <n>` picks the port and `--no-open` skips the browser. Press R to reset the view and P to cycle the pixel-art render mode. Stop the server with Ctrl+C.
+The first command builds the graph, starts a local server on 127.0.0.1 and opens the city in your browser. Leave out the path to draw Rungs itself. The second compares the checkout, uncommitted changes included, against its merge base with `main`. `--description` reads the pull request's description as claims, and `--link` asks the Claude Code CLI to link them to the code, using your own login. `--narrate` offers a Narration toggle on each function: plain-English sentences beside its pseudocode, anchored to its lines and always marked claimed. The agent sees only the function's name, signature, line ranges and outline structure, never source text. Functions in contracts moved are narrated ahead of time (at most 30), and a narration is marked stale once the function changes. `--port <n>` picks the port and `--no-open` skips the browser. Press R to reset the view and P to cycle the pixel-art render mode. Stop the server with Ctrl+C.
 
 ## Verification and design
 

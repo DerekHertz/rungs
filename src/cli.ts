@@ -6,11 +6,13 @@ import { homedir } from "node:os";
 import { readBase, readCheckout, readExecutables } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
 import { parseOptions, USAGE } from "./options.ts";
+import { narrate } from "./narrate.ts";
 import { runTests } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
 import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "./observed-types.ts";
 import { chooseIsolation, detectSandbox } from "./sandbox.ts";
 import { serve } from "./server.ts";
+import type { Narrator } from "./server.ts";
 import type { FileTree } from "./graph.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
@@ -55,6 +57,9 @@ async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUn
   else console.error(`rungs: tests not run: ${run.why}`);
   return run;
 }
+
+/** One function's narration is a short answer. */
+const NARRATE_TIMEOUT_MS = 3 * 60 * 1000;
 
 const OPENERS: Partial<Record<NodeJS.Platform, (url: string) => [string, string[]]>> = {
   darwin: (url) => ["open", [url]],
@@ -137,7 +142,24 @@ try {
           return outcome;
         }
       : undefined;
-    const server = await serve(tree, options.port, against, description, link, walk, tests);
+    const narrator: Narrator | undefined = options.narrate
+      ? async (request) => {
+          const outcome = await narrate({
+            ...request,
+            runner: claudeRunner("claude"),
+            cacheDir: cacheDirectory(process.env, homedir()),
+            renarrate: request.renarrate || options.renarrate,
+            timeoutMs: NARRATE_TIMEOUT_MS,
+          });
+          if (outcome.status === "failed") console.error(`rungs: no narration for ${request.node.id}: ${outcome.message}`);
+          else {
+            const how = outcome.cached ? "from the cache" : `by ${outcome.model}`;
+            console.error(`rungs: narrated ${request.node.id} in ${outcome.sentences.length} sentences ${how} (dropped ${outcome.dropped.sentences} unanchored sentences)`);
+          }
+          return outcome;
+        }
+      : undefined;
+    const server = await serve(tree, options.port, against, description, link, walk, narrator, tests);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;
