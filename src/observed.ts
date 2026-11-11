@@ -33,6 +33,15 @@ export type TestRun =
       readonly output: string;
     }
   | {
+      /** The results contradict the runner or each other, so none of them is passed on. */
+      readonly status: "unreliable";
+      readonly why: string;
+      readonly runner: Runner;
+      readonly isolation: Isolation["kind"];
+      readonly seconds: number;
+      readonly exitCode: number;
+    }
+  | {
       readonly status: "ran";
       readonly runner: Runner;
       readonly isolation: Isolation["kind"];
@@ -76,6 +85,15 @@ export type ObservedDocument = { readonly tier: "observed"; readonly tree: strin
       readonly output: string;
     }
   | {
+      /** The run's results contradict the runner or each other: none is served, only why. */
+      readonly status: "unreliable";
+      readonly why: string;
+      readonly runner: Runner;
+      readonly sandbox: Isolation["kind"];
+      readonly seconds: number;
+      readonly exitCode: number;
+    }
+  | {
       readonly status: "ran";
       readonly runner: Runner;
       readonly sandbox: Isolation["kind"];
@@ -90,6 +108,14 @@ export type ObservedDocument = { readonly tier: "observed"; readonly tree: strin
 export type Detection = { readonly runner: Runner; readonly args: readonly string[]; readonly install: boolean } | { readonly unsupported: string };
 
 const SHELL = /[;&|<>$`'"\\(){}!]/;
+/**
+ * The node flags a test script may pass. The runner's report is only its own while none of the
+ * tree's code runs inside the runner: each test file gets a process of its own, and nothing is
+ * preloaded. So a flag that loads code (--import, --require, --loader) or runs the tests in the
+ * runner (--experimental-test-isolation) is not on the list, and neither is any flag not known.
+ */
+const NODE_FLAGS =
+  /^--(?:test-concurrency|test-timeout|test-name-pattern|test-skip-pattern|test-only|test-force-exit|test-shard|test-update-snapshots|experimental-test-coverage|experimental-strip-types|experimental-transform-types|enable-source-maps|no-warnings)(?:=|$)/;
 const READ = "Rungs reads only node --test and vitest";
 
 /** The runner the tree's `test` script names, with the arguments it passes; never a guess. */
@@ -115,7 +141,12 @@ export function detectRunner(tree: FileTree): Detection {
   }
   if (command === "node") {
     if (!rest.includes("--test")) return { unsupported: `the test script runs "node" without --test; ${READ}` };
-    return { runner: "node", args: rest.filter((word) => word !== "--test" && !word.startsWith("--test-reporter")), install };
+    const args = rest.filter((word) => word !== "--test" && !word.startsWith("--test-reporter"));
+    const flag = args.find((word) => word.startsWith("-") && !NODE_FLAGS.test(word));
+    if (flag !== undefined) {
+      return { unsupported: `the test script gives node ${JSON.stringify(flag)}; Rungs runs node --test only with flags that keep the tree's code out of the runner` };
+    }
+    return { runner: "node", args, install };
   }
   if (command === "vitest") {
     const args = rest.filter((word, index) => !(index === 0 && ["run", "watch", "dev"].includes(word)) && !["--run", "--watch"].includes(word));
@@ -147,7 +178,7 @@ export default async function* reporter(source) {
 }
 `;
 
-const RESULTS: Record<Runner, string> = { node: "node.jsonl", vitest: "vitest.json" };
+const VITEST_RESULTS = "vitest.json";
 
 /** Where dependencies come from unless a caller names another registry. */
 export const NPM_REGISTRY = "https://registry.npmjs.org/";
@@ -313,11 +344,12 @@ export function installArgv(places: Places, registry: string): string[] {
 }
 
 function testArgv(detection: Extract<Detection, { runner: Runner }>, places: Places): string[] {
-  const results = `${places.out}/${RESULTS[detection.runner]}`;
+  // node's runner is ours and runs none of the tree's code, so it reports where the tests cannot
+  // write. vitest is the tree's own dependency running the tree's own config: its report is a file.
   const test =
     detection.runner === "node"
-      ? [places.node, "--test", `--test-reporter=${places.tools}/reporter.mjs`, `--test-reporter-destination=${results}`, "--test-reporter=spec", "--test-reporter-destination=stdout"]
-      : ["node_modules/.bin/vitest", "run", "--reporter=json", `--outputFile.json=${results}`, "--reporter=default"];
+      ? [places.node, "--test", `--test-reporter=${places.tools}/reporter.mjs`, `--test-reporter-destination=${places.report}`, "--test-reporter=spec", "--test-reporter-destination=stdout"]
+      : ["node_modules/.bin/vitest", "run", "--reporter=json", `--outputFile.json=${places.out}/${VITEST_RESULTS}`, "--reporter=default"];
   return [...test, ...detection.args];
 }
 
@@ -346,7 +378,7 @@ export async function runTests(
     tools: new Map([["reporter.mjs", NODE_REPORTER], ["npmrc-user", ""], ["npmrc-global", ""]]),
     ...(install === undefined ? {} : { install: { files: install.files, argv: (places: Places) => installArgv(places, registry) } }),
     steps: (places) => [{ argv: testArgv(detection, places) }],
-    collect: [RESULTS[detection.runner]],
+    ...(detection.runner === "node" ? { report: true } : { collect: [VITEST_RESULTS] }),
     timeoutMs,
     outputBytes: 1 << 20,
   });
@@ -358,16 +390,43 @@ export async function runTests(
   if (last === undefined) return failed("nothing ran");
   if (last.timedOut) return failed(`the run passed its limit of ${Math.round(timeoutMs / 1000)} seconds`);
   if (run.steps.length === 0) return failed(`npm ci --ignore-scripts exited ${last.exitCode}`);
-  const results = run.collected.get(RESULTS[detection.runner]);
+  const results = detection.runner === "node" ? run.report : run.collected.get(VITEST_RESULTS);
   if (results === undefined || results.kind === "missing") return failed(`the runner wrote no results (exit ${last.exitCode})`);
   if (results.kind === "too large") return failed(`the runner's results are too large to read (${results.bytes} bytes)`);
   if (results.kind === "unreadable") return failed(`the runner's results are unreadable: ${results.why}`);
   try {
     const reports = detection.runner === "node" ? parseNodeEvents(results.text) : parseVitestJson(results.text, run.places.work);
-    return { status: "ran", runner: detection.runner, isolation: isolation.kind, seconds, exitCode: last.exitCode ?? 1, reports };
+    const about = { runner: detection.runner, isolation: isolation.kind, seconds, exitCode: last.exitCode ?? 1 };
+    const why = unreliable(reports, about.exitCode, tree);
+    return why === undefined ? { status: "ran", ...about, reports } : { status: "unreliable", why, ...about };
   } catch (error) {
     return failed((error as Error).message);
   }
+}
+
+/**
+ * Why a run's results cannot be shown as what happened, if they cannot. However the results reach
+ * Rungs, they are checked against the one thing the tests do not write, the runner's exit code,
+ * against the tree, and against each other. A run that fails any check is shown as unreliable,
+ * never as passes.
+ */
+export function unreliable(reports: readonly TestReport[], exitCode: number, tree: FileTree): string | undefined {
+  if (exitCode !== 0 && exitCode !== 1) return `the runner exited ${exitCode}, which no test result explains`;
+  const outcomes = new Map<string, Outcome>();
+  let failures = 0;
+  for (const report of reports) {
+    if (!tree.has(report.file)) return `a result names ${JSON.stringify(report.file.slice(0, 120))}, which is not a file in the tree`;
+    if (report.outcome === "fail") failures += 1;
+    const key = JSON.stringify([report.file, report.path]);
+    const before = outcomes.get(key);
+    if (before !== undefined && before !== report.outcome) {
+      return `two results for ${JSON.stringify(report.path.join(" > ").slice(0, 120))} in ${report.file} disagree (${before} and ${report.outcome})`;
+    }
+    outcomes.set(key, report.outcome);
+  }
+  if (exitCode !== 0 && failures === 0) return `the runner exited ${exitCode} but no failure was recorded`;
+  if (exitCode === 0 && failures > 0) return `the runner exited 0 but ${failures} ${failures === 1 ? "failure was" : "failures were"} recorded`;
+  return undefined;
 }
 
 interface NodeEvent {
@@ -512,7 +571,7 @@ function titlesOf(qualifiedName: string): string[] | undefined {
 
 /** Attaches a run's reports to the graph's test functions, by file and name; never changes the graph. */
 export function observedDocument(run: TestRun, graph: Graph, tree: string): ObservedDocument {
-  if (run.status === "failed") {
+  if (run.status === "failed" || run.status === "unreliable") {
     const { isolation, ...rest } = run;
     return { tier: "observed", tree, ...rest, sandbox: isolation };
   }

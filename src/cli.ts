@@ -37,7 +37,8 @@ async function observeTests(dir: string, tree: FileTree, allowUnsandboxed: boole
     const count = (outcome: string) => run.reports.filter((report) => report.outcome === outcome).length;
     const runner = run.runner === "node" ? "node --test" : "vitest";
     console.error(`rungs: ran ${run.reports.length} tests with ${runner} in ${run.isolation} in ${run.seconds}s: ${count("pass")} pass, ${count("fail")} fail, ${count("skip")} skip`);
-  } else if (run.status === "failed") console.error(`rungs: the test run failed after ${run.seconds}s: ${run.why}\n${run.output}`);
+  } else if (run.status === "unreliable") console.error(`rungs: the test results are unreliable and none is shown: ${run.why}`);
+  else if (run.status === "failed") console.error(`rungs: the test run failed after ${run.seconds}s: ${run.why}\n${run.output}`);
   else console.error(`rungs: tests not run: ${run.why}`);
   return run;
 }

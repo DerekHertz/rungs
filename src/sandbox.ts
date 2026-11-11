@@ -1,11 +1,12 @@
 import { execFile, spawn } from "node:child_process";
-import { chmodSync, constants, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, rmSync, unlinkSync } from "node:fs";
 import type { Stats } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, open, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, normalize } from "node:path";
 import { promisify } from "node:util";
 import type { FileTree } from "./graph.ts";
+import { cacheDirectory } from "./link.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +30,8 @@ export interface Places {
   readonly tools: string;
   /** The install's own folder; the steps never see it. */
   readonly install: string;
+  /** Where a step writes its report, when the run asked for one. */
+  readonly report: string;
   readonly node: string;
   /** npm's command-line script, run with `node`. */
   readonly npm: string;
@@ -81,6 +84,8 @@ export interface Run {
   /** The steps that ran: each one after the first ran because the one before exited 0 in time. */
   readonly steps: readonly StepResult[];
   readonly collected: ReadonlyMap<string, Collected>;
+  /** What the steps wrote to `places.report`, when the run asked for a report. */
+  readonly report?: Extract<Collected, { kind: "text" | "too large" }>;
   /** Where the copy was; it is gone once the run returns. */
   readonly root: string;
   /** Where the steps found things. */
@@ -96,6 +101,15 @@ export interface RunRequest {
   readonly steps: (places: Places) => readonly Step[];
   /** Files given to the steps at `places.tools`. */
   readonly tools?: FileTree;
+  /**
+   * Gives each step an open file at `places.report` and returns what was written to it. Unlike a
+   * file in `places.out`, it has no name anywhere and belongs to the step's first process alone:
+   * node closes it to the processes it starts, and in bwrap it runs from a copy of node that
+   * cannot be read, which makes the kernel refuse every other process a way in through /proc or
+   * ptrace. So a test runner can report here what the tests it runs cannot rewrite. Outside bwrap
+   * the file is still nameless, but a step's processes can reach each other.
+   */
+  readonly report?: boolean;
   /** Names of files in `places.out` to read back: plain names, never paths. */
   readonly collect?: readonly string[];
   /** One wall-clock limit for all the steps together. */
@@ -111,6 +125,7 @@ const INSIDE: Places = {
   out: "/out",
   tools: "/rungs/tools",
   install: "/install",
+  report: "/dev/fd/3",
   node: "/rungs/bin/node",
   npm: "/rungs/npm/bin/npm-cli.js",
 };
@@ -171,14 +186,18 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     await writeTree(host.install, request.install?.files ?? new Map(), new Set());
     for (const dir of [host.out, join(root, "home"), join(root, "tmp")]) await mkdir(dir);
     const outMade = await lstat(host.out);
-    const node = process.execPath;
-    const npm = join(dirname(node), "..", "lib", "node_modules", "npm");
     const { isolation } = request;
-    const places: Places = isolation.kind === "bwrap" ? INSIDE : { ...host, node, npm: join(npm, "bin", "npm-cli.js") };
+    // Outside bwrap nothing is kept from a step anyway, and a process the host cannot read is one
+    // it could not find to kill, so only the sandbox runs the unreadable copy.
+    const node = request.report && isolation.kind === "bwrap" ? await unreadableNode(root) : process.execPath;
+    const npm = join(dirname(process.execPath), "..", "lib", "node_modules", "npm");
+    const places: Places = isolation.kind === "bwrap" ? INSIDE : { ...host, node, npm: join(npm, "bin", "npm-cli.js"), report: INSIDE.report };
+    const limit = request.collectBytes ?? 64 << 20;
+    const report = request.report ? { chunks: [] as Buffer[], bytes: 0, limit } : undefined;
     const deadline = Date.now() + request.timeoutMs;
     const run = async (argv: readonly string[], room: Room): Promise<StepResult> => {
       const command = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, room), "--", ...argv] : [...argv];
-      const { open, ...finished } = await runStep(command, host[room], deadline, request.outputBytes, isolation, root, (spawned) => {
+      const { open, ...finished } = await runStep(command, host[room], deadline, request.outputBytes, isolation, root, room === "work" ? report : undefined, (spawned) => {
         child = spawned;
       });
       // In bwrap the namespace dies with the step. Outside it a process can leave the step's group.
@@ -205,9 +224,11 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     const collected = new Map<string, Collected>();
     const swapped = outFolderSwapped(outMade, await lstat(host.out).catch(() => undefined));
     for (const name of collect) {
-      collected.set(name, swapped === undefined ? await collectFile(join(host.out, name), request.collectBytes ?? 64 << 20) : { kind: "unreadable", why: swapped });
+      collected.set(name, swapped === undefined ? await collectFile(join(host.out, name), limit) : { kind: "unreadable", why: swapped });
     }
-    return { ...(install === undefined ? {} : { install }), steps: results, collected, root, places };
+    const reported: Run["report"] =
+      report === undefined ? undefined : report.bytes > limit ? { kind: "too large", bytes: report.bytes } : { kind: "text", text: Buffer.concat(report.chunks).toString("utf8") };
+    return { ...(install === undefined ? {} : { install }), steps: results, collected, ...(reported === undefined ? {} : { report: reported }), root, places };
   } finally {
     process.off("SIGINT", interrupted).off("SIGTERM", interrupted);
     if (request.isolation.kind !== "bwrap") killStrays(root);
@@ -250,6 +271,7 @@ function runStep(
   limit: number,
   isolation: Isolation,
   root: string,
+  report: { chunks: Buffer[]; bytes: number; readonly limit: number } | undefined,
   started: (child: ReturnType<typeof spawn>) => void,
 ): Promise<StepResult & { readonly open: boolean }> {
   const [command, ...args] = argv;
@@ -257,7 +279,11 @@ function runStep(
   const begun = Date.now();
   const env = isolation.kind === "bwrap" ? {} : { ...ENV, [RUN_MARK]: root, HOME: join(cwd, "..", "home"), TMPDIR: join(cwd, "..", "tmp"), PATH: `${dirname(process.execPath)}:/usr/bin:/bin` };
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    // The report is a file with no name: made in the run's folder, outside every place a step can
+    // see, and unlinked before the step starts. Only the open file is handed on.
+    const reported = report === undefined ? undefined : openSync(join(root, "report"), constants.O_RDWR | constants.O_CREAT | constants.O_EXCL, 0o600);
+    if (reported !== undefined) unlinkSync(join(root, "report"));
+    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe", ...(reported === undefined ? [] : [reported])], detached: true });
     started(child);
     const chunks: Buffer[] = [];
     let kept = 0;
@@ -270,8 +296,8 @@ function runStep(
       chunks.push(part);
       kept += part.length;
     };
-    child.stdout.on("data", take);
-    child.stderr.on("data", take);
+    child.stdout?.on("data", take);
+    child.stderr?.on("data", take);
     // The step is over when it exits or is killed. A process it left behind may hold its output
     // open for ever, so the output gets a moment to close and is then let go.
     let timedOut = false;
@@ -283,8 +309,23 @@ function runStep(
       settled = true;
       clearTimeout(timer);
       clearTimeout(letGo);
-      child.stdout.destroy();
-      child.stderr.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      if (report !== undefined && reported !== undefined) {
+        const size = fstatSync(reported).size;
+        report.bytes += size;
+        if (report.bytes <= report.limit) {
+          const buffer = Buffer.alloc(size);
+          let length = 0;
+          while (length < size) {
+            const read = readSync(reported, buffer, length, size - length, length);
+            if (read === 0) break;
+            length += read;
+          }
+          report.chunks.push(buffer.subarray(0, length));
+        }
+        closeSync(reported);
+      }
       resolve({ exitCode: timedOut ? null : exitCode, timedOut, ms: Date.now() - begun, output: Buffer.concat(chunks).toString("utf8"), truncated, open });
     };
     const over = () => {
@@ -309,6 +350,39 @@ function runStep(
       finish(false);
     });
   });
+}
+
+/**
+ * A copy of this node that its owner may run but not read. The kernel treats a process started
+ * from a program it could not read as one whose memory must not leak: no other process without
+ * privileges, the user's own included, may open its /proc entries or trace it. That is what keeps
+ * a step's report from the processes the step starts. The copy is made once and kept in the
+ * cache; where the cache cannot be written it is made in the run's own folder.
+ */
+async function unreadableNode(root: string): Promise<string> {
+  const source = await stat(process.execPath);
+  const name = `node-${process.version}-${source.size}-${Math.floor(source.mtimeMs)}`;
+  const mine = (info: Stats) => info.isFile() && info.uid === process.getuid?.() && (info.mode & 0o7777) === 0o111 && info.size === source.size;
+  for (const dir of [cacheDirectory(process.env, homedir()), root]) {
+    const kept = join(dir, name);
+    try {
+      if (mine(await lstat(kept))) return kept;
+    } catch {
+      // Not made yet.
+    }
+    try {
+      await mkdir(dir, { recursive: true });
+      const making = `${kept}.${process.pid}.tmp`;
+      await rm(making, { force: true });
+      await copyFile(process.execPath, making);
+      await chmod(making, 0o111);
+      await rename(making, kept);
+      return kept;
+    } catch {
+      // Try the next place.
+    }
+  }
+  throw new Error("could not make an unreadable copy of node for the run");
 }
 
 /** How long a finished step's output may stay open before the run stops waiting for it. */

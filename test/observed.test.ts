@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree } from "../src/graph.ts";
-import { detectRunner, observedDocument, parseNodeEvents, parseVitestJson, treeDigest } from "../src/observed.ts";
+import { detectRunner, observedDocument, parseNodeEvents, parseVitestJson, treeDigest, unreliable } from "../src/observed.ts";
 import type { TestReport, TestRun } from "../src/observed.ts";
 
 const pkg = (scripts: object, extra: object = {}) => JSON.stringify({ scripts, ...extra });
@@ -17,6 +17,11 @@ test("node --test and vitest scripts are read; anything else is unsupported, nev
     [pkg({ test: "jest" }), new Map(), { unsupported: 'the test script runs "jest"; Rungs reads only node --test and vitest' }],
     [pkg({ test: "node --test && echo done" }), new Map(), { unsupported: 'the test script is not one plain command: "node --test && echo done"' }],
     [pkg({ test: "NODE_ENV=test node --test" }), new Map(), { unsupported: 'the test script is not one plain command: "NODE_ENV=test node --test"' }],
+    // Anything that would load the tree's code into the runner itself, or run the tests inside it.
+    [pkg({ test: "node --test --import ./setup.mjs" }), new Map(), { unsupported: 'the test script gives node "--import"; Rungs runs node --test only with flags that keep the tree\'s code out of the runner' }],
+    [pkg({ test: "node --experimental-test-isolation=none --test" }), new Map(), { unsupported: 'the test script gives node "--experimental-test-isolation=none"; Rungs runs node --test only with flags that keep the tree\'s code out of the runner' }],
+    [pkg({ test: "node -r ./setup.cjs --test" }), new Map(), { unsupported: 'the test script gives node "-r"; Rungs runs node --test only with flags that keep the tree\'s code out of the runner' }],
+    [pkg({ test: "node --test --test-concurrency=1 --test-timeout 500 --experimental-strip-types a.test.ts" }), new Map(), { runner: "node", args: ["--test-concurrency=1", "--test-timeout", "500", "--experimental-strip-types", "a.test.ts"], install: false }],
     [pkg({ test: "node test.js" }), new Map(), { unsupported: 'the test script runs "node" without --test; Rungs reads only node --test and vitest' }],
     [pkg({}), new Map(), { unsupported: "package.json has no test script" }],
     ["{ not json", new Map(), { unsupported: "package.json is not valid JSON" }],
@@ -165,4 +170,37 @@ test("results that are not what the runner writes are named unreadable without r
     }
     expect(message).toMatch(/^(vitest's report is not valid JSON|unreadable test event on line 1)$/);
   }
+});
+
+test("results that contradict the runner or themselves are unreliable, and say why", () => {
+  const report = (file: string, name: string, outcome: "pass" | "fail" | "skip"): TestReport => ({ file, path: [name], outcome, ms: 1 });
+  const files = new Map([["a.test.mjs", ""], ["b.test.mjs", ""]]);
+  const cases: [string, TestReport[], number, string | undefined][] = [
+    ["all pass, exit 0", [report("a.test.mjs", "one", "pass"), report("b.test.mjs", "one", "pass")], 0, undefined],
+    ["a failure, exit 1", [report("a.test.mjs", "one", "pass"), report("a.test.mjs", "two", "fail")], 1, undefined],
+    ["the same test passing twice", [report("a.test.mjs", "one", "pass"), report("a.test.mjs", "one", "pass")], 0, undefined],
+    ["nothing ran, exit 0", [], 0, undefined],
+    ["exit 1, only passes", [report("a.test.mjs", "checks authorization", "pass")], 1, "the runner exited 1 but no failure was recorded"],
+    ["exit 1, nothing", [], 1, "the runner exited 1 but no failure was recorded"],
+    ["exit 0, a failure", [report("a.test.mjs", "one", "fail")], 0, "the runner exited 0 but 1 failure was recorded"],
+    ["killed", [report("a.test.mjs", "one", "fail")], 137, "the runner exited 137, which no test result explains"],
+    ["one test, two outcomes", [report("a.test.mjs", "one", "fail"), report("a.test.mjs", "one", "pass")], 1, 'two results for "one" in a.test.mjs disagree (fail and pass)'],
+    ["a file not in the tree", [report("a.test.mjs", "one", "fail"), report("../etc/x.test.mjs", "one", "pass")], 1, 'a result names "../etc/x.test.mjs", which is not a file in the tree'],
+    ["no file", [report("", "one", "fail")], 1, 'a result names "", which is not a file in the tree'],
+  ];
+  for (const [name, reports, exitCode, expected] of cases) expect([name, unreliable(reports, exitCode, files)]).toEqual([name, expected]);
+});
+
+test("an unreliable run is served as that, with no result in it", () => {
+  const run: TestRun = { status: "unreliable", why: "the runner exited 1 but no failure was recorded", runner: "node", isolation: "bwrap", seconds: 1.5, exitCode: 1 };
+  expect(observedDocument(run, extract(new Map()), "t")).toEqual({
+    tier: "observed",
+    tree: "t",
+    status: "unreliable",
+    why: "the runner exited 1 but no failure was recorded",
+    runner: "node",
+    sandbox: "bwrap",
+    seconds: 1.5,
+    exitCode: 1,
+  });
 });

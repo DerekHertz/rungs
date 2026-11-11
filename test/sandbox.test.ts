@@ -516,6 +516,60 @@ test("a tree's .npmrc naming its own program as git never runs it: npm installs 
   }
 });
 
+// A step's report goes into an open file that has no name anywhere, and that only the
+// step's first process holds: the processes it starts can neither inherit nor reopen it.
+const reaching = `
+const { appendFileSync, writeSync } = require("node:fs");
+const { execFileSync, spawnSync } = require("node:child_process");
+if (process.argv[1] === "child") {
+  const tries = [];
+  try { writeSync(3, "FORGED inherited\\n"); tries.push("inherited"); } catch (error) { tries.push(error.code); }
+  try { appendFileSync("/proc/" + process.ppid + "/fd/3", "FORGED reopened\\n"); tries.push("reopened"); } catch (error) { tries.push(error.code); }
+  try { execFileSync("/bin/sh", ["-c", "echo FORGED shell >> /proc/" + process.ppid + "/fd/3"], { stdio: "ignore" }); tries.push("shell"); } catch { tries.push("refused"); }
+  console.log(tries.join(" "));
+} else {
+  writeSync(3, "real line\\n");
+  spawnSync(process.execPath, ["-e", process.argv[1], "child"], { stdio: ["ignore", "inherit", "inherit"] });
+}
+`;
+
+test("in the sandbox a step's report comes back from a file with no name, which no process it starts can write to", async () => {
+  const run = await runIsolated({
+    tree: new Map(),
+    isolation: bwrap,
+    report: true,
+    steps: (places) => [{ argv: [places.node, "-e", reaching, reaching] }, { argv: ["/bin/sh", "-c", `echo second > ${places.report}`] }],
+    ...limits,
+  });
+  expect(run.steps.map((step) => step.exitCode)).toEqual([0, 0]);
+  // The first is whatever error a descriptor that is not the report gives; the others are refusals.
+  expect(run.steps[0]?.output).toMatch(/^E[A-Z]+ EACCES refused\n$/);
+  expect(run.report).toEqual({ kind: "text", text: "real line\nsecond\n" });
+});
+
+test("unsandboxed, the report still comes back, but the step's own processes can reach it", async () => {
+  const run = await runIsolated({ tree: new Map(), isolation: unsandboxed, report: true, steps: (places) => [{ argv: [places.node, "-e", reaching, reaching] }], ...limits });
+  expect(run.steps[0]?.output).toMatch(/^E[A-Z]+ reopened shell\n$/);
+  expect(run.report).toMatchObject({ kind: "text", text: expect.stringMatching(/^real line\n/) });
+});
+
+for (const isolation of [bwrap, unsandboxed]) {
+  test(`${isolation.kind}: a report past the size limit is too large, and a run that asked for none has none`, async () => {
+    const large = await runIsolated({
+      tree: new Map(),
+      isolation,
+      report: true,
+      steps: (places) => [{ argv: ["/bin/sh", "-c", `head -c 5000 /dev/zero > ${places.report}`] }],
+      ...limits,
+      collectBytes: 1000,
+    });
+    expect(large.report).toEqual({ kind: "too large", bytes: expect.any(Number) });
+    const none = await runIsolated({ tree: new Map(), isolation, steps: () => [{ argv: ["/bin/sh", "-c", "echo x >&3 2>/dev/null || echo closed"] }], ...limits });
+    expect(none.report).toBeUndefined();
+    expect(none.steps[0]?.output).toContain("closed\n");
+  });
+}
+
 test("a tree path that climbs out of the copy is refused before anything runs", async () => {
   await expect(
     runIsolated({ tree: new Map([["../escape.txt", "x"]]), isolation: unsandboxed, steps: () => [], ...limits }),

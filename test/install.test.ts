@@ -106,7 +106,7 @@ test("npm-shrinkwrap.json is the lockfile when the tree has one, as it is for np
 });
 
 test("npm is told every setting that could name a program or a place, and to read none from files", () => {
-  const places = { work: "/work", out: "/out", tools: "/rungs/tools", install: "/install", node: "/rungs/bin/node", npm: "/rungs/npm/bin/npm-cli.js" };
+  const places = { work: "/work", out: "/out", tools: "/rungs/tools", install: "/install", report: "/dev/fd/3", node: "/rungs/bin/node", npm: "/rungs/npm/bin/npm-cli.js" };
   expect(installArgv(places, "https://registry.npmjs.org/")).toEqual([
     "/rungs/bin/node",
     "/rungs/npm/bin/npm-cli.js",

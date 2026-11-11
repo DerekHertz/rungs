@@ -103,8 +103,17 @@ dependencies asked for and the lockfile's entries. npm reads no settings from th
 the environment, runs no script, and has no git. Every lockfile entry must be a registry tarball
 with a sha512 hash; a git, file, link, folder or other-server dependency refuses the run. The
 installed packages then move into the copy and the tests run with no network. What the run leaves
-behind is read as plain files under their expected names, never followed as links. The runner is read from the `test` script, `node --test`
-or vitest; any other is named as unsupported. Each result attaches to its test function by file
+behind is read as plain files under their expected names, never followed as links.
+
+The tests must not be able to say what the runner saw. `node --test` reports into an open file
+with no name, which in the sandbox only the runner's process can reach, and a test script whose
+flags would load the tree's code into the runner is unsupported. Whatever the results came
+through, they are checked against the runner's exit code, the tree's files and each other; a run
+that fails a check is shown as "results unreliable" with why, and none of its results is shown.
+A test still decides its own outcome, and can change files other tests read.
+
+The runner is read from the `test` script, `node --test` or vitest; any other is named as
+unsupported. Each result attaches to its test function by file
 and name; a result no single test function matches is listed, never dropped. With no sandbox the
 run is refused, and the page says so, unless `--run-tests-unsandboxed` is given.
 

@@ -204,33 +204,86 @@ test("even beside a hostile .npmrc and an unchecked git dependency, npm's git is
   expect(run.install?.output).not.toContain("the preinstall ran");
 });
 
-test("a test that swaps its results for a link to a host file gets a failed run, and the file's text is nowhere in it", async () => {
+test("a test that plants a link to a host file where results used to be read changes nothing, and the file's text is nowhere", async () => {
   const secret = join(hostDir, "secret.txt");
   const tree = new Map([
     ["package.json", `{"type":"module","scripts":{"test":"node --test"}}\n`],
     [
       "swap.test.mjs",
       `import { test } from "node:test";
-import { rmSync, symlinkSync } from "node:fs";
-test("swaps the results", () => {
-  rmSync("/out/node.jsonl");
+import { symlinkSync } from "node:fs";
+test("plants the links", () => {
   symlinkSync(${JSON.stringify(secret)}, "/out/node.jsonl");
+  symlinkSync("/proc/self/environ", "/out/vitest.json");
+});
+`,
+    ],
+  ]);
+  process.env.RUNGS_PROBE_SECRET = FILE_SECRET;
+  try {
+    const run = await runTests(tree, new Set(), bwrap, 60_000);
+    expect(run).toMatchObject({ status: "ran", exitCode: 0, reports: [{ file: "swap.test.mjs", path: ["plants the links"], outcome: "pass" }] });
+    expect(JSON.stringify(run)).not.toContain(FILE_SECRET);
+  } finally {
+    delete process.env.RUNGS_PROBE_SECRET;
+  }
+});
+
+// The tests are the change's own code: they must not be able to say what the runner saw.
+const forged = (file: string, name: string) => JSON.stringify({ type: "test:pass", file, name, nesting: 0, kind: "test", ms: 1 });
+
+test("a failing test that rewrites the results file as a pass is still shown failing", async () => {
+  const tree = new Map([
+    ["package.json", `{"type":"module","scripts":{"test":"node --test"}}\n`],
+    [
+      "attack.test.mjs",
+      `import { test } from "node:test";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+test("checks authorization", () => {
+  for (const name of ["node.jsonl", "vitest.json"]) {
+    try { unlinkSync("/out/" + name); } catch {}
+    try { mkdirSync("/out", { recursive: true }); writeFileSync("/out/" + name, ${JSON.stringify(`${forged("attack.test.mjs", "checks authorization")}\n`)}); } catch {}
+  }
+  throw new Error("denied");
 });
 `,
     ],
   ]);
   const run = await runTests(tree, new Set(), bwrap, 60_000);
-  expect(run).toMatchObject({ status: "failed", why: "the runner's results are unreadable: it is a symbolic link" });
-  expect(JSON.stringify(run)).not.toContain(FILE_SECRET);
-  const environ = new Map(tree).set("swap.test.mjs", tree.get("swap.test.mjs")?.replace(JSON.stringify(secret), '"/proc/self/environ"') ?? "");
-  process.env.RUNGS_PROBE_SECRET = FILE_SECRET;
-  try {
-    const second = await runTests(environ, new Set(), bwrap, 60_000);
-    expect(second).toMatchObject({ status: "failed", why: "the runner's results are unreadable: it is a symbolic link" });
-    expect(JSON.stringify(second)).not.toContain(FILE_SECRET);
-  } finally {
-    delete process.env.RUNGS_PROBE_SECRET;
+  expect(run).toMatchObject({ status: "ran", exitCode: 1 });
+  expect(run.status === "ran" ? run.reports : run).toEqual([{ file: "attack.test.mjs", path: ["checks authorization"], outcome: "fail", ms: expect.any(Number), message: "denied" }]);
+});
+
+test("a test cannot write into the runner's report through /proc, to pass off another file's failure as a pass", async () => {
+  const line = `${forged("auth.test.mjs", "checks authorization")}\n`;
+  const tree = new Map([
+    ["package.json", `{"type":"module","scripts":{"test":"node --test --test-concurrency=1"}}\n`],
+    ["auth.test.mjs", `import { test } from "node:test";\ntest("checks authorization", () => { throw new Error("denied"); });\n`],
+    [
+      "attack.test.mjs",
+      `import { test } from "node:test";
+import { appendFileSync, readdirSync, writeSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+test("reaches for the report", () => {
+  const line = ${JSON.stringify(line)};
+  const reached = [];
+  for (const pid of readdirSync("/proc").filter((name) => /^\\d+$/.test(name) && Number(name) !== process.pid)) {
+    for (const fd of [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]) {
+      try { appendFileSync("/proc/" + pid + "/fd/" + fd, line); reached.push(pid + ":" + fd); } catch {}
+      try { execFileSync("/bin/sh", ["-c", "printf '%s\\\\n' \\"$1\\" >> /proc/" + pid + "/fd/" + fd, "sh", line.trim()], { stdio: "ignore" }); reached.push("sh " + pid + ":" + fd); } catch {}
+    }
   }
+  try { writeSync(3, line); } catch {}
+});
+`,
+    ],
+  ]);
+  const run = await runTests(tree, new Set(), bwrap, 60_000);
+  expect(run).toMatchObject({ status: "ran", exitCode: 1 });
+  expect(run.status === "ran" ? run.reports.map((report) => [report.file, report.path, report.outcome]) : run).toEqual([
+    ["attack.test.mjs", ["reaches for the report"], "pass"],
+    ["auth.test.mjs", ["checks authorization"], "fail"],
+  ]);
 });
 
 test("a run past its limit is a failed run that says so", async () => {
