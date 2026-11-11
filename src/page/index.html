@@ -106,7 +106,7 @@
       }
       #review {
         flex: none;
-        width: 360px;
+        width: 392px;
         display: flex;
         flex-direction: column;
         background: #0b0f14;
@@ -117,29 +117,159 @@
       #review[hidden] {
         display: none;
       }
-      .review-section {
-        flex: 1 1 0;
+      .rv-row {
+        flex: none;
         display: flex;
         flex-direction: column;
-        min-height: 0;
         border-bottom: 1px solid #263140;
       }
-      .review-section:first-child {
-        flex: 0 1 20%;
+      .rv-row.open {
+        flex: 1 1 0;
+        min-height: 0;
       }
-      .review-section:last-child {
-        flex-grow: 1.6;
-        border-bottom: 0;
-      }
-      .review-title {
+      .rv-head {
         flex: none;
         margin: 0;
-        padding: 8px 10px 4px;
         font-size: 12px;
-        color: #ffd84a;
+        font-weight: 400;
         display: flex;
-        align-items: center;
-        gap: 8px;
+        align-items: stretch;
+      }
+      .rv-toggle {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        font: inherit;
+        text-align: left;
+        color: #d6dee8;
+        background: none;
+        border: 0;
+        padding: 9px 10px;
+        cursor: pointer;
+      }
+      .rv-toggle:hover,
+      .rv-about-toggle:hover,
+      .rv-info:hover {
+        background: #1f2a3a;
+      }
+      .rv-row.open > .rv-head .rv-toggle {
+        background: #121a24;
+      }
+      .rv-chevron {
+        flex: none;
+        width: 10px;
+        color: #8fb4d9;
+      }
+      .rv-name-label {
+        flex: none;
+        color: #ffd84a;
+        font-weight: 600;
+      }
+      .rv-summary {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .rv-toggle .review-tag {
+        flex: none;
+        font-size: 8px;
+        padding: 0 3px;
+      }
+      .rv-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 2px 10px 8px;
+      }
+      .rv-body[hidden],
+      .rv-note[hidden],
+      .rv-about-body[hidden],
+      .rv-detail[hidden],
+      .rv-full[hidden] {
+        display: none;
+      }
+      .rv-info {
+        flex: none;
+        font: inherit;
+        color: #8fb4d9;
+        background: none;
+        border: 0;
+        padding: 0 10px;
+        cursor: pointer;
+      }
+      .rv-note {
+        margin: 0;
+        padding: 2px 10px 8px 26px;
+        color: #8a9bb0;
+        font-size: 11px;
+      }
+      .rv-about {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        max-height: 45%;
+        border-top: 1px solid #263140;
+      }
+      .rv-about-body {
+        overflow: auto;
+        padding: 2px 10px 6px;
+      }
+      .rv-about-toggle {
+        flex: none;
+        font: inherit;
+        font-size: 12px;
+        text-align: left;
+        color: #8a9bb0;
+        background: none;
+        border: 0;
+        padding: 7px 10px;
+        cursor: pointer;
+      }
+      .rv-one {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .rv-full {
+        margin: 0 0 4px 4px;
+      }
+      .rv-ellipsis,
+      .rv-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .rv-name {
+        flex: 0 1 auto;
+        max-width: 55%;
+      }
+      .rv-change {
+        flex: 1;
+        min-width: 0;
+      }
+      .rv-detail {
+        padding: 0 4px 6px 20px;
+      }
+      .review-row > .review-pick {
+        width: 100%;
+      }
+      .review-row {
+        min-width: 0;
+      }
+      .review-claim-row .rv-one.review-claim {
+        white-space: nowrap;
+      }
+      .review-row.unlinked .review-claim {
+        color: #b8c4d2;
+      }
+      .effect-pick .contract-text {
+        gap: 0;
       }
       .review-tag {
         font-weight: 400;
@@ -220,7 +350,6 @@
         text-align: left;
       }
       .review-claim-row .review-claim {
-        white-space: pre-wrap;
         border-left: 0;
         padding-left: 0;
         font-style: italic;
@@ -341,12 +470,6 @@
       }
       .review-effects {
         margin-bottom: 6px;
-      }
-      .review-note {
-        margin: 0 0 4px;
-        padding: 0 10px;
-        color: #5b6b7e;
-        font-size: 11px;
       }
       .effect-chips {
         display: flex;

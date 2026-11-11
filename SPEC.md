@@ -86,7 +86,7 @@ request.
 
 **Comparison.** Under `rungs compare <base>`, brightness means changed: unchanged files are dimmed and changed files keep full colour, so colour still means role. A changed file is one of four kinds: added (white roof), altered, removed (a see-through ghost where it stood), or moved (grey roof). Moved means identical text under a new path, never a guess.
 
-A panel answers the three questions, and each entry selects places on the picture:
+A panel answers the three questions, and each entry selects places on the picture. It shows one summary row per question, number first ("Claims: 10 of 13 linked", "Tests: 23 fail of 210"); one row is open at a time and takes the column's height. Each item is one line, with detail when selected. Explanations and run details sit under "About this run", except the tests' evidence caveat, which stays one hover or click from the Tests row:
 
 - **Claims:** the change's description, shown as claimed.
 - **Unmentioned:** changed modules and edges no claim covers, new effect edges first. A change
@@ -101,7 +101,7 @@ are main's, not the change's: the base's test files run against the head's code,
 pass. In the sandbox those files are mounted read-only. A base test file the change deleted still
 runs, and is shown as deleted by this change. Test files the change wrote or edited run apart and
 are shown as "written by this change", claimed, never as evidence. What the change did to the
-tests is also read from the two trees, without running anything, and listed under Unmentioned:
+tests is also read from the two trees, without running anything, and listed under Tests:
 test files deleted, tests removed by name, `.skip`, `.todo` or `.only` added, fewer or looser
 assertions.
 
