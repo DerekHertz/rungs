@@ -1,4 +1,4 @@
-import { changeCounts, firstChange, rowsFromText } from "../diff.ts";
+import { bandedSpan, changeCounts, firstChange, rowsFromText } from "../diff.ts";
 import type { Row } from "../diff.ts";
 import type { LineRange, NodeId } from "../graph.ts";
 
@@ -7,7 +7,6 @@ export interface CodeParts {
   readonly gutter: HTMLElement;
   readonly code: HTMLElement;
   readonly body: HTMLElement;
-  readonly mark: HTMLElement;
 }
 
 /** The rows drawn in a panel; the code column's elements, one per row. */
@@ -77,7 +76,6 @@ export function drawRows(parts: CodeParts, rows: readonly Row[]): Drawn {
   parts.gutter.replaceChildren(gutter);
   parts.code.replaceChildren(code);
   parts.body.scrollTop = parts.body.scrollLeft = 0;
-  parts.mark.hidden = true;
   return { rows, cells, gutters };
 }
 
@@ -160,11 +158,13 @@ export function revealRange(drawn: Drawn, folds: readonly Fold[], range: LineRan
 /**
  * Scrolls the first change inside `range` (the first change at all without one) into view. The
  * range is banded unless it is every line shown and something changed: then the changed lines
- * themselves are the mark. Hides the band without a range or when the range misses the lines.
+ * themselves are the mark. The band is a class on the rows themselves, so a fold opening or
+ * closing cannot leave it over other lines. Clears the band without a range or when the range
+ * misses the lines.
  */
 export function markRows(parts: CodeParts, drawn: Drawn, range: LineRange | undefined): void {
-  const { body, mark } = parts;
-  mark.hidden = true;
+  const { body } = parts;
+  for (const element of [...drawn.cells, ...drawn.gutters]) element.classList.remove("band", "band-first", "band-last");
   const numbered = drawn.rows.flatMap((row, index) => (row.line === undefined ? [] : [{ line: row.line, index }]));
   const first = numbered[0];
   const last = numbered.at(-1);
@@ -182,14 +182,14 @@ export function markRows(parts: CodeParts, drawn: Drawn, range: LineRange | unde
     scrollTo(drawn.cells[changed ?? 0]);
     return;
   }
-  const top = numbered.find((entry) => entry.line >= range.start);
-  const bottom = numbered.findLast((entry) => entry.line <= range.end);
-  if (top === undefined || bottom === undefined) return;
-  const from = drawn.cells[top.index]!;
-  const to = drawn.cells[bottom.index]!;
-  mark.style.top = `${from.offsetTop}px`;
-  mark.style.height = `${to.offsetTop + to.offsetHeight - from.offsetTop}px`;
-  mark.style.width = `${body.scrollWidth}px`;
-  mark.hidden = false;
-  scrollTo(drawn.cells[changed ?? top.index]);
+  const span = bandedSpan(drawn.rows, range);
+  if (span === undefined) return;
+  for (let index = span.from; index <= span.to; index++) {
+    for (const element of [drawn.cells[index]!, drawn.gutters[index]!]) {
+      element.classList.add("band");
+      if (index === span.from) element.classList.add("band-first");
+      if (index === span.to) element.classList.add("band-last");
+    }
+  }
+  scrollTo(drawn.cells[changed ?? span.from]);
 }

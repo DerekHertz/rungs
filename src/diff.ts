@@ -255,6 +255,18 @@ export function rowsFromText(text: string, first: number): Row[] {
   return splitLines(text).map((line, index) => ({ kind: "same", line: first + index, text: line }));
 }
 
+
+/** The row indexes, first and last, banded for `range`: from its first numbered row to its last. Undefined when the range holds none. */
+export function bandedSpan(rows: readonly Row[], range: LineRange): { from: number; to: number } | undefined {
+  let from: number | undefined;
+  let to: number | undefined;
+  rows.forEach((row, index) => {
+    if (row.line === undefined || row.line < range.start || row.line > range.end) return;
+    from ??= index;
+    to = index;
+  });
+  return from === undefined || to === undefined ? undefined : { from, to };
+}
 /**
  * The index of the first added or removed row inside the head lines `range` (the first change
  * anywhere without one). A removed row counts as the line it sits before.

@@ -53,7 +53,6 @@ const outlinePane = document.querySelector<HTMLElement>("#outline")!;
 const narrateToggle = document.querySelector<HTMLLabelElement>("#narrate-toggle")!;
 const narrateBox = narrateToggle.querySelector("input")!;
 const narrationPane = document.querySelector<HTMLElement>("#narration")!;
-const panelMark = document.querySelector<HTMLElement>("#source-mark")!;
 const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
@@ -459,7 +458,7 @@ function closePanel(): void {
   insideView.select(undefined);
 }
 
-const sourceParts: CodeParts = { gutter: panelGutter, code: panelCode, body: panelBody, mark: panelMark };
+const sourceParts: CodeParts = { gutter: panelGutter, code: panelCode, body: panelBody };
 let drawn: Drawn | undefined;
 
 /** Scrolls the source panel to the first change in `range` (in the node, without one), banding a narrower range. */

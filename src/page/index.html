@@ -797,17 +797,36 @@
         border-radius: 2px;
         cursor: pointer;
       }
-      #source-mark {
+      #source-code .row.band,
+      #source-gutter .row.band {
+        position: relative;
+      }
+      /* An overlay, so the added and removed tints cannot hide the band. */
+      #source-code .row.band::after,
+      #source-gutter .row.band::after {
+        content: "";
         position: absolute;
-        left: 0;
-        z-index: 2;
-        background: #ffd84a2e;
-        border-top: 1px solid #ffd84a99;
-        border-bottom: 1px solid #ffd84a99;
+        inset: 0;
+        background: #ffd84a38;
         pointer-events: none;
       }
-      #source-mark[hidden] {
-        display: none;
+      #source-code .row.band-first::after,
+      #source-gutter .row.band-first::after {
+        border-top: 2px solid #ffd84a;
+      }
+      #source-code .row.band-last::after,
+      #source-gutter .row.band-last::after {
+        border-bottom: 2px solid #ffd84a;
+      }
+      #source-gutter .row.band::before {
+        content: "";
+        position: absolute;
+        z-index: 1;
+        left: -8px;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: #ffd84a;
       }
       #source-body {
         position: relative;
@@ -834,7 +853,7 @@
         user-select: none;
       }
       #source-code {
-        flex: none;
+        flex: 1 0 auto;
         padding: 6px 10px;
         tab-size: 2;
       }
@@ -1164,7 +1183,7 @@
         <div id="why" aria-label="Why this file matters" hidden></div>
         <div id="outline" aria-label="Pseudocode" hidden></div>
         <div id="narration" aria-label="Narration" hidden></div>
-        <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre><div id="source-mark" hidden></div></div>
+        <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre></div>
       </aside>
     </div>
     </div>
