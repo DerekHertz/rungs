@@ -92,8 +92,19 @@ const propertyKey = (name: ts.PropertyName): string | undefined => {
 export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonly string[]> {
   const locals = new Map<string, ts.Node>();
   const typeNames = new Set<string>();
+  const namespaces = new Map<string, ts.ModuleDeclaration>();
   for (const statement of file.statements) {
     if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) typeNames.add(statement.name.text);
+    if (ts.isImportDeclaration(statement) && statement.importClause !== undefined) {
+      const clause = statement.importClause;
+      const bindings = clause.namedBindings;
+      if (clause.name !== undefined && clause.isTypeOnly) typeNames.add(clause.name.text);
+      if (bindings !== undefined && ts.isNamespaceImport(bindings) && clause.isTypeOnly) typeNames.add(bindings.name.text);
+      if (bindings !== undefined && ts.isNamedImports(bindings)) {
+        for (const specifier of bindings.elements) if (clause.isTypeOnly || specifier.isTypeOnly) typeNames.add(specifier.name.text);
+      }
+    }
+    if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name) && !namespaces.has(statement.name.text)) namespaces.set(statement.name.text, statement);
     if ((ts.isFunctionDeclaration(statement) && statement.body !== undefined) || ts.isClassDeclaration(statement)) {
       if (statement.name !== undefined) locals.set(statement.name.text, statement);
     } else if (ts.isEnumDeclaration(statement) || (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name))) {
@@ -117,6 +128,9 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
   const markLocal = (name: string, as: string): void => {
     const node = locals.get(name);
     if (node !== undefined) mark(node, as);
+    // A function, class or enum merged with a namespace exports that namespace's values too.
+    const space = namespaces.get(name);
+    if (node !== undefined && space !== undefined && space !== node) mark(space, as);
   };
   // An export of a value that is not code is itself the export: a constant named `as`. A function
   // or class it names is exported under that name instead, as before; a constant it names is not
@@ -134,7 +148,11 @@ export function exportedNodes(file: ts.SourceFile): ReadonlyMap<ts.Node, readonl
     else if (ts.isIdentifier(value)) markLocal(value.text, as);
     else if (objects && ts.isObjectLiteralExpression(value)) {
       for (const property of value.properties) {
-        if (ts.isShorthandPropertyAssignment(property)) markLocal(property.name.text, as);
+        if (ts.isShorthandPropertyAssignment(property)) {
+          const name = property.name.text;
+          if (commonjs && name !== "__proto__" && !locals.has(name) && !typeNames.has(name)) for (const exportedName of [name, "default"]) mark(property, exportedName);
+          else markLocal(name, as);
+        }
         else if (ts.isPropertyAssignment(property)) {
           // `__proto__: value` sets the prototype and is no property; a computed ["__proto__"] is one.
           if (!ts.isComputedPropertyName(property.name) && propertyKey(property.name) === "__proto__") continue;
@@ -261,7 +279,7 @@ function literalTokens(expression: ts.Node, file: ts.SourceFile): string[] {
 }
 
 /** What `constantSignature` and `constantSites` take: a variable, a CommonJS assignment, an object property, a default export, an enum or a namespace. */
-export type ConstantNode = ts.VariableDeclaration | ts.BindingElement | ts.BinaryExpression | ts.PropertyAssignment | ts.ExportAssignment | ts.EnumDeclaration | ts.ModuleDeclaration;
+export type ConstantNode = ts.VariableDeclaration | ts.BindingElement | ts.BinaryExpression | ts.PropertyAssignment | ts.ShorthandPropertyAssignment | ts.ExportAssignment | ts.EnumDeclaration | ts.ModuleDeclaration;
 
 /**
  * The signature of an exported constant, the first of these that applies: its declared type
@@ -278,6 +296,7 @@ export function constantSignature(node: ConstantNode, file: ts.SourceFile): stri
   if (ts.isModuleDeclaration(node)) return renderSignature(namespaceTokens(node, false, file) ?? []);
   if (ts.isExportAssignment(node)) return initializerSignature(node.expression, file);
   if (ts.isPropertyAssignment(node)) return initializerSignature(node.initializer, file);
+  if (ts.isShorthandPropertyAssignment(node)) return "identifier";
   const declaration = ts.isBindingElement(node) ? ts.walkUpBindingElementsAndPatterns(node) : node;
   const type = ts.isBinaryExpression(declaration) ? undefined : declaration.type;
   if (type !== undefined) return renderSignature(tokensOf(type, file));
@@ -298,7 +317,14 @@ function initializerSignature(initializer: ts.Expression, file: ts.SourceFile): 
 
 /** An enum as tokens: `const enum`, the name when asked, and the members as written, comma separated whatever the layout. */
 function enumTokens(node: ts.EnumDeclaration, named: boolean, file: ts.SourceFile): string[] {
-  return [...(hasModifier(node, ts.SyntaxKind.ConstKeyword) ? ["const"] : []), "enum", ...(named ? [node.name.text] : []), ...listOf(node.members, "{", "}", file)];
+  const blocks = enumBlocks(node);
+  return [...(hasModifier(blocks[0]!, ts.SyntaxKind.ConstKeyword) ? ["const"] : []), "enum", ...(named ? [node.name.text] : []), ...listOf(blocks.flatMap((block) => [...block.members]), "{", "}", file)];
+}
+
+/** The declarations of an enum: every block of that name beside it, which merge in source order. */
+function enumBlocks(node: ts.EnumDeclaration): ts.EnumDeclaration[] {
+  const siblings: readonly ts.Node[] = (node.parent as { statements?: ts.NodeArray<ts.Statement> }).statements ?? [node];
+  return siblings.filter((statement): statement is ts.EnumDeclaration => ts.isEnumDeclaration(statement) && statement.name.text === node.name.text);
 }
 
 /** The declarations of a namespace: every block of that name beside it, since blocks of one name merge. */
@@ -336,7 +362,10 @@ function namespaceBody(name: string, blocks: readonly { readonly block: ts.Modul
         for (const declaration of statement.declarationList.declarations) {
           for (const target of variableTargets(declaration)) {
             const origin = ts.isBindingElement(target.node) ? ts.walkUpBindingElementsAndPatterns(target.node) : target.node;
-            members.push([keyword, target.name, origin.type !== undefined ? ":" : "=", constantSignature(target.node, file)]);
+            const initializer = ts.isVariableDeclaration(target.node) && origin.type === undefined && target.node.initializer !== undefined ? unwrap(target.node.initializer) : undefined;
+            // A function or class value reads as its own signature, as a top-level one does.
+            const value = initializer !== undefined && isCodeValue(initializer) ? renderSignature(signatureTokens(initializer, file)) : constantSignature(target.node, file);
+            members.push([keyword, target.name, origin.type !== undefined ? ":" : "=", value]);
             order.push(`m${members.length - 1}`);
           }
         }
@@ -349,6 +378,7 @@ function namespaceBody(name: string, blocks: readonly { readonly block: ts.Modul
         members.push(["class", statement.name.text, ...signatureTokens(statement, file)]);
         order.push(`m${members.length - 1}`);
       } else if (ts.isEnumDeclaration(statement)) {
+        if (enumBlocks(statement)[0] !== statement) continue;
         members.push(enumTokens(statement, true, file));
         order.push(`m${members.length - 1}`);
       } else if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name)) {
@@ -406,10 +436,12 @@ export function constantSites(exported: ReadonlyMap<ts.Node, readonly string[]>,
     } else if (ts.isPropertyAssignment(node)) {
       const key = propertyKey(node.name);
       if (key !== undefined) sites.push({ node, text: `module.exports{${key}}`, span: node });
+    } else if (ts.isShorthandPropertyAssignment(node)) {
+      sites.push({ node, text: `module.exports{${node.name.text}}`, span: node });
     } else if (ts.isExportAssignment(node)) {
       sites.push({ node, text: "default", span: node });
     } else if (ts.isEnumDeclaration(node)) {
-      sites.push({ node, text: node.name.text, span: node });
+      if (enumBlocks(node)[0] === node) sites.push({ node, text: node.name.text, span: node });
     } else if (ts.isModuleDeclaration(node) && ts.isIdentifier(node.name) && namespaceBlocks(node)[0] === node && namespaceTokens(node, false, file) !== undefined) {
       sites.push({ node, text: node.name.text, span: node });
     }

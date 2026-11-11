@@ -173,3 +173,38 @@ test("an ambient value is exported under an alias", () => {
   expect(constants("export declare const x: number;\nexport { x as y };\n")).toEqual([["x", "number", ["x", "y"]]]);
   expect(constants("declare const x: number;\nexport { x as y };\n")).toEqual([["x", "number", ["y"]]]);
 });
+
+// Codex round 2
+test("a name bound by import type is a type, not a value", () => {
+  expect(constants('import type { T } from "./types";\nexport default T;\n')).toEqual([]);
+  expect(constants('import { type T } from "./types";\nexport default T;\n')).toEqual([]);
+  expect(constants('import type T from "./types";\nexport default T;\n')).toEqual([]);
+  expect(constants('import type * as T from "./types";\nexport default T;\n')).toEqual([]);
+  expect(constants('import { T } from "./types";\nexport default T;\n')).toEqual([["default", "identifier", ["default"]]]);
+});
+
+test("a function or class held by a namespace value reads as its own signature", () => {
+  expect(constants("export namespace N { export const f = (x: number): string => ''; export const g = function (y) {}; export const h = 1; }\n")).toEqual([
+    ["N", "namespace { const f = (x: number): string; const g = (y); const h = 1 }", ["N"]],
+  ]);
+});
+
+test("a function or class merged with a namespace exports the namespace's values under the same names", () => {
+  expect(constants("function N() {}\nnamespace N { export const x = 1; }\nexport { N };\n")).toEqual([["N", "namespace { const x = 1 }", ["N"]]]);
+  expect(constants("class N {}\nnamespace N { export const x = 1; }\nexport default N;\n")).toEqual([["N", "namespace { const x = 1 }", ["default"]]]);
+  expect(nodes("function N() {}\nnamespace N { export const x = 1; }\nexport { N };\n", "src/c.ts", "function").map((node) => [node.name, node.exportedAs])).toEqual([["N", ["N"]]]);
+});
+
+test("a shorthand property with no local is a constant of kind identifier", () => {
+  expect(constants("module.exports = { Buffer, A: 1 };\n", "src/c.js")).toEqual([
+    ["module.exports{A}", "1", ["A", "default"]],
+    ["module.exports{Buffer}", "identifier", ["Buffer", "default"]],
+  ]);
+  expect(constants("const k = 2;\nmodule.exports = { k };\n", "src/c.js")).toEqual([["k", "2", ["*"]]]);
+});
+
+test("blocks of one enum merge in source order, exported by name or by alias", () => {
+  expect(constants("enum E { A = 1 }\nenum E { B = 2 }\nexport { E };\n")).toEqual([["E", "enum { A = 1, B = 2 }", ["E"]]]);
+  expect(constants("export enum E { A = 1 }\nexport enum E { B = 2 }\n")).toEqual([["E", "enum { A = 1, B = 2 }", ["E"]]]);
+  expect(moves("enum E { A = 1 }\nenum E { B = 2 }\nexport { E };\n", "enum E { A = 1 }\nenum E { B = 3 }\nexport { E };\n", "src/c.ts")).toMatchObject([{ kind: "changed", id: "constant:src/c.ts#E" }]);
+});
