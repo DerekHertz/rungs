@@ -133,7 +133,7 @@ function segmentsOf(name: string): Segment[] {
 const LABELLED_CALLBACK = /^(?:test|it|describe|suite|skip|only|todo|concurrent|sequential|fails|failing)\(".*"\) callback$/su;
 
 /** A function the source gives no name a reviewer could tell apart: `map() callback`, `<function>`. */
-function isAnonymous(node: ModuleNode): boolean {
+export function isAnonymous(node: ModuleNode): boolean {
   if (node.level !== "function" && node.level !== "class") return false;
   const last = segmentsOf(node.qualifiedName).at(-1)!.text;
   if (last === "<function>" || last === "<class>") return true;
@@ -141,7 +141,7 @@ function isAnonymous(node: ModuleNode): boolean {
 }
 
 /** What a row says: a test or describe callback by its own `test("name")`, anything else by its qualified name. */
-function labelOf(node: ModuleNode & { readonly qualifiedName: string }): string {
+export function labelOf(node: ModuleNode & { readonly qualifiedName: string }): string {
   const last = segmentsOf(node.qualifiedName).at(-1)!;
   if (!LABELLED_CALLBACK.test(last.text)) return node.qualifiedName;
   return `${last.text.slice(0, -" callback".length)}${last.ordinal > 1 ? `@${last.ordinal}` : ""}`;

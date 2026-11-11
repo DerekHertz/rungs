@@ -614,6 +614,99 @@
       #outline[hidden] {
         display: none;
       }
+      #why {
+        flex: none;
+        max-height: 45%;
+        overflow: auto;
+        padding: 6px 10px;
+        border-bottom: 1px solid #263140;
+        line-height: 1.5;
+      }
+      #why[hidden] {
+        display: none;
+      }
+      #why:not([hidden]) ~ #outline {
+        max-height: 18%;
+      }
+      .why-line {
+        color: #ffd84a;
+      }
+      .why-facts {
+        color: #8a9bb0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .why-heading {
+        margin-top: 6px;
+        color: #8a9bb0;
+        text-transform: uppercase;
+        font-size: 0.85em;
+      }
+      .why-block {
+        padding: 2px 0;
+        border-bottom: 1px solid #1c2531;
+      }
+      .why-block-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        cursor: pointer;
+      }
+      .why-block-head:hover {
+        background: #16202c;
+      }
+      .why-block-name {
+        color: #d6dee8;
+      }
+      .why-block-reasons {
+        color: #ff9d6b;
+      }
+      .why-block-at {
+        color: #5b6b7e;
+      }
+      .why-folded {
+        color: #8a9bb0;
+        font-style: italic;
+      }
+      .why-neighbours {
+        display: inline-block;
+        margin-right: 12px;
+      }
+      .why-toggle {
+        margin-right: 6px;
+        font: inherit;
+        color: #8fb4d9;
+        background: none;
+        border: 0;
+        padding: 0 4px 0 0;
+        cursor: pointer;
+      }
+      .why-toggle:hover {
+        color: #e8edf2;
+      }
+      .why-steps {
+        padding-left: 14px;
+      }
+      .why-step {
+        display: flex;
+        gap: 8px;
+      }
+      .why-step.unresolved {
+        color: #8a9bb0;
+        font-style: italic;
+      }
+      .why-nested {
+        padding-left: 14px;
+      }
+      #source-code .row.fold {
+        color: #8fb4d9;
+        background: #121a24;
+        cursor: pointer;
+      }
+      #source-gutter .row.fold {
+        color: #5b6b7e;
+        background: #121a24;
+      }
       .outline-line {
         display: flex;
         gap: 8px;
@@ -1068,6 +1161,7 @@
           <label id="narrate-toggle" hidden><input type="checkbox"> Narration</label>
           <button id="source-close" type="button" aria-label="Close source">&times;</button>
         </header>
+        <div id="why" aria-label="Why this file matters" hidden></div>
         <div id="outline" aria-label="Pseudocode" hidden></div>
         <div id="narration" aria-label="Narration" hidden></div>
         <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre><div id="source-mark" hidden></div></div>

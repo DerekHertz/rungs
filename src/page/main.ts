@@ -20,8 +20,10 @@ import { tooltipPosition } from "./tooltip.ts";
 import type { Lot, Town } from "../town.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
-import { changeNote, drawRows, loadRows, markRows } from "./code-rows.ts";
-import type { CodeParts, Drawn, Loaded } from "./code-rows.ts";
+import { changeNote, collapseRows, drawRows, loadRows, markRows, revealRange } from "./code-rows.ts";
+import type { CodeParts, Drawn, Fold, Loaded } from "./code-rows.ts";
+import { renderFileWhy } from "./file-why-panel.ts";
+import type { FileWhy } from "../defining.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import type { RiskItem } from "../risks.ts";
 import { NO_TEST_MARKS, testMarks } from "../test-marks.ts";
@@ -462,7 +464,34 @@ let drawn: Drawn | undefined;
 
 /** Scrolls the source panel to the first change in `range` (in the node, without one), banding a narrower range. */
 function markLines(range: LineRange | undefined): void {
-  if (drawn !== undefined) markRows(sourceParts, drawn, range);
+  if (drawn === undefined) return;
+  // A mark on lines folded away opens the fold first, so it has somewhere to land.
+  if (range !== undefined) revealRange(drawn, folds, range);
+  markRows(sourceParts, drawn, range);
+}
+
+const whyPane = document.querySelector<HTMLElement>("#why")!;
+/** The runs of the open file's source folded away behind its defining blocks. */
+let folds: Fold[] = [];
+
+/** A file under a comparison says why it matters and lists its defining blocks; their lines are open, the rest folded. */
+async function showWhy(node: ModuleNode, ticket: number): Promise<FileWhy | undefined> {
+  folds = [];
+  whyPane.hidden = true;
+  if (comparison === null || node.level !== "file") return undefined;
+  const response = await fetch(`/file-why?id=${encodeURIComponent(node.id)}`);
+  if (!response.ok || ticket !== requested) return undefined;
+  return (await response.json()) as FileWhy;
+}
+
+function drawWhy(found: FileWhy): void {
+  if (drawn === undefined) return;
+  renderFileWhy(whyPane, found, {
+    graph: picture.graph,
+    pickBlock: (block) => markLines(block.range),
+    pickFile: (id) => pickNode(id),
+  });
+  folds = collapseRows(drawn, found.defining.map((block) => block.range));
 }
 
 function showSource(node: ModuleNode, { rows, tooLarge }: Loaded): void {
@@ -577,12 +606,15 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   if (loaded === undefined) return closePanel();
   const outlined = node.level === "function" ? await fetch(`/pseudocode?id=${encodeURIComponent(node.id)}`) : undefined;
   const pseudo = outlined?.ok ? ((await outlined.json()) as { lines: PseudoLine[] }).lines : [];
+  const why = await showWhy(node, ticket);
   if (ticket !== requested) return;
   selected = node.id;
   showSource(node, loaded);
+  if (why !== undefined) drawWhy(why);
   showOutline(node, pseudo);
   offerNarration(node);
-  markLines(marked);
+  // A file opens on its first defining block when nothing else was asked for.
+  markLines(marked ?? why?.defining[0]?.range);
   chosenKind = undefined;
   townView.select(outline, reaches.get(node.id));
   // A function lights the harbour structures it reaches; a file or class lights none.
