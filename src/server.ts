@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
@@ -113,6 +113,7 @@ export async function serve(
     readFile(new URL("page/index.html", import.meta.url), "utf8"),
     bundlePage(),
   ]);
+  const sprites = await readSprites();
   const resources = new Map<string, Resource>([
     ["/", { contentType: "text/html; charset=utf-8", body: html }],
     ["/main.js", { contentType: "text/javascript; charset=utf-8", body: script }],
@@ -286,6 +287,12 @@ export async function serve(
       else response.writeHead(200, { "content-type": "text/plain; charset=utf-8" }).end(text);
       return;
     }
+    if (url.pathname.startsWith("/town/")) {
+      const sprite = sprites.get(url.pathname.slice("/town/".length));
+      if (sprite === undefined) response.writeHead(404).end();
+      else response.writeHead(200, { "content-type": sprite.contentType }).end(sprite.body);
+      return;
+    }
     const resource = resources.get(url.pathname);
     if (resource === undefined) {
       response.writeHead(404).end();
@@ -305,6 +312,20 @@ export async function serve(
     close: () =>
       new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
   };
+}
+
+/**
+ * The town theme's sprite sheet, as `/town/<file>`: `sprites.json` and one PNG per sprite. Only
+ * files that sit in the sheet's folder when the server starts can be asked for.
+ */
+async function readSprites(): Promise<Map<string, { contentType: string; body: Buffer }>> {
+  const folder = new URL("../themes/town/sprites/", import.meta.url);
+  const found = new Map<string, { contentType: string; body: Buffer }>();
+  for (const name of await readdir(folder)) {
+    const contentType = name.endsWith(".png") ? "image/png" : name === "sprites.json" ? "application/json; charset=utf-8" : undefined;
+    if (contentType !== undefined) found.set(name, { contentType, body: await readFile(new URL(name, folder)) });
+  }
+  return found;
 }
 
 /** The hosts a request to this server may name: its own address, by number or as localhost. */

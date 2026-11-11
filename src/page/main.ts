@@ -10,6 +10,10 @@ import { contractsReport, effectsChangedRows, newEffects, unmentioned, unmention
 import type { EffectRow, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
+import type { CityHandlers, CityView } from "./city-view.ts";
+import { createTownView, loadSheet } from "./town-view.ts";
+import { townOf } from "../town.ts";
+import type { Town } from "../town.ts";
 import { EFFECT_COLOR, FAIL_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
@@ -80,7 +84,11 @@ function cancelPending(): void {
   requested++;
 }
 
-const view = createCityView(stage, {
+/** The town is a second picture beside the city: `?view=town` draws it, and the page's switch moves between them. */
+const townMode = new URLSearchParams(location.search).get("view") === "town";
+const sheet = townMode ? await loadSheet() : undefined;
+
+const handlers: CityHandlers = {
   hover(id, at) {
     const facts = id === undefined ? undefined : describe(id);
     if (facts === undefined) {
@@ -115,7 +123,10 @@ const view = createCityView(stage, {
     const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
     if (to !== undefined) focusOn(to);
   },
-}, observedRun?.failingFiles);
+};
+const townView = sheet === undefined ? undefined : createTownView(stage, handlers, sheet);
+const cityView = townView === undefined ? createCityView(stage, handlers, observedRun?.failingFiles) : undefined;
+const view: Omit<CityView, "show"> = townView ?? cityView!;
 
 let chosenKind: ResourceKind | undefined;
 const reaches = reachMap(picture);
@@ -205,6 +216,20 @@ function showLegend(city: City): void {
   legend.replaceChildren(...parts);
 }
 
+/** What the town's sprites stand for. Nothing is listed that the picture does not draw. */
+function showTownLegend(town: Town): void {
+  const kinds = document.createElement("div");
+  kinds.textContent = "building: workshop source \u00b7 lab tests \u00b7 library docs \u00b7 shed config and build \u00b7 warehouse generated \u00b7 hut no role";
+  const size = document.createElement("div");
+  size.textContent = `size: classes and functions per file, square-root scale (${town.counts.fewest} to ${town.counts.most}); every file has a lot of the same size`;
+  const harbour = document.createElement("div");
+  harbour.textContent =
+    town.piers.length === 0 && town.unpictured.length === 0
+      ? "harbour: no outside resource is reached"
+      : `harbour: ${town.piers.map((pier) => pier.kind).join(", ")}${town.unpictured.length > 0 ? ` (no sprite yet for ${town.unpictured.join(", ")})` : ""}`;
+  legend.replaceChildren(kinds, size, harbour);
+}
+
 function showCity(root: NodeId): void {
   cancelPending();
   cityRoot = root;
@@ -215,8 +240,14 @@ function showCity(root: NodeId): void {
   tooltip.style.display = "none";
   const city = cityOf(picture, root);
   buildings = new Map(city.buildings.map((building) => [building.id, building]));
-  view.show(city);
-  showLegend(city);
+  if (townView !== undefined && sheet !== undefined) {
+    const town = townOf(graph, new Set(Object.keys(sheet.sizes)));
+    townView.show(town);
+    showTownLegend(town);
+  } else {
+    cityView?.show(city);
+    showLegend(city);
+  }
   showTrail();
 }
 
@@ -457,6 +488,15 @@ function cyclePixel(): void {
 panelClose.addEventListener("click", closePanel);
 resetButton.addEventListener("click", resetView);
 pixelButton.addEventListener("click", cyclePixel);
+pixelButton.hidden = townMode;
+const switchButton = document.querySelector<HTMLButtonElement>("#view-switch")!;
+switchButton.textContent = townMode ? "City view" : "Town view";
+switchButton.addEventListener("click", () => {
+  const next = new URL(location.href);
+  if (townMode) next.searchParams.delete("view");
+  else next.searchParams.set("view", "town");
+  location.href = next.href;
+});
 window.addEventListener("keydown", (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === "Escape") {
