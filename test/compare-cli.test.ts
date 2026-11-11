@@ -24,7 +24,7 @@ function write(dir: string, path: string, text: string): void {
 }
 
 function repo(manifest = "{}\n", tests: Record<string, string> = {}): string {
-  const dir = mkdtempSync(join(tmpdir(), "rungs-cmp-"));
+  const dir = mkdtempSync(join(tmpdir(), "streets-cmp-"));
   scratch.push(dir);
   git(dir, "init", "--quiet", "--initial-branch=main");
   write(dir, "package.json", manifest);
@@ -63,7 +63,7 @@ test("compare prints one line with the counts, serves the comparison, and stays 
     });
     const commit = git(dir, "rev-parse", "--short", "main");
     expect(lines[0]).toBe(
-      `Rungs is comparing 5 files in ${dir} (uncommitted changes included) against main at ${commit} (merge base): 2 files added, 1 altered, 1 removed, 1 moved`,
+      `Systems to Streets is comparing 5 files in ${dir} (uncommitted changes included) against main at ${commit} (merge base): 2 files added, 1 altered, 1 removed, 1 moved`,
     );
     const url = lines[1] ?? "";
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
@@ -93,13 +93,13 @@ test("an unknown base prints one line and exits 1", () => {
   expect(result.status).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr.trim().split("\n")).toHaveLength(1);
-  expect(result.stderr).toMatch(/^rungs: .*nope/);
+  expect(result.stderr).toMatch(/^streets: .*nope/);
 });
 
 test("compare without a base is a usage error, exit 2", () => {
   const result = run(["compare"], repo());
   expect(result.status).toBe(2);
-  expect(result.stderr).toContain("       rungs compare <base> [dir]");
+  expect(result.stderr).toContain("       streets compare <base> [dir]");
 });
 
 function startCompare(dir: string, extra: string[], input?: string) {
@@ -147,11 +147,11 @@ test("an unreadable --description file prints one line and exits 1", () => {
   const result = run(["compare", "main", "--no-open", "--description", "missing.md"], repo());
   expect(result.status).toBe(1);
   expect(result.stdout).toBe("");
-  expect(result.stderr).toMatch(/^rungs: .*missing\.md/);
+  expect(result.stderr).toMatch(/^streets: .*missing\.md/);
 });
 
 function stubClaude(body: string): string {
-  const bin = mkdtempSync(join(tmpdir(), "rungs-bin-"));
+  const bin = mkdtempSync(join(tmpdir(), "streets-bin-"));
   scratch.push(bin);
   const path = join(bin, "claude");
   writeFileSync(path, `#!/usr/bin/env node\n${body}\n`);
@@ -161,7 +161,7 @@ function stubClaude(body: string): string {
 
 /** A PATH holding node and git and nothing else, so no claude is found. */
 function bareBin(): string {
-  const bin = mkdtempSync(join(tmpdir(), "rungs-bare-"));
+  const bin = mkdtempSync(join(tmpdir(), "streets-bare-"));
   scratch.push(bin);
   symlinkSync(process.execPath, join(bin, "node"));
   symlinkSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim(), join(bin, "git"));
@@ -189,7 +189,7 @@ function startLinked(dir: string, env: Record<string, string>, extra: string[]) 
 
 test("--link asks claude, serves the links, and a second run reads the cache", { timeout: 30000 }, async () => {
   const dir = repo();
-  const cache = mkdtempSync(join(tmpdir(), "rungs-cache-"));
+  const cache = mkdtempSync(join(tmpdir(), "streets-cache-"));
   scratch.push(cache);
   const bin = stubClaude(
     `process.stdin.resume().on("data", () => {}).on("end", () => console.log(JSON.stringify({ is_error: false, structured_output: { links: [{ claim: 0, ids: ["file:src/a.ts", "file:src/nope.ts"], say: "Reworks a", mergeInto: -1 }, { claim: 1, ids: [], say: "context", mergeInto: -1 }] }, modelUsage: { "stub-model": {} } })));`,
@@ -215,7 +215,7 @@ test("--link asks claude, serves the links, and a second run reads the cache", {
 
 test("--link with no claude on the path prints one line, serves without links, and says so", { timeout: 30000 }, async () => {
   const dir = repo();
-  const cache = mkdtempSync(join(tmpdir(), "rungs-cache-"));
+  const cache = mkdtempSync(join(tmpdir(), "streets-cache-"));
   scratch.push(cache);
   const run = startLinked(dir, { PATH: bareBin(), XDG_CACHE_HOME: cache }, ["--relink"]);
   try {
@@ -255,10 +255,10 @@ test("--run-tests runs main's tests against the head once in the sandbox, says h
   const child = spawn("node", [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests"], { cwd: dir });
   try {
     const { url, stderr } = await startedUrl(child);
-    expect(stderr()).toMatch(/^rungs: running the base's tests once against the head's code in a bwrap sandbox with no network \(up to 10 minutes\)$/m);
-    expect(stderr()).toMatch(/^rungs: ran 2 tests with node --test in bwrap in [\d.]+s: 1 pass, 1 fail, 0 skip$/m);
-    expect(stderr()).toMatch(/^rungs: tests written by this PR \(1 files, claimed, not evidence\): 0 of 1 failed$/m);
-    expect(stderr()).toContain("rungs: Evidence against mistakes, not against a hostile author: the PR's code runs inside each test.");
+    expect(stderr()).toMatch(/^streets: running the base's tests once against the head's code in a bwrap sandbox with no network \(up to 10 minutes\)$/m);
+    expect(stderr()).toMatch(/^streets: ran 2 tests with node --test in bwrap in [\d.]+s: 1 pass, 1 fail, 0 skip$/m);
+    expect(stderr()).toMatch(/^streets: tests written by this PR \(1 files, claimed, not evidence\): 0 of 1 failed$/m);
+    expect(stderr()).toContain("streets: Evidence against mistakes, not against a hostile author: the PR's code runs inside each test.");
     const observed = await (await fetch(new URL("observed.json", url))).json();
     expect(observed).toMatchObject({ status: "ran", sandbox: "bwrap", counts: { pass: 1, fail: 1, skip: 0 }, written: { tier: "claimed", files: ["b.test.mjs"] } });
   } finally {
@@ -271,8 +271,8 @@ test("--run-tests-unsandboxed with no sandbox warns that the results are as trus
   const child = spawn(process.execPath, [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests-unsandboxed"], { cwd: dir, env: { PATH: bareBin() } });
   try {
     const { url, stderr } = await startedUrl(child);
-    expect(stderr()).toMatch(/^rungs: running the base's tests once against the head's code WITHOUT a sandbox: .*as trustworthy as the PR's author/m);
-    expect(stderr()).toMatch(/^rungs: ran 1 tests with node --test in unsandboxed in [\d.]+s: 1 pass, 0 fail, 0 skip \(ran without a sandbox: as trustworthy as the PR's author\)$/m);
+    expect(stderr()).toMatch(/^streets: running the base's tests once against the head's code WITHOUT a sandbox: .*as trustworthy as the PR's author/m);
+    expect(stderr()).toMatch(/^streets: ran 1 tests with node --test in unsandboxed in [\d.]+s: 1 pass, 0 fail, 0 skip \(ran without a sandbox: as trustworthy as the PR's author\)$/m);
     expect(await (await fetch(new URL("observed.json", url))).json()).toMatchObject({ status: "ran", sandbox: "unsandboxed" });
   } finally {
     child.kill();
@@ -288,7 +288,7 @@ test("--run-tests with no sandbox refuses, says so, and still serves the compari
   try {
     const { url, stderr } = await startedUrl(child);
     const why = "no sandbox to run the tests in (bwrap is not on PATH); --run-tests-unsandboxed runs them anyway";
-    expect(stderr()).toMatch(`rungs: tests not run: ${why}`);
+    expect(stderr()).toMatch(`streets: tests not run: ${why}`);
     expect(await (await fetch(new URL("observed.json", url))).json()).toMatchObject({ status: "refused", why });
   } finally {
     child.kill();
@@ -299,7 +299,7 @@ const tourStub = `process.stdin.resume().on("data", () => {}).on("end", () => co
 
 test("--walkthrough asks claude for a tour, serves it, and a second run reads the cache until --rewalk", { timeout: 30000 }, async () => {
   const dir = repo();
-  const cache = mkdtempSync(join(tmpdir(), "rungs-cache-"));
+  const cache = mkdtempSync(join(tmpdir(), "streets-cache-"));
   scratch.push(cache);
   const first = startLinked(dir, { PATH: `${stubClaude(tourStub)}:${bareBin()}`, XDG_CACHE_HOME: cache }, ["--walkthrough"]);
   try {
@@ -333,7 +333,7 @@ const narrateStub = `process.stdin.resume().on("data", () => {}).on("end", () =>
 
 test("--narrate narrates contract-moved functions ahead of time and on request, and a second run reads the cache", { timeout: 30000 }, async () => {
   const dir = repo();
-  const cache = mkdtempSync(join(tmpdir(), "rungs-cache-"));
+  const cache = mkdtempSync(join(tmpdir(), "streets-cache-"));
   scratch.push(cache);
   const id = encodeURIComponent("function:src/added.ts#added");
   const first = startLinked(dir, { PATH: `${stubClaude(narrateStub)}:${bareBin()}`, XDG_CACHE_HOME: cache }, ["--narrate"]);
@@ -360,7 +360,7 @@ test("--narrate narrates contract-moved functions ahead of time and on request, 
 
 test("without --narrate nothing is narrated and the endpoint is not there", { timeout: 30000 }, async () => {
   const dir = repo();
-  const run = startLinked(dir, { PATH: bareBin(), XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "rungs-cache-")) }, []);
+  const run = startLinked(dir, { PATH: bareBin(), XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "streets-cache-")) }, []);
   try {
     const url = await run.url;
     expect((await fetch(new URL("narrate.json", url))).status).toBe(404);

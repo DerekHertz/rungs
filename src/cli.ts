@@ -31,30 +31,30 @@ const TEST_TIMEOUT_MS = 10 * 60 * 1000;
 async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUnsandboxed: boolean): Promise<TestRun> {
   const choice = chooseIsolation(await detectSandbox(), allowUnsandboxed);
   if ("refused" in choice) {
-    console.error(`rungs: tests not run: ${choice.refused}`);
+    console.error(`streets: tests not run: ${choice.refused}`);
     return { status: "refused", why: choice.refused };
   }
   const where =
     choice.isolation.kind === "bwrap"
       ? "in a bwrap sandbox with no network"
       : `WITHOUT a sandbox: their code can reach this machine and the network, and the results are only as trustworthy as the PR's author`;
-  console.error(`rungs: running the base's tests once against the head's code ${where} (up to ${TEST_TIMEOUT_MS / 60000} minutes)`);
+  console.error(`streets: running the base's tests once against the head's code ${where} (up to ${TEST_TIMEOUT_MS / 60000} minutes)`);
   const run = await runTests(base, tree, await readExecutables(dir, tree), choice.isolation, TEST_TIMEOUT_MS);
   const label = choice.isolation.kind === "bwrap" ? "" : ` (${UNSANDBOXED_LINE})`;
   if (run.status === "ran") {
     const count = (outcome: string) => run.reports.filter((report) => report.outcome === outcome).length;
-    console.error(`rungs: ran ${run.reports.length} tests with node --test in ${run.isolation} in ${run.seconds}s: ${count("pass")} pass, ${count("fail")} fail, ${count("skip")} skip${label}`);
-    if (run.deleted.length > 0) console.error(`rungs: ${run.deleted.length} of the base's test files were deleted by this PR and ran anyway: ${run.deleted.join(", ")}`);
-    if (run.edited.length > 0) console.error(`rungs: ${run.edited.length} of the base's test files were edited by this PR and their base versions ran: ${run.edited.join(", ")}`);
+    console.error(`streets: ran ${run.reports.length} tests with node --test in ${run.isolation} in ${run.seconds}s: ${count("pass")} pass, ${count("fail")} fail, ${count("skip")} skip${label}`);
+    if (run.deleted.length > 0) console.error(`streets: ${run.deleted.length} of the base's test files were deleted by this PR and ran anyway: ${run.deleted.join(", ")}`);
+    if (run.edited.length > 0) console.error(`streets: ${run.edited.length} of the base's test files were edited by this PR and their base versions ran: ${run.edited.join(", ")}`);
     if (run.written !== undefined) {
       const { outcome } = run.written;
       const said = outcome.status === "ran" ? `${outcome.reports.filter((report) => report.outcome === "fail").length} of ${outcome.reports.length} failed` : `${outcome.status}: ${outcome.why}`;
-      console.error(`rungs: tests written by this PR (${run.written.files.length} files, claimed, not evidence): ${said}`);
+      console.error(`streets: tests written by this PR (${run.written.files.length} files, claimed, not evidence): ${said}`);
     }
-    console.error(`rungs: ${EVIDENCE_LINE}`);
-  } else if (run.status === "unreliable") console.error(`rungs: the test results are unreliable and none is shown: ${run.why}${label}`);
-  else if (run.status === "failed") console.error(`rungs: the test run failed after ${run.seconds}s: ${run.why}${label}\n${run.output}`);
-  else console.error(`rungs: tests not run: ${run.why}`);
+    console.error(`streets: ${EVIDENCE_LINE}`);
+  } else if (run.status === "unreliable") console.error(`streets: the test results are unreliable and none is shown: ${run.why}${label}`);
+  else if (run.status === "failed") console.error(`streets: the test run failed after ${run.seconds}s: ${run.why}${label}\n${run.output}`);
+  else console.error(`streets: tests not run: ${run.why}`);
   return run;
 }
 
@@ -86,7 +86,7 @@ try {
   const tree = await readCheckout(options.dir);
   if (options.base === undefined) {
     const server = await serve(tree, options.port);
-    console.log(`Rungs is showing ${tree.size} files from ${options.dir} at ${server.url}`);
+    console.log(`Systems to Streets is showing ${tree.size} files from ${options.dir} at ${server.url}`);
     if (options.open) openBrowser(server.url);
   } else {
     const base = await readBase(options.dir, options.base);
@@ -100,7 +100,7 @@ try {
     const link = options.link
       ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
           const candidates = candidatesOf(comparison, graph);
-          console.error(`rungs: asking claude to link ${claims.length} claims to ${candidates.length} changed files and folders (up to ${LINK_TIMEOUT_MS / 60000} minutes)`);
+          console.error(`streets: asking claude to link ${claims.length} claims to ${candidates.length} changed files and folders (up to ${LINK_TIMEOUT_MS / 60000} minutes)`);
           const started = Date.now();
           const outcome = await linkClaims({
             claims,
@@ -110,11 +110,11 @@ try {
             relink: options.relink,
             timeoutMs: LINK_TIMEOUT_MS,
           });
-          if (outcome.status === "failed") console.error(`rungs: no claim links, continuing without them: ${outcome.message}`);
+          if (outcome.status === "failed") console.error(`streets: no claim links, continuing without them: ${outcome.message}`);
           else if (outcome.status === "ok") {
             const linked = outcome.byClaim.filter((ids) => ids.length > 0).length;
             const how = outcome.cached ? "from the cache" : `by ${outcome.model} in ${Math.round((Date.now() - started) / 1000)}s`;
-            console.error(`rungs: linked ${linked} of ${claims.length} claims ${how} (dropped ${outcome.dropped.ids} unknown ids, ${outcome.dropped.claims} bad claim numbers)`);
+            console.error(`streets: linked ${linked} of ${claims.length} claims ${how} (dropped ${outcome.dropped.ids} unknown ids, ${outcome.dropped.claims} bad claim numbers)`);
           }
           return outcome;
         }
@@ -123,7 +123,7 @@ try {
     const walk = options.walkthrough
       ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
           const places = placesOf(comparison, graph);
-          console.error(`rungs: asking claude for a walkthrough of ${places.length} changed files, classes and functions (up to ${TOUR_TIMEOUT_MS / 60000} minutes)`);
+          console.error(`streets: asking claude for a walkthrough of ${places.length} changed files, classes and functions (up to ${TOUR_TIMEOUT_MS / 60000} minutes)`);
           const started = Date.now();
           const outcome = await walkthrough({
             claims,
@@ -133,11 +133,11 @@ try {
             rewalk: options.rewalk,
             timeoutMs: TOUR_TIMEOUT_MS,
           });
-          if (outcome.status === "failed") console.error(`rungs: no walkthrough, continuing without it: ${outcome.message}`);
+          if (outcome.status === "failed") console.error(`streets: no walkthrough, continuing without it: ${outcome.message}`);
           else if (outcome.status === "ok") {
             const how = outcome.cached ? "from the cache" : `by ${outcome.model} in ${Math.round((Date.now() - started) / 1000)}s`;
             const { stops, ids, claims: numbers, sentences } = outcome.dropped;
-            console.error(`rungs: walkthrough of ${outcome.stops.length} stops ${how} (dropped ${stops} stops, ${ids} unknown ids, ${numbers} bad claim numbers, ${sentences} unanchored sentences)`);
+            console.error(`streets: walkthrough of ${outcome.stops.length} stops ${how} (dropped ${stops} stops, ${ids} unknown ids, ${numbers} bad claim numbers, ${sentences} unanchored sentences)`);
           }
           return outcome;
         }
@@ -151,10 +151,10 @@ try {
             renarrate: request.renarrate || options.renarrate,
             timeoutMs: NARRATE_TIMEOUT_MS,
           });
-          if (outcome.status === "failed") console.error(`rungs: no narration for ${request.node.id}: ${outcome.message}`);
+          if (outcome.status === "failed") console.error(`streets: no narration for ${request.node.id}: ${outcome.message}`);
           else {
             const how = outcome.cached ? "from the cache" : `by ${outcome.model}`;
-            console.error(`rungs: narrated ${request.node.id} in ${outcome.sentences.length} sentences ${how} (dropped ${outcome.dropped.sentences} unanchored sentences)`);
+            console.error(`streets: narrated ${request.node.id} in ${outcome.sentences.length} sentences ${how} (dropped ${outcome.dropped.sentences} unanchored sentences)`);
           }
           return outcome;
         }
@@ -165,12 +165,12 @@ try {
       if (change.node.level === "file") counts[change.kind] += 1;
     }
     console.log(
-      `Rungs is comparing ${tree.size.toLocaleString("en-US")} files in ${options.dir} (uncommitted changes included) against ${options.base} at ${base.commit.slice(0, 7)} (merge base): ${counts.added} files added, ${counts.altered} altered, ${counts.removed} removed, ${counts.moved} moved`,
+      `Systems to Streets is comparing ${tree.size.toLocaleString("en-US")} files in ${options.dir} (uncommitted changes included) against ${options.base} at ${base.commit.slice(0, 7)} (merge base): ${counts.added} files added, ${counts.altered} altered, ${counts.removed} removed, ${counts.moved} moved`,
     );
     console.log(server.url);
     if (options.open) openBrowser(server.url);
   }
 } catch (error) {
-  console.error(`rungs: ${(error as Error).message}`);
+  console.error(`streets: ${(error as Error).message}`);
   process.exit(1);
 }

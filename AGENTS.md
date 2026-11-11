@@ -1,13 +1,13 @@
-# Rungs
+# Systems to Streets
 
-Rungs draws a codebase as a pixel-art picture you zoom into, computed from the code. Decisions
-live in [SPEC.md](SPEC.md); read it before changing behavior.
+Systems to Streets draws a codebase as a pixel-art picture you zoom into, computed from the code.
+Decisions live in [SPEC.md](SPEC.md); read it before changing behavior.
 
 ## Agent skills
 
 ### Issue tracker
 
-Issues live in this repo's GitHub Issues (`DerekHertz/rungs`), through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in this repo's GitHub Issues (`DerekHertz/systems-to-streets`), through the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

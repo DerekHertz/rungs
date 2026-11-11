@@ -12,7 +12,7 @@ import { walkthrough } from "../src/walkthrough.ts";
 
 const scratch: string[] = [];
 const temp = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "rungs-tour-"));
+  const dir = mkdtempSync(join(tmpdir(), "streets-tour-"));
   scratch.push(dir);
   return dir;
 };

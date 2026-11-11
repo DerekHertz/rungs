@@ -61,7 +61,7 @@ test("node --test runs once in the sandbox, and each result lands on its test fu
 const registry = { url: "", hits: [] as string[], tarball: Buffer.alloc(0), integrity: "" };
 let registryServer: HttpServer;
 let hostDir: string;
-const FILE_SECRET = "rungs-host-file-secret-value";
+const FILE_SECRET = "streets-host-file-secret-value";
 
 async function listen(server: HttpServer | NetServer, from: number): Promise<number> {
   for (let port = from; port < from + 50; port += 1) {
@@ -75,7 +75,7 @@ async function listen(server: HttpServer | NetServer, from: number): Promise<num
 }
 
 beforeAll(async () => {
-  hostDir = await mkdtemp(join(tmpdir(), "rungs-host-"));
+  hostDir = await mkdtemp(join(tmpdir(), "streets-host-"));
   await mkdir(join(hostDir, "package"));
   const postinstall = `node -e "require('fs').writeFileSync('marker', 'x')"`;
   await writeFile(join(hostDir, "package", "package.json"), JSON.stringify({ name: "dep", version: "1.0.0", main: "index.js", scripts: { postinstall } }));
@@ -107,7 +107,7 @@ function lockfile(dep: object, asked = "1.0.0"): string {
 
 /** A tree whose .npmrc names its own program as npm's git; the program calls home and leaves a marker. */
 function hostile(port: number, files: [string, string][]): { tree: Map<string, string>; executable: Set<string> } {
-  const payload = `#!/bin/sh\n/rungs/bin/node -e 'require("net").connect(${port}, "127.0.0.1")'\necho pwned > /out/marker\necho pwned > marker\nexit 1\n`;
+  const payload = `#!/bin/sh\n/streets/bin/node -e 'require("net").connect(${port}, "127.0.0.1")'\necho pwned > /out/marker\necho pwned > marker\nexit 1\n`;
   return {
     tree: new Map([[".npmrc", "git=/work/payload.sh\nignore-scripts=false\n"], ["payload.sh", payload], ...files]),
     executable: new Set(["payload.sh"]),
@@ -219,13 +219,13 @@ test("plants the links", () => {
 `,
     ],
   ]);
-  process.env.RUNGS_PROBE_SECRET = FILE_SECRET;
+  process.env.STREETS_PROBE_SECRET = FILE_SECRET;
   try {
     const run = await runTests(tree, tree, new Set(), bwrap, 60_000);
     expect(run).toMatchObject({ status: "ran", exitCode: 0, reports: [{ file: "swap.test.mjs", path: ["plants the links"], outcome: "pass" }] });
     expect(JSON.stringify(run)).not.toContain(FILE_SECRET);
   } finally {
-    delete process.env.RUNGS_PROBE_SECRET;
+    delete process.env.STREETS_PROBE_SECRET;
   }
 });
 
@@ -296,7 +296,7 @@ test("a run past its limit is a failed run that says so", async () => {
 
 test("an unsupported runner runs nothing", async () => {
   const tree = new Map([["package.json", `{"scripts":{"test":"jest"}}\n`]]);
-  expect(await runTests(tree, tree, new Set(), bwrap, 1000)).toEqual({ status: "unsupported", why: 'the test script runs "jest"; Rungs reads only node --test' });
+  expect(await runTests(tree, tree, new Set(), bwrap, 1000)).toEqual({ status: "unsupported", why: 'the test script runs "jest"; Systems to Streets reads only node --test' });
 });
 
 // The point of taking the tests from the base: a PR cannot pass its own tests off as evidence.

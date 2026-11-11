@@ -10,23 +10,23 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { chooseIsolation, detectSandbox, runIsolated } from "../src/sandbox.ts";
 import type { Isolation, Places, Step } from "../src/sandbox.ts";
 
-const SECRET = "rungs-probe-secret-value";
+const SECRET = "streets-probe-secret-value";
 const outsideFile = fileURLToPath(import.meta.url);
 let server: Server;
 let port: number;
 let hostDir: string;
 
 beforeAll(async () => {
-  process.env.RUNGS_PROBE_SECRET = SECRET;
+  process.env.STREETS_PROBE_SECRET = SECRET;
   process.env.npm_config_git = "/tmp/payload.sh";
   server = createServer((socket) => socket.on("error", () => {}).end("hello\n"));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   port = (server.address() as AddressInfo).port;
-  hostDir = await mkdtemp(join(tmpdir(), "rungs-host-"));
+  hostDir = await mkdtemp(join(tmpdir(), "streets-host-"));
 });
 
 afterAll(async () => {
-  delete process.env.RUNGS_PROBE_SECRET;
+  delete process.env.STREETS_PROBE_SECRET;
   delete process.env.npm_config_git;
   await new Promise((resolve) => server.close(resolve));
   await rm(hostDir, { recursive: true, force: true });
@@ -57,7 +57,7 @@ test("a file outside the copy cannot be written", () => {
 });
 
 test("the environment holds no secret", () => {
-  assert.equal(process.env.RUNGS_PROBE_SECRET, undefined);
+  assert.equal(process.env.STREETS_PROBE_SECRET, undefined);
   assert.equal(process.env.SSH_AUTH_SOCK, undefined);
   assert.equal(process.env.GH_TOKEN, undefined);
   assert.deepEqual(Object.keys(process.env).filter((name) => /^npm_config_/i.test(name)), []);
@@ -188,7 +188,7 @@ for (const isolation of [bwrap, unsandboxed]) {
 
 // What a run leaves in its out folder is the run's own untrusted work: it is read as a plain
 // file by its expected name, and never followed anywhere else on the machine.
-const FILE_SECRET = "rungs-host-file-secret-value";
+const FILE_SECRET = "streets-host-file-secret-value";
 const unreadable = { kind: "unreadable", why: expect.any(String) };
 
 async function hostSecret(): Promise<string> {
@@ -377,7 +377,7 @@ test("in the sandbox a process left behind dies with its step: the namespace end
 // Ctrl-C must leave nothing behind, even a folder the run locked.
 for (const isolation of [bwrap, unsandboxed]) {
   test(`${isolation.kind}: an interrupted run removes its folder, locked folders and all`, async () => {
-    const temp = await mkdtemp(join(tmpdir(), "rungs-interrupt-"));
+    const temp = await mkdtemp(join(tmpdir(), "streets-interrupt-"));
     const script = `import { runIsolated } from ${JSON.stringify(fileURLToPath(new URL("../src/sandbox.ts", import.meta.url)))};
 await runIsolated({
   tree: new Map(),
@@ -390,7 +390,7 @@ await runIsolated({
     await writeFile(join(temp, "run.ts"), script);
     const child = spawn(process.execPath, [join(temp, "run.ts")], { env: { ...process.env, TMPDIR: temp }, stdio: "ignore" });
     try {
-      const runs = () => readdirSync(temp).filter((name) => name.startsWith("rungs-run-"));
+      const runs = () => readdirSync(temp).filter((name) => name.startsWith("streets-run-"));
       const locked = () => runs().some((name) => existsSync(join(temp, name, "work", "locked")) && (statSync(join(temp, name, "work", "locked")).mode & 0o777) === 0);
       for (let tries = 0; tries < 100 && !locked(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 50));
       expect(locked()).toBe(true);
@@ -492,7 +492,7 @@ test("a tree's .npmrc naming its own program as git never runs it: npm installs 
     const run = await runIsolated({
       tree: new Map([
         [".npmrc", "git=/work/payload.sh\n"],
-        ["payload.sh", `#!/bin/sh\n/rungs/bin/node -e 'require("net").connect(${beaconPort}, "127.0.0.1")'\necho pwned > /out/marker\nexit 1\n`],
+        ["payload.sh", `#!/bin/sh\n/streets/bin/node -e 'require("net").connect(${beaconPort}, "127.0.0.1")'\necho pwned > /out/marker\nexit 1\n`],
         ["package.json", gitManifest],
         ["package-lock.json", gitLock],
       ]),

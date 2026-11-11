@@ -20,7 +20,7 @@ const refusal = (manifest: object, packages: object, lock: object = {}) => {
   return "refused" in result ? result.refused : result;
 };
 
-test("the install is given two files Rungs wrote itself: the dependencies asked for and the lockfile's registry entries", () => {
+test("the install is given two files Systems to Streets wrote itself: the dependencies asked for and the lockfile's registry entries", () => {
   const result = installFiles(
     tree(
       { dependencies: { dep: "^1.0.0", other: "npm:@scope/real@~2.1" }, devDependencies: { tool: "latest" }, workspaces: ["packages/*"], config: { x: 1 } },
@@ -84,9 +84,9 @@ test("a lockfile entry that is not a registry tarball with a sha512 hash is refu
   for (const [name, manifest, packages, expected] of cases) expect([name, refusal(manifest, packages)]).toEqual([name, expected]);
 });
 
-test("a lockfile Rungs cannot read entry by entry is refused", () => {
+test("a lockfile Systems to Streets cannot read entry by entry is refused", () => {
   const dep = { dependencies: { dep: "1.0.0" } };
-  expect(refusal(dep, { "node_modules/dep": entry("dep") }, { lockfileVersion: 1 })).toBe("package-lock.json has lockfileVersion 1; Rungs installs only from versions 2 and 3");
+  expect(refusal(dep, { "node_modules/dep": entry("dep") }, { lockfileVersion: 1 })).toBe("package-lock.json has lockfileVersion 1; Systems to Streets installs only from versions 2 and 3");
   expect(refusal(dep, [])).toBe("package-lock.json lists no packages");
   expect(refusal(dep, { "node_modules/dep": "git+ssh://x" })).toBe("package-lock.json: node_modules/dep is not an entry");
   expect(refusal({ dependencies: ["dep"] }, {})).toBe("package.json's dependencies are not a table of names and versions");
@@ -106,16 +106,16 @@ test("npm-shrinkwrap.json is the lockfile when the tree has one, as it is for np
 });
 
 test("npm is told every setting that could name a program or a place, and to read none from files", () => {
-  const places = { work: "/work", out: "/out", tools: "/rungs/tools", install: "/install", report: "/dev/fd/3", node: "/rungs/bin/node", npm: "/rungs/npm/bin/npm-cli.js" };
+  const places = { work: "/work", out: "/out", tools: "/streets/tools", install: "/install", report: "/dev/fd/3", node: "/streets/bin/node", npm: "/streets/npm/bin/npm-cli.js" };
   expect(installArgv(places, "https://registry.npmjs.org/")).toEqual([
-    "/rungs/bin/node",
-    "/rungs/npm/bin/npm-cli.js",
+    "/streets/bin/node",
+    "/streets/npm/bin/npm-cli.js",
     "ci",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
-    "--userconfig=/rungs/tools/npmrc-user",
-    "--globalconfig=/rungs/tools/npmrc-global",
+    "--userconfig=/streets/tools/npmrc-user",
+    "--globalconfig=/streets/tools/npmrc-global",
     "--registry=https://registry.npmjs.org/",
     "--git=/usr/bin/false",
     "--shell=/usr/bin/false",

@@ -130,11 +130,11 @@ const ENV = { HOME: "/tmp/home", TMPDIR: "/tmp", LANG: "C.UTF-8", CI: "1", NO_CO
 const INSIDE: Places = {
   work: "/work",
   out: "/out",
-  tools: "/rungs/tools",
+  tools: "/streets/tools",
   install: "/install",
   report: "/dev/fd/3",
-  node: "/rungs/bin/node",
-  npm: "/rungs/npm/bin/npm-cli.js",
+  node: "/streets/bin/node",
+  npm: "/streets/npm/bin/npm-cli.js",
 };
 const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64"];
 const ETC = ["passwd", "group", "hosts", "nsswitch.conf", "resolv.conf", "ssl", "ca-certificates", "localtime"];
@@ -180,7 +180,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
       throw new Error(`a collected file must be a plain name in the out folder: ${JSON.stringify(name)}`);
     }
   }
-  const root = await mkdtemp(join(tmpdir(), "rungs-run-"));
+  const root = await mkdtemp(join(tmpdir(), "streets-run-"));
   let child: ReturnType<typeof spawn> | undefined;
   const interrupted = (signal: NodeJS.Signals) => {
     if (child?.pid !== undefined) killTree(child.pid);
@@ -409,7 +409,7 @@ async function unreadableNode(root: string): Promise<string> {
 /** How long a finished step's output may stay open before the run stops waiting for it. */
 const OUTPUT_GRACE_MS = 1000;
 /** Names the run to every process an unsandboxed step starts, so those left behind can be found. */
-const RUN_MARK = "RUNGS_RUN";
+const RUN_MARK = "STREETS_RUN";
 
 /**
  * Kills what an unsandboxed run left behind and returns how many: every process of this user

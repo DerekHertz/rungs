@@ -308,7 +308,7 @@ function showTownLegend(town: Town): void {
   legend.replaceChildren(toggle, lines);
 }
 
-const LEGEND_KEY = "rungs.legend";
+const LEGEND_KEY = "streets.legend";
 
 function legendState(): "open" | "closed" | undefined {
   try {

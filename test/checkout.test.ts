@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
 import { BaseUnavailable, readBase, readCheckout, readExecutables } from "../src/checkout.ts";
 
-const repo = mkdtempSync(join(tmpdir(), "rungs-checkout-"));
+const repo = mkdtempSync(join(tmpdir(), "streets-checkout-"));
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
 const identity = ["user.name=test", "user.email=test@example.com", "commit.gpgsign=false"];
@@ -35,7 +35,7 @@ test("reads committed, modified and untracked files, skipping ignored and delete
 });
 
 test("reads a symlink as its target path, as git stores it, never following it", async () => {
-  const outside = mkdtempSync(join(tmpdir(), "rungs-outside-"));
+  const outside = mkdtempSync(join(tmpdir(), "streets-outside-"));
   writeFileSync(join(outside, "secret.txt"), "outside\nthe\ncheckout\n");
   const links = join(repo, "links");
   mkdirSync(links);
@@ -51,7 +51,7 @@ test("reads a symlink as its target path, as git stores it, never following it",
 });
 
 test("skips indexed files whose folder was replaced by a symlink, as git does", async () => {
-  const outside = mkdtempSync(join(tmpdir(), "rungs-outside-"));
+  const outside = mkdtempSync(join(tmpdir(), "streets-outside-"));
   writeFileSync(join(outside, "inner.ts"), "outside\n");
   mkdirSync(join(repo, "swapped"));
   writeFileSync(join(repo, "swapped/inner.ts"), "inside\n");
@@ -88,7 +88,7 @@ afterAll(() => {
 });
 
 function folder(): string {
-  const dir = mkdtempSync(join(tmpdir(), "rungs-base-"));
+  const dir = mkdtempSync(join(tmpdir(), "streets-base-"));
   scratch.push(dir);
   return dir;
 }
@@ -357,7 +357,7 @@ test("says when the folder is not a git repository", async () => {
 });
 
 test("reads which files of the tree are executable, never through a symlink", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "rungs-exec-"));
+  const dir = mkdtempSync(join(tmpdir(), "streets-exec-"));
   scratch.push(dir);
   writeFileSync(join(dir, "run.sh"), "#!/bin/sh\n", { mode: 0o755 });
   writeFileSync(join(dir, "plain.txt"), "x\n", { mode: 0o644 });

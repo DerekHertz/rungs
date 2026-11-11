@@ -42,8 +42,8 @@ test("compare takes the base first and the folder after it", () => {
 });
 
 test("compare without a base is a usage error", () => {
-  expect(parseOptions(["compare"])).toBe("compare needs a base: rungs compare <base> [dir]");
-  expect(parseOptions(["compare", "--no-open"])).toBe("compare needs a base: rungs compare <base> [dir]");
+  expect(parseOptions(["compare"])).toBe("compare needs a base: streets compare <base> [dir]");
+  expect(parseOptions(["compare", "--no-open"])).toBe("compare needs a base: streets compare <base> [dir]");
 });
 
 test("compare with too many arguments is a usage error", () => {
@@ -66,37 +66,37 @@ test("compare takes --description with a file or - for stdin", () => {
 });
 
 test("--description without compare is a usage error", () => {
-  expect(parseOptions(["--description", "pr.md"])).toBe("--description needs compare: rungs compare <base> --description <file>");
+  expect(parseOptions(["--description", "pr.md"])).toBe("--description needs compare: streets compare <base> --description <file>");
 });
 
 test("--link and --relink need compare and a description; --relink implies --link", () => {
   expect(parseOptions(["compare", "main", "--description", "pr.md", "--link"])).toMatchObject({ link: true, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false, tests: "off" });
   expect(parseOptions(["compare", "main", "--description", "pr.md", "--relink"])).toMatchObject({ link: true, relink: true });
-  expect(parseOptions(["compare", "main", "--link"])).toBe("--link needs a description: rungs compare <base> --description <file> --link");
-  expect(parseOptions(["--link"])).toBe("--link needs compare: rungs compare <base> --description <file> --link");
-  expect(parseOptions(["compare", "main", "--relink"])).toBe("--link needs a description: rungs compare <base> --description <file> --link");
+  expect(parseOptions(["compare", "main", "--link"])).toBe("--link needs a description: streets compare <base> --description <file> --link");
+  expect(parseOptions(["--link"])).toBe("--link needs compare: streets compare <base> --description <file> --link");
+  expect(parseOptions(["compare", "main", "--relink"])).toBe("--link needs a description: streets compare <base> --description <file> --link");
 });
 
 test("--run-tests runs the head tree's tests in a sandbox; --run-tests-unsandboxed allows running without one", () => {
   expect(parseOptions(["compare", "main", "--run-tests"])).toMatchObject({ base: "main", tests: "sandboxed" });
   expect(parseOptions(["compare", "main", "--run-tests-unsandboxed"])).toMatchObject({ tests: "unsandboxed allowed" });
   expect(parseOptions(["compare", "main", "--run-tests", "--run-tests-unsandboxed"])).toMatchObject({ tests: "unsandboxed allowed" });
-  expect(parseOptions(["--run-tests"])).toBe("--run-tests needs compare: rungs compare <base> --run-tests");
-  expect(parseOptions(["--run-tests-unsandboxed"])).toBe("--run-tests needs compare: rungs compare <base> --run-tests");
+  expect(parseOptions(["--run-tests"])).toBe("--run-tests needs compare: streets compare <base> --run-tests");
+  expect(parseOptions(["--run-tests-unsandboxed"])).toBe("--run-tests needs compare: streets compare <base> --run-tests");
 });
 
 test("--walkthrough and --rewalk need compare, with or without a description; --rewalk implies --walkthrough", () => {
   expect(parseOptions(["compare", "main"])).toMatchObject({ walkthrough: false, rewalk: false, narrate: false, renarrate: false });
   expect(parseOptions(["compare", "main", "--walkthrough"])).toMatchObject({ walkthrough: true, rewalk: false, link: false });
   expect(parseOptions(["compare", "main", "--rewalk"])).toMatchObject({ walkthrough: true, rewalk: true });
-  expect(parseOptions(["--walkthrough"])).toBe("--walkthrough needs compare: rungs compare <base> --walkthrough");
-  expect(parseOptions(["--rewalk"])).toBe("--walkthrough needs compare: rungs compare <base> --walkthrough");
+  expect(parseOptions(["--walkthrough"])).toBe("--walkthrough needs compare: streets compare <base> --walkthrough");
+  expect(parseOptions(["--rewalk"])).toBe("--walkthrough needs compare: streets compare <base> --walkthrough");
 });
 
 test("--narrate and --renarrate need compare; --renarrate implies --narrate; neither is on by default", () => {
   expect(parseOptions(["compare", "main"])).toMatchObject({ narrate: false, renarrate: false });
   expect(parseOptions(["compare", "main", "--narrate"])).toMatchObject({ narrate: true, renarrate: false });
   expect(parseOptions(["compare", "main", "--renarrate"])).toMatchObject({ narrate: true, renarrate: true });
-  expect(parseOptions(["--narrate"])).toBe("--narrate needs compare: rungs compare <base> --narrate");
-  expect(parseOptions(["--renarrate"])).toBe("--narrate needs compare: rungs compare <base> --narrate");
+  expect(parseOptions(["--narrate"])).toBe("--narrate needs compare: streets compare <base> --narrate");
+  expect(parseOptions(["--renarrate"])).toBe("--narrate needs compare: streets compare <base> --narrate");
 });
