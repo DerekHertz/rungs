@@ -299,7 +299,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   }
 
   function row(entry: ReviewEntry, byAgent: boolean): HTMLElement {
-    const item = element("li", `review-row level-${entry.level}${byAgent ? " by-agent" : ""}${entry.level !== "district" && entry.linked === true ? " linked" : ""}`);
+    const item = element("li", `review-row level-${entry.level}${byAgent ? " by-agent" : ""}${entry.level !== "district" && entry.level !== "moves" && entry.linked === true ? " linked" : ""}`);
     const line = element("div", "review-line");
     const nested = entry.children.length > 0 ? element("ul", "review-list") : undefined;
     if (nested !== undefined) {
@@ -319,8 +319,8 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
 
     const pick = picker("review-pick", undefined, () => input.pick(entry));
     pick.dataset.id = entry.id;
-    const mark = entry.level === "district" ? "" : MARK[entry.change];
-    pick.append(element("span", `review-mark ${entry.level === "district" ? "" : entry.change}`, mark));
+    const kind = entry.level === "district" ? undefined : entry.level === "moves" ? "moved" : entry.change;
+    pick.append(element("span", `review-mark ${kind ?? ""}`, kind === undefined ? "" : MARK[kind]));
     const label = element("span", "review-label", entry.label);
     if (entry.level === "file" && entry.from !== undefined) label.title = `moved from ${entry.from}`;
     else if (entry.level === "class" || entry.level === "function") label.title = entry.id.slice(entry.id.indexOf("#") + 1);
@@ -328,9 +328,11 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     const size =
       entry.level === "district"
         ? `${entry.files} files ${tallyText(entry.kinds)}`
-        : entry.lines === null
-          ? "binary"
-          : `${entry.lines} ${entry.lines === 1 ? "line" : "lines"}${entry.folded === undefined ? "" : ` · +${plural(entry.folded.length, "callback")}`}`;
+        : entry.level === "moves"
+          ? plural(entry.files, "file")
+          : entry.lines === null
+            ? "binary"
+            : `${entry.lines} ${entry.lines === 1 ? "line" : "lines"}${entry.folded === undefined ? "" : ` · +${plural(entry.folded.length, "callback")}`}`;
     pick.append(element("span", "review-size", size));
     line.append(pick);
     item.append(line);
@@ -482,7 +484,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       id: "unmentioned",
       name: "Unmentioned",
       tag: "derived",
-      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0 }),
+      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0 }),
       fill: fillUnmentioned,
     },
     {

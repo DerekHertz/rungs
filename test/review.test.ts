@@ -146,7 +146,7 @@ test("removed come before altered before added before moved, then larger before 
     "m/moved.ts": base["src/b.ts"],
   };
   const result = review(base, head, "Nothing.");
-  const kinds = result.entries.map((entry) => (entry.level === "district" ? "district" : entry.change));
+  const kinds = result.entries.map((entry) => (entry.level === "district" || entry.level === "moves" ? entry.level : entry.change));
   expect(kinds).toEqual(["district", "added", "added", "moved"]);
   expect(labels(result.entries)).toEqual(["src", "x/new-big.ts", "y/new-small.ts", "m/moved.ts"]);
 });
@@ -167,6 +167,45 @@ test("a moved file's old base name counts toward ambiguity", () => {
   const before = { "package.json": "{}\n", "src/a.ts": "export const a = 1;\n", "other/a.ts": "export const b = 1;\n" };
   const after = { "package.json": "{}\n", "lib/b.ts": "export const a = 1;\n", "other/a.ts": "export const b = 2;\n" };
   expect(labels(review(before, after, "Update a.ts").entries)).toEqual(["other/a.ts", "lib/b.ts"]);
+});
+
+const sprites = (dir: string, tag = "sprite"): Record<string, string> => Object.fromEntries([1, 2, 3].map((n) => [`${dir}/s${n}.ts`, fn(`${tag}${n}`, n)]));
+const moveBase = { "package.json": "{}\n", "docs/README.md": "one\n", ...sprites("sprites") };
+const moveHead = { "package.json": "{}\n", "docs/README.md": "two\n", ...sprites("themes/town/sprites") };
+
+test("identical-text moves from one folder to another are one entry, after the real edits", () => {
+  const result = review(moveBase, moveHead, "Tidies.");
+  expect(result.entries).toMatchObject([
+    { level: "file", label: "docs/README.md", change: "altered" },
+    { level: "moves", from: "sprites", to: "themes/town/sprites", files: 3, label: "3 files moved unchanged: sprites → themes/town/sprites" },
+  ]);
+  const group = result.entries[1]!;
+  expect(labels(group.children)).toEqual(["themes/town/sprites/s1.ts", "themes/town/sprites/s2.ts", "themes/town/sprites/s3.ts"]);
+  expect(result.unmentionedFiles).toBe(4);
+  expect(result.moveGroups).toBe(1);
+  expect(result.unlinkedMoveGroups).toBe(1);
+  expect(result.unlinkedMovedFiles).toBe(3);
+});
+
+test("a move group is mentioned when the description names its new folder, its old folder or a folder above", () => {
+  for (const text of ["Moves to themes/town/sprites.", "Moves out of sprites.", "Moves the sheet to themes/town.", "Under themes."]) {
+    const result = review(moveBase, moveHead, text);
+    expect(result.entries.map((entry) => entry.level)).toEqual(["file"]);
+    expect(result.unmentionedFiles).toBe(1);
+  }
+  expect(review(moveBase, moveHead, "Moves to themes/town/sprites-old.").entries.map((entry) => entry.level)).toEqual(["file", "moves"]);
+});
+
+test("a single move stays a file entry, and moves between different folders are separate groups", () => {
+  const one = review({ "package.json": "{}\n", "src/c.ts": base["src/c.ts"] }, { "package.json": "{}\n", "lib/c.ts": base["src/c.ts"] }, "x");
+  expect(one.entries).toMatchObject([{ level: "file", change: "moved" }]);
+  const two = review({ "package.json": "{}\n", ...sprites("a"), ...sprites("b", "other") }, { "package.json": "{}\n", ...sprites("x"), ...sprites("y", "other") }, "z");
+  expect(two.entries.map((entry) => entry.level)).toEqual(["moves", "moves"]);
+});
+
+test("a moved file the description names by path leaves its group", () => {
+  const result = review(moveBase, moveHead, "Moves themes/town/sprites/s1.ts.");
+  expect(result.entries).toMatchObject([{ label: "docs/README.md" }, { level: "moves", files: 2 }]);
 });
 
 test("a Unicode letter beside a needle is part of a longer name", () => {

@@ -162,8 +162,10 @@ export function claimsSummary(description: string | null, claims: readonly { rea
   return `${claims.filter((claim) => claim.ids.length > 0).length} of ${claims.length} linked`;
 }
 
-export function unmentionedSummary(found: { files: number | null; calls: number; changed?: number }): string {
-  const parts = [found.files === null || found.files === 0 ? "" : plural(found.files, "file"), found.calls === 0 ? "" : `${found.calls} new ${found.calls === 1 ? "call" : "calls"} out`, (found.changed ?? 0) === 0 ? "" : `${found.changed} effects changed`].filter((part) => part !== "");
+/** `moves` groups of identical-text moves hold `movedFiles` of the files; each group counts as one item, not as its files. */
+export function unmentionedSummary(found: { files: number | null; calls: number; changed?: number; moves?: number; movedFiles?: number }): string {
+  const files = found.files === null ? null : found.files - (found.movedFiles ?? 0);
+  const parts = [files === null || files === 0 ? "" : plural(files, "file"), (found.moves ?? 0) === 0 ? "" : plural(found.moves!, "move group"), found.calls === 0 ? "" : `${found.calls} new ${found.calls === 1 ? "call" : "calls"} out`, (found.changed ?? 0) === 0 ? "" : `${found.changed} effects changed`].filter((part) => part !== "");
   return parts.length === 0 ? (found.files === null ? "not checked, no description" : "nothing") : parts.join(" · ");
 }
 

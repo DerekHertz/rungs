@@ -576,6 +576,10 @@ function pickEntry(entry: ReviewEntry): void {
     focusOn(entry.id);
     return;
   }
+  if (entry.level === "moves") {
+    pickPlaces(entry.children.map((child) => child.id));
+    return;
+  }
   pickNode(entry.id, undefined, entry.folded);
 }
 
@@ -616,10 +620,15 @@ function placeOf(id: string): NodeId | undefined {
 
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
 function pickClaim(claim: ClaimRow): void {
+  pickPlaces(claim.ids);
+}
+
+/** Outline the files of `ids` and fly to the district holding them all. */
+function pickPlaces(ids: readonly string[]): void {
   leaveInside();
   cancelPending();
   closePanel();
-  const places = [...new Set(claim.ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
+  const places = [...new Set(ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
   chosenKind = undefined;
   townView.highlight(places);
   const district = commonDistrict(tree, places);

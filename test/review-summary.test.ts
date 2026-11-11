@@ -88,6 +88,8 @@ test("each row's number comes first", () => {
   expect(claimsSummary("d", [{ ids: [] }], "off")).toBe("1 claim, not linked");
   expect(unmentionedSummary({ files: 103, calls: 114 })).toBe("103 files · 114 new calls out");
   expect(unmentionedSummary({ files: 1, calls: 0 })).toBe("1 file");
+  expect(unmentionedSummary({ files: 26, calls: 0, moves: 1, movedFiles: 25 })).toBe("1 file · 1 move group");
+  expect(unmentionedSummary({ files: 25, calls: 0, moves: 1, movedFiles: 25 })).toBe("1 move group");
   expect(unmentionedSummary({ files: null, calls: 2 })).toBe("2 new calls out");
   expect(unmentionedSummary({ files: 0, calls: 0 })).toBe("nothing");
   expect(contractsSummary({ changed: 2, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 118 })).toBe("2 changed · 118 added");
