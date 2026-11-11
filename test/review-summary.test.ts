@@ -92,6 +92,13 @@ test("each row's number comes first", () => {
   expect(unmentionedSummary({ files: 0, calls: 0 })).toBe("nothing");
   expect(contractsSummary({ changed: 2, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 118 })).toBe("2 changed · 118 added");
   expect(contractsSummary({ changed: 0, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 })).toBe("none");
+  expect(claimsSummary("d", [], "ok", 3)).toBe("no claims · 3 context lines");
+  expect(claimsSummary("d", [], "ok", 1)).toBe("no claims · 1 context line");
+  expect(claimsSummary("d", [{ ids: ["a"] }], "ok", 4)).toBe("1 of 1 linked");
+  expect(unmentionedSummary({ files: 2, calls: 0, changed: 3 })).toBe("2 files · 3 effects changed");
+  expect(unmentionedSummary({ files: null, calls: 0, changed: 1 })).toBe("1 effects changed");
+  expect(contractsSummary({ changed: 2, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 }, 4)).toBe("2 changed · 4 effects changed");
+  expect(contractsSummary({ changed: 0, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 }, 1)).toBe("1 effects changed");
 });
 
 test("the tests row says fail of total, or why there is no run", () => {

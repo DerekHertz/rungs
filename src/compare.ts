@@ -1,6 +1,6 @@
 import { canonicalEdge, canonicalNode, compareIds, isCodeNode, nodeId, targetText } from "./graph.ts";
-import { diffEffects, effectSets } from "./effects.ts";
-import type { EffectChange } from "./effects.ts";
+import { changedEffects, diffEffects, effectSets } from "./effects.ts";
+import type { ChangedEffect, EffectChange } from "./effects.ts";
 import type { CodeNode, ContainerNode, EffectEdge, FileNode, Graph, ModuleNode, NodeId } from "./graph.ts";
 
 export type ChangeKind = "added" | "altered" | "removed" | "moved";
@@ -25,6 +25,8 @@ export interface Comparison {
   readonly changes: readonly ModuleChange[];
   /** The effect edges that appeared or went away, sorted; see diffEffects in src/effects.ts. */
   readonly effects: readonly EffectChange[];
+  /** Effect and module-resolution calls whose arguments changed; see changedEffects in src/effects.ts. */
+  readonly changedEffects: readonly ChangedEffect[];
 }
 
 export class ExtractorVersionMismatch extends Error {
@@ -158,7 +160,7 @@ export function compare(base: Graph, head: Graph): Comparison {
     if (!isBody(node) && !baseDirs.has(node.path)) changes.push({ kind: "added", node });
   }
   changes.sort((a, b) => compareIds(a.node.id, b.node.id));
-  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo) };
+  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo) };
 }
 
 export type ContractMoveKind = "changed" | "effects" | "added" | "removed" | "exposed" | "unexported" | "moved";
@@ -295,7 +297,7 @@ export function serializeComparison(comparison: Comparison): string {
     }
   });
   const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge) }));
-  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects }, null, 2)}\n`;
+  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects }, null, 2)}\n`;
 }
 
 export type Change = ChangeKind | "unchanged";

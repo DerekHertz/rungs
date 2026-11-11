@@ -1,8 +1,9 @@
 import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
+import { shortToken } from "../effects.ts";
 import { effectChip, signatureDiff } from "../review.ts";
 import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, unmentionedSummary } from "../review-summary.ts";
-import type { ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
+import type { ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
 import { observedAbout, observedBody, observedNote } from "./observed-panel.ts";
 import type { ObservedInput } from "./observed-panel.ts";
@@ -25,6 +26,10 @@ const MARK: Record<ChangeKind, string> = { added: "+", altered: "~", removed: "�
 export interface ClaimRow {
   readonly index: number;
   readonly text: string;
+  /** The agent's short restatement; false when the row shows the description's own words. */
+  readonly restated: boolean;
+  /** The description's own sentences behind this row, shown when it is selected. */
+  readonly sources: readonly { readonly text: string }[];
   readonly ids: readonly string[];
 }
 
@@ -35,7 +40,7 @@ export type LinkNote =
       readonly status: "ok";
       readonly model: string;
       readonly promptVersion: string;
-      readonly dropped: { readonly ids: number; readonly claims: number };
+      readonly dropped: { readonly ids: number; readonly claims: number; readonly restatements: number };
       readonly cached: boolean;
     }
   | { readonly status: "failed"; readonly message: string };
@@ -44,6 +49,8 @@ export interface ReviewInput {
   /** The claimed description, or null when none was given. */
   readonly description: string | null;
   readonly claims: readonly ClaimRow[];
+  /** Lines the agent called context, counted and kept out of the claims list. */
+  readonly context: readonly { readonly text: string }[];
   readonly link: LinkNote;
   /** The user picked a claim; the host selects its linked modules and flies to them. */
   readonly pickClaim: (claim: ClaimRow) => void;
@@ -105,7 +112,7 @@ function linkNote(link: LinkNote): string {
   if (link.status === "ok") {
     const dropped = link.dropped.ids + link.dropped.claims;
     const where = link.cached ? "cached links" : "links";
-    return `Agent ${where} by ${link.model} (prompt ${link.promptVersion}); dropped ${link.dropped.ids} unknown ids and ${link.dropped.claims} bad claim numbers${dropped === 0 ? "" : ", not shown"}.`;
+    return `Agent ${where} by ${link.model} (prompt ${link.promptVersion}); dropped ${link.dropped.ids} unknown ids and ${link.dropped.claims} bad claim numbers, kept the original words for ${link.dropped.restatements} unusable restatements${dropped === 0 ? "" : ", not shown"}.`;
   }
   if (link.status === "failed") return `No agent links: ${link.message}. Only paths and names count as mentions.`;
   return "No agent links; run with --link to link claims to the modules they describe.";
@@ -179,6 +186,10 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       body.append(element("p", "review-empty", "No description was given."));
       return;
     }
+    if (input.claims.length === 0 && input.context.length > 0) {
+      body.append(element("p", "review-empty", `No claims; ${plural(input.context.length, "context line")} not shown`), contextList(input.context));
+      return;
+    }
     if (input.claims.length === 0) {
       body.append(element("pre", "review-claim", input.description));
       return;
@@ -192,11 +203,22 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       } else if (group.name === "linked") body.append(element("h3", "review-subtitle", `Linked (${group.items.length})`));
       body.append(list(...group.items.map((claim) => claimRow(claim, linked))));
     }
+    if (input.context.length > 0) body.append(contextList(input.context));
+  }
+
+  function contextList(context: readonly { readonly text: string }[]): HTMLElement {
+    const more = element("details", "review-context");
+    more.append(element("summary", "review-summary", `${plural(context.length, "context line")} not shown`));
+    for (const line of context) more.append(element("p", "review-source", line.text));
+    return more;
   }
 
   function claimRow(claim: ClaimRow, linked: boolean): HTMLElement {
     const item = element("li", `review-row${linked && claim.ids.length === 0 ? " unlinked" : ""}`);
-    const full = element("p", "rv-full review-claim", claim.text);
+    const full = element("div", "rv-full");
+    full.append(element("p", "review-claim", claim.text));
+    // A restated claim is reached through its source sentences: the description's own words.
+    if (claim.restated) full.append(element("blockquote", "review-source", claim.sources.map((source) => source.text).join(" ")));
     full.hidden = true;
     const pick = picker("review-pick review-claim-row", full, () => {
       if (claim.ids.length > 0) input.pickClaim(claim);
@@ -212,6 +234,9 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
 
   function fillUnmentioned(body: HTMLElement): void {
     if (input.effects !== null) body.append(...effectsBlock(input.effects.none, false));
+    if (input.effects !== null && input.effects.changed.none.length > 0) {
+      body.append(element("h3", "review-subtitle", `Effects changed, no claim covers them (${input.effects.changed.none.length})`), list(...input.effects.changed.none.map(effectsChangedRow)));
+    }
     const result = input.unmentioned;
     if (result === null) {
       body.append(element("p", "review-empty", "No description was given, so no file can be checked against a claim."));
@@ -314,13 +339,16 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
 
   function fillContracts(body: HTMLElement): void {
     const report = input.contracts;
-    if (report === null || report.entries.length === 0) {
+    if (report === null || (report.entries.length === 0 && report.effectsChanged.length === 0)) {
       body.append(element("p", "review-empty", "No exported signature changed."));
       return;
     }
     const rows = report.entries.flatMap((entry) => (entry.kind === "row" ? [entry] : entry.rows));
     const single = rows.filter((entry) => entry.move.kind !== "added" && entry.move.kind !== "moved");
     if (single.length > 0) body.append(list(...single.map((entry) => contractRow(entry, true))));
+    if (report.effectsChanged.length > 0) {
+      body.append(element("h3", "review-subtitle", `Effects changed (${report.effectsChanged.length})`), list(...report.effectsChanged.map(effectsChangedRow)));
+    }
     for (const kind of ["moved", "added"] as const) {
       const bulk = rows.filter((entry) => entry.move.kind === kind);
       if (bulk.length === 0) continue;
@@ -335,6 +363,27 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
         ),
       );
     }
+  }
+
+  /** A call whose arguments changed: the holder, what the call reaches, and the arguments gained and lost. */
+  function effectsChangedRow(row: EffectsChangedRow): HTMLElement {
+    const { change } = row;
+    const item = element("li", "review-row contract contract-effects");
+    const detail = element("div", "rv-detail contract-text");
+    detail.hidden = true;
+    detail.append(element("span", "contract-where", `${change.label} in ${row.path}`), chips(change.added, "+", "added", true), chips(change.removed, "−", "removed", true));
+    const line = element("div", "review-line");
+    line.append(element("span", "review-toggle"));
+    const pick = picker("review-pick contract-pick", detail, () => input.pickNode(row.id));
+    pick.dataset.id = row.id;
+    const count = change.count > 1 ? ` ×${change.count}` : "";
+    pick.title = `${row.label}: ${change.label}${count}`;
+    pick.append(element("span", "review-mark contract-effects", "≈"), element("span", "review-label rv-name", row.label));
+    pick.append(element("span", "contract-where rv-ellipsis rv-change", `${change.label}${count}`));
+    if (row.coverage !== "claimed") pick.append(element("span", "review-flag", "unmentioned"));
+    line.append(pick);
+    item.append(line, detail);
+    return item;
   }
 
   /** The change itself as one line: parameters that came or went, then the effects. */
@@ -389,12 +438,12 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     return detail;
   }
 
-  function chips(labels: readonly string[], mark: string, kind: "added" | "removed"): DocumentFragment {
+  function chips(labels: readonly string[], mark: string, kind: "added" | "removed", plain = false): DocumentFragment {
     const fragment = document.createDocumentFragment();
     if (labels.length === 0) return fragment;
     const line = element("span", "effect-chips");
     for (const label of labels) {
-      const chip = element("span", `effect-chip ${kind}`, `${mark}${effectChip(label)}`);
+      const chip = element("span", `effect-chip ${kind}`, `${mark}${plain ? shortToken(label) : effectChip(label)}`);
       chip.title = label;
       line.append(chip);
     }
@@ -425,19 +474,19 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   const tested = input.observed !== null || testChangesBlock(input.testChanges) !== null;
   const weakened = input.testChanges.deletedFiles.length + input.testChanges.removedTests.length + input.testChanges.markers.length + input.testChanges.weakened.length;
   const questions: Question[] = [
-    { id: "claims", name: "Claims", tag: "claimed", summary: claimsSummary(input.description, input.claims, input.link.status), fill: fillClaims },
+    { id: "claims", name: "Claims", tag: "claimed", summary: claimsSummary(input.description, input.claims, input.link.status, input.context.length), fill: fillClaims },
     {
       id: "unmentioned",
       name: "Unmentioned",
       tag: "derived",
-      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0) }),
+      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0 }),
       fill: fillUnmentioned,
     },
     {
       id: "contracts",
       name: "Contracts moved",
       tag: "derived",
-      summary: input.contracts === null ? "none" : contractsSummary(input.contracts.counts),
+      summary: input.contracts === null ? "none" : contractsSummary(input.contracts.counts, input.contracts.effectsChanged.length),
       fill: fillContracts,
     },
     ...(tested

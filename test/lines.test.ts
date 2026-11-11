@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { countLines, lineRangeOf, lineStarts, sliceLines } from "../src/lines.ts";
+import { countLines, lineRangeOf, lineStarts, sliceLines, splitLines } from "../src/lines.ts";
 
 const TEXTS = [
   "",
@@ -55,4 +55,9 @@ describe("lines", () => {
   test("slices a range of lines out of the middle of a file", () => {
     expect(sliceLines("one\ntwo\nthree\nfour\n", { start: 2, end: 3 })).toBe("two\nthree");
   });
+});
+
+test("splitLines gives as many lines as countLines, whatever the text ends with", () => {
+  for (const text of TEXTS) expect(splitLines(text)).toHaveLength(countLines(text));
+  expect(splitLines("a\r\nb\n")).toEqual(["a\r", "b"]);
 });

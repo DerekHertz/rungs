@@ -155,22 +155,22 @@ export function claimGroups<T extends { readonly ids: readonly string[] }>(claim
 
 const plural = (count: number, one: string, many = `${one}s`): string => `${count} ${count === 1 ? one : many}`;
 
-export function claimsSummary(description: string | null, claims: readonly { readonly ids: readonly string[] }[], link: "ok" | "off" | "failed"): string {
+export function claimsSummary(description: string | null, claims: readonly { readonly ids: readonly string[] }[], link: "ok" | "off" | "failed", context = 0): string {
   if (description === null) return "no description";
-  if (claims.length === 0) return "no claims read";
+  if (claims.length === 0) return context > 0 ? `no claims · ${plural(context, "context line")}` : "no claims read";
   if (link !== "ok") return `${plural(claims.length, "claim")}, not linked`;
   return `${claims.filter((claim) => claim.ids.length > 0).length} of ${claims.length} linked`;
 }
 
-export function unmentionedSummary(found: { files: number | null; calls: number }): string {
-  const parts = [found.files === null || found.files === 0 ? "" : plural(found.files, "file"), found.calls === 0 ? "" : `${found.calls} new ${found.calls === 1 ? "call" : "calls"} out`].filter((part) => part !== "");
+export function unmentionedSummary(found: { files: number | null; calls: number; changed?: number }): string {
+  const parts = [found.files === null || found.files === 0 ? "" : plural(found.files, "file"), found.calls === 0 ? "" : `${found.calls} new ${found.calls === 1 ? "call" : "calls"} out`, (found.changed ?? 0) === 0 ? "" : `${found.changed} effects changed`].filter((part) => part !== "");
   return parts.length === 0 ? "nothing" : parts.join(" · ");
 }
 
 const CONTRACT_KINDS: readonly ContractMoveKind[] = ["changed", "effects", "removed", "unexported", "exposed", "moved", "added"];
 
-export function contractsSummary(counts: Readonly<Record<ContractMoveKind, number>>): string {
-  const parts = CONTRACT_KINDS.filter((kind) => counts[kind] > 0).map((kind) => `${counts[kind]} ${kind}`);
+export function contractsSummary(counts: Readonly<Record<ContractMoveKind, number>>, effectsChanged = 0): string {
+  const parts = [...CONTRACT_KINDS.filter((kind) => counts[kind] > 0).map((kind) => `${counts[kind]} ${kind}`), ...(effectsChanged > 0 ? [`${effectsChanged} effects changed`] : [])];
   return parts.length === 0 ? "none" : parts.join(" · ");
 }
 

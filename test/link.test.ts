@@ -52,24 +52,84 @@ const known = new Map(candidates.map((candidate) => [candidate.id, candidate.fil
 test("validation drops ids outside the candidates and claim indexes out of range, and counts them", () => {
   const out = validate(
     { links: [{ claim: 0, ids: ["file:src/a.ts", "file:src/nope.ts", "file:src/a.ts"] }, { claim: 1, ids: ["file:src/new.ts"] }, { claim: 1, ids: ["file:src/a.ts"] }, { claim: 7, ids: ["file:src/a.ts"] }, { claim: -1, ids: [] }] },
-    claims.length,
+    claims,
     known,
   );
-  expect(out).toEqual({
+  expect(out).toMatchObject({
     byClaim: [["file:src/a.ts"], ["file:src/new.ts", "file:src/a.ts"]],
     dropped: { ids: 1, claims: 2 },
   });
 });
 
 test("a link to a folder covers every changed file under it, without repeats", () => {
-  const out = validate({ links: [{ claim: 0, ids: ["file:src/a.ts", "folder:src"] }] }, 1, known);
+  const out = validate({ links: [{ claim: 0, ids: ["file:src/a.ts", "folder:src"] }] }, claims.slice(0, 1), known);
   expect(out.byClaim).toEqual([["file:src/a.ts", "file:src/gone.ts", "file:src/new.ts"]]);
+});
+
+const three = splitClaims("Speeds up alpha.\nFound by the security review.\nAlpha now runs faster.\n");
+const check = (links: unknown[]) => validate({ links }, three, known);
+
+test("a restatement stays tier claimed, with its source sentences; context is counted and dropped", () => {
+  const out = check([say(0, "Speeds up alpha", ["file:src/a.ts"]), say(1, "Context"), say(2, "Alpha runs faster")]);
+  expect(out.shown.map((row) => [row.text, row.sources])).toEqual([["Speeds up alpha", [0]], ["Alpha runs faster", [2]]]);
+  expect(out.context).toEqual([1]);
+});
+
+test("claims that say the same thing merge: one row, every source, the union of ids", () => {
+  const out = check([say(0, "Speeds up alpha", ["file:src/a.ts"]), say(1, "context"), say(2, "Alpha runs faster", ["file:src/new.ts"], 0)]);
+  expect(out.shown).toEqual([{ text: "Speeds up alpha", restated: true, sources: [0, 2], ids: ["file:src/a.ts", "file:src/new.ts"] }]);
+  expect(out.dropped.restatements).toBe(0);
+});
+
+test("an invalid restatement falls back to the original text: too long, empty, missing, or a bad merge", () => {
+  const long = Array(21).fill("word").join(" ");
+  const out = check([say(0, long), say(1, "  ", [], 1), say(2, "Fine", [], 5)]);
+  expect(out.shown.map((row) => [row.text, row.restated, row.sources])).toEqual([
+    ["Speeds up alpha.", false, [0]],
+    ["Found by the security review.", false, [1]],
+    ["Alpha now runs faster.", false, [2]],
+  ]);
+  expect(out.dropped.restatements).toBe(3);
+  const badMerge = check([say(0, "Accepts alpha", [], 99), say(1, "context"), say(2, "Fine")]);
+  expect(badMerge.shown[0]).toMatchObject({ text: "Speeds up alpha.", restated: false });
+  const invalidMerges = check([say(0, "Speeds up alpha"), say(1, "", [], 0), say(2, Array(21).fill("w").join(" "), [], 0)]);
+  expect(invalidMerges.shown.map((row) => [row.text, row.restated, row.sources])).toEqual([
+    ["Speeds up alpha", true, [0]],
+    ["Found by the security review.", false, [1]],
+    ["Alpha now runs faster.", false, [2]],
+  ]);
+  expect(invalidMerges.dropped.restatements).toBe(2);
+  const missing = check([say(1, "Found it")]);
+  expect(missing.shown.map((row) => row.restated)).toEqual([false, true, false]);
+  const chain = check([say(0, "A one", [], 1), say(1, "B two", [], 2), say(2, "C three")]);
+  expect(chain.shown.map((row) => row.sources)).toEqual([[0], [1, 2]]);
+  const intoContext = check([say(0, "A one", [], 1), say(1, "context"), say(2, "C three")]);
+  expect(intoContext.shown.map((row) => [row.text, row.sources])).toEqual([["Speeds up alpha.", [0]], ["C three", [2]]]);
+});
+
+test("the prompt asks for restatements and context, and tells the agent to see no source text", () => {
+  const { system } = promptFor(claims, candidates);
+  expect(system).toContain('exactly "context"');
+  expect(system).toContain("about 12 words");
+  expect(system).toContain("You see no source code");
+});
+
+test("footers are stripped by rule before the agent sees the claims", () => {
+  const found = splitClaims("Adds a thing.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nGenerated with [Claude Code](https://claude.com/claude-code)\n");
+  expect(found.map((claim) => claim.text)).toEqual(["Adds a thing."]);
+});
+
+test("only the footer line goes: text next to it stays a claim, at its own span", () => {
+  const description = "- Adds logging.\n\n🤖 Generated with [Claude](https://example.com)\nRejects expired tokens.";
+  const found = splitClaims(description);
+  expect(found.map((claim) => claim.text)).toEqual(["Adds logging.", "Rejects expired tokens."]);
+  for (const claim of found) expect(description.slice(claim.start, claim.end)).toBe(claim.text);
 });
 
 test("validation refuses output that is not the schema's shape", () => {
   const nothing = new Map<NodeId, readonly NodeId[]>();
   for (const bad of [null, "x", {}, { links: "x" }, { links: [{ claim: "0", ids: [] }] }, { links: [{ claim: 0, ids: [3] }] }, { links: [{ claim: 0.5, ids: [] }] }]) {
-    expect(() => validate(bad, 2, nothing)).toThrow();
+    expect(() => validate(bad, claims, nothing)).toThrow();
   }
 });
 
@@ -82,16 +142,22 @@ function fake(output: unknown, calls: { count: number } = { count: 0 }): AgentRu
   };
 }
 
-const answer = { links: [{ claim: 0, ids: ["file:src/a.ts", "file:src/bogus.ts"] }, { claim: 1, ids: ["file:src/new.ts"] }] };
+const say = (claim: number, text: string, ids: string[] = [], mergeInto = -1) => ({ claim, ids, say: text, mergeInto });
+const answer = { links: [say(0, "Speeds up alpha", ["file:src/a.ts", "file:src/bogus.ts"]), say(1, "Adds fresh things", ["file:src/new.ts"])] };
 
 test("linking validates the agent's answer and reports the model, prompt version and drops", async () => {
   const outcome = await linkClaims({ claims, candidates, runner: fake(answer), cacheDir: temp(), relink: false, timeoutMs: 1000 });
   expect(outcome).toEqual({
     status: "ok",
     byClaim: [["file:src/a.ts"], ["file:src/new.ts"]],
+    shown: [
+      { text: "Speeds up alpha", restated: true, sources: [0], ids: ["file:src/a.ts"] },
+      { text: "Adds fresh things", restated: true, sources: [1], ids: ["file:src/new.ts"] },
+    ],
+    context: [],
     model: "fake-model",
     promptVersion: PROMPT_VERSION,
-    dropped: { ids: 1, claims: 0 },
+    dropped: { ids: 1, claims: 0, restatements: 0 },
     cached: false,
   });
 });

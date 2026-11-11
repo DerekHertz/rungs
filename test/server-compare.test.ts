@@ -30,7 +30,9 @@ const linkedServer = await serve(head, 0, against, "Fresh numbers.\n- Trims keep
     byClaim: [["file:src/new.ts" as NodeId], ["file:src/keep.ts" as NodeId]],
     model: "m",
     promptVersion: "p1",
-    dropped: { ids: 2, claims: 1 },
+    shown: [{ text: "Adds fresh numbers.", restated: true, sources: [0], ids: ["file:src/new.ts" as NodeId] }],
+    context: [1],
+    dropped: { ids: 2, claims: 1, restatements: 0 },
     cached: false,
   };
 });
@@ -114,10 +116,12 @@ test("/claims.json carries the description as claimed text, and null when none w
   expect(await given.json()).toEqual({
     tier: "claimed",
     description: "Adds <b>src/new.ts</b>.\n",
-    claims: [{ index: 0, text: "Adds <b>src/new.ts</b>.", start: 0, end: 23, ids: [] }],
+    claims: [{ index: 0, text: "Adds <b>src/new.ts</b>.", restated: false, sources: [{ index: 0, text: "Adds <b>src/new.ts</b>.", start: 0, end: 23 }], ids: [] }],
+    sentences: [{ index: 0, text: "Adds <b>src/new.ts</b>.", start: 0, end: 23 }],
+    context: [],
     link: { status: "off" },
   });
-  expect(await (await get(comparing, "claims.json")).json()).toEqual({ tier: "claimed", description: null, claims: [], link: { status: "off" } });
+  expect(await (await get(comparing, "claims.json")).json()).toEqual({ tier: "claimed", description: null, claims: [], sentences: [], context: [], link: { status: "off" } });
 });
 
 test("the description never reaches the graph or the comparison", async () => {
@@ -140,20 +144,23 @@ test("/contracts.json carries the contracts that moved as a derived fact, and is
       { kind: "added", id: "function:src/new.ts#fresh", before: null, after: "()" },
       { kind: "removed", id: "function:src/old.ts#oldOne", before: "()", after: null },
     ],
+    effectsChanged: [],
   });
   expect((await get(plain, "contracts.json")).status).toBe(404);
 });
 
-test("/claims.json carries each claim's span and linked ids, and how the links were made, as claimed", async () => {
+test("/claims.json carries each shown claim's restatement, source sentences and linked ids, and the context lines dropped, and how the links were made, as claimed", async () => {
   const body = (await (await get(linkedServer, "claims.json")).json()) as Record<string, unknown>;
   expect(body).toEqual({
     tier: "claimed",
     description: "Fresh numbers.\n- Trims keep.\n",
-    claims: [
-      { index: 0, text: "Fresh numbers.", start: 0, end: 14, ids: ["file:src/new.ts"] },
-      { index: 1, text: "Trims keep.", start: 17, end: 28, ids: ["file:src/keep.ts"] },
+    claims: [{ index: 0, text: "Adds fresh numbers.", restated: true, sources: [{ index: 0, text: "Fresh numbers.", start: 0, end: 14 }], ids: ["file:src/new.ts"] }],
+    sentences: [
+      { index: 0, text: "Fresh numbers.", start: 0, end: 14 },
+      { index: 1, text: "Trims keep.", start: 17, end: 28 },
     ],
-    link: { status: "ok", model: "m", promptVersion: "p1", dropped: { ids: 2, claims: 1 }, cached: false },
+    context: [{ index: 1, text: "Trims keep.", start: 17, end: 28 }],
+    link: { status: "ok", model: "m", promptVersion: "p1", dropped: { ids: 2, claims: 1, restatements: 0 }, cached: false },
   });
   expect(seen).toEqual([{ texts: ["Fresh numbers.", "Trims keep."], candidates: expect.arrayContaining(["file:src/new.ts", "folder:src", "file:src/keep.ts"]) }]);
 });

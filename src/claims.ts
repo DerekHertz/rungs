@@ -12,6 +12,9 @@ const FENCE = /^[ \t]{0,3}(?:```|~~~)/;
 // A sentence ends at ., ! or ? (and closing marks), then whitespace, then not a lowercase letter.
 const SENTENCE_END = /[.!?]["')\]`*_]*(?=\s+(?![\p{Ll}]))/gu;
 
+// A tool's footer, not a claim: a line starting with the robot emoji, or a "Generated with" link.
+const FOOTER = /^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?(?:🤖|\W*generated (?:with|by)\b.*\]\()/iu;
+
 interface Line {
   readonly text: string;
   readonly start: number;
@@ -20,7 +23,7 @@ interface Line {
 /**
  * Splits a change description into claims, by rules and not by a model: each markdown bullet
  * (with its wrapped lines) is one claim, and each sentence of any other paragraph is one.
- * Headings, fenced code and spans without a letter or digit are not claims.
+ * Headings, fenced code, spans without a letter or digit and tool footers are not claims.
  */
 export function splitClaims(description: string): Claim[] {
   const lines: Line[] = [];
@@ -47,7 +50,7 @@ export function splitClaims(description: string): Claim[] {
     if (FENCE.test(line.text)) {
       close();
       fenced = !fenced;
-    } else if (fenced || HEADING.test(line.text) || line.text.trim() === "") {
+    } else if (fenced || HEADING.test(line.text) || line.text.trim() === "" || FOOTER.test(line.text)) {
       close();
     } else {
       const bullet = BULLET.exec(line.text);
