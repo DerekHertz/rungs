@@ -95,7 +95,7 @@ test("more than three unnamed added exports are one note, so a new file does not
 });
 
 test("what was observed at a stop is not run until something records it", () => {
-  expect(NOT_RUN).toEqual({ status: "not run" });
+  expect(NOT_RUN).toEqual({ status: "not run", changes: [] });
 });
 
 const factsOf = (before: Record<string, string>, after: Record<string, string>, ids: string[], ...texts: string[]) => {

@@ -26,11 +26,19 @@ export interface StopTest {
  * (claimed), and what the PR did to the stop's tests. With none of them, no test is attached.
  */
 export type Observed =
-  | { readonly status: "not run" }
-  | { readonly status: "refused" | "unsupported" | "failed" | "unreliable"; readonly why: string; readonly unsandboxed: boolean }
-  | { readonly status: "ran"; readonly unsandboxed: boolean; readonly results: readonly StopTest[]; readonly written: readonly StopTest[]; readonly changes: readonly string[] };
+  | { readonly status: "not run"; readonly changes: readonly string[] }
+  | { readonly status: "refused" | "unsupported" | "failed" | "unreliable"; readonly why: string; readonly unsandboxed: boolean; readonly changes: readonly string[] }
+  | {
+      readonly status: "ran";
+      readonly unsandboxed: boolean;
+      readonly results: readonly StopTest[];
+      readonly written: readonly StopTest[];
+      /** The PR's own tests covering this stop gave no results: claimed, with why. */
+      readonly writtenProblem?: { readonly status: "failed" | "unreliable"; readonly why: string };
+      readonly changes: readonly string[];
+    };
 
-export const NOT_RUN: Observed = { status: "not run" };
+export const NOT_RUN: Observed = { status: "not run", changes: [] };
 
 const asResult = ({ file, name, outcome, message, why }: StopTest): StopTest => ({
   file,
@@ -47,11 +55,6 @@ const asResult = ({ file, name, outcome, message, why }: StopTest): StopTest => 
  * wrote and what it did to the tests (`changes`, from /test-changes.json) attach by file.
  */
 export function observedAt(stop: Stop, graph: Graph, comparison: Comparison, document: ObservedDocument | null, testChanges: TestChanges): Observed {
-  if (document === null) return NOT_RUN;
-  if (!("sandbox" in document)) return { status: document.status, why: document.why, unsandboxed: false };
-  const unsandboxed = document.sandbox === "unsandboxed";
-  if (document.status !== "ran") return { status: document.status, why: document.why, unsandboxed };
-
   const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
   for (const change of comparison.changes) if (!nodes.has(change.node.id)) nodes.set(change.node.id, change.node);
   const at = new Set(stop.ids);
@@ -65,6 +68,21 @@ export function observedAt(stop: Stop, graph: Graph, comparison: Comparison, doc
     if (node?.level === "file") files.add(node.path);
   }
 
+  const changes: string[] = [];
+  for (const file of testChanges.deletedFiles) {
+    if (!files.has(file.path) && !(file.movedTo !== undefined && files.has(file.movedTo))) continue;
+    const count = `${file.tests} ${file.tests === 1 ? "test" : "tests"}`;
+    changes.push(file.movedTo === undefined ? `test file deleted: ${file.path} (${count})` : `test file moved: ${file.path} to ${file.movedTo} (${count})`);
+  }
+  for (const test of testChanges.removedTests) if (files.has(test.file)) changes.push(`test removed: ${test.name}`);
+  for (const test of testChanges.markers) if (files.has(test.file)) changes.push(`${test.name} marked ${test.marker}`);
+  for (const test of testChanges.weakened) if (files.has(test.file)) changes.push(`${test.name} weakened: ${test.why}`);
+
+  if (document === null) return { status: "not run", changes };
+  if (!("sandbox" in document)) return { status: document.status, why: document.why, unsandboxed: false, changes };
+  const unsandboxed = document.sandbox === "unsandboxed";
+  if (document.status !== "ran") return { status: document.status, why: document.why, unsandboxed, changes };
+
   const results: StopTest[] = [];
   for (const [id, tests] of Object.entries(document.tests)) {
     if (!here(id as NodeId)) continue;
@@ -72,14 +90,17 @@ export function observedAt(stop: Stop, graph: Graph, comparison: Comparison, doc
     for (const test of tests) results.push(asResult({ ...test, file }));
   }
   for (const test of document.unmatched) if (files.has(test.file)) results.push(asResult(test));
-  const written = document.written?.status === "ran" ? document.written.tests.filter((test) => files.has(test.file)).map(asResult) : [];
-
-  const changes: string[] = [];
-  for (const file of testChanges.deletedFiles) if (files.has(file.path)) changes.push(`test file deleted: ${file.path} (${file.tests} ${file.tests === 1 ? "test" : "tests"})`);
-  for (const test of testChanges.removedTests) if (files.has(test.file)) changes.push(`test removed: ${test.name}`);
-  for (const test of testChanges.markers) if (files.has(test.file)) changes.push(`${test.name} marked ${test.marker}`);
-  for (const test of testChanges.weakened) if (files.has(test.file)) changes.push(`${test.name} weakened: ${test.why}`);
-  return { status: "ran", unsandboxed, results, written, changes };
+  const run = document.written;
+  const written = run?.status === "ran" ? run.tests.filter((test) => files.has(test.file)).map(asResult) : [];
+  const covered = run !== null && run.status !== "ran" && run.files.some((file) => files.has(file));
+  return {
+    status: "ran",
+    unsandboxed,
+    results,
+    written,
+    ...(covered ? { writtenProblem: { status: run.status, why: run.why } } : {}),
+    changes,
+  };
 }
 
 /** An effect edge that appeared or went away at a stop. */

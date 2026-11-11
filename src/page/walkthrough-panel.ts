@@ -159,11 +159,22 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
   }
 
   function observedRows(observed: Observed): HTMLElement[] {
-    if (observed.status === "not run") return [element("p", "walk-observed", "not run"), element("p", "review-empty", "No test run is recorded for this stop.")];
-    const rows: HTMLElement[] = [element("p", "review-summary observed-trust", EVIDENCE_LINE)];
+    const rows: HTMLElement[] = [];
+    const changes = (): void => {
+      if (observed.changes.length === 0) return;
+      rows.push(element("p", "walk-observed", "this PR changed the tests here"));
+      for (const change of observed.changes) rows.push(element("p", "walk-fact", change));
+    };
+    if (observed.status === "not run") {
+      rows.push(element("p", "walk-observed", "not run"), element("p", "review-empty", "No test run is recorded for this stop."));
+      changes();
+      return rows;
+    }
+    rows.push(element("p", "review-summary observed-trust", EVIDENCE_LINE));
     if (observed.unsandboxed) rows.push(element("p", "review-warning", `Tests ${UNSANDBOXED_LINE}.`));
     if (observed.status !== "ran") {
       rows.push(element("p", "review-warning", `Tests ${observed.status === "refused" || observed.status === "unsupported" ? "not run" : observed.status === "failed" ? "run failed" : "results unreliable"}: ${observed.why}.`));
+      changes();
       return rows;
     }
     const mark = (outcome: StopTest["outcome"]): string => (outcome === "fail" ? "✗" : outcome === "pass" ? "✓" : "·");
@@ -180,16 +191,15 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
       return made;
     };
     if (observed.results.length > 0) rows.push(element("p", "walk-observed", "main's tests at this stop"), list(observed.results));
-    if (observed.written.length > 0) {
+    if (observed.written.length > 0 || observed.writtenProblem !== undefined) {
       const head = element("p", "walk-observed", "written by this PR (claimed)");
       head.append(element("span", "review-tag claimed", "claimed"));
-      rows.push(head, element("p", "review-empty", "Not evidence: the PR wrote these tests."), list(observed.written));
+      rows.push(head, element("p", "review-empty", "Not evidence: the PR wrote these tests."));
+      if (observed.writtenProblem !== undefined) rows.push(element("p", "review-warning", `These tests did not give results (${observed.writtenProblem.status}): ${observed.writtenProblem.why}.`));
+      if (observed.written.length > 0) rows.push(list(observed.written));
     }
-    if (observed.changes.length > 0) {
-      rows.push(element("p", "walk-observed", "this PR changed the tests here"));
-      for (const change of observed.changes) rows.push(element("p", "walk-fact", change));
-    }
-    if (observed.results.length === 0 && observed.written.length === 0) rows.push(element("p", "review-empty", "no test attached"));
+    changes();
+    if (observed.results.length === 0 && observed.written.length === 0 && observed.writtenProblem === undefined) rows.push(element("p", "review-empty", "no test attached"));
     return rows;
   }
 

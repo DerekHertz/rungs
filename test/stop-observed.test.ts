@@ -37,14 +37,14 @@ const ran = (over: Partial<Extract<ObservedDocument, { status: "ran" }>> = {}): 
 const at = (ids: string[], document: ObservedDocument | null, changes = none) => observedAt(stop(...ids), graph, comparison, document, changes);
 
 test("with no run recorded a stop is not run", () => {
-  expect(at(["file:src/api.ts"], null)).toEqual({ status: "not run" });
+  expect(at(["file:src/api.ts"], null)).toEqual({ status: "not run", changes: [] });
 });
 
 test("a refused, unsupported, failed or unreliable run shows its state and reason at every stop", () => {
   const refused: ObservedDocument = { tier: "observed", tree: "t", status: "refused", why: "no sandbox" };
-  expect(at(["file:src/api.ts"], refused)).toEqual({ status: "refused", why: "no sandbox", unsandboxed: false });
+  expect(at(["file:src/api.ts"], refused)).toEqual({ status: "refused", why: "no sandbox", unsandboxed: false, changes: [] });
   const unreliable: ObservedDocument = { tier: "observed", tree: "t", status: "unreliable", why: "exit 0 with failures", runner: "node", sandbox: "unsandboxed", seconds: 2, exitCode: 0 };
-  expect(at(["file:test/api.test.ts"], unreliable)).toEqual({ status: "unreliable", why: "exit 0 with failures", unsandboxed: true });
+  expect(at(["file:test/api.test.ts"], unreliable)).toEqual({ status: "unreliable", why: "exit 0 with failures", unsandboxed: true, changes: [] });
 });
 
 test("a stop at a test file shows main's results of the test functions in it", () => {
@@ -98,4 +98,26 @@ test("tests removed, weakened, skipped or deleted in the stop's files are listed
   const found = at(["file:test/api.test.ts"], ran(), changes);
   expect(found.status === "ran" && found.changes).toEqual(["test removed: old", "fails marked skip", "loads weakened: fewer assertions"]);
   expect(at(["file:src/api.ts"], ran(), changes)).toMatchObject({ changes: [] });
+});
+
+const weakened: TestChanges = { ...none, weakened: [{ file: "test/api.test.ts", name: "loads", why: "fewer assertions" }] };
+
+test("what the PR did to the tests shows whatever the run state, since it is read from the diff", () => {
+  const refused: ObservedDocument = { tier: "observed", tree: "t", status: "refused", why: "no sandbox" };
+  for (const document of [null, refused]) {
+    expect(at(["file:test/api.test.ts"], document, weakened)).toMatchObject({ changes: ["loads weakened: fewer assertions"] });
+  }
+});
+
+test("a test file moved to a path node --test does not find is listed at the old and the new path", () => {
+  const moved: TestChanges = { ...none, deletedFiles: [{ path: "test/gone.test.ts", tests: 2, movedTo: "test/api.test.ts" }] };
+  const expected = ["test file moved: test/gone.test.ts to test/api.test.ts (2 tests)"];
+  expect(at(["file:test/api.test.ts"], ran(), moved)).toMatchObject({ results: expect.anything(), changes: expected });
+  expect(at(["file:test/api.test.ts"], null, moved)).toMatchObject({ changes: expected });
+});
+
+test("a written run that did not give results shows its state and reason, claimed, at the files it covers", () => {
+  const written = { tier: "claimed" as const, files: ["test/api.test.ts"], seconds: 1, status: "unreliable" as const, why: "exit 0 with failures" };
+  expect(at(["file:test/api.test.ts"], ran({ written }))).toMatchObject({ writtenProblem: { status: "unreliable", why: "exit 0 with failures" } });
+  expect(at(["file:src/api.ts"], ran({ written }))).not.toHaveProperty("writtenProblem");
 });
