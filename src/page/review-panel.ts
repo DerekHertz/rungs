@@ -1,5 +1,6 @@
 import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
+import { shortToken } from "../effects.ts";
 import { effectChip, signatureDiff } from "../review.ts";
 import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
@@ -386,7 +387,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     if (shown.length === 0) return fragment;
     const line = element("span", "effect-chips");
     for (const label of shown) {
-      const chip = element("span", `effect-chip ${kind}`, `${mark}${plain ? label : effectChip(label)}`);
+      const chip = element("span", `effect-chip ${kind}`, `${mark}${plain ? shortToken(label) : effectChip(label)}`);
       chip.title = label;
       line.append(chip);
     }
