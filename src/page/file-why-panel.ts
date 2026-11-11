@@ -1,4 +1,4 @@
-import { calleesOf, callersOf, importersOf } from "../defining.ts";
+import { calleesOf, callersOf, count, importersOf, whyLine } from "../defining.ts";
 import type { Block, FileWhy, Step } from "../defining.ts";
 import type { Graph, NodeId } from "../graph.ts";
 
@@ -18,29 +18,6 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, te
   return node;
 };
 
-const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
-
-/** New and changed effects counted apart: each line from `fileWhy` starts with "new " or "changed ". */
-function effectsText(effects: readonly string[]): string {
-  const added = effects.filter((line) => line.startsWith("new ")).length;
-  const changed = effects.length - added;
-  if (effects.length === 0) return "no new or changed effect";
-  return [added > 0 ? count(added, "new effect") : "", changed > 0 ? count(changed, "changed effect") : ""].filter((part) => part !== "").join(" · ");
-}
-
-/** The one line that says why the file matters: derived facts only, each a number or a name. */
-export function whyLine(found: FileWhy): string {
-  const { why } = found;
-  const parts = [
-    why.contracts.length === 0 ? "no contract moved" : `${count(why.contracts.length, "contract")} moved`,
-    why.dependents.length === 0 ? "no file rests on it" : `${count(why.dependents.length, "file")} rest on it`,
-    effectsText(why.effects),
-    why.isTest ? "is a test file" : why.testReaches.length === 0 ? "no test reaches it" : `${count(why.testReaches.length, "test file")} reach it`,
-  ];
-  return parts.join(" · ");
-}
-
-/** A list of steps, each file step opening one step further on a click, every unresolved one shown as that. */
 function stepList(steps: readonly Step[], actions: WhyActions): HTMLElement {
   const list = el("div", "why-steps");
   for (const step of steps) {

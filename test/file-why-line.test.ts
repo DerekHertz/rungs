@@ -1,9 +1,8 @@
 import { expect, test } from "vitest";
 import { compare } from "../src/compare.ts";
-import { fileWhy } from "../src/defining.ts";
+import { fileWhy, whyLine } from "../src/defining.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
-import { whyLine } from "../src/page/file-why-panel.ts";
 import { isTestFile } from "../src/test-files.ts";
 
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
