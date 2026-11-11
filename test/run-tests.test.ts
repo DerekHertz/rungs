@@ -251,7 +251,7 @@ test("checks authorization", () => {
   ]);
   const run = await runTests(tree, tree, new Set(), bwrap, 60_000);
   expect(run).toMatchObject({ status: "ran", exitCode: 1 });
-  expect(run.status === "ran" ? run.reports : run).toEqual([{ file: "attack.test.mjs", path: ["checks authorization"], outcome: "fail", ms: expect.any(Number), message: "denied" }]);
+  expect(run.status === "ran" ? run.reports : run).toEqual([{ file: "attack.test.mjs", path: ["checks authorization"], outcome: "fail", ms: expect.any(Number), message: "denied", detail: { line: 8 } }]);
 });
 
 test("a test cannot write into the runner's report through /proc, to pass off another file's failure as a pass", async () => {
