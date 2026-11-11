@@ -1,0 +1,91 @@
+import { changeCounts, firstChange, rowsFromText } from "../diff.ts";
+import type { Row } from "../diff.ts";
+import type { LineRange, NodeId } from "../graph.ts";
+
+/** A panel's two columns and the band laid over them. */
+export interface CodeParts {
+  readonly gutter: HTMLElement;
+  readonly code: HTMLElement;
+  readonly body: HTMLElement;
+  readonly mark: HTMLElement;
+}
+
+/** The rows drawn in a panel; the code column's elements, one per row. */
+export interface Drawn {
+  readonly rows: readonly Row[];
+  readonly cells: readonly HTMLElement[];
+}
+
+/**
+ * The rows of a node's source: its changes when the server has them, else its source as served,
+ * its first line numbered `first`. Undefined when the node has no source. Text from the reviewed
+ * tree is only ever set as textContent.
+ */
+export async function loadRows(id: NodeId, first: number): Promise<Row[] | undefined> {
+  const changes = await fetch(`/changes?id=${encodeURIComponent(id)}`);
+  if (changes.ok) return ((await changes.json()) as { rows: Row[] }).rows;
+  const source = await fetch(`/source?id=${encodeURIComponent(id)}`);
+  return source.ok ? rowsFromText(await source.text(), first) : undefined;
+}
+
+/** "3 changed lines", or undefined when no row changed. */
+export function changeNote(rows: readonly Row[]): string | undefined {
+  const { added, removed } = changeCounts(rows);
+  const total = added + removed;
+  return total === 0 ? undefined : `${total} changed ${total === 1 ? "line" : "lines"}`;
+}
+
+const GUTTER_MARK = { same: "", added: "+", removed: "−" } as const;
+
+/** Draws `rows` in the panel: an added line tinted and marked in the gutter, a removed one greyed in place. */
+export function drawRows(parts: CodeParts, rows: readonly Row[]): Drawn {
+  const cell = (kind: Row["kind"], text: string): HTMLElement => {
+    const span = document.createElement("span");
+    span.className = `row ${kind}`;
+    span.textContent = text;
+    return span;
+  };
+  parts.gutter.replaceChildren(...rows.map((row) => cell(row.kind, row.line === undefined ? GUTTER_MARK[row.kind] : `${row.line}`)));
+  const cells = rows.map((row) => cell(row.kind, row.text));
+  parts.code.replaceChildren(...cells);
+  parts.body.scrollTop = parts.body.scrollLeft = 0;
+  parts.mark.hidden = true;
+  return { rows, cells };
+}
+
+/**
+ * Scrolls the first change inside `range` (the first change at all without one) into view. The
+ * range is banded unless it is every line shown and something changed: then the changed lines
+ * themselves are the mark. Hides the band without a range or when the range misses the lines.
+ */
+export function markRows(parts: CodeParts, drawn: Drawn, range: LineRange | undefined): void {
+  const { body, mark } = parts;
+  mark.hidden = true;
+  const numbered = drawn.rows.flatMap((row, index) => (row.line === undefined ? [] : [{ line: row.line, index }]));
+  const first = numbered[0];
+  const last = numbered.at(-1);
+  const changed = firstChange(drawn.rows, range);
+  const scrollTo = (cell: HTMLElement | undefined): void => {
+    if (cell !== undefined) body.scrollTop = Math.max(0, cell.offsetTop - body.clientHeight / 3);
+  };
+  if (first === undefined || last === undefined) return;
+  if (range === undefined || range.end < first.line || range.start > last.line) {
+    if (range === undefined) scrollTo(drawn.cells[changed ?? 0]);
+    return;
+  }
+  const whole = range.start <= first.line && range.end >= last.line;
+  if (whole && firstChange(drawn.rows) !== undefined) {
+    scrollTo(drawn.cells[changed ?? 0]);
+    return;
+  }
+  const top = numbered.find((entry) => entry.line >= range.start);
+  const bottom = numbered.findLast((entry) => entry.line <= range.end);
+  if (top === undefined || bottom === undefined) return;
+  const from = drawn.cells[top.index]!;
+  const to = drawn.cells[bottom.index]!;
+  mark.style.top = `${from.offsetTop}px`;
+  mark.style.height = `${to.offsetTop + to.offsetHeight - from.offsetTop}px`;
+  mark.style.width = `${body.scrollWidth}px`;
+  mark.hidden = false;
+  scrollTo(drawn.cells[changed ?? top.index]);
+}

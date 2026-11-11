@@ -1,10 +1,12 @@
 import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "../observed-types.ts";
 import { ROLLUP_OVER, signatureDiff } from "../review.ts";
+import type { Row } from "../diff.ts";
 import type { LineRange, NodeId } from "../graph.ts";
 import { coverageLine, walkSummary } from "../stops.ts";
 import type { Observed, StopEffect, StopFacts, StopTest, WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
-import { markRange } from "./mark.ts";
+import { changeNote, drawRows, markRows } from "./code-rows.ts";
+import type { Drawn } from "./code-rows.ts";
 import { element } from "./review-panel.ts";
 
 export interface WalkInput {
@@ -17,10 +19,10 @@ export interface WalkInput {
   /** The derived facts at a stop and what its narration leaves out. */
   readonly facts: (stop: Stop) => StopFacts;
   readonly observed: (stop: Stop) => Observed;
-  /** A node's name and the number of its first source line. */
-  readonly describe: (id: NodeId) => { readonly label: string; readonly first: number };
-  /** Exactly the node's source lines, or undefined when it has none. */
-  readonly source: (id: NodeId) => Promise<string | undefined>;
+  /** A node's name. */
+  readonly describe: (id: NodeId) => { readonly label: string };
+  /** The node's source lines as rows, changed ones marked, or undefined when it has none. */
+  readonly rows: (id: NodeId) => Promise<readonly Row[] | undefined>;
   /** The reviewer came to a stop, or closed the tour; the host flies the picture to its nodes. */
   readonly visit: (stop: Stop | undefined) => void;
 }
@@ -77,26 +79,28 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
   const gutter = element("pre", "walk-gutter");
   const text = element("pre", "walk-code");
   const mark = element("div", "walk-mark");
+  const changes = element("p", "walk-changes");
   mark.hidden = true;
   lines.append(gutter, text, mark);
-  codeBody.append(tabs, facts, lines);
+  codeBody.append(tabs, facts, changes, lines);
+  const parts = { gutter, code: text, body: lines, mark };
+  let drawn: Drawn | undefined;
 
-  /** Shows one node's source lines in the Code column and bands `range` in them. */
+  /** Shows one node's source lines in the Code column, its changes marked, scrolled to the first one in `range`. */
   async function show(id: NodeId, range: LineRange | undefined): Promise<void> {
     const mine = ++ticket;
-    const { first } = input.describe(id);
     if (shown !== id) {
-      const source = await input.source(id);
+      const rows = await input.rows(id);
       if (mine !== ticket) return;
       shown = id;
-      const rows = (source ?? "").split("\n");
-      if (rows.length > 1 && rows.at(-1) === "") rows.pop();
-      gutter.textContent = source === undefined ? "" : rows.map((_, row) => first + row).join("\n");
-      text.textContent = source ?? "No source lines are served for this node.";
-      lines.scrollTop = lines.scrollLeft = 0;
+      drawn = drawRows(parts, rows ?? []);
+      if (rows === undefined) text.textContent = "No source lines are served for this node.";
+      const note = rows === undefined ? undefined : changeNote(rows);
+      changes.textContent = note ?? "";
+      changes.hidden = note === undefined;
       for (const tab of tabs.children) tab.classList.toggle("active", (tab as HTMLElement).dataset.id === id);
     }
-    markRange({ code: text, body: lines, mark }, first, range);
+    if (drawn !== undefined) markRows(parts, drawn, range);
   }
 
   function draw(): void {

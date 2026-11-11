@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { changeCounts, diffLines, rowsInRange } from "../src/diff.ts";
+import { changeCounts, diffLines, firstChange, rowsFromText, rowsInRange } from "../src/diff.ts";
 import type { LineOp } from "../src/diff.ts";
 
 const lines = (text: string): string[] => (text === "" ? [] : text.split(" "));
@@ -123,5 +123,37 @@ describe("changeCounts", () => {
   test("counts added and removed rows", () => {
     const rows = rowsInRange(diffLines(lines("a b c"), lines("a x y c d")));
     expect(changeCounts(rows)).toEqual({ added: 3, removed: 1 });
+  });
+});
+
+describe("firstChange", () => {
+  const rows = rowsInRange(diffLines(lines("a b c x d e"), lines("a B c d e")));
+
+  test("is the index of the first added or removed row", () => {
+    expect(firstChange(rows)).toBe(1);
+  });
+
+  test("inside a range it skips changes above it", () => {
+    expect(firstChange(rows, { start: 3, end: 5 })).toBe(4);
+  });
+
+  test("a removed row counts for the line it sits before", () => {
+    expect(firstChange(rows, { start: 4, end: 5 })).toBe(4);
+    expect(firstChange(rows, { start: 5, end: 5 })).toBeUndefined();
+  });
+
+  test("is undefined when nothing changed", () => {
+    expect(firstChange(rowsFromText("a\nb\n", 10))).toBeUndefined();
+  });
+});
+
+describe("rowsFromText", () => {
+  test("numbers unchanged rows from the first line, without the final newline's empty line", () => {
+    expect(rowsFromText("x\n\ny\n", 7)).toEqual([
+      { kind: "same", line: 7, text: "x" },
+      { kind: "same", line: 8, text: "" },
+      { kind: "same", line: 9, text: "y" },
+    ]);
+    expect(rowsFromText("", 1)).toEqual([]);
   });
 });
