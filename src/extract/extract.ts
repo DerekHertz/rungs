@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { compareEdges, compareIds, compareResolutions, nodeId, qualifiedName, resourceId } from "../graph.ts";
-import type { CodeNode, Edge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge } from "../graph.ts";
+import { compareEdges, compareIds, compareImports, compareResolutions, nodeId, qualifiedName, resourceId } from "../graph.ts";
+import type { CodeNode, Edge, ImportEdge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge } from "../graph.ts";
 import { countLines, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
 import { roleOf } from "./roles.ts";
-import type { Declaration, EffectSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
+import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "10";
+export const EXTRACTOR_VERSION = "12";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -28,10 +28,11 @@ export function extract(tree: FileTree): Graph {
   const nodes: ModuleNode[] = [];
   const edges: Edge[] = [];
   const resolutions: ResolutionEdge[] = [];
+  const imports: ImportEdge[] = [];
   const analysed = new Set<string>();
   for (const [adapter, files] of filesByAdapter) {
     files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const outlines = adapter.analyse(files);
+    const outlines = adapter.analyse(files, tree);
     for (const file of files) {
       analysed.add(file.path);
       const outline = outlines.get(file.path);
@@ -39,6 +40,7 @@ export function extract(tree: FileTree): Graph {
       nodes.push(...code.nodes);
       edges.push(...effectEdges(file.path, file.text, outline?.effects ?? [], code.spans));
       resolutions.push(...resolutionEdges(file.path, file.text, outline?.resolutions ?? [], code.spans));
+      imports.push(...importEdges(file.path, file.text, outline?.imports ?? []));
     }
   }
 
@@ -74,7 +76,8 @@ export function extract(tree: FileTree): Graph {
   nodes.sort((a, b) => compareIds(a.id, b.id));
   edges.sort(compareEdges);
   resolutions.sort(compareResolutions);
-  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges, resolutions };
+  imports.sort(compareImports);
+  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges, resolutions, imports };
 }
 
 // The only place code identity is decided: ordinals among siblings with the same text in source
@@ -140,6 +143,19 @@ function resolutionEdges(path: string, text: string, sites: readonly ResolutionS
     from: ownerOf(path, site, spans),
     operation: site.operation,
     args: site.args,
+    range: lineRangeOf(starts, site.start, site.end),
+  }));
+}
+
+// An import is owned by its file: the edge runs file to file, wherever in the file it sits.
+function importEdges(path: string, text: string, sites: readonly ImportSite[]): ImportEdge[] {
+  const starts = lineStarts(text);
+  return sites.map((site) => ({
+    from: nodeId("file", path, ""),
+    specifier: site.specifier,
+    syntax: site.syntax,
+    typeOnly: site.typeOnly,
+    target: "file" in site.target ? { file: nodeId("file", site.target.file, "") } : site.target,
     range: lineRangeOf(starts, site.start, site.end),
   }));
 }

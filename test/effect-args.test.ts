@@ -79,13 +79,13 @@ describe("module resolution", () => {
   test("createRequire moved to another base", () => {
     const base = `${REQ}function load(base) { return createRequire(base)("playwright"); }`;
     const head = `${REQ}function load() { return createRequire(join(ROOT, "package.json"))("playwright"); }`;
-    expect(changes(base, head)).toEqual(['load | module createRequire | +?join(ROOT, "package.json") -?base | x1']);
+    expect(changes(base, head)).toEqual(['load | code loaded at run time module createRequire (target unknown) | +?join(ROOT, "package.json") -?base | x1']);
   });
 
   test("a literal base changed", () => {
     const base = `${REQ}function load() { return createRequire("/a/package.json"); }`;
     const head = `${REQ}function load() { return createRequire("/b/package.json"); }`;
-    expect(changes(base, head)).toEqual(['load | module createRequire | +"/b/package.json" -"/a/package.json" | x1']);
+    expect(changes(base, head)).toEqual(['load | code loaded at run time module createRequire (target unknown) | +"/b/package.json" -"/a/package.json" | x1']);
   });
 
   test("require.resolve and dynamic import with a changed specifier", () => {
@@ -103,9 +103,73 @@ describe("module resolution", () => {
     expect(changes("async function f() {}", base)).toEqual(['f | import() | +"a" | x1']);
   });
 
-  test("a local createRequire or require is not a resolution", () => {
-    expect(graphOf("function createRequire(x) {}\nfunction f() { createRequire('a'); }").resolutions).toEqual([]);
+  test("a local createRequire or require is not a resolution or an effect", () => {
+    expect(graphOf("function createRequire(x) {}\nfunction f() { createRequire('a'); }").edges).toEqual([]);
     expect(graphOf("function f(require) { require.resolve('a'); }").resolutions).toEqual([]);
+    expect(graphOf("function f(require, n) { require(n); }").edges).toEqual([]);
+  });
+});
+
+describe("code loaded at run time", () => {
+  const loads = (source: string): string[] =>
+    graphOf(source, "a.cjs")
+      .edges.filter((edge) => edge.to === "resource:code loaded at run time")
+      .map((edge) => `${edge.operation} ${edge.args.map(argText).join(", ")} ${edge.target as string}`);
+
+  test("a require or import() whose target is not a literal, and a createRequire, are effects with unknown target", () => {
+    expect(loads("function f(n) { return require(n); }")).toEqual(["require ?n unknown"]);
+    expect(loads("async function f(n) { return import(`./${n}.js`); }")).toEqual(["import() ?`./${n}.js` unknown"]);
+    expect(loads('import { createRequire } from "node:module";\nconst r = createRequire(import.meta.url);')).toEqual([
+      "module createRequire ?import.meta.url unknown",
+    ]);
+  });
+
+  test("a literal require, import() or static import is not this kind", () => {
+    expect(loads('const a = require("a"); async function f() { await import("b"); }\nconst t = require(`c`);')).toEqual([]);
+    expect(loads('import x from "a"; export { y } from "b";')).toEqual([]);
+  });
+
+  test("a literal import() stays a resolution, a non-literal one is only an effect", () => {
+    const graph = graphOf("async function f(n) { await import(n); await import('a'); }");
+    expect(graph.resolutions.map((r) => r.operation)).toEqual(["import()"]);
+    expect(graph.edges.map((e) => e.operation)).toEqual(["import()"]);
+  });
+
+  test("a require declared in another script of the repository is not the global one", () => {
+    const graph = extract(
+      new Map([
+        ["a.ts", "const require = (x: string) => x;"],
+        ["b.ts", "function f(n: string) { return require(n); }"],
+      ]),
+    );
+    expect(graph.edges).toEqual([]);
+  });
+
+  test("a call through an alias of require is a load", () => {
+    expect(loads("const load = require;\nfunction f(n) { return load(n); }")).toEqual(["require ?n unknown"]);
+    expect(loads("const load = require;\nfunction f() { return load('a'); }")).toEqual([]);
+  });
+
+  test("inserting a load names the new call, not the unchanged one", () => {
+    const base = "function f(a, b) { require(a); }";
+    const head = "function f(a, b) { require(b); require(a); }";
+    const diff = compare(graphOf(base, "a.cjs"), graphOf(head, "a.cjs"));
+    const added = diff.effects.filter((c) => c.kind === "added").map((c) => c.edge.args.map(argText).join());
+    expect(added).toEqual(["?b"]);
+    expect(diff.effects.filter((c) => c.kind === "removed")).toEqual([]);
+  });
+
+  test("adding a spread to a load is a change", () => {
+    expect(changes("function f(a) { return require(a); }", "function f(a) { return require(...a); }")).toEqual([
+      "f | code loaded at run time require (target unknown) | +?...a -?a | x1",
+    ]);
+  });
+
+  test("an altered call shows through changedEffects, an unchanged one does not", () => {
+    const base = "function load(p) { return require(p); }";
+    const head = "function load(p) { return require(join(ROOT, p)); }";
+    expect(changes(base, head)).toEqual(["load | code loaded at run time require (target unknown) | +?join(ROOT, p) -?p | x1"]);
+    expect(changes(base, base)).toEqual([]);
   });
 });
 

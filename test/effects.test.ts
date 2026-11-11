@@ -144,7 +144,7 @@ describe("effect edges: what never resolves", () => {
     ["a method on a returned object", 'function f() { const s = make();\n s.listen(1); s.close(); }'],
     ["a member that is not in the catalog", 'import fs from "fs";\nfunction f() { fs.constants; process.env.X; console.log(1); }'],
     ["a module that is not in the catalog", 'import { exec } from "some-lib";\nfunction f() { exec("x"); }'],
-    ["createRequire", 'import { createRequire } from "module";\nconst require = createRequire(import.meta.url);\nfunction f() { require("fs").readFileSync("a"); }'],
+    ["a literal require or import", 'function f() { require("fs"); return import("fs"); }'],
     ["a dynamic import", 'async function f() { const { readFile } = await import("node:fs/promises"); readFile("a"); }'],
     ["a method named like a catalog entry", "function f(o) { o.spawn('x'); o.fetch(1); }"],
     ["a declaration file", "export declare function f(): void;"],

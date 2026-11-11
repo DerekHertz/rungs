@@ -2,6 +2,7 @@ import { posix } from "node:path";
 import ts from "typescript";
 import type { Declaration, LanguageAdapter, SourceFile } from "./adapters.ts";
 import { effectSites, resolutionSites } from "./javascript-effects.ts";
+import { ImportResolver, importSites } from "./javascript-imports.ts";
 import { exportedNodes, renderSignature, signatureTokens } from "./javascript-contract.ts";
 
 // Built over the tree's own files and nothing else, with no default library and no module
@@ -41,15 +42,16 @@ export function programOver(files: readonly SourceFile[]): ts.Program {
 
 export const javaScriptAndTypeScript: LanguageAdapter = {
   language: "JavaScript and TypeScript",
-  analyse(files) {
+  analyse(files, tree) {
     const program = programOver(files);
+    const resolver = new ImportResolver(tree);
     const checker = program.getTypeChecker();
     return new Map(
       files.map((file) => {
         const source =
           program.getSourceFile(`/${file.path}`) ??
           ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true, scriptKind(file.path));
-        return [file.path, { declarations: outline(source), effects: effectSites(source, checker), resolutions: resolutionSites(source, checker) }];
+        return [file.path, { declarations: outline(source), effects: effectSites(source, checker), resolutions: resolutionSites(source, checker), imports: source.isDeclarationFile ? [] : importSites(source, checker, resolver, file.path) }];
       }),
     );
   },
