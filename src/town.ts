@@ -1,5 +1,7 @@
 import { resourcesOf } from "./graph.ts";
 import type { Graph, ModuleNode, NodeId, ResourceKind, Role } from "./graph.ts";
+import { importanceOf, reachedFrom } from "./importance.ts";
+import type { WayIn } from "./importance.ts";
 
 /*
  * The town: a pure function from the graph (and the names of the sprites the sheet has) to
@@ -46,6 +48,21 @@ export function namesAt(zoom: number): "blocks" | "files" {
   return 2 * LOT * AXIS * zoom >= FILE_NAMES_FROM_LOT_PX ? "files" : "blocks";
 }
 
+/** How tall each plinth sprite stands, in ground units (themes/town/make_sprites.py): the building on it is raised by this. */
+export const PLINTH_HEIGHTS = [0.3, 0.6, 0.9, 1.2] as const;
+/** On a lot, relative to its middle: the gate's gap stands this far towards the front (-Y), and a footpath's one tile runs from the door to the lot's edge. */
+export const GATE_FRONT = 2.15;
+export const PATH_AT = { X: -0.45, Y: -1.75 } as const;
+
+/**
+ * Where a lot's footpath tile lies on the ground. A plinth's front stair stands in the way, so the
+ * path starts beyond the stair, which is one 0.3 step deep for each 0.3 of the plinth's height.
+ */
+export function footpathAt(lot: Pick<Lot, "X" | "Y" | "raise">): { X: number; Y: number } {
+  if (lot.raise === 0) return { X: lot.X + PATH_AT.X, Y: lot.Y + PATH_AT.Y };
+  return { X: lot.X, Y: lot.Y + PATH_AT.Y - lot.raise };
+}
+
 export type BuildingKind = "workshop" | "lab" | "library" | "shed" | "warehouse" | "hut";
 
 /** The kind of building a file's role picks (SPEC: Buildings). A file with no role is a hut, never guessed. */
@@ -81,6 +98,17 @@ export interface Lot {
   readonly sprite: string;
   readonly classes: number;
   readonly functions: number;
+  /** The files that rest on this one through imports, directly or not, by path; the count is its length. */
+  readonly restsOn: readonly string[];
+  /** The plinth's sprite, none for a file nothing rests on, and how far the building is raised by it. */
+  readonly plinth: string | undefined;
+  readonly raise: number;
+  /** Why the repo declares this file a way in; empty for any other file. */
+  readonly wayIn: readonly string[];
+  /** A non-test way in: it has a gate. */
+  readonly gate: boolean;
+  /** Some way in reaches it through imports (a way in reaches itself). A file nothing reaches has no footpath. */
+  readonly reached: boolean;
   /** The middle of the lot on the ground. */
   readonly X: number;
   readonly Y: number;
@@ -125,6 +153,10 @@ export interface Town {
   readonly quay: { readonly X: number; readonly Y: number };
   /** The fewest and most classes and functions in a file, generated files left out. */
   readonly counts: { readonly fewest: number; readonly most: number };
+  /** The fewest and most files resting on a file that has any: the ends of the plinth scale. */
+  readonly importance: { readonly fewest: number; readonly most: number };
+  /** How many files nothing reaches. */
+  readonly unreached: number;
 }
 
 /** The harbour structure a kind of resource picks, by sheet name. */
@@ -163,7 +195,15 @@ function byCodeUnits(a: string, b: string): number {
  * first. Every lot is a fact (a file), and so is every harbour structure (a reached kind of
  * resource): empty ground has nothing on it.
  */
-export function townOf(graph: Graph, sprites: ReadonlySet<string>): Town {
+export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: readonly WayIn[] = []): Town {
+  const rests = importanceOf(graph);
+  const fromWays = reachedFrom(graph, waysIn.map((way) => way.id));
+  const wayById = new Map(waysIn.map((way) => [way.id, way]));
+  const idPaths = new Map(graph.nodes.map((node) => [node.id, node.path]));
+  const weights = [...rests.values()].map((list) => list.length);
+  const fewestRests = weights.length === 0 ? 0 : Math.min(...weights);
+  const mostRests = weights.length === 0 ? 0 : Math.max(...weights);
+  const plinths = PLINTH_HEIGHTS.filter((_, index) => sprites.has(`plinth-${index + 1}`)).length;
   const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
   const root = graph.nodes.find((node) => node.parent === null && (node.level === "package" || node.level === "folder"));
   const classes = new Map<string, number>();
@@ -245,6 +285,9 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>): Town {
       const steps = stepsOf(kind, sprites);
       // A generated file keeps the smallest size so it never crowds out written code (SPEC: The graph).
       const step = file.role === "generated" ? 1 : stepOf(countOf(file.path), fewest, most, steps);
+      const restsOn = (rests.get(file.id) ?? []).map((id) => idPaths.get(id) ?? id).sort(byCodeUnits);
+      const plinthStep = restsOn.length === 0 || plinths === 0 ? 0 : stepOf(restsOn.length, fewestRests, mostRests, plinths);
+      const way = wayById.get(file.id);
       lots.push({
         id: file.id,
         name: file.name,
@@ -256,6 +299,12 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>): Town {
         sprite: sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind,
         classes: classes.get(file.path) ?? 0,
         functions: functions.get(file.path) ?? 0,
+        restsOn,
+        plinth: plinthStep === 0 ? undefined : `plinth-${plinthStep}`,
+        raise: plinthStep === 0 ? 0 : PLINTH_HEIGHTS[plinthStep - 1]!,
+        wayIn: way?.reasons ?? [],
+        gate: way !== undefined && file.role !== "tests" && sprites.has("gate"),
+        reached: fromWays.has(file.id),
         X,
         Y,
       });
@@ -294,5 +343,7 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>): Town {
     lawn: loop(0.95),
     quay,
     counts: { fewest, most },
+    importance: { fewest: fewestRests, most: mostRests },
+    unreached: lots.filter((lot) => !lot.reached).length,
   };
 }

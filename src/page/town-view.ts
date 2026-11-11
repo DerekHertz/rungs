@@ -1,5 +1,5 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
-import { AXIS, LOT, namesAt, project } from "../town.ts";
+import { AXIS, GATE_FRONT, LOT, footpathAt, namesAt, project } from "../town.ts";
 import { pickAt } from "../town-pick.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
@@ -67,8 +67,8 @@ const CLICK_SLOP = 4;
 const FLIGHT_MS = 260;
 
 type Thing =
-  | { readonly kind: "lot"; readonly lot: Lot; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number }
-  | { readonly kind: "pier"; readonly pier: Pier; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number };
+  | { readonly kind: "lot"; readonly part: "building" | "plinth" | "gate"; readonly lot: Lot; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number }
+  | { readonly kind: "pier"; readonly pier: Pier; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number };
 
 interface Camera {
   zoom: number;
@@ -201,11 +201,11 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   /** What the last frame drew, as drawn: picking reads these, never the camera, so rounding is inverted exactly. */
   let placements: Placement<Thing>[] = [];
   let plaques: Plaque<Thing>[] = [];
-  function drawSprite(name: string, X: number, Y: number, line?: string, owner?: Thing): { x: number; y: number; w: number; h: number } | undefined {
+  function drawSprite(name: string, X: number, Y: number, line?: string, owner?: Thing, Z = 0): { x: number; y: number; w: number; h: number } | undefined {
     const image = sheet.images.get(name);
     const size = sheet.sizes[name];
     if (image === undefined || size === undefined) return undefined;
-    const at = groundScreen(X, Y);
+    const at = groundScreen(X, Y, Z);
     const box = {
       x: Math.round(at.x - size.ox * camera.zoom),
       y: Math.round(at.y - size.oy * camera.zoom),
@@ -285,7 +285,9 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
 
     placements = [];
     plaques = [];
-    for (const thing of things) drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing);
+    // Footpaths lie on the ground, under everything that stands.
+    for (const lot of town.lots) if (lot.reached) drawSprite("footpath-y", footpathAt(lot).X, footpathAt(lot).Y);
+    for (const thing of things) drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing, thing.Z);
 
     // Names go on top of everything, so a building never hides one. Far away only blocks are named, in
     // large type; close in the files are named too.
@@ -305,7 +307,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     }
     if (files) {
       for (const thing of things) {
-        if (thing.kind !== "lot") continue;
+        if (thing.kind !== "lot" || thing.part !== "building") continue;
         const at = groundScreen(thing.X, thing.Y, 0);
         if (at.x < -200 || at.y < -100 || at.x > canvas.width + 200 || at.y > canvas.height + 200) continue;
         pill(thing.lot.name, at.x, at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.5, false, thing);
@@ -477,8 +479,12 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     show(next) {
       town = next;
       things = [
-        ...next.lots.map((lot): Thing => ({ kind: "lot", lot, sprite: lot.sprite, X: lot.X, Y: lot.Y, key: lot.X - lot.Y })),
-        ...next.piers.map((pier): Thing => ({ kind: "pier", pier, sprite: pier.sprite, X: pier.X, Y: pier.Y, key: pier.X - pier.Y })),
+        ...next.lots.flatMap((lot): Thing[] => [
+          ...(lot.plinth === undefined ? [] : [{ kind: "lot", part: "plinth", lot, sprite: lot.plinth, X: lot.X, Y: lot.Y, Z: 0, key: lot.X - lot.Y } satisfies Thing]),
+          { kind: "lot", part: "building", lot, sprite: lot.sprite, X: lot.X, Y: lot.Y, Z: lot.raise, key: lot.X - lot.Y },
+          ...(lot.gate ? [{ kind: "lot", part: "gate", lot, sprite: "gate", X: lot.X, Y: lot.Y - GATE_FRONT, Z: 0, key: lot.X - lot.Y + GATE_FRONT }satisfies Thing] : []),
+        ]),
+        ...next.piers.map((pier): Thing => ({ kind: "pier", pier, sprite: pier.sprite, X: pier.X, Y: pier.Y, Z: 0, key: pier.X - pier.Y })),
       ]
         .map((thing, index) => ({ thing, index }))
         .sort((a, b) => a.thing.key - b.thing.key || a.index - b.index)

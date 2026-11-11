@@ -12,6 +12,7 @@ import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { changeCounts, diffText, rowsInRange } from "./diff.ts";
 import type { LineOp } from "./diff.ts";
 import { sliceLines } from "./lines.ts";
+import { waysIn } from "./ways-in.ts";
 import { isStale } from "./narration.ts";
 import type { NarratedDoc, Narration } from "./narration.ts";
 import { pseudocode } from "./pseudocode.ts";
@@ -118,6 +119,7 @@ export async function serve(
     ["/", { contentType: "text/html; charset=utf-8", body: html }],
     ["/main.js", { contentType: "text/javascript; charset=utf-8", body: script }],
     ["/graph.json", { contentType: "application/json; charset=utf-8", body: serializeGraph(graph) }],
+    ["/ways-in.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", waysIn: waysIn(tree, graph) }, null, 2)}\n` }],
   ]);
   if (base !== undefined && baseGraph !== undefined && comparison !== undefined) {
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
