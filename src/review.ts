@@ -209,6 +209,13 @@ const isLockfileChange = (change: ModuleChange): boolean => change.node.level ==
 const followsDependencies = (comparison: Comparison, lockfile: ModuleChange): boolean =>
   comparison.dependencies.some((change) => directoryOf(change.path) === directoryOf(lockfile.node.path));
 
+/** A package.json whose only change is dependency entries, all of them mentioned, is covered like its lockfile. */
+const explainedByDependencies = (comparison: Comparison, description: string, change: ModuleChange): boolean => {
+  if (!(comparison.dependencyOnlyManifests ?? []).includes(change.node.path)) return false;
+  const own = comparison.dependencies.filter((dependency) => dependency.path === change.node.path);
+  return own.length > 0 && own.every((dependency) => dependencyMentioned(description, dependency.name));
+};
+
 /**
  * The changed files, and the classes and functions under them, that no claim covers, rolled up.
  * A lockfile's change is left out when a dependency changed: dependencyReview lists it.
@@ -331,6 +338,7 @@ export function unmentioned(
     const node = change.node;
     for (let dir = directoryOf(node.path); dir !== ""; dir = directoryOf(dir)) dirsChanged.set(dir, (dirsChanged.get(dir) ?? 0) + 1);
     if (fileMentioned(change) || groupMentioned(change)) continue;
+    if (explainedByDependencies(comparison, description, change)) continue;
     if (isLockfileChange(change) && followsDependencies(comparison, change)) {
       if (underDependencies.has(node.id)) dependencyLockfiles += 1;
       continue;

@@ -68,3 +68,66 @@ export function diffDependencies(base: Graph, head: Graph, movedTo: ReadonlyMap<
 
 /** One declaration as text, `^1.2.0 (devDependencies)`. */
 export const declarationText = (declaration: Declaration): string => `${declaration.range ?? "range not readable"} (${declaration.list})`;
+
+/** An own property only: parsed JSON can hold `__proto__` or `constructor` as plain keys, and an inherited one is no entry. */
+const ownOf = (object: object, key: string): unknown => (Object.hasOwn(object, key) ? (object as Record<string, unknown>)[key] : undefined);
+
+const isEqual = (a: unknown, b: unknown): boolean => {
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((one, index) => isEqual(one, b[index]));
+  if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && isEqual(ownOf(a, key), ownOf(b, key)));
+  }
+  return a === b;
+};
+
+const parsedOf = (text: string): Record<string, unknown> | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/, ""));
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** The names whose entry differs in the raw lists, or undefined when a changed entry is not a string on a side that has it. */
+const rawChangedNames = (was: Record<string, unknown>, now: Record<string, unknown>): Set<string> | undefined => {
+  const names = new Set<string>();
+  for (const list of DEPENDENCY_LISTS) {
+    const isMap = (value: unknown): boolean => typeof value === "object" && value !== null && !Array.isArray(value);
+    const wasList = ownOf(was, list);
+    const nowList = ownOf(now, list);
+    if (((wasList !== undefined && !isMap(wasList)) || (nowList !== undefined && !isMap(nowList))) && !isEqual(wasList, nowList)) return undefined;
+    const before = isMap(wasList) ? (wasList as object) : {};
+    const after = isMap(nowList) ? (nowList as object) : {};
+    for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const hadBefore = Object.hasOwn(before, name);
+      const hadAfter = Object.hasOwn(after, name);
+      if (hadBefore === hadAfter && isEqual(ownOf(before, name), ownOf(after, name))) continue;
+      if ((hadBefore && typeof ownOf(before, name) !== "string") || (hadAfter && typeof ownOf(after, name) !== "string")) return undefined;
+      names.add(name);
+    }
+  }
+  return names;
+};
+
+/**
+ * Whether two package.json texts differ only inside the four dependency lists, and the dependency
+ * diff (`changed`, the names it lists for this file) represents every changed entry: both parse as
+ * JSON objects and are deeply equal once those lists are removed (formatting and key order are no
+ * change), every changed entry is a string on the sides that have it, and the changed names are
+ * exactly `changed`. Anything else, or an unreadable side, means no.
+ */
+export function onlyDependenciesChanged(before: string, after: string, changed: ReadonlySet<string>): boolean {
+  const was = parsedOf(before);
+  const now = parsedOf(after);
+  if (was === undefined || now === undefined) return false;
+  const strip = (value: Record<string, unknown>): object => {
+    const rest = { ...value };
+    for (const list of DEPENDENCY_LISTS) delete rest[list];
+    return rest;
+  };
+  if (!isEqual(strip(was), strip(now))) return false;
+  const names = rawChangedNames(was, now);
+  return names !== undefined && names.size === changed.size && [...names].every((name) => changed.has(name));
+}

@@ -699,5 +699,6 @@
     }
   ],
   "sections": [],
-  "dependencies": []
+  "dependencies": [],
+  "dependencyOnlyManifests": []
 }

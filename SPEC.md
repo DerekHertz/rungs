@@ -177,6 +177,9 @@ A panel answers the three questions, and each entry selects places on the pictur
   in the description; a dependency by its name, a section by its heading. A changed Markdown file
   lists its changed sections, each with its added and removed lines. A lockfile's change is listed
   under the dependency changes it follows, and on its own only when no dependency changed. A
+  package.json whose parsed text differs from its base only inside the four dependency lists
+  (formatting and key order aside), every such change mentioned, counts as covered like its
+  lockfile; any other change, or text that does not parse, keeps it listed. A
   change only an agent links stays in the count, as "linked by the agent only", so the row never
   reads "nothing" on an agent's word. An agent's link to a folder covers none of its files.
 - **Contracts moved:** every change to an exported signature, type, case, effect set or linked
