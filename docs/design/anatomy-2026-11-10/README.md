@@ -154,8 +154,8 @@ Each names the north-star question it moves.
 
 | Path | What |
 |---|---|
-| `sprites/` | 24 sprites and `sprites.json`, which records each sprite's size and ground origin |
-| `scripts/make_sprites.py` | Builds every model and renders the sheet in Blender |
+| `../../../themes/town/sprites/` (moved) | 24 sprites and `sprites.json`, which records each sprite's size and ground origin |
+| `../../../themes/town/make_sprites.py` (moved) | Builds every model and renders the sheet in Blender |
 | `scripts/town.mjs`, `scripts/town-page.js` | Assemble a town from a running Rungs server and the sheet |
 | `scripts/crop.mjs` | Cuts or shrinks a picture |
 | `pictures/` | The pictures linked above, and two pages to scroll the towns at full size |
@@ -163,7 +163,7 @@ Each names the north-star question it moves.
 To render the sheet again, from WSL:
 
 ```bash
-"/mnt/c/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup --python "$(wslpath -w scripts/make_sprites.py)" -- "$(wslpath -w sprites)"
+"/mnt/c/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup --python "$(wslpath -w ../../../themes/town/make_sprites.py)" -- "$(wslpath -w ../../../themes/town/sprites)"
 ```
 
 The scripts are mockups. They were written to test the idea and have no tests. `town.mjs` expects
