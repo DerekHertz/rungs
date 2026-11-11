@@ -2,7 +2,7 @@ import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
 import { shortToken } from "../effects.ts";
 import { effectChip, signatureDiff } from "../review.ts";
-import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, unmentionedSummary } from "../review-summary.ts";
+import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
 import type { ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
 import { observedAbout, observedBody, observedNote } from "./observed-panel.ts";
@@ -233,7 +233,8 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   // Unmentioned
 
   function fillUnmentioned(body: HTMLElement): void {
-    if (input.effects !== null) body.append(...effectsBlock(input.effects.none, false));
+    const agentCalls = input.link.status === "ok" && input.effects !== null ? input.effects.byAgent.edges + input.effects.byAgent.tests.edges : 0;
+    if (input.effects !== null) body.append(...effectsBlock(input.effects.none, false, agentCalls));
     if (input.effects !== null && input.effects.changed.none.length > 0) {
       body.append(element("h3", "review-subtitle", `Effects changed, no claim covers them (${input.effects.changed.none.length})`), list(...input.effects.changed.none.map(effectsChangedRow)));
     }
@@ -243,7 +244,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     } else {
       const uncovered = result.unmentionedFiles - result.linkedFiles;
       body.append(element("h3", "review-subtitle", `Files no claim covers (${uncovered} of ${result.changedFiles} changed)`));
-      if (result.entries.length === 0) body.append(element("p", "review-empty", "Every changed file is mentioned or linked."));
+      if (result.entries.length === 0) body.append(element("p", "review-empty", result.linkedFiles > 0 ? "Every other changed file is mentioned." : "Every changed file is mentioned."));
       else body.append(list(...result.entries.map((entry) => row(entry, false))));
       if (input.link.status === "ok" && result.linkedEntries.length > 0) {
         const head = element("h3", "review-subtitle", `Linked by the agent only (${plural(result.linkedFiles, "file")})`);
@@ -254,13 +255,18 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     if (input.effects !== null && input.link.status === "ok" && input.effects.byAgent.edges + input.effects.byAgent.tests.edges > 0) {
       body.append(...effectsBlock(input.effects.byAgent, true));
     }
+    if (input.effects !== null && input.link.status === "ok" && input.effects.changed.byAgent.length > 0) {
+      const head = element("h3", "review-subtitle", `Effects changed, linked by the agent only (${input.effects.changed.byAgent.length})`);
+      head.append(element("span", "review-tag claimed", "claimed"));
+      body.append(head, list(...input.effects.changed.byAgent.map(effectsChangedRow)));
+    }
   }
 
-  function effectsBlock(block: EffectsBlock, byAgent: boolean): HTMLElement[] {
+  function effectsBlock(block: EffectsBlock, byAgent: boolean, agentOnly = 0): HTMLElement[] {
     const { edges, functions } = block;
     const title = element("h3", "review-subtitle", `New calls out${byAgent ? ", linked by the agent" : ""} (${edges} in ${plural(functions, "function")})`);
     if (byAgent) title.append(element("span", "review-tag claimed", "claimed"));
-    if (edges === 0 && block.tests.edges === 0) return [title, element("p", "review-empty", "No new call reaches a process, the network, the file system, a timer or code loaded at run time.")];
+    if (edges === 0 && block.tests.edges === 0) return [title, element("p", "review-empty", noNewCallsText(agentOnly))];
     const items = resourceSummaries(block.groups).map(resourceRow);
     if (block.tests.edges > 0) {
       items.push(
@@ -484,7 +490,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       id: "unmentioned",
       name: "Unmentioned",
       tag: "derived",
-      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0 }),
+      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0, agent: { files: result?.linkedFiles ?? 0, calls: (input.effects?.byAgent.edges ?? 0) + (input.effects?.byAgent.tests.edges ?? 0), changed: input.effects?.changed.byAgent.length ?? 0 } }),
       fill: fillUnmentioned,
     },
     {
@@ -584,7 +590,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   });
   const notes: [string, string][] = [
     ["Claims", linkNote(input.link)],
-    ["Unmentioned", "A change counts as mentioned when its path or name appears in the description, or an agent links it. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
+    ["Unmentioned", "A change counts as mentioned when its path or name appears in the description. One only an agent links to the module or its file stays in the count as linked by the agent only; an agent's link to a folder covers none of its files. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
     ...(input.observed === null ? [] : observedAbout(input.observed))
   ];
   for (const [title, text] of notes) aboutBody.append(element("h3", "review-subtitle", title), element("p", "rv-note", text));

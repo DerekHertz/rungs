@@ -162,11 +162,30 @@ export function claimsSummary(description: string | null, claims: readonly { rea
   return `${claims.filter((claim) => claim.ids.length > 0).length} of ${claims.length} linked`;
 }
 
-/** `moves` groups of identical-text moves hold `movedFiles` of the files; each group counts as one item, not as its files. */
-export function unmentionedSummary(found: { files: number | null; calls: number; changed?: number; moves?: number; movedFiles?: number }): string {
+/**
+ * The Unmentioned row. `moves` groups of identical-text moves hold `movedFiles` of the files; each group counts as one item, not as its files.
+ * `agent` counts what only an agent's link covers; it stays in the row, so the row says "nothing" only when no change is uncovered and none rests on an agent's word.
+ */
+export function unmentionedSummary(found: { files: number | null; calls: number; changed?: number; moves?: number; movedFiles?: number; agent?: { files: number; calls: number; changed: number } }): string {
   const files = found.files === null ? null : found.files - (found.movedFiles ?? 0);
-  const parts = [files === null || files === 0 ? "" : plural(files, "file"), (found.moves ?? 0) === 0 ? "" : plural(found.moves!, "move group"), found.calls === 0 ? "" : `${found.calls} new ${found.calls === 1 ? "call" : "calls"} out`, (found.changed ?? 0) === 0 ? "" : `${found.changed} effects changed`].filter((part) => part !== "");
+  const agent = found.agent ?? { files: 0, calls: 0, changed: 0 };
+  const calls = (n: number): string => `${n} new ${n === 1 ? "call" : "calls"} out`;
+  const changed = (n: number): string => `${n} ${n === 1 ? "effect" : "effects"} changed`;
+  const parts = [
+    files === null || files === 0 ? "" : plural(files, "file"),
+    (found.moves ?? 0) === 0 ? "" : plural(found.moves!, "move group"),
+    found.calls === 0 ? "" : calls(found.calls),
+    (found.changed ?? 0) === 0 ? "" : changed(found.changed!),
+    agent.files === 0 ? "" : `${plural(agent.files, "file")} linked by the agent only`,
+    agent.calls === 0 ? "" : `${calls(agent.calls)} linked by the agent only`,
+    agent.changed === 0 ? "" : `${changed(agent.changed)} linked by the agent only`,
+  ].filter((part) => part !== "");
   return parts.length === 0 ? (found.files === null ? "not checked, no description" : "nothing") : parts.join(" · ");
+}
+
+/** The empty state of the uncovered new calls out. Calls only an agent links stay counted, so it never says no call exists then. */
+export function noNewCallsText(agentOnly: number): string {
+  return agentOnly > 0 ? "Every other new call out is mentioned." : "No new call reaches a process, the network, the file system, a timer or code loaded at run time.";
 }
 
 const CONTRACT_KINDS: readonly ContractMoveKind[] = ["changed", "effects", "removed", "unexported", "exposed", "moved", "added"];

@@ -59,7 +59,7 @@ The first command builds the graph, starts a local server on 127.0.0.1 and opens
 `streets compare <base> [dir]` takes these flags, all optional:
 
 - `--description <file>` reads the pull request's description as claims. Use `-` to read it from stdin.
-- `--link` asks the Claude Code CLI, using your own login, to link each claim to the code it describes. It needs `--description`. `--relink` asks again even when a cached answer exists.
+- `--link` asks the Claude Code CLI, using your own login, to link each claim to the code it describes. A link to a whole folder covers none of its files, and a change only an agent links stays in Unmentioned as "linked by the agent only". It needs `--description`. `--relink` asks again even when a cached answer exists.
 - `--walkthrough` asks the agent for a tour of the change, stop by stop. `--rewalk` asks again.
 - `--narrate` offers plain-English narration beside each function's pseudocode. `--renarrate` writes it again.
 - `--run-tests` runs the base's tests once against the checkout's code, in a sandbox.
