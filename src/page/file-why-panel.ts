@@ -1,3 +1,4 @@
+import { activatable } from "./activatable.ts";
 import { count, effectStepsOf, restsOnIt, whyLine } from "../defining.ts";
 import type { Block, CallList, CallRef, FileWhy, Step } from "../defining.ts";
 import type { Graph, LineRange, NodeId } from "../graph.ts";
@@ -110,7 +111,7 @@ function neighbourStep(title: string, make: () => HTMLElement, wrap: HTMLElement
 
 function blockRow(block: Block, actions: WhyActions): HTMLElement {
   const row = el("div", "why-block");
-  const head = el("div", "why-block-head");
+  const head = activatable(el("div", "why-block-head"));
   head.append(el("span", "why-block-name", `${block.level} ${block.label}`));
   if (block.reasons.length > 0) head.append(el("span", "why-block-reasons", block.reasons.join(" · ")));
   if (block.rests !== undefined) head.append(el("span", "why-block-rests", restsOnIt(block.rests.length)));

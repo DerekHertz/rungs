@@ -1,3 +1,4 @@
+import { activatable } from "./activatable.ts";
 import type { NarratedDoc, NarratedSentence } from "../narration.ts";
 import { element } from "./review-panel.ts";
 
@@ -31,7 +32,7 @@ export function renderNarration(host: HTMLElement, view: NarrationView, actions:
       body.push(element("div", "narration-note", "The function has changed since this was written."), again);
     }
     for (const sentence of doc.sentences) {
-      const row = element("div", "narration-sentence");
+      const row = activatable(element("div", "narration-sentence"));
       row.append(element("span", "at", sentence.range.start === sentence.range.end ? `L${sentence.range.start}` : `L${sentence.range.start}-${sentence.range.end}`), element("span", "", sentence.text));
       row.addEventListener("click", () => actions.pick(sentence, row));
       body.push(row);

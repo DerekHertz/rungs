@@ -30,11 +30,101 @@
         color: #e8edf2;
       }
       #bar {
+        position: relative;
         flex: none;
         display: flex;
         align-items: center;
         height: 28px;
         border-bottom: 1px solid #263140;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      /* Every control shows where the keyboard is. */
+      :focus-visible {
+        outline: 2px solid #8fb4d9;
+        outline-offset: 1px;
+      }
+      #find-box {
+        flex: none;
+        position: relative;
+        padding: 0 6px;
+      }
+      #find {
+        box-sizing: border-box;
+        width: 240px;
+        height: 24px;
+        padding: 0 6px;
+        font: inherit;
+        color: #e8edf2;
+        background: #0b0f14;
+        border: 1px solid #3b4d66;
+        border-radius: 2px;
+      }
+      #find::placeholder {
+        color: #8a9bb0;
+      }
+      #find-results {
+        position: absolute;
+        z-index: 30;
+        top: calc(100% + 3px);
+        right: 0;
+        width: 520px;
+        max-width: calc(100vw - 8px);
+        max-height: min(60vh, 420px);
+        overflow: auto;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        background: #0b0f14;
+        color: #d6dee8;
+        border: 1px solid #3b4d66;
+        box-shadow: 0 8px 16px #000a;
+      }
+      #find-results[hidden] {
+        display: none;
+      }
+      #find-results li {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        min-height: 24px;
+        padding: 4px 8px;
+        cursor: pointer;
+      }
+      #find-results li:hover {
+        background: #1f2a3a;
+      }
+      #find-results li[aria-selected="true"] {
+        background: #26364d;
+        outline: 1px solid #8fb4d9;
+        outline-offset: -1px;
+      }
+      #find-results .find-path {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      #find-results .find-kind {
+        flex: none;
+        color: #8a9bb0;
+      }
+      #find-results .find-more {
+        color: #8a9bb0;
+        cursor: default;
+      }
+      #views {
+        display: none;
+      }
+      #source-back {
+        display: none;
       }
       #legend {
         position: absolute;
@@ -112,6 +202,24 @@
       #trail button:hover {
         background: #1f2a3a;
         color: #e8edf2;
+      }
+      #controls button,
+      #legend button,
+      #trail button,
+      #source-close,
+      .walk-button,
+      .walk-tab,
+      .walk-call,
+      .rv-info,
+      .review-toggle,
+      .review-pick,
+      .why-toggle,
+      .contract-more,
+      .narration-again,
+      .rv-about-toggle,
+      .outline-line button {
+        min-width: 24px;
+        min-height: 24px;
       }
       #trail i {
         font-style: normal;
@@ -323,6 +431,21 @@
       }
       .review-row > .review-pick {
         width: 100%;
+      }
+      /* A row whose detail is a long name: the name keeps a readable width and the detail drops under it, whole. */
+      .review-pick.wrap {
+        flex-wrap: wrap;
+      }
+      .review-pick.wrap > .review-label {
+        flex: 1 1 12ch;
+      }
+      .review-pick.wrap > .contract-where {
+        order: 3;
+        flex: 1 1 100%;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        overflow-wrap: anywhere;
       }
       .review-row {
         min-width: 0;
@@ -1353,10 +1476,154 @@
         white-space: pre;
         display: none;
       }
+
+      /* Narrow screens show one view at a time: the list, the town or the evidence. The others keep their size and scroll but are hidden, so coming back finds them as they were. */
+      @media (max-width: 700px) {
+        #find-box {
+          position: static;
+          padding: 0 4px;
+        }
+        #find {
+          width: 38vw;
+        }
+        #find-results {
+          left: 0;
+          right: 0;
+          top: 100%;
+          width: auto;
+          max-width: none;
+        }
+        #views {
+          display: flex;
+          flex: none;
+          background: #0b0f14;
+          border-bottom: 1px solid #263140;
+        }
+        #views button {
+          flex: 1;
+          min-height: 40px;
+          font: inherit;
+          font-size: 13px;
+          color: #b8c8de;
+          background: none;
+          border: 0;
+          border-bottom: 3px solid transparent;
+          cursor: pointer;
+        }
+        #views button[aria-pressed="true"] {
+          color: #fff;
+          background: #121a24;
+          border-bottom-color: #ffd84a;
+        }
+        #views button[aria-disabled="true"] {
+          color: #5b6b7e;
+          cursor: default;
+        }
+        #main {
+          position: relative;
+        }
+        #review,
+        #stage {
+          position: absolute;
+          inset: 0;
+          width: auto;
+          border-right: 0;
+        }
+        body[data-view="town"] #review,
+        body[data-view="evidence"] #review,
+        body[data-view="list"] #stage,
+        body[data-view="town"] #source,
+        body[data-view="evidence"] #controls,
+        body[data-view="evidence"] #legend {
+          visibility: hidden;
+        }
+        #source {
+          width: 100%;
+          border-left: 0;
+          box-shadow: none;
+        }
+        #source header {
+          max-height: 40%;
+        }
+        #source-back {
+          display: inline-block;
+          min-height: 32px;
+          margin: 0 0 6px;
+          padding: 4px 10px;
+          font: inherit;
+          color: #e8edf2;
+          background: #1f2a3a;
+          border: 1px solid #3b4d66;
+          border-radius: 2px;
+          cursor: pointer;
+        }
+        #source-close {
+          top: 4px;
+          right: 4px;
+          min-width: 32px;
+          min-height: 32px;
+        }
+        #walk.open {
+          height: 52vh;
+        }
+        .walk-bar {
+          flex-wrap: wrap;
+          gap: 4px 6px;
+          padding: 4px 8px;
+        }
+        .walk-bar .walk-button {
+          min-height: 32px;
+        }
+        .walk-status {
+          flex: 1 1 12ch;
+          white-space: normal;
+          overflow-wrap: anywhere;
+        }
+        #walk.open .walk-status {
+          order: 3;
+          flex-basis: 100%;
+        }
+        #walk.open .walk-body {
+          display: block;
+          overflow: auto;
+        }
+        .walk-column {
+          border-right: 0;
+          border-bottom: 1px solid #263140;
+        }
+        .walk-inner {
+          overflow: visible;
+        }
+        .walk-source {
+          min-height: 140px;
+          max-height: 260px;
+        }
+        .walk-facts {
+          max-height: none;
+        }
+        .walk-tab,
+        .walk-call {
+          max-width: 100%;
+          text-align: left;
+          overflow-wrap: anywhere;
+        }
+      }
     </style>
   </head>
-  <body>
-    <header id="bar"><nav id="trail" aria-label="Zoom trail"></nav></header>
+  <body data-view="town">
+    <header id="bar">
+      <nav id="trail" aria-label="Zoom trail"></nav>
+      <div id="find-box">
+        <input id="find" type="search" role="combobox" aria-label="Find a file" aria-autocomplete="list" aria-expanded="false" aria-controls="find-results" placeholder="Find a file ( / )" autocomplete="off" spellcheck="false" />
+        <ul id="find-results" role="listbox" aria-label="Matching files" hidden></ul>
+      </div>
+    </header>
+    <div id="find-status" class="sr-only" role="status" aria-live="polite"></div>
+    <nav id="views" aria-label="View">
+      <button type="button" data-view="list">List</button>
+      <button type="button" data-view="town">Town</button>
+      <button type="button" data-view="evidence">Evidence</button>
+    </nav>
     <div id="main">
     <aside id="review" aria-label="Review" hidden></aside>
     <div id="stage">
@@ -1366,6 +1633,7 @@
       <div id="legend" aria-label="Legend"></div>
       <aside id="source" aria-label="Source" hidden>
         <header>
+          <button id="source-back" type="button">&lsaquo; Back</button>
           <div id="source-title"></div>
           <div id="source-facts"></div>
           <label id="narrate-toggle" hidden><input type="checkbox"> Narration</label>

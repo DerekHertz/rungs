@@ -45,6 +45,12 @@ import type { WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 import type { NarratedDoc } from "../narration.ts";
 import { renderNarration } from "./narration-panel.ts";
+import { activatable } from "./activatable.ts";
+import { backLabel, firstView, nextView } from "../narrow-view.ts";
+import type { ViewEvent, ViewState } from "../narrow-view.ts";
+import { isTyping } from "../find-files.ts";
+import { wireFind } from "./find-panel.ts";
+import type { FileHit } from "./find-panel.ts";
 
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
@@ -63,6 +69,13 @@ const narrateBox = narrateToggle.querySelector("input")!;
 const narrationPane = document.querySelector<HTMLElement>("#narration")!;
 const failurePane = document.querySelector<HTMLElement>("#failure")!;
 const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
+const backButton = document.querySelector<HTMLButtonElement>("#source-back")!;
+const viewSwitch = document.querySelector<HTMLElement>("#views")!;
+const findBox = document.querySelector<HTMLInputElement>("#find")!;
+const findResults = document.querySelector<HTMLElement>("#find-results")!;
+const findStatus = document.querySelector<HTMLElement>("#find-status")!;
+/** The width at and below which the page shows one view at a time. Keep it equal to the media query in index.html. */
+const narrowScreen = window.matchMedia("(max-width: 700px)");
 
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
 const comparisonResponse = await fetch("/comparison.json");
@@ -260,7 +273,7 @@ function showRests(file: ModuleNode): boolean {
   head.className = "outline-line";
   head.textContent = `${above.length} files rest on this one, through imports`;
   const rows = above.map((node) => {
-    const row = document.createElement("div");
+    const row = activatable(document.createElement("div"));
     row.className = "outline-line";
     row.textContent = node.path;
     row.addEventListener("click", () => pickNode(node.id));
@@ -465,9 +478,56 @@ function closePanel(): void {
   shownPlaces = undefined;
   chosenKind = undefined;
   panel.hidden = true;
+  setView({ type: "closed" });
   townView.select(undefined);
   insideView.select(undefined);
 }
+
+/** The reviewer closes the evidence (Back, the close button, Esc): it closes and focus returns to what opened it. */
+function dismiss(): void {
+  closePanel();
+  const to = opener;
+  opener = undefined;
+  // On a narrow screen the list comes back exactly as it was, so focus must not scroll it.
+  if (to?.isConnected === true) to.focus({ preventScroll: narrowScreen.matches });
+}
+
+/** The control that was focused when the evidence opened, which gets focus back when it closes. */
+let opener: HTMLElement | undefined;
+function rememberOpener(): void {
+  const now = document.activeElement;
+  if (now instanceof HTMLElement && now !== document.body && !panel.contains(now)) opener = now;
+  else if (selected === undefined) opener = undefined;
+}
+
+let viewState: ViewState = firstView(false);
+
+function setView(event: ViewEvent): void {
+  viewState = nextView(viewState, event);
+  paintViews();
+}
+
+/** The one view a narrow screen shows, and the switch that reaches the others. */
+function paintViews(): void {
+  document.body.dataset.view = viewState.view;
+  for (const button of viewSwitch.querySelectorAll<HTMLButtonElement>("button")) {
+    const view = button.dataset.view;
+    button.setAttribute("aria-pressed", String(view === viewState.view));
+    button.hidden = view === "list" && !viewState.hasList;
+    const none = view === "evidence" && selected === undefined;
+    button.setAttribute("aria-disabled", String(none));
+    button.title = none ? "Select a file or a test first" : "";
+  }
+  backButton.textContent = `\u2039 ${backLabel(viewState.from, reviewHandle?.snapshot().open)}`;
+}
+
+viewSwitch.addEventListener("click", (event) => {
+  const button = (event.target as Element).closest<HTMLButtonElement>("button");
+  const view = button?.dataset.view;
+  if (view !== "list" && view !== "town" && view !== "evidence") return;
+  setView({ type: "show", view, evidence: selected !== undefined });
+});
+backButton.addEventListener("click", dismiss);
 
 const sourceParts: CodeParts = { gutter: panelGutter, code: panelCode, body: panelBody };
 let drawn: Drawn | undefined;
@@ -531,6 +591,9 @@ function showSource(node: ModuleNode, { rows, tooLarge }: Loaded): void {
   drawn = drawRows(sourceParts, rows);
   outlinePane.hidden = true;
   panel.hidden = false;
+  setView({ type: "opened" });
+  // The row that opened it is out of sight on a narrow screen, so focus moves to the way back.
+  if (narrowScreen.matches && viewState.view === "evidence") backButton.focus();
 }
 
 const EXIT_KINDS: ReadonlySet<string> = new Set(["return", "throw", "break", "continue"]);
@@ -543,7 +606,7 @@ function showOutline(node: ModuleNode, lines: readonly PseudoLine[]): void {
     return;
   }
   const rows = lines.map((line) => {
-    const row = document.createElement("div");
+    const row = activatable(document.createElement("div"));
     row.className = "outline-line";
     row.style.paddingLeft = `calc(10px + ${line.depth * 1.6}ch)`;
     const at = document.createElement("span");
@@ -617,8 +680,11 @@ async function narrateFunction(node: ModuleNode, fresh: boolean): Promise<void> 
 /** Selects `node`, showing its source and outlining `outline` on the picture. */
 async function select(node: ModuleNode, ticket: number, outline: NodeId = node.id, marked?: LineRange): Promise<void> {
   endTour();
+  rememberOpener();
   if (node.id === selected) {
     markLines(marked);
+    // A narrow screen on the town or the list asked for what is already open.
+    setView({ type: "opened" });
     return;
   }
   const loaded = await loadRows(node.id, isCodeNode(node) ? node.range.start : 1);
@@ -742,6 +808,7 @@ let manual: SavedSelection<Manual>;
 function endTour(): void {
   if (manual === undefined) return;
   manual = undefined;
+  setView({ type: "tour-ended", resume: false });
   walk?.end();
 }
 
@@ -778,6 +845,7 @@ function visitStop(stop: Stop | undefined): void {
     leaveInside();
     cancelPending();
     closePanel();
+    setView({ type: "tour-ended", resume: true });
     clearOutline();
     if (left.restore !== undefined) restoreManual(left.restore.value);
     return;
@@ -796,19 +864,27 @@ function visitStop(stop: Stop | undefined): void {
   townView.highlight(places);
   const district = commonDistrict(tree, places);
   if (district !== undefined) focusOn(district, rubbleAmong(places));
+  // The town is where the stop's outline is, so a narrow screen shows it.
+  setView({ type: "tour-started" });
 }
 
 let walk: Walk | undefined;
 
-panelClose.addEventListener("click", closePanel);
+panelClose.addEventListener("click", dismiss);
 resetButton.addEventListener("click", resetView);
 window.addEventListener("keydown", (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
-  if (event.key === "Escape") {
+  // Letters and arrows typed into the search are text, not shortcuts.
+  if (isTyping(event.target as Element | null) && event.key !== "Escape") return;
+  if (event.key === "/") {
+    event.preventDefault();
+    findBox.focus();
+    findBox.select();
+  } else if (event.key === "Escape") {
     cancelPending();
     if (insideFile !== undefined) leaveInside();
     else if (selected === undefined && townView.isDimming()) clearOutline();
-    else if (selected !== undefined) closePanel();
+    else if (selected !== undefined) dismiss();
     else {
       const to = escapeStep(focus, alone, townRoot, (id) => zoomOut(tree, id));
       if (to !== undefined) focusOn(to, alone ? [] : undefined);
@@ -824,6 +900,7 @@ if (comparison !== null && testChanges !== null) {
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
+  viewState = firstView(true);
   const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked, testChanges);
   const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
   const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
@@ -890,6 +967,15 @@ if (comparison !== null && testChanges !== null) {
     }),
   );
 }
+
+/** Every file of the picture, the ones a move left behind included: the search reaches each, with or without a risk. */
+const fileHits: FileHit[] = [...new Map([...nodes, ...ghostFiles]).values()]
+  .filter((node): node is FileNode => node.level === "file")
+  .map((file) => ({ id: file.id, path: file.path, change: picture.overlay === null ? "" : (picture.overlay.entry(file.id)?.kind ?? "unchanged") }));
+// A result selects the file the way clicking its building does, and flies the camera to it so it is in view.
+wireFind({ box: findBox, results: findResults, status: findStatus, files: fileHits, choose: (hit) => pickNode(hit.id) });
+
+paintViews();
 showTown();
 
 /** A test function that failed in the run: what the runner gave of the failure, and the line its stack named marked in the source. */

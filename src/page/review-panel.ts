@@ -14,6 +14,7 @@ import type { ObservedInput } from "./observed-panel.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import { testChangesBlock } from "./test-changes-panel.ts";
 import type { RiskItem } from "../risks.ts";
+import { CHANGE_WORD, CONTRACT_WORD } from "../mark-text.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   changed: "~",
@@ -83,6 +84,26 @@ export interface ReviewInput {
   readonly pickRisk: (item: RiskItem) => void;
   /** How the tour was made, for "About this run"; absent when there is no tour to describe. */
   readonly walkAbout?: string;
+}
+
+/** A mark drawn as one glyph that a screen reader says in words: the glyph is hidden from it, the word is read. */
+export function markSpan(className: string, glyph: string, word: string): HTMLElement {
+  const made = element("span", className);
+  const shown = element("span", "", glyph);
+  shown.setAttribute("aria-hidden", "true");
+  made.append(shown, element("span", "sr-only", `${word} `));
+  return made;
+}
+
+/** Marks `pick` as the one selected row of the whole panel, whichever list it is in, so coming back to the list finds it. */
+export function markPick(pick: HTMLElement): void {
+  for (const other of pick.ownerDocument.querySelectorAll<HTMLElement>(".review-pick.active")) {
+    if (other === pick) continue;
+    other.classList.remove("active");
+    other.setAttribute("aria-current", "false");
+  }
+  pick.classList.add("active");
+  pick.setAttribute("aria-current", "true");
 }
 
 /** A new element with a class and, when given, text; never markup. */
@@ -169,8 +190,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       if (active.detail !== undefined) active.detail.hidden = true;
     }
     active = { pick, ...(detail === undefined ? {} : { detail }) };
-    pick.classList.add("active");
-    pick.setAttribute("aria-current", "true");
+    markPick(pick);
     if (detail !== undefined) detail.hidden = false;
   };
 
@@ -325,7 +345,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     const written = (side: typeof change.before): string => side.map(declarationText).join(", ");
     const detail = change.kind === "added" ? written(change.after) : change.kind === "removed" ? written(change.before) : `${written(change.before)} → ${written(change.after)}`;
     pick.title = `${change.kind}: ${change.name} ${detail} in ${change.path}`;
-    pick.append(element("span", `review-mark ${change.kind === "changed" ? "altered" : change.kind}`, mark), element("span", "review-label rv-ellipsis", change.name));
+    pick.append(markSpan(`review-mark ${change.kind === "changed" ? "altered" : change.kind}`, mark, CHANGE_WORD[change.kind === "changed" ? "altered" : change.kind]), element("span", "review-label rv-ellipsis", change.name));
     const where = element("span", "contract-where rv-ellipsis", `${change.kind} · ${detail} · ${change.path}`);
     pick.append(where);
     line.append(pick);
@@ -397,7 +417,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     const pick = picker("review-pick", undefined, () => input.pick(entry));
     pick.dataset.id = entry.id;
     const kind = entry.level === "district" ? undefined : entry.level === "moves" ? "moved" : entry.change;
-    pick.append(element("span", `review-mark ${kind ?? ""}`, kind === undefined ? "" : MARK[kind]));
+    pick.append(kind === undefined ? element("span", "review-mark") : markSpan(`review-mark ${kind}`, MARK[kind], CHANGE_WORD[kind]));
     const label = element("span", "review-label", entry.label);
     if (entry.level === "file" && entry.from !== undefined) label.title = `moved from ${entry.from}`;
     else if (entry.level === "class" || entry.level === "function") label.title = entry.id.slice(entry.id.indexOf("#") + 1);
@@ -405,7 +425,8 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     if ((entry.level === "function" || entry.level === "class") && entry.renamedFrom !== undefined) {
       const detail = `renamed from ${entry.renamedFrom}${entry.weakened === true ? " · weakened" : ""}`;
       pick.title = detail;
-      pick.append(element("span", "contract-where rv-ellipsis", detail));
+      pick.classList.add("wrap");
+      pick.append(element("span", "contract-where", detail));
     }
     const size =
       entry.level === "district"
@@ -467,7 +488,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     pick.dataset.id = row.id;
     const count = change.count > 1 ? ` ×${change.count}` : "";
     pick.title = `${row.label}: ${change.label}${count}`;
-    pick.append(element("span", "review-mark contract-effects", "≈"), element("span", "review-label rv-name", row.label));
+    pick.append(markSpan("review-mark contract-effects", "≈", CONTRACT_WORD.effects), element("span", "review-label rv-name", row.label));
     pick.append(element("span", "contract-where rv-ellipsis rv-change", `${change.label}${count}`));
     if (row.coverage !== "claimed") pick.append(element("span", "review-flag", "unmentioned"));
     line.append(pick);
@@ -497,7 +518,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     const members = showChange && entry.members !== undefined && entry.members !== null ? entry.members : null;
     const change = showChange ? (members === null ? changeLine(entry) : memberTally(members)) : "";
     pick.title = change === "" ? `${entry.label} in ${entry.path}` : `${entry.label}: ${change}`;
-    pick.append(element("span", `review-mark contract-${kind}`, CONTRACT_MARK[kind]), element("span", "review-label rv-name", entry.label));
+    pick.append(markSpan(`review-mark contract-${kind}`, CONTRACT_MARK[kind], CONTRACT_WORD[kind]), element("span", "review-label rv-name", entry.label));
     pick.append(element("span", "contract-where rv-ellipsis rv-change", showChange ? change : entry.path.slice(entry.path.lastIndexOf("/") + 1)));
     if (entry.unmentioned) pick.append(element("span", "review-flag", "unmentioned"));
     line.append(pick);
@@ -608,7 +629,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
         pick.title = risk.path;
         const text = element("span", "contract-text");
         text.append(element("span", "review-label", risk.label), element("span", "contract-where", risk.blast.count > 0 ? `${risk.path} · ${restsOnIt(risk.blast.count)}` : risk.path));
-        pick.append(element("span", "review-mark", "!"), text);
+        pick.append(markSpan("review-mark", "!", "risk"), text);
         item.append(pick, detail);
         riskPicks.set(risk, { pick, detail });
         rows.append(item);
