@@ -11,7 +11,8 @@
     "streets": "node src/cli.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/page",
-    "test": "vitest run"
+    "test": "vitest run",
+    "perf": "node perf/extract.ts"
   },
   "dependencies": {
     "esbuild": "0.28.2",
