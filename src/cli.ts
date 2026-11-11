@@ -6,7 +6,9 @@ import { homedir } from "node:os";
 import { readBase, readCheckout } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
 import { parseOptions, USAGE } from "./options.ts";
+import { narrate } from "./narrate.ts";
 import { serve } from "./server.ts";
+import type { Narrator } from "./server.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
 import type { Claim } from "./claims.ts";
@@ -17,6 +19,9 @@ import type { Graph } from "./graph.ts";
 const LINK_TIMEOUT_MS = 5 * 60 * 1000;
 /** A tour is a longer answer than the links. */
 const TOUR_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** One function's narration is a short answer. */
+const NARRATE_TIMEOUT_MS = 3 * 60 * 1000;
 
 const OPENERS: Partial<Record<NodeJS.Platform, (url: string) => [string, string[]]>> = {
   darwin: (url) => ["open", [url]],
@@ -98,7 +103,24 @@ try {
           return outcome;
         }
       : undefined;
-    const server = await serve(tree, options.port, against, description, link, walk);
+    const narrator: Narrator | undefined = options.narrate
+      ? async (request) => {
+          const outcome = await narrate({
+            ...request,
+            runner: claudeRunner("claude"),
+            cacheDir: cacheDirectory(process.env, homedir()),
+            renarrate: request.renarrate || options.renarrate,
+            timeoutMs: NARRATE_TIMEOUT_MS,
+          });
+          if (outcome.status === "failed") console.error(`rungs: no narration for ${request.node.id}: ${outcome.message}`);
+          else {
+            const how = outcome.cached ? "from the cache" : `by ${outcome.model}`;
+            console.error(`rungs: narrated ${request.node.id} in ${outcome.sentences.length} sentences ${how} (dropped ${outcome.dropped.sentences} unanchored sentences)`);
+          }
+          return outcome;
+        }
+      : undefined;
+    const server = await serve(tree, options.port, against, description, link, walk, narrator);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;

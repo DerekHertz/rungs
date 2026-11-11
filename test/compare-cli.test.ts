@@ -262,3 +262,43 @@ test("--walkthrough asks claude for a tour, serves it, and a second run reads th
     third.child.kill();
   }
 });
+
+const narrateStub = `process.stdin.resume().on("data", () => {}).on("end", () => console.log(JSON.stringify({ is_error: false, structured_output: { narration: [{ text: "Gives back four.", from: 0, to: 0 }, { text: "Off the end.", from: 5, to: 6 }] }, modelUsage: { "stub-model": {} } })));`;
+
+test("--narrate narrates contract-moved functions ahead of time and on request, and a second run reads the cache", { timeout: 30000 }, async () => {
+  const dir = repo();
+  const cache = mkdtempSync(join(tmpdir(), "rungs-cache-"));
+  scratch.push(cache);
+  const id = encodeURIComponent("function:src/added.ts#added");
+  const first = startLinked(dir, { PATH: `${stubClaude(narrateStub)}:${bareBin()}`, XDG_CACHE_HOME: cache }, ["--narrate"]);
+  try {
+    const url = await first.url;
+    const list = (await (await fetch(new URL("narrate.json", url))).json()) as { ahead: string[] };
+    expect(list.ahead).toContain("function:src/added.ts#added");
+    const body = (await (await fetch(new URL(`narration?id=${id}`, url), { method: "POST" })).json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ tier: "claimed", status: "ok", stale: false, model: "stub-model", dropped: { sentences: 1 }, cached: false });
+    expect(body.sentences).toEqual([{ text: "Gives back four.", from: 0, to: 0, range: { start: 1, end: 1 } }]);
+    expect(first.stderr()).toMatch(/narrated function:src\/added\.ts#added in 1 sentences by stub-model \(dropped 1 unanchored sentences\)/);
+  } finally {
+    first.child.kill();
+  }
+  const second = startLinked(dir, { PATH: bareBin(), XDG_CACHE_HOME: cache }, ["--narrate"]);
+  try {
+    const body = (await (await fetch(new URL(`narration?id=${id}`, await second.url), { method: "POST" })).json()) as { cached: boolean };
+    expect(body.cached).toBe(true);
+  } finally {
+    second.child.kill();
+  }
+});
+
+test("without --narrate nothing is narrated and the endpoint is not there", { timeout: 30000 }, async () => {
+  const dir = repo();
+  const run = startLinked(dir, { PATH: bareBin(), XDG_CACHE_HOME: mkdtempSync(join(tmpdir(), "rungs-cache-")) }, []);
+  try {
+    const url = await run.url;
+    expect((await fetch(new URL("narrate.json", url))).status).toBe(404);
+    expect((await fetch(new URL("narration?id=x", url), { method: "POST" })).status).toBe(404);
+  } finally {
+    run.child.kill();
+  }
+});
