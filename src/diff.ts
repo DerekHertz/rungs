@@ -1,4 +1,5 @@
 import type { LineRange } from "./graph.ts";
+import { splitLines } from "./lines.ts";
 
 /**
  * Line diff of two texts, from the lines `splitLines` gives. Everything the reviewer sees about
@@ -6,44 +7,136 @@ import type { LineRange } from "./graph.ts";
  */
 
 export type LineOp =
-  | { readonly kind: "same"; readonly text: string; readonly base: number; readonly head: number }
-  | { readonly kind: "added"; readonly text: string; readonly head: number }
-  | { readonly kind: "removed"; readonly text: string; readonly base: number };
+  | { readonly kind: "same"; readonly text: string; readonly base: number; readonly head: number; readonly noEol?: true }
+  | { readonly kind: "added"; readonly text: string; readonly head: number; readonly noEol?: true }
+  | { readonly kind: "removed"; readonly text: string; readonly base: number; readonly noEol?: true };
 
 /** One line of a view: `line` is the head's line number, and a removed line has none. */
 export interface Row {
   readonly kind: LineOp["kind"];
   readonly text: string;
   readonly line?: number;
+  /** True for a file's last line when nothing ends it. */
+  readonly noEol?: true;
 }
 
 /**
- * The most added plus removed lines the search tries to minimise. A bigger rewrite is shown as the
- * whole old middle removed and the whole new one added: still a correct diff, just not a minimal one.
+ * The most added plus removed lines Myers' search tries to minimise in one stretch. Past it the
+ * stretch is split at the lines that occur once on each side (patience diff) and each piece is
+ * searched on its own.
  */
 const MAX_EDITS = 2000;
 
-/** A shortest edit script from `base` to `head` (Myers, "An O(ND) Difference Algorithm", 1986). */
-export function diffLines(base: readonly string[], head: readonly string[]): LineOp[] {
-  let top = 0;
-  while (top < base.length && top < head.length && base[top] === head[top]) top++;
-  let bottom = 0;
-  while (bottom < base.length - top && bottom < head.length - top && base[base.length - 1 - bottom] === head[head.length - 1 - bottom]) bottom++;
-  const a = base.slice(top, base.length - bottom);
-  const b = head.slice(top, head.length - bottom);
-  const steps = shortestEdit(a, b) ?? [...a.map(() => "removed" as const), ...b.map(() => "added" as const)];
-
+/**
+ * A shortest edit script from `base` to `head` (Myers, "An O(ND) Difference Algorithm", 1986),
+ * split by patience anchors when it is too long to search whole. Undefined when the texts are too
+ * large to diff: a diff never marks a line that is the same on both sides as changed.
+ */
+export function diffLines(base: readonly string[], head: readonly string[]): LineOp[] | undefined {
+  const steps = stepsBetween(base, 0, base.length, head, 0, head.length);
+  if (steps === undefined) return undefined;
   const ops: LineOp[] = [];
   let baseLine = 0;
   let headLine = 0;
-  for (; baseLine < top; baseLine++, headLine++) ops.push({ kind: "same", text: base[baseLine]!, base: baseLine + 1, head: headLine + 1 });
   for (const step of steps) {
     if (step === "same") ops.push({ kind: "same", text: base[baseLine]!, base: ++baseLine, head: ++headLine });
     else if (step === "removed") ops.push({ kind: "removed", text: base[baseLine]!, base: ++baseLine });
     else ops.push({ kind: "added", text: head[headLine]!, head: ++headLine });
   }
-  for (; baseLine < base.length; baseLine++, headLine++) ops.push({ kind: "same", text: base[baseLine]!, base: baseLine + 1, head: headLine + 1 });
   return ops;
+}
+
+/** The diff of two texts, a last line with no "\n" after it counting as different from one with it. */
+export function diffText(base: string, head: string): LineOp[] | undefined {
+  const eof = (text: string): boolean => text !== "" && !text.endsWith("\n");
+  const baseLines = splitLines(base);
+  const headLines = splitLines(head);
+  const baseOpen = eof(base);
+  const headOpen = eof(head);
+  const MARK = "\u0000no newline at end of file";
+  const key = (lines: string[], open: boolean): string[] => (open ? [...lines.slice(0, -1), lines.at(-1)! + MARK] : lines);
+  const ops = diffLines(key(baseLines, baseOpen), key(headLines, headOpen));
+  if (ops === undefined) return undefined;
+  const clean = (text: string, open: boolean): { text: string; noEol?: true } => (open ? { text: text.slice(0, -MARK.length), noEol: true } : { text });
+  return ops.map((op) => {
+    if (op.kind === "removed") return { ...op, ...clean(op.text, baseOpen && op.base === baseLines.length) };
+    if (op.kind === "added") return { ...op, ...clean(op.text, headOpen && op.head === headLines.length) };
+    return { ...op, ...clean(op.text, headOpen && op.head === headLines.length) };
+  });
+}
+
+function stepsBetween(a: readonly string[], aLo: number, aHi: number, b: readonly string[], bLo: number, bHi: number): Step[] | undefined {
+  const steps: Step[] = [];
+  let top = 0;
+  while (aLo + top < aHi && bLo + top < bHi && a[aLo + top] === b[bLo + top]) top++;
+  let bottom = 0;
+  while (aHi - aLo - top - bottom > 0 && bHi - bLo - top - bottom > 0 && a[aHi - 1 - bottom] === b[bHi - 1 - bottom]) bottom++;
+  for (let i = 0; i < top; i++) steps.push("same");
+  const from = aLo + top;
+  const to = aHi - bottom;
+  const bFrom = bLo + top;
+  const bTo = bHi - bottom;
+  const middle = shortestEdit(a.slice(from, to), b.slice(bFrom, bTo));
+  if (middle !== undefined) steps.push(...middle);
+  else {
+    const anchors = patienceAnchors(a, from, to, b, bFrom, bTo);
+    if (anchors.length === 0) {
+      const seen = new Set(a.slice(from, to));
+      if (b.slice(bFrom, bTo).some((line) => seen.has(line))) return undefined;
+      for (let i = from; i < to; i++) steps.push("removed");
+      for (let i = bFrom; i < bTo; i++) steps.push("added");
+    } else {
+      let x = from;
+      let y = bFrom;
+      for (const [ai, bi] of anchors) {
+        const gap = stepsBetween(a, x, ai, b, y, bi);
+        if (gap === undefined) return undefined;
+        for (const step of gap) steps.push(step);
+        steps.push("same");
+        x = ai + 1;
+        y = bi + 1;
+      }
+      const rest = stepsBetween(a, x, to, b, y, bTo);
+      if (rest === undefined) return undefined;
+      for (const step of rest) steps.push(step);
+    }
+  }
+  for (let i = 0; i < bottom; i++) steps.push("same");
+  return steps;
+}
+
+/** Pairs of indexes of lines that occur exactly once in each side, in an order both sides share, as many as possible. */
+function patienceAnchors(a: readonly string[], aLo: number, aHi: number, b: readonly string[], bLo: number, bHi: number): [number, number][] {
+  const once = (lines: readonly string[], lo: number, hi: number): Map<string, number> => {
+    const seen = new Map<string, number>();
+    for (let i = lo; i < hi; i++) seen.set(lines[i]!, seen.has(lines[i]!) ? -1 : i);
+    return seen;
+  };
+  const inA = once(a, aLo, aHi);
+  const inB = once(b, bLo, bHi);
+  const pairs: [number, number][] = [];
+  for (const [line, ai] of inA) {
+    const bi = inB.get(line);
+    if (ai >= 0 && bi !== undefined && bi >= 0) pairs.push([ai, bi]);
+  }
+  pairs.sort((x, y) => x[0] - y[0]);
+  // Longest increasing subsequence of the b indexes, by patience sorting.
+  const tails: number[] = [];
+  const back: number[] = new Array<number>(pairs.length).fill(-1);
+  for (let i = 0; i < pairs.length; i++) {
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (pairs[tails[mid]!]![1] < pairs[i]![1]) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo > 0) back[i] = tails[lo - 1]!;
+    tails[lo] = i;
+  }
+  const chain: [number, number][] = [];
+  for (let i = tails.at(-1) ?? -1; i >= 0; i = back[i]!) chain.push(pairs[i]!);
+  return chain.reverse();
 }
 
 type Step = LineOp["kind"];
@@ -109,9 +202,19 @@ function backtrack(trace: readonly Int32Array[], last: number, n: number, m: num
  * lines, and the removed ones in place. A removed run sits between two head lines; it belongs to the
  * range when both are inside it, or when it ends right before the range's first line and that line
  * was added, which is how a changed first line reads.
+ *
+ * With `base`, the range the same module had in the base, a removed line belongs to the range when
+ * its base line is inside that, wherever it sits among the head's lines; null says the module has
+ * no base counterpart, so nothing removed is its own.
  */
-export function rowsInRange(ops: readonly LineOp[], range?: LineRange): Row[] {
+export function rowsInRange(ops: readonly LineOp[], range?: LineRange, base?: LineRange | null): Row[] {
   if (range === undefined) return ops.map(rowOf);
+  if (base !== undefined) {
+    return ops.flatMap((op): Row[] => {
+      if (op.kind === "removed") return base !== null && op.base >= base.start && op.base <= base.end ? [rowOf(op)] : [];
+      return op.head >= range.start && op.head <= range.end ? [rowOf(op)] : [];
+    });
+  }
   const rows: Row[] = [];
   let above = 0;
   for (let i = 0; i < ops.length; i++) {
@@ -133,7 +236,8 @@ export function rowsInRange(ops: readonly LineOp[], range?: LineRange): Row[] {
 }
 
 function rowOf(op: LineOp): Row {
-  return op.kind === "removed" ? { kind: "removed", text: op.text } : { kind: op.kind, text: op.text, line: op.head };
+  const eol = op.noEol === true ? { noEol: true as const } : {};
+  return op.kind === "removed" ? { kind: "removed", text: op.text, ...eol } : { kind: op.kind, text: op.text, line: op.head, ...eol };
 }
 
 export function changeCounts(rows: readonly Row[]): { added: number; removed: number } {
