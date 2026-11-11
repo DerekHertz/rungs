@@ -1,5 +1,7 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
 import { AXIS, blockLabel, CRANE_AT, LOT, MOVED_SIGN_AT, namesAt, project } from "../town.ts";
+import { pickAt } from "../town-pick.ts";
+import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
 import type { CityHandlers } from "./city-view.ts";
 import { EFFECT_COLOR } from "./palette.ts";
@@ -203,7 +205,12 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   }
   const rect = (X0: number, Y0: number, X1: number, Y1: number): [number, number][] => [[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]];
 
-  function drawSprite(name: string, X: number, Y: number, line?: string): { x: number; y: number; w: number; h: number } | undefined {
+  /** What the last frame drew, as drawn: picking reads these, never the camera, so rounding is inverted exactly. */
+  let placements: Placement<Thing>[] = [];
+  /** The building thing of each lot: what its name stands for when picked. */
+  const buildingOf = new Map<Lot, Thing>();
+  let plaques: Plaque<Thing>[] = [];
+  function drawSprite(name: string, X: number, Y: number, line?: string, owner?: Thing): { x: number; y: number; w: number; h: number } | undefined {
     const image = sheet.images.get(name);
     const size = sheet.sizes[name];
     if (image === undefined || size === undefined) return undefined;
@@ -215,6 +222,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       h: Math.max(1, Math.round(size.h * camera.zoom)),
     };
     if (box.x > canvas.width || box.y > canvas.height || box.x + box.w < 0 || box.y + box.h < 0) return box;
+    if (owner !== undefined) placements.push({ thing: owner, box, cols: size.w, rows: size.h });
     if (line !== undefined) {
       const spread = Math.max(2, Math.round(2 * dpr));
       const tile = silhouetteOf(name, line);
@@ -235,7 +243,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
 
   /** The boxes names already took this frame; a name that would cover one is left out, and shows when the camera is closer. */
   let taken: { left: number; top: number; right: number; bottom: number }[] = [];
-  function pill(text: string, x: number, y: number, size: number, edge: string, maxWidth = Infinity, avoid = false): void {
+  function pill(text: string, x: number, y: number, size: number, edge: string, maxWidth = Infinity, avoid = false, owner?: Thing): void {
     ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
     let shown = text;
     while (shown.length > 1 && ctx.measureText(shown).width + size * 0.8 > maxWidth) shown = `${shown.slice(0, -2)}…`;
@@ -246,6 +254,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     const box = { left, top, right: left + w, bottom: top + h };
     if (avoid && taken.some((other) => box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom)) return;
     taken.push(box);
+    if (owner !== undefined) plaques.push({ thing: owner, box: { x: left, y: top, w, h } });
     ctx.fillStyle = COLOUR.pill;
     ctx.fillRect(left, top, w, h);
     ctx.lineWidth = Math.max(1, Math.round(size / 11));
@@ -315,8 +324,10 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       if (lot.change === "added") polygon(rect(lot.X - LOT / 2 + 0.25, lot.Y - LOT / 2 + 0.25, lot.X + LOT / 2 - 0.25, lot.Y + LOT / 2 - 0.25), COLOUR.earth);
     }
 
+    placements = [];
+    plaques = [];
     for (const thing of things) {
-      drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing));
+      drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing);
       if (thing.kind === "lot" && thing.part === "moved-sign" && thing.lot.movedTo !== null) boardText(thing.lot.movedTo.path, thing.X, thing.Y);
     }
 
@@ -328,7 +339,8 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     for (const pier of town.piers) {
       const size = sheet.sizes[pier.sprite];
       const at = groundScreen(pier.X, pier.Y, 0);
-      pill(pier.kind, at.x, at.y - Math.round((size?.oy ?? 200) * camera.zoom) - Math.round(14 * dpr), Math.round(13 * dpr), COLOUR.pierEdge, Infinity, true);
+      const owner = things.find((thing) => thing.kind === "pier" && thing.pier === pier);
+      pill(pier.kind, at.x, at.y - Math.round((size?.oy ?? 200) * camera.zoom) - Math.round(14 * dpr), Math.round(13 * dpr), COLOUR.pierEdge, Infinity, true, owner);
     }
     const files = namesAt(camera.zoom) === "files";
     for (const block of town.blocks) {
@@ -345,7 +357,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
         // An altered file's name stands over its crane, where the change shows above the roofs.
         const at = lot.crane ? groundScreen(lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, 8.9) : groundScreen(lot.X, lot.Y, 0);
         if (at.x < -200 || at.y < -100 || at.x > canvas.width + 200 || at.y > canvas.height + 200) continue;
-        pill(lot.name, at.x, lot.crane ? at.y : at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), lot.change === "altered" ? COLOUR.mark : COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.9);
+        pill(lot.name, at.x, lot.crane ? at.y : at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), lot.change === "altered" ? COLOUR.mark : COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.9, false, buildingOf.get(lot));
       }
     }
   }
@@ -355,18 +367,16 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     const rectOf = canvas.getBoundingClientRect();
     const px = (clientX - rectOf.left) * dpr;
     const py = (clientY - rectOf.top) * dpr;
-    for (let i = things.length - 1; i >= 0; i--) {
-      const thing = things[i]!;
-      if (thing.kind === "mark") continue;
-      const size = sheet.sizes[thing.sprite];
-      const mask = maskOf(thing.sprite);
-      if (size === undefined || mask === undefined) continue;
-      const at = groundScreen(thing.X, thing.Y);
-      const u = Math.floor((px - (at.x - size.ox * camera.zoom)) / camera.zoom);
-      const v = Math.floor((py - (at.y - size.oy * camera.zoom)) / camera.zoom);
-      if (u < 0 || v < 0 || u >= size.w || v >= size.h) continue;
-      if (mask[(v * size.w + u) * 4 + 3]! > 8) return thing;
+    if (dirty) {
+      dirty = false;
+      draw();
     }
+    const found = pickAt(plaques, placements, px, py, (thing, column, row) => {
+      const mask = maskOf(thing.sprite);
+      const size = sheet.sizes[thing.sprite];
+      return mask !== undefined && size !== undefined && mask[(row * size.w + column) * 4 + 3]! > 8;
+    });
+    if (found !== undefined) return found;
     // Empty ground in a lot: in the diamond of the lot.
     const ground = groundUnder(px, py);
     for (let i = things.length - 1; i >= 0; i--) {
@@ -540,6 +550,8 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
         .map((thing, index) => ({ thing, index }))
         .sort((a, b) => a.thing.key - b.thing.key || a.index - b.index)
         .map((entry) => entry.thing);
+      buildingOf.clear();
+      for (const thing of things) if (thing.kind === "lot" && thing.part === "building") buildingOf.set(thing.lot, thing);
       const shore = next.coast.map(([X, Y]) => project(X, Y));
       const wide = next.piers.length > 0 ? project(next.quay.X + 9.5, 0).x : -Infinity;
       bounds = {
