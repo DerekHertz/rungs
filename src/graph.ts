@@ -163,7 +163,7 @@ export type ImportSyntax = "import" | "export from" | "require" | "import()";
  * a node), or "unresolved" when the specifier is relative, or names a package of this tree, and
  * no file answers to it. Shown as exactly that, never dropped.
  */
-export type ImportTarget = { readonly file: NodeId } | { readonly external: string } | { readonly unresolved: true };
+export type ImportTarget = { readonly file: NodeId } | { readonly external: string } | { readonly unresolved: true; readonly reason?: string };
 
 /** One static import, `export ... from`, or `require` / `import()` of a string literal, pinned to its lines. */
 export interface ImportEdge {

@@ -53,7 +53,7 @@ export interface ResolutionSite {
 }
 
 /** Where an import points: a tree path, a package outside the tree, or nothing that answers. */
-export type ImportSiteTarget = { readonly file: string } | { readonly external: string } | { readonly unresolved: true };
+export type ImportSiteTarget = { readonly file: string } | { readonly external: string } | { readonly unresolved: true; readonly reason?: string };
 
 /** One import of a literal module name, already resolved against the tree. */
 export interface ImportSite {
