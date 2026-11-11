@@ -11,7 +11,7 @@ import { isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { sliceLines } from "./lines.ts";
 import { isStale } from "./narration.ts";
-import type { Narration } from "./narration.ts";
+import type { NarratedDoc, Narration } from "./narration.ts";
 import { pseudocode } from "./pseudocode.ts";
 import { splitClaims } from "./claims.ts";
 import type { Claim } from "./claims.ts";
@@ -37,11 +37,6 @@ export interface RunningServer {
   readonly comparison: Comparison | undefined;
   close(): Promise<void>;
 }
-
-/** What `POST /narration` answers: a claimed fact, with the digest it was written for and whether the function has changed since. */
-type Narrated =
-  | ({ readonly tier: "claimed"; readonly id: NodeId; readonly status: "ok"; readonly narrated: string; readonly stale: boolean } & Omit<Narration, "digest"> & { readonly model: string; readonly promptVersion: string; readonly cached: boolean })
-  | { readonly tier: "claimed"; readonly id: NodeId; readonly status: "failed"; readonly message: string };
 
 interface Resource {
   readonly contentType: string;
@@ -132,7 +127,7 @@ export async function serve(
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
   }
 
-  const narrations = new Map<NodeId, Promise<Narrated>>();
+  const narrations = new Map<NodeId, Promise<NarratedDoc>>();
   const aheadIds: NodeId[] = [];
   if (narrator !== undefined && comparison !== undefined && baseGraph !== undefined) {
     const all = [...new Set(contractsMoved(comparison, baseGraph, graph).filter((move) => move.kind !== "removed").map((move) => move.id))].filter((id) => {
@@ -145,7 +140,7 @@ export async function serve(
     resources.set("/narrate.json", { contentType: "application/json; charset=utf-8", body });
   }
 
-  function narrationOf(id: NodeId, fresh: boolean, refresh = false): Promise<Narrated> | undefined {
+  function narrationOf(id: NodeId, fresh: boolean, refresh = false): Promise<NarratedDoc> | undefined {
     const node = nodes.get(id);
     if (narrator === undefined || node === undefined || !isCodeNode(node) || node.level !== "function") return undefined;
     const known = fresh ? undefined : narrations.get(id);
@@ -153,7 +148,7 @@ export async function serve(
     const outline = pseudocode(graph, tree, id) ?? [];
     const effects = graph.edges.filter((edge) => edge.from === id);
     const asked = (renarrate: boolean): Promise<Asked<Narration>> => narrator({ node, outline, effects, renarrate });
-    const made = (async (): Promise<Narrated> => {
+    const made = (async (): Promise<NarratedDoc> => {
       let outcome = await asked(fresh);
       // Ahead of time a stale cache entry is written again: nobody asked to see the old one.
       if (refresh && outcome.status === "ok" && isStale(outcome, node)) outcome = await asked(true);

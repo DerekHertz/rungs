@@ -19,6 +19,8 @@ import type { Walk } from "./walkthrough-panel.ts";
 import { NOT_RUN, stopFacts, tourCoverage } from "../stops.ts";
 import type { WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
+import type { NarratedDoc } from "../narration.ts";
+import { renderNarration } from "./narration-panel.ts";
 
 const tooltip = document.querySelector<HTMLDivElement>("#tooltip")!;
 const breadcrumbs = document.querySelector<HTMLElement>("#trail")!;
@@ -33,6 +35,9 @@ const panelGutter = document.querySelector<HTMLElement>("#source-gutter")!;
 const panelCode = document.querySelector<HTMLElement>("#source-code")!;
 const panelBody = document.querySelector<HTMLElement>("#source-body")!;
 const outlinePane = document.querySelector<HTMLElement>("#outline")!;
+const narrateToggle = document.querySelector<HTMLLabelElement>("#narrate-toggle")!;
+const narrateBox = narrateToggle.querySelector("input")!;
+const narrationPane = document.querySelector<HTMLElement>("#narration")!;
 const panelMark = document.querySelector<HTMLElement>("#source-mark")!;
 const panelClose = document.querySelector<HTMLButtonElement>("#source-close")!;
 
@@ -41,6 +46,8 @@ const comparisonResponse = await fetch("/comparison.json");
 const comparison = comparisonResponse.ok
   ? ((await comparisonResponse.json()) as Comparison & { against: { ref: string; commit: string } })
   : null;
+/** Narration is on offer only when the server was started with --narrate. */
+const narrating = (await fetch("/narrate.json")).ok;
 const picture = pictureOf(graph, comparison);
 // Ghosts are in the picture's graph, so the trail, flying and the source panel reach them too.
 const nodes = new Map<NodeId, ModuleNode>(picture.graph.nodes.map((node) => [node.id, node]));
@@ -233,6 +240,7 @@ function showTrail(): void {
 
 function closePanel(): void {
   cancelPending();
+  narrationTicket++;
   selected = undefined;
   chosenKind = undefined;
   panel.hidden = true;
@@ -299,6 +307,46 @@ function showOutline(node: ModuleNode, lines: readonly PseudoLine[]): void {
   outlinePane.hidden = rows.length === 0;
 }
 
+let narrationTicket = 0;
+
+/** Narration is never on by default, nor kept from one function to the next: each opens with it off. */
+function offerNarration(node: ModuleNode): void {
+  narrationTicket++;
+  narrateBox.checked = false;
+  narrationPane.hidden = true;
+  const removed = comparison?.changes.some((change) => change.node.id === node.id && change.kind === "removed") === true;
+  narrateToggle.hidden = !(narrating && node.level === "function" && !removed);
+  narrateBox.onchange = () => {
+    if (narrateBox.checked) void narrateFunction(node, false);
+    else {
+      narrationTicket++;
+      narrationPane.hidden = true;
+    }
+  };
+}
+
+async function narrateFunction(node: ModuleNode, fresh: boolean): Promise<void> {
+  const ticket = ++narrationTicket;
+  const actions = {
+    again: () => void narrateFunction(node, true),
+    pick(sentence: { from: number; to: number; range: LineRange }, row: HTMLElement) {
+      for (const other of narrationPane.children) other.classList.toggle("on", other === row);
+      outlinePane.querySelectorAll(".outline-line").forEach((line, index) => line.classList.toggle("on", index >= sentence.from && index <= sentence.to));
+      markLines(node, sentence.range);
+    },
+  };
+  renderNarration(narrationPane, { state: "loading" }, actions);
+  let doc: NarratedDoc;
+  try {
+    const response = await fetch(`/narration?id=${encodeURIComponent(node.id)}${fresh ? "&fresh=1" : ""}`, { method: "POST" });
+    doc = response.ok ? ((await response.json()) as NarratedDoc) : { tier: "claimed", id: node.id, status: "failed", message: `the server answered ${response.status}` };
+  } catch {
+    doc = { tier: "claimed", id: node.id, status: "failed", message: "the server did not answer" };
+  }
+  if (ticket !== narrationTicket) return;
+  renderNarration(narrationPane, doc.status === "ok" ? { state: "ok", doc } : { state: "failed", message: doc.message }, actions);
+}
+
 /** Selects `node`, showing its source and outlining `outline` on the picture. */
 async function select(node: ModuleNode, ticket: number, outline: NodeId = node.id, marked?: LineRange): Promise<void> {
   if (node.id === selected) {
@@ -316,6 +364,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   selected = node.id;
   showSource(node, text);
   showOutline(node, pseudo);
+  offerNarration(node);
   markLines(node, marked);
   chosenKind = undefined;
   view.select(outline, isCodeNode(node) ? reachOf(reaches, node.id) : undefined);
