@@ -8,6 +8,7 @@ import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.t
 import { parseOptions, USAGE } from "./options.ts";
 import { runTests } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
+import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "./observed-types.ts";
 import { chooseIsolation, detectSandbox } from "./sandbox.ts";
 import { serve } from "./server.ts";
 import type { FileTree } from "./graph.ts";
@@ -25,7 +26,7 @@ const TOUR_TIMEOUT_MS = 10 * 60 * 1000;
 /** How long one run of the tests, install included, may take. */
 const TEST_TIMEOUT_MS = 10 * 60 * 1000;
 
-async function observeTests(dir: string, tree: FileTree, allowUnsandboxed: boolean): Promise<TestRun> {
+async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUnsandboxed: boolean): Promise<TestRun> {
   const choice = chooseIsolation(await detectSandbox(), allowUnsandboxed);
   if ("refused" in choice) {
     console.error(`rungs: tests not run: ${choice.refused}`);
@@ -34,15 +35,23 @@ async function observeTests(dir: string, tree: FileTree, allowUnsandboxed: boole
   const where =
     choice.isolation.kind === "bwrap"
       ? "in a bwrap sandbox with no network"
-      : "WITHOUT a sandbox: their code can reach this machine and the network";
-  console.error(`rungs: running the tests once ${where} (up to ${TEST_TIMEOUT_MS / 60000} minutes)`);
-  const run = await runTests(tree, await readExecutables(dir, tree), choice.isolation, TEST_TIMEOUT_MS);
+      : `WITHOUT a sandbox: their code can reach this machine and the network, and the results are only as trustworthy as the PR's author`;
+  console.error(`rungs: running the base's tests once against the head's code ${where} (up to ${TEST_TIMEOUT_MS / 60000} minutes)`);
+  const run = await runTests(base, tree, await readExecutables(dir, tree), choice.isolation, TEST_TIMEOUT_MS);
+  const label = choice.isolation.kind === "bwrap" ? "" : ` (${UNSANDBOXED_LINE})`;
   if (run.status === "ran") {
     const count = (outcome: string) => run.reports.filter((report) => report.outcome === outcome).length;
-    const runner = run.runner === "node" ? "node --test" : "vitest";
-    console.error(`rungs: ran ${run.reports.length} tests with ${runner} in ${run.isolation} in ${run.seconds}s: ${count("pass")} pass, ${count("fail")} fail, ${count("skip")} skip`);
-  } else if (run.status === "unreliable") console.error(`rungs: the test results are unreliable and none is shown: ${run.why}`);
-  else if (run.status === "failed") console.error(`rungs: the test run failed after ${run.seconds}s: ${run.why}\n${run.output}`);
+    console.error(`rungs: ran ${run.reports.length} tests with node --test in ${run.isolation} in ${run.seconds}s: ${count("pass")} pass, ${count("fail")} fail, ${count("skip")} skip${label}`);
+    if (run.deleted.length > 0) console.error(`rungs: ${run.deleted.length} of the base's test files were deleted by this PR and ran anyway: ${run.deleted.join(", ")}`);
+    if (run.edited.length > 0) console.error(`rungs: ${run.edited.length} of the base's test files were edited by this PR and their base versions ran: ${run.edited.join(", ")}`);
+    if (run.written !== undefined) {
+      const { outcome } = run.written;
+      const said = outcome.status === "ran" ? `${outcome.reports.filter((report) => report.outcome === "fail").length} of ${outcome.reports.length} failed` : `${outcome.status}: ${outcome.why}`;
+      console.error(`rungs: tests written by this PR (${run.written.files.length} files, claimed, not evidence): ${said}`);
+    }
+    console.error(`rungs: ${EVIDENCE_LINE}`);
+  } else if (run.status === "unreliable") console.error(`rungs: the test results are unreliable and none is shown: ${run.why}${label}`);
+  else if (run.status === "failed") console.error(`rungs: the test run failed after ${run.seconds}s: ${run.why}${label}\n${run.output}`);
   else console.error(`rungs: tests not run: ${run.why}`);
   return run;
 }
@@ -105,7 +114,7 @@ try {
           return outcome;
         }
       : undefined;
-    const tests = options.tests === "off" ? undefined : await observeTests(options.dir, tree, options.tests === "unsandboxed allowed");
+    const tests = options.tests === "off" ? undefined : await observeTests(options.dir, base.tree, tree, options.tests === "unsandboxed allowed");
     const walk = options.walkthrough
       ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
           const places = placesOf(comparison, graph);

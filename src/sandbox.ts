@@ -96,6 +96,13 @@ export interface RunRequest {
   readonly tree: FileTree;
   /** Paths of the tree written executable; a file tree holds text, not modes. */
   readonly executable?: ReadonlySet<string>;
+  /**
+   * Paths of the tree the steps may read and not change. In bwrap each is mounted read-only over
+   * its place in the copy, so a step can neither write it, remove it, replace it nor move it, and
+   * the folder around it stays writable. Outside bwrap each is only made mode 0444, which the
+   * step's own user can undo.
+   */
+  readonly pinned?: ReadonlySet<string>;
   readonly isolation: Isolation;
   readonly install?: Install;
   readonly steps: (places: Places) => readonly Step[];
@@ -164,6 +171,9 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
       throw new Error(`the tree holds a path outside itself: ${JSON.stringify(path)}`);
     }
   }
+  for (const path of request.pinned ?? []) {
+    if (!request.tree.has(path)) throw new Error(`a pinned file is not in the tree: ${JSON.stringify(path)}`);
+  }
   const collect = request.collect ?? [];
   for (const name of collect) {
     if (name === "" || name === "." || name === ".." || /[/\\\0]/.test(name)) {
@@ -180,8 +190,11 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
   };
   process.once("SIGINT", interrupted).once("SIGTERM", interrupted);
   try {
-    const host = { work: join(root, "work"), out: join(root, "out"), tools: join(root, "tools"), install: join(root, "install") };
+    const host = { work: join(root, "work"), out: join(root, "out"), tools: join(root, "tools"), install: join(root, "install"), pinned: join(root, "pinned") };
+    const pinned = [...(request.pinned ?? [])].sort();
     await writeTree(host.work, request.tree, request.executable ?? new Set());
+    await writeTree(host.pinned, new Map(pinned.map((path) => [path, request.tree.get(path) ?? ""])), request.executable ?? new Set());
+    if (request.isolation.kind !== "bwrap") for (const path of pinned) await chmod(join(host.work, path), request.executable?.has(path) ? 0o555 : 0o444);
     await writeTree(host.tools, request.tools ?? new Map(), new Set());
     await writeTree(host.install, request.install?.files ?? new Map(), new Set());
     for (const dir of [host.out, join(root, "home"), join(root, "tmp")]) await mkdir(dir);
@@ -196,7 +209,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     const report = request.report ? { chunks: [] as Buffer[], bytes: 0, limit } : undefined;
     const deadline = Date.now() + request.timeoutMs;
     const run = async (argv: readonly string[], room: Room): Promise<StepResult> => {
-      const command = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, room), "--", ...argv] : [...argv];
+      const command = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, room, pinned), "--", ...argv] : [...argv];
       const { open, ...finished } = await runStep(command, host[room], deadline, request.outputBytes, isolation, root, room === "work" ? report : undefined, (spawned) => {
         child = spawned;
       });
@@ -239,7 +252,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
 /** Where a command runs: the install's folder, with the network, or the copy, with none. */
 type Room = "install" | "work";
 
-function bwrapArgs(host: Record<Room | "out" | "tools", string>, node: string, npm: string, room: Room): string[] {
+function bwrapArgs(host: Record<Room | "out" | "tools" | "pinned", string>, node: string, npm: string, room: Room, pinned: readonly string[]): string[] {
   const args = ["--unshare-all", "--die-with-parent", "--new-session", "--clearenv"];
   for (const dir of SYSTEM) args.push("--ro-bind-try", dir, dir);
   for (const name of ETC) args.push("--ro-bind-try", `/etc/${name}`, `/etc/${name}`);
@@ -248,7 +261,15 @@ function bwrapArgs(host: Record<Room | "out" | "tools", string>, node: string, n
   args.push("--ro-bind", host.tools, INSIDE.tools);
   // The network and the tree's files are never in the same room.
   if (room === "install") args.push("--share-net", "--bind", host.install, INSIDE.install, "--chdir", INSIDE.install);
-  else args.push("--bind", host.work, INSIDE.work, "--bind", host.out, INSIDE.out, "--chdir", INSIDE.work);
+  else {
+    args.push("--bind", host.work, INSIDE.work, "--bind", host.out, INSIDE.out);
+    // A folder that is a mount point cannot be renamed or removed, so a pinned file's place cannot
+    // be given to another file by moving the folders above it away.
+    const above = new Set(pinned.flatMap((path) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"))));
+    for (const dir of [...above].sort()) args.push("--bind", join(host.work, dir), join(INSIDE.work, dir));
+    for (const path of pinned) args.push("--ro-bind", join(host.pinned, path), join(INSIDE.work, path));
+    args.push("--chdir", INSIDE.work);
+  }
   for (const [name, value] of Object.entries({ ...ENV, PATH: `${dirname(INSIDE.node)}:/usr/bin:/bin` })) args.push("--setenv", name, value);
   return args;
 }

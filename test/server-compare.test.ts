@@ -216,3 +216,24 @@ test("a tour stays out of the graph, the comparison and the claims", async () =>
   expect(await (await get(tourServer, "contracts.json")).text()).toBe(await (await get(comparing, "contracts.json")).text());
   expect(((await (await get(tourServer, "claims.json")).json()) as { link: unknown }).link).toEqual({ status: "off" });
 });
+
+test("/test-changes.json is the derived list of what the change did to the tests, and only when comparing", async () => {
+  const text = 'import { test } from "node:test";\nimport assert from "node:assert/strict";\ntest("one", () => { assert.equal(f(), 1); });\n';
+  const server = await serve(
+    new Map([["package.json", "{}\n"]]),
+    0,
+    { ref: "main", commit: "3f2a9c1d00000000000000000000000000000000", tree: new Map([["package.json", "{}\n"], ["test/a.test.mjs", text]]) },
+  );
+  try {
+    expect(await (await fetch(new URL("test-changes.json", server.url))).json()).toEqual({
+      tier: "derived",
+      deletedFiles: [{ path: "test/a.test.mjs", tests: 1 }],
+      removedTests: [],
+      markers: [],
+      weakened: [],
+    });
+  } finally {
+    await server.close();
+  }
+  expect((await fetch(new URL("test-changes.json", plain.url))).status).toBe(404);
+});

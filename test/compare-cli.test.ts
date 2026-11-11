@@ -23,14 +23,15 @@ function write(dir: string, path: string, text: string): void {
   writeFileSync(join(dir, path), text);
 }
 
-function repo(): string {
+function repo(manifest = "{}\n", tests: Record<string, string> = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "rungs-cmp-"));
   scratch.push(dir);
   git(dir, "init", "--quiet", "--initial-branch=main");
-  write(dir, "package.json", "{}\n");
+  write(dir, "package.json", manifest);
   write(dir, "src/a.ts", "export function a() {\n  return 1;\n}\n");
   write(dir, "src/b.ts", "export function b() {\n  return 2;\n}\n");
   write(dir, "src/c.ts", "export function c() {\n  return 3;\n}\n");
+  for (const [path, text] of Object.entries(tests)) write(dir, path, text);
   git(dir, "add", "--all");
   git(dir, "commit", "--quiet", "-m", "base");
   git(dir, "checkout", "--quiet", "-b", "change");
@@ -244,17 +245,35 @@ async function startedUrl(child: ReturnType<typeof spawn>): Promise<{ url: strin
   return { url, stderr: () => err };
 }
 
-test("--run-tests runs the head's tests once in the sandbox, says how it went, and serves /observed.json", async () => {
-  const dir = repo();
-  write(dir, "package.json", `{"type":"module","scripts":{"test":"node --test"}}\n`);
-  write(dir, "a.test.mjs", 'import { test } from "node:test";\ntest("one", () => {});\ntest("two", () => { throw new Error("no"); });\n');
+const NODE_TEST = `{"type":"module","scripts":{"test":"node --test"}}\n`;
+
+const TWO_TESTS = 'import { test } from "node:test";\ntest("one", () => {});\ntest("two", () => { throw new Error("no"); });\n';
+
+test("--run-tests runs main's tests against the head once in the sandbox, says how it went, and serves /observed.json", async () => {
+  const dir = repo(NODE_TEST, { "a.test.mjs": TWO_TESTS });
+  write(dir, "b.test.mjs", 'import { test } from "node:test";\ntest("written here", () => {});\n');
   const child = spawn("node", [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests"], { cwd: dir });
   try {
     const { url, stderr } = await startedUrl(child);
-    expect(stderr()).toMatch(/^rungs: running the tests once in a bwrap sandbox with no network \(up to 10 minutes\)$/m);
+    expect(stderr()).toMatch(/^rungs: running the base's tests once against the head's code in a bwrap sandbox with no network \(up to 10 minutes\)$/m);
     expect(stderr()).toMatch(/^rungs: ran 2 tests with node --test in bwrap in [\d.]+s: 1 pass, 1 fail, 0 skip$/m);
-    const observed = (await (await fetch(new URL("observed.json", url))).json()) as { status: string; counts: object };
-    expect(observed).toMatchObject({ status: "ran", sandbox: "bwrap", counts: { pass: 1, fail: 1, skip: 0 } });
+    expect(stderr()).toMatch(/^rungs: tests written by this PR \(1 files, claimed, not evidence\): 0 of 1 failed$/m);
+    expect(stderr()).toContain("rungs: Evidence against mistakes, not against a hostile author: the PR's code runs inside each test.");
+    const observed = await (await fetch(new URL("observed.json", url))).json();
+    expect(observed).toMatchObject({ status: "ran", sandbox: "bwrap", counts: { pass: 1, fail: 1, skip: 0 }, written: { tier: "claimed", files: ["b.test.mjs"] } });
+  } finally {
+    child.kill();
+  }
+});
+
+test("--run-tests-unsandboxed with no sandbox warns that the results are as trustworthy as the PR's author, and labels the run", async () => {
+  const dir = repo(NODE_TEST, { "a.test.mjs": 'import { test } from "node:test";\ntest("one", () => {});\n' });
+  const child = spawn(process.execPath, [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests-unsandboxed"], { cwd: dir, env: { PATH: bareBin() } });
+  try {
+    const { url, stderr } = await startedUrl(child);
+    expect(stderr()).toMatch(/^rungs: running the base's tests once against the head's code WITHOUT a sandbox: .*as trustworthy as the PR's author/m);
+    expect(stderr()).toMatch(/^rungs: ran 1 tests with node --test in unsandboxed in [\d.]+s: 1 pass, 0 fail, 0 skip \(ran without a sandbox: as trustworthy as the PR's author\)$/m);
+    expect(await (await fetch(new URL("observed.json", url))).json()).toMatchObject({ status: "ran", sandbox: "unsandboxed" });
   } finally {
     child.kill();
   }

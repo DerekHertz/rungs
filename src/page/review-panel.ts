@@ -5,6 +5,8 @@ import type { ContractRollup, ContractRow, ContractsReport, EffectGroup, EffectR
 import type { NodeId } from "../graph.ts";
 import { observedSection } from "./observed-panel.ts";
 import type { ObservedInput } from "./observed-panel.ts";
+import type { TestChanges } from "../test-changes-types.ts";
+import { testChangesBlock } from "./test-changes-panel.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   changed: "~",
@@ -60,6 +62,8 @@ export interface ReviewInput {
   readonly pickNode: (id: NodeId) => void;
   /** Null when the tests were not asked to run. */
   readonly observed: ObservedInput | null;
+  /** What the change did to the tests, derived from the two trees. */
+  readonly testChanges: TestChanges;
 }
 
 /** A new element with a class and, when given, text; never markup. */
@@ -134,6 +138,8 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       unmentionedBody.append(linkedList);
     }
   }
+  const tests = testChangesBlock(input.testChanges);
+  if (tests !== null) unmentionedBody.append(tests);
   if (input.effects !== null && input.link.status === "ok" && input.effects.byAgent.edges + input.effects.byAgent.tests.edges > 0) {
     unmentionedBody.append(effectsBlock(input.effects.byAgent, true));
   }

@@ -14,6 +14,7 @@ import { EFFECT_COLOR, FAIL_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts"
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
 import { markRange } from "./mark.ts";
+import type { TestChanges } from "../test-changes-types.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
@@ -420,6 +421,7 @@ if (comparison !== null) {
   const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; link: LinkNote };
   const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
+  const testChanges = (await (await fetch("/test-changes.json")).json()) as TestChanges;
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
   const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked);
@@ -435,6 +437,7 @@ if (comparison !== null) {
     pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
     pickNode,
     observed: observed === null ? null : { document: observed, report: observedRun },
+    testChanges,
   });
 
   const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };

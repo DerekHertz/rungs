@@ -17,6 +17,8 @@ const run: TestRun = {
   isolation: "bwrap",
   seconds: 1.5,
   exitCode: 1,
+  deleted: [],
+  edited: [],
   reports: [
     { file: "test/a.test.mjs", path: ["works"], outcome: "fail", ms: 3, message: "nope" },
     { file: "test/a.test.mjs", path: ["elsewhere"], outcome: "pass", ms: 1 },
@@ -46,7 +48,7 @@ test("/observed.json attaches the run to the head graph's test functions, keyed 
 });
 
 test("observed facts never enter the graph or the comparison", async () => {
-  for (const path of ["graph.json", "comparison.json", "contracts.json", "claims.json"]) {
+  for (const path of ["graph.json", "comparison.json", "contracts.json", "claims.json", "test-changes.json"]) {
     expect([path, await (await get(observed, path)).text()]).toEqual([path, await (await get(plain, path)).text()]);
   }
 });

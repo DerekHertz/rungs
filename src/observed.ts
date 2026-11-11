@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
-import { relative } from "node:path";
 import { isCodeNode } from "./graph.ts";
 import type { FileTree, Graph, NodeId } from "./graph.ts";
+import { isTestFile } from "./test-files.ts";
 import { runIsolated } from "./sandbox.ts";
 import type { Isolation, Places } from "./sandbox.ts";
-import type { ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest } from "./observed-types.ts";
-
+import type { ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest, WrittenDocument } from "./observed-types.ts";
 
 /** One test as its runner reported it: the titles of its suites, then its own. */
 export interface TestReport {
@@ -19,7 +18,25 @@ export interface TestReport {
   readonly message?: string;
 }
 
-/** What one run of a tree's tests came to, before it is attached to the graph. */
+/** One run of node --test as it came out: results the runner wrote, none, or results that cannot be told from forged ones. */
+export type Once =
+  | { readonly status: "failed"; readonly why: string; readonly output: string }
+  | { readonly status: "unreliable"; readonly why: string; readonly exitCode: number }
+  | { readonly status: "ran"; readonly exitCode: number; readonly reports: readonly TestReport[] };
+
+/** The tests this PR wrote or edited, run by themselves. They are the PR's own claim about its code, never evidence. */
+export interface WrittenRun {
+  readonly files: readonly string[];
+  readonly seconds: number;
+  readonly outcome: Once;
+}
+
+/**
+ * What running a change's tests came to, before it is attached to the graph. The tests that count
+ * are the base's (`reports`), run against the head's code. `deleted` are base test files the head
+ * no longer has, which were run anyway; `edited` are base test files whose head version differs,
+ * and the base's version is what ran.
+ */
 export type TestRun =
   | { readonly status: "refused" | "unsupported"; readonly why: string }
   | {
@@ -47,9 +64,13 @@ export type TestRun =
       readonly seconds: number;
       readonly exitCode: number;
       readonly reports: readonly TestReport[];
+      readonly deleted: readonly string[];
+      readonly edited: readonly string[];
+      readonly written?: WrittenRun;
     };
 
-export type Detection = { readonly runner: Runner; readonly args: readonly string[]; readonly install: boolean } | { readonly unsupported: string };
+/** The runner the base's `test` script names, with the arguments it passes. */
+export type Detection = { readonly runner: Runner; readonly args: readonly string[] } | { readonly unsupported: string };
 
 const SHELL = /[;&|<>$`'"\\(){}!]/;
 /**
@@ -60,29 +81,32 @@ const SHELL = /[;&|<>$`'"\\(){}!]/;
  */
 const NODE_FLAGS =
   /^--(?:test-concurrency|test-timeout|test-name-pattern|test-skip-pattern|test-only|test-force-exit|test-shard|test-update-snapshots|experimental-test-coverage|experimental-strip-types|experimental-transform-types|enable-source-maps|no-warnings)(?:=|$)/;
-const READ = "Rungs reads only node --test and vitest";
+const READ = "Rungs reads only node --test";
+const VITEST = "vitest is chosen by the PR";
 
-/** The runner the tree's `test` script names, with the arguments it passes; never a guess. */
-export function detectRunner(tree: FileTree): Detection {
-  const text = tree.get("package.json");
-  if (text === undefined) return { unsupported: "the tree has no package.json" };
-  let manifest: { scripts?: { test?: unknown }; dependencies?: object; devDependencies?: object };
+/**
+ * The runner the base's `test` script names, with the arguments it passes; never a guess. It is
+ * read from the base, because the head's script is the PR's to change. vitest is a dependency the
+ * PR installs at a version and with a config the PR picks, so its results come from code the PR
+ * chose, and it is not run.
+ */
+export function detectRunner(base: FileTree): Detection {
+  const text = base.get("package.json");
+  if (text === undefined) return { unsupported: "the base has no package.json" };
+  let manifest: { scripts?: { test?: unknown } };
   try {
     manifest = JSON.parse(text);
   } catch {
-    return { unsupported: "package.json is not valid JSON" };
+    return { unsupported: "the base's package.json is not valid JSON" };
   }
   const script = manifest.scripts?.test;
-  if (typeof script !== "string") return { unsupported: "package.json has no test script" };
+  if (typeof script !== "string") return { unsupported: "the base's package.json has no test script" };
   const words = script.trim().split(/\s+/).map((word) => /^(['"])[^'"\s]*\1$/.test(word) ? word.slice(1, -1) : word);
   const [command = "", ...rest] = words;
   if (words.some((word, index) => SHELL.test(word) || (index === 0 && word.includes("=")))) {
     return { unsupported: `the test script is not one plain command: ${JSON.stringify(script)}` };
   }
-  const install = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).length > 0;
-  if (install && !tree.has("package-lock.json") && !tree.has("npm-shrinkwrap.json")) {
-    return { unsupported: "package.json has dependencies but no package-lock.json; Rungs installs only from a lockfile" };
-  }
+  if (command === "vitest") return { unsupported: VITEST };
   if (command === "node") {
     if (!rest.includes("--test")) return { unsupported: `the test script runs "node" without --test; ${READ}` };
     const args = rest.filter((word) => word !== "--test" && !word.startsWith("--test-reporter"));
@@ -90,13 +114,27 @@ export function detectRunner(tree: FileTree): Detection {
     if (flag !== undefined) {
       return { unsupported: `the test script gives node ${JSON.stringify(flag)}; Rungs runs node --test only with flags that keep the tree's code out of the runner` };
     }
-    return { runner: "node", args, install };
-  }
-  if (command === "vitest") {
-    const args = rest.filter((word, index) => !(index === 0 && ["run", "watch", "dev"].includes(word)) && !["--run", "--watch"].includes(word));
-    return { runner: "vitest", args: args.filter((word) => !word.startsWith("--reporter") && !word.startsWith("--outputFile")), install };
+    return { runner: "node", args };
   }
   return { unsupported: `the test script runs ${JSON.stringify(command)}; ${READ}` };
+}
+
+/**
+ * Whether the head's dependencies must be installed, or why they cannot be. The dependencies are
+ * the head's, because they are what the head's code runs on.
+ */
+export function installNeeded(head: FileTree): { readonly install: boolean } | { readonly unsupported: string } {
+  let manifest: { dependencies?: object; devDependencies?: object };
+  try {
+    manifest = JSON.parse(head.get("package.json") ?? "");
+  } catch {
+    return { unsupported: "the head's package.json is not valid JSON" };
+  }
+  const install = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).length > 0;
+  if (install && !head.has("package-lock.json") && !head.has("npm-shrinkwrap.json")) {
+    return { unsupported: "package.json has dependencies but no package-lock.json; Rungs installs only from a lockfile" };
+  }
+  return { install };
 }
 
 /** A node test reporter that writes each finished test or suite as one JSON line. */
@@ -121,8 +159,6 @@ export default async function* reporter(source) {
   }
 }
 `;
-
-const VITEST_RESULTS = "vitest.json";
 
 /** Where dependencies come from unless a caller names another registry. */
 export const NPM_REGISTRY = "https://registry.npmjs.org/";
@@ -287,79 +323,139 @@ export function installArgv(places: Places, registry: string): string[] {
   ];
 }
 
-function testArgv(detection: Extract<Detection, { runner: Runner }>, places: Places): string[] {
-  // node's runner is ours and runs none of the tree's code, so it reports where the tests cannot
-  // write. vitest is the tree's own dependency running the tree's own config: its report is a file.
-  const test =
-    detection.runner === "node"
-      ? [places.node, "--test", `--test-reporter=${places.tools}/reporter.mjs`, `--test-reporter-destination=${places.report}`, "--test-reporter=spec", "--test-reporter-destination=stdout"]
-      : ["node_modules/.bin/vitest", "run", "--reporter=json", `--outputFile.json=${places.out}/${VITEST_RESULTS}`, "--reporter=default"];
-  return [...test, ...detection.args];
+const OUTPUT_TAIL = 8000;
+const RUNNABLE = /\.[cm]?[jt]s$/;
+
+/** Base test files and head test files, by the one list of what a test file is. */
+function testPaths(tree: FileTree): string[] {
+  return [...tree.keys()].filter(isTestFile).sort();
 }
 
-const OUTPUT_TAIL = 8000;
+interface Job {
+  readonly tree: FileTree;
+  readonly executable: ReadonlySet<string>;
+  /** Test files the steps may read and not change, and the only files whose results are believed. */
+  readonly pinned: ReadonlySet<string>;
+  readonly args: readonly string[];
+  /** What the results may name: every test file the run was given. */
+  readonly allowed: ReadonlySet<string>;
+  readonly install: { readonly files: FileTree } | undefined;
+}
 
-/**
- * Runs the tree's tests once under `isolation`. Dependencies are fetched first, with the network,
- * by npm alone in a folder the tree is not in; then the tests run in the copy with no network.
- */
-export async function runTests(
-  tree: FileTree,
-  executable: ReadonlySet<string>,
-  isolation: Isolation,
-  timeoutMs: number,
-  registry: string = NPM_REGISTRY,
-): Promise<TestRun> {
-  const detection = detectRunner(tree);
-  if ("unsupported" in detection) return { status: "unsupported", why: detection.unsupported };
-  const install = detection.install ? installFiles(tree, registry) : undefined;
-  if (install !== undefined && "refused" in install) return { status: "refused", why: install.refused };
+/** One node --test run in its own sandbox: dependencies first, with the network, then the tests, with none. */
+async function once(job: Job, isolation: Isolation, timeoutMs: number, registry: string): Promise<Once & { readonly seconds: number }> {
   const started = Date.now();
   const run = await runIsolated({
-    tree,
-    executable,
+    tree: job.tree,
+    executable: job.executable,
+    pinned: job.pinned,
     isolation,
+    // node's runner is ours and runs none of the tree's code, so it reports where the tests cannot write.
     tools: new Map([["reporter.mjs", NODE_REPORTER], ["npmrc-user", ""], ["npmrc-global", ""]]),
-    ...(install === undefined ? {} : { install: { files: install.files, argv: (places: Places) => installArgv(places, registry) } }),
-    steps: (places) => [{ argv: testArgv(detection, places) }],
-    ...(detection.runner === "node" ? { report: true } : { collect: [VITEST_RESULTS] }),
+    ...(job.install === undefined ? {} : { install: { files: job.install.files, argv: (places: Places) => installArgv(places, registry) } }),
+    steps: (places) => [
+      {
+        argv: [places.node, "--test", `--test-reporter=${places.tools}/reporter.mjs`, `--test-reporter-destination=${places.report}`, "--test-reporter=spec", "--test-reporter-destination=stdout", ...job.args],
+      },
+    ],
+    report: true,
     timeoutMs,
     outputBytes: 1 << 20,
   });
   const seconds = Math.round((Date.now() - started) / 100) / 10;
   const ran = [...(run.install === undefined ? [] : [run.install]), ...run.steps];
   const output = ran.map((step) => step.output).join("").slice(-OUTPUT_TAIL);
-  const failed = (why: string): TestRun => ({ status: "failed", why, runner: detection.runner, isolation: isolation.kind, seconds, output });
+  const failed = (why: string): Once & { readonly seconds: number } => ({ status: "failed", why, output, seconds });
   const last = ran.at(-1);
   if (last === undefined) return failed("nothing ran");
   if (last.timedOut) return failed(`the run passed its limit of ${Math.round(timeoutMs / 1000)} seconds`);
   if (run.steps.length === 0) return failed(`npm ci --ignore-scripts exited ${last.exitCode}`);
-  const results = detection.runner === "node" ? run.report : run.collected.get(VITEST_RESULTS);
-  if (results === undefined || results.kind === "missing") return failed(`the runner wrote no results (exit ${last.exitCode})`);
+  const results = run.report;
+  if (results === undefined) return failed(`the runner wrote no results (exit ${last.exitCode})`);
   if (results.kind === "too large") return failed(`the runner's results are too large to read (${results.bytes} bytes)`);
-  if (results.kind === "unreadable") return failed(`the runner's results are unreadable: ${results.why}`);
   try {
-    const reports = detection.runner === "node" ? parseNodeEvents(results.text) : parseVitestJson(results.text, run.places.work);
-    const about = { runner: detection.runner, isolation: isolation.kind, seconds, exitCode: last.exitCode ?? 1 };
-    const why = unreliable(reports, about.exitCode, tree);
-    return why === undefined ? { status: "ran", ...about, reports } : { status: "unreliable", why, ...about };
+    const reports = parseNodeEvents(results.text);
+    const exitCode = last.exitCode ?? 1;
+    const why = unreliable(reports, exitCode, job.allowed);
+    return why === undefined ? { status: "ran", exitCode, reports, seconds } : { status: "unreliable", why, exitCode, seconds };
   } catch (error) {
     return failed((error as Error).message);
   }
 }
 
 /**
+ * Runs a change's tests once under `isolation`, and the tests that count as evidence are the
+ * base's. A test has to run the change's code, so the change controls whether its own tests pass:
+ * it can loosen one, delete one, skip one, or add one that checks nothing. So the run takes every
+ * test file from the base and puts them over the head's tree, mounted read-only where the sandbox
+ * can, and runs them with the base's `test` script, so the head's script cannot swap the runner.
+ * Base test files the head deleted are run too. The test files the change wrote or edited run in
+ * a second run of their own, and are only the change's claim.
+ *
+ * The change's code still runs inside each test, and can fake the outcome from in there: this is
+ * evidence against mistakes, not against a hostile author.
+ */
+export async function runTests(
+  base: FileTree,
+  head: FileTree,
+  executable: ReadonlySet<string>,
+  isolation: Isolation,
+  timeoutMs: number,
+  registry: string = NPM_REGISTRY,
+): Promise<TestRun> {
+  const detection = detectRunner(base);
+  if ("unsupported" in detection) return { status: "unsupported", why: detection.unsupported };
+  const needed = installNeeded(head);
+  if ("unsupported" in needed) return { status: "unsupported", why: needed.unsupported };
+  const install = needed.install ? installFiles(head, registry) : undefined;
+  if (install !== undefined && "refused" in install) return { status: "refused", why: install.refused };
+  const started = Date.now();
+  const baseTests = testPaths(base);
+  const tree = new Map([...head].filter(([path]) => !isTestFile(path)));
+  for (const path of baseTests) tree.set(path, base.get(path) ?? "");
+  const pinned = new Set(baseTests);
+  const first = await once({ tree, executable, pinned, args: detection.args, allowed: pinned, install }, isolation, timeoutMs, registry);
+  const seconds = Math.round((Date.now() - started) / 100) / 10;
+  const about = { runner: detection.runner, isolation: isolation.kind, seconds: first.seconds };
+  if (first.status === "failed") return { status: "failed", why: first.why, output: first.output, ...about };
+  if (first.status === "unreliable") return { status: "unreliable", why: first.why, exitCode: first.exitCode, ...about };
+  const writtenFiles = testPaths(head).filter((path) => RUNNABLE.test(path) && head.get(path) !== base.get(path));
+  let written: WrittenRun | undefined;
+  if (writtenFiles.length > 0) {
+    const flags = detection.args.filter((word) => word.startsWith("-"));
+    const left = Math.max(1000, timeoutMs - (Date.now() - started));
+    const { seconds: took, ...outcome } = await once(
+      { tree: head, executable, pinned: new Set(), args: [...flags, ...writtenFiles], allowed: new Set(writtenFiles), install },
+      isolation,
+      left,
+      registry,
+    );
+    written = { files: writtenFiles, seconds: took, outcome };
+  }
+  return {
+    status: "ran",
+    ...about,
+    seconds,
+    exitCode: first.exitCode,
+    reports: first.reports,
+    deleted: baseTests.filter((path) => !head.has(path)),
+    edited: baseTests.filter((path) => head.has(path) && head.get(path) !== base.get(path)),
+    ...(written === undefined ? {} : { written }),
+  };
+}
+
+/**
  * Why a run's results cannot be shown as what happened, if they cannot. However the results reach
  * Rungs, they are checked against the one thing the tests do not write, the runner's exit code,
- * against the tree, and against each other. A run that fails any check is shown as unreliable,
+ * against the test files the run was given, and against each other. A run that fails any check is shown as unreliable,
  * never as passes.
  */
-export function unreliable(reports: readonly TestReport[], exitCode: number, tree: FileTree): string | undefined {
+export function unreliable(reports: readonly TestReport[], exitCode: number, allowed: ReadonlySet<string>): string | undefined {
   if (exitCode !== 0 && exitCode !== 1) return `the runner exited ${exitCode}, which no test result explains`;
   const outcomes = new Map<string, Outcome>();
   let failures = 0;
   for (const report of reports) {
-    if (!tree.has(report.file)) return `a result names ${JSON.stringify(report.file.slice(0, 120))}, which is not a file in the tree`;
+    if (!allowed.has(report.file)) return `a result names ${JSON.stringify(report.file.slice(0, 120))}, which is not a test file this run was given`;
     if (report.outcome === "fail") failures += 1;
     const key = JSON.stringify([report.file, report.path]);
     const before = outcomes.get(key);
@@ -434,50 +530,6 @@ export function parseNodeEvents(text: string): TestReport[] {
   return reports.map(({ report, path }) => ({ ...report, path: [...path] }));
 }
 
-interface VitestFile {
-  readonly name: string;
-  readonly status: string;
-  readonly message?: string;
-  readonly assertionResults: readonly {
-    readonly ancestorTitles: readonly string[];
-    readonly title: string;
-    readonly status: string;
-    readonly duration?: number | null;
-    readonly failureMessages?: readonly string[];
-  }[];
-}
-
-const VITEST_OUTCOME: Readonly<Record<string, Outcome>> = { passed: "pass", failed: "fail", skipped: "skip", pending: "skip", todo: "skip", disabled: "skip" };
-
-/** The tests in vitest's JSON report, with paths relative to `root`, the folder it ran in. */
-export function parseVitestJson(text: string, root: string): TestReport[] {
-  let json: { testResults?: unknown } | null;
-  try {
-    json = JSON.parse(text) as { testResults?: unknown } | null;
-  } catch {
-    // The parser's own message quotes the text, which may not be the runner's.
-    throw new Error("vitest's report is not valid JSON");
-  }
-  if (!Array.isArray(json?.testResults)) throw new Error("vitest's report has no testResults");
-  const reports: TestReport[] = [];
-  for (const file of json.testResults as VitestFile[]) {
-    if (typeof file?.name !== "string" || !Array.isArray(file.assertionResults)) throw new Error("vitest's report holds an unreadable file entry");
-    const path = relative(root, file.name);
-    for (const result of file.assertionResults) {
-      const outcome = VITEST_OUTCOME[result?.status];
-      if (outcome === undefined || typeof result.title !== "string" || !Array.isArray(result.ancestorTitles)) {
-        throw new Error(`vitest's report holds an unreadable test in ${path}`);
-      }
-      const message = outcome === "fail" ? result.failureMessages?.join("\n") : undefined;
-      reports.push({ file: path, path: [...result.ancestorTitles, result.title], outcome, ms: result.duration ?? 0, ...(message ? { message } : {}) });
-    }
-    if (file.status === "failed" && file.assertionResults.length === 0) {
-      reports.push({ file: path, path: [], outcome: "fail", ms: 0, ...(file.message ? { message: file.message } : {}) });
-    }
-  }
-  return reports;
-}
-
 /** sha256 of the tree's paths and texts, first 32 hex digits, like a file's digest. */
 export function treeDigest(tree: FileTree): string {
   const hash = createHash("sha256");
@@ -513,13 +565,36 @@ function titlesOf(qualifiedName: string): string[] | undefined {
   return titles;
 }
 
-/** Attaches a run's reports to the graph's test functions, by file and name; never changes the graph. */
+const EDITED = "main's version of this file ran; this PR edited it";
+const DELETED = "main's test, run against this PR's code; this PR deleted the file";
+
+/** What the tests the change wrote came to, labelled claimed. */
+function writtenDocument(written: WrittenRun): WrittenDocument {
+  const about = { tier: "claimed", files: written.files, seconds: written.seconds } as const;
+  const { outcome } = written;
+  if (outcome.status !== "ran") return { ...about, status: outcome.status, why: outcome.why };
+  const counts = { pass: 0, fail: 0, skip: 0 };
+  const tests = outcome.reports.map((report) => {
+    counts[report.outcome] += 1;
+    const message = report.message?.slice(0, MESSAGE_LIMIT);
+    return { file: report.file, name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}) };
+  });
+  return { ...about, status: "ran", exitCode: outcome.exitCode, counts, tests };
+}
+
+/**
+ * Attaches a run's reports to the graph's test functions, by file and name; never changes the
+ * graph. A report from a file the change edited or deleted is not attached: the graph is the
+ * head's, and the test that ran was the base's.
+ */
 export function observedDocument(run: TestRun, graph: Graph, tree: string): ObservedDocument {
   if (run.status === "failed" || run.status === "unreliable") {
     const { isolation, ...rest } = run;
     return { tier: "observed", tree, ...rest, sandbox: isolation };
   }
   if (run.status !== "ran") return { tier: "observed", tree, status: run.status, why: run.why };
+  const deleted = new Set(run.deleted);
+  const edited = new Set(run.edited);
   const byFile = new Map<string, Map<string, NodeId[]>>();
   for (const node of graph.nodes) {
     if (!isCodeNode(node) || node.level !== "function") continue;
@@ -539,16 +614,32 @@ export function observedDocument(run: TestRun, graph: Graph, tree: string): Obse
     const observed: ObservedTest = { name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}) };
     const ids = byFile.get(report.file)?.get(JSON.stringify(report.path)) ?? [];
     const [id] = ids;
-    if (ids.length === 1 && id !== undefined) (tests[id] ??= []).push(observed);
+    const changed = deleted.has(report.file) ? DELETED : edited.has(report.file) ? EDITED : undefined;
+    if (changed === undefined && ids.length === 1 && id !== undefined) (tests[id] ??= []).push(observed);
     else {
       const why =
-        report.path.length === 0
+        changed ??
+        (report.path.length === 0
           ? "the file failed outside any test"
           : ids.length === 0
             ? "no test function in the file has this name"
-            : `${ids.length} test functions in the file have this name`;
+            : `${ids.length} test functions in the file have this name`);
       unmatched.push({ file: report.file, ...observed, why });
     }
   }
-  return { tier: "observed", tree, status: "ran", runner: run.runner, sandbox: run.isolation, seconds: run.seconds, exitCode: run.exitCode, counts, tests, unmatched };
+  return {
+    tier: "observed",
+    tree,
+    status: "ran",
+    runner: run.runner,
+    sandbox: run.isolation,
+    seconds: run.seconds,
+    exitCode: run.exitCode,
+    counts,
+    tests,
+    unmatched,
+    deleted: run.deleted,
+    edited: run.edited,
+    written: run.written === undefined ? null : writtenDocument(run.written),
+  };
 }

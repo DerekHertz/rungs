@@ -122,3 +122,42 @@ test("npm is told every setting that could name a program or a place, and to rea
     "--script-shell=/usr/bin/false",
   ]);
 });
+
+// An alias installs a registry package under another name. Its tarball is a lockfile entry like any
+// other, so the gate lets an alias through exactly when what it names is the registry.
+test('an npm alias such as "x": "npm:other@1" is let through: it is another registry package, and its lockfile entry is still checked', () => {
+  const manifest = { dependencies: { x: "npm:other@1", scoped: "npm:@scope/pkg@^1.2.3", bare: "npm:plain" } };
+  const packages = {
+    "": { name: "probe", version: "1.0.0", dependencies: manifest.dependencies },
+    "node_modules/x": entry("other", { name: "other" }),
+    "node_modules/scoped": entry("@scope/pkg", { name: "@scope/pkg" }),
+    "node_modules/bare": entry("plain", { name: "plain" }),
+  };
+  const result = installFiles(tree(manifest, packages));
+  if ("refused" in result) throw new Error(result.refused);
+  expect(JSON.parse(result.files.get("package.json") ?? "").dependencies).toEqual(manifest.dependencies);
+  expect(JSON.parse(result.files.get("package-lock.json") ?? "").packages["node_modules/x"]).toEqual(entry("other", { name: "other" }));
+});
+
+test("an alias cannot name anything but a registry package", () => {
+  const git = "git+ssh://git@github.com/a/b.git#0123456789abcdef0123456789abcdef01234567";
+  const root = (dependencies: object) => ({ "": { name: "probe", version: "1.0.0", dependencies }, "node_modules/x": entry("other") });
+  const cases: [string, string][] = [
+    ["a git url", `npm:other@${git}`],
+    ["a GitHub shorthand", "npm:other@github:a/b"],
+    ["a URL", "npm:other@https://example.com/other.tgz"],
+    ["a folder", "npm:other@file:../other"],
+    ["a path in place of a name", "npm:./other"],
+    ["an alias of an alias", "npm:other@npm:inner@1"],
+    ["a scheme in place of npm", "git:other@1"],
+  ];
+  for (const [name, spec] of cases) {
+    expect([name, refusal({ dependencies: { x: spec } }, root({ x: spec }))]).toEqual([name, `package.json asks for "x" from ${JSON.stringify(spec)}, which is not a registry version`]);
+  }
+  // The lockfile entry under an alias is held to the same rule as any other.
+  const manifest = { dependencies: { x: "npm:other@1" } };
+  expect(refusal(manifest, { ...root(manifest.dependencies), "node_modules/x": entry("other", { resolved: git }) })).toBe(`package-lock.json: node_modules/x is a git dependency (${JSON.stringify(git)})`);
+  expect(refusal(manifest, { ...root(manifest.dependencies), "node_modules/x": entry("other", { dependencies: { inner: "npm:inner@github:a/b" } }) })).toBe(
+    'package-lock.json: node_modules/x asks for "inner" from "npm:inner@github:a/b", which is not a registry version',
+  );
+});

@@ -16,6 +16,7 @@ import type { Claim } from "./claims.ts";
 import type { LinkOutcome } from "./link.ts";
 import { observedDocument, treeDigest } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
+import { testChanges } from "./test-changes.ts";
 import type { TourOutcome } from "./walkthrough.ts";
 
 /** What the checkout is compared against: the merge base's tree and commit, and the ref the user wrote. */
@@ -45,8 +46,9 @@ interface Resource {
  * same snapshot on request and never stored (404 for anything but a function; a removed one is
  * outlined from the base tree). The page's source panel and the walkthrough's Code column read it.
  *
- * Given `base`, it also serves `GET /comparison.json`, `GET /contracts.json` and `GET /claims.json`
- * (404 otherwise). The contracts are the comparison's contract moves as a derived fact, kept in
+ * Given `base`, it also serves `GET /comparison.json`, `GET /contracts.json`, `GET /test-changes.json`
+ * and `GET /claims.json` (404 otherwise). The test changes are what the change did to the tests,
+ * derived from the two trees' text alone: deleted files, removed names, skips, weakened tests. The contracts are the comparison's contract moves as a derived fact, kept in
  * their own resource so `/comparison.json` stays the plain diff of the two graphs. A
  * module the comparison lists as removed has its source read from the base tree, not the head.
  * The claims are the person's `description` as a claimed fact, kept apart from the graph and the
@@ -114,6 +116,8 @@ export async function serve(
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
     const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison, baseGraph, graph) }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
+    const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(baseTree ?? new Map(), tree) }, null, 2)}\n`;
+    resources.set("/test-changes.json", { contentType: "application/json; charset=utf-8", body: testsChanged });
   }
 
   if (tests !== undefined) {
