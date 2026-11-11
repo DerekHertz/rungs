@@ -78,25 +78,49 @@ const isEqual = (a: unknown, b: unknown): boolean => {
   return a === b;
 };
 
-const withoutLists = (text: string): object | undefined => {
+const parsedOf = (text: string): Record<string, unknown> | undefined => {
   try {
     const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/, ""));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
-    const rest: Record<string, unknown> = { ...parsed };
-    for (const list of DEPENDENCY_LISTS) delete rest[list];
-    return rest;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
   }
 };
 
+/** The names whose entry differs in the raw lists, or undefined when a changed entry is not a string on a side that has it. */
+const rawChangedNames = (was: Record<string, unknown>, now: Record<string, unknown>): Set<string> | undefined => {
+  const names = new Set<string>();
+  for (const list of DEPENDENCY_LISTS) {
+    const isMap = (value: unknown): boolean => typeof value === "object" && value !== null && !Array.isArray(value);
+    if (((was[list] !== undefined && !isMap(was[list])) || (now[list] !== undefined && !isMap(now[list]))) && !isEqual(was[list], now[list])) return undefined;
+    const before = typeof was[list] === "object" && was[list] !== null && !Array.isArray(was[list]) ? (was[list] as Record<string, unknown>) : {};
+    const after = typeof now[list] === "object" && now[list] !== null && !Array.isArray(now[list]) ? (now[list] as Record<string, unknown>) : {};
+    for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      if (isEqual(before[name], after[name]) && name in before === name in after) continue;
+      if ((name in before && typeof before[name] !== "string") || (name in after && typeof after[name] !== "string")) return undefined;
+      names.add(name);
+    }
+  }
+  return names;
+};
+
 /**
- * Whether two package.json texts differ only inside the four dependency lists: both parse as JSON
- * objects and are deeply equal once those lists are removed, so formatting and key order are no
- * change. Either side unreadable means no.
+ * Whether two package.json texts differ only inside the four dependency lists, and the dependency
+ * diff (`changed`, the names it lists for this file) represents every changed entry: both parse as
+ * JSON objects and are deeply equal once those lists are removed (formatting and key order are no
+ * change), every changed entry is a string on the sides that have it, and the changed names are
+ * exactly `changed`. Anything else, or an unreadable side, means no.
  */
-export function onlyDependenciesChanged(before: string, after: string): boolean {
-  const was = withoutLists(before);
-  const now = withoutLists(after);
-  return was !== undefined && now !== undefined && isEqual(was, now);
+export function onlyDependenciesChanged(before: string, after: string, changed: ReadonlySet<string>): boolean {
+  const was = parsedOf(before);
+  const now = parsedOf(after);
+  if (was === undefined || now === undefined) return false;
+  const strip = (value: Record<string, unknown>): object => {
+    const rest = { ...value };
+    for (const list of DEPENDENCY_LISTS) delete rest[list];
+    return rest;
+  };
+  if (!isEqual(strip(was), strip(now))) return false;
+  const names = rawChangedNames(was, now);
+  return names !== undefined && names.size === changed.size && [...names].every((name) => changed.has(name));
 }

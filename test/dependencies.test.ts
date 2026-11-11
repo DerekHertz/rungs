@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { compare } from "../src/compare.ts";
+import { compare, serializeComparison } from "../src/compare.ts";
 import type { Comparison } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import { dependencyMentioned, dependencyReview, unmentioned } from "../src/review.ts";
@@ -257,5 +257,33 @@ describe("a package.json whose only change is mentioned dependency changes is co
   test("without file texts nothing is decided", () => {
     const comparison = compareTrees({ "package.json": manifest(base) }, { "package.json": manifest({ ...base, dependencies: { other: "1" } }) });
     expect(comparison.dependencyOnlyManifests).toEqual([]);
+  });
+});
+
+describe("a package.json stays listed when the dependency diff cannot see its change", () => {
+  const run = (before: object, after: object, text: string): string[] => {
+    const a = { "package.json": manifest(before) };
+    const b = { "package.json": manifest(after) };
+    const head = extract(treeOf(b));
+    const comparison = compare(extract(treeOf(a)), head, { base: treeOf(a), head: treeOf(b) });
+    return unmentioned(comparison, head, text).entries.map((entry) => entry.label);
+  };
+
+  test("a non-string range changing beside a mentioned one", () => {
+    expect(run({ dependencies: { three: "1", other: 1 } }, { dependencies: { three: "2", other: 2 } }, "Update three.")).toEqual(["package.json"]);
+    expect(run({ dependencies: { three: "1" } }, { dependencies: { three: "2" } }, "Update three.")).toEqual([]);
+  });
+
+  test("a dependency list that is not an object changing", () => {
+    expect(run({ dependencies: { three: "1" }, devDependencies: "x" }, { dependencies: { three: "2" }, devDependencies: "y" }, "Update three.")).toEqual(["package.json"]);
+  });
+
+  test("the comparison serializes dependencyOnlyManifests", () => {
+    const a = { "package.json": manifest({ dependencies: { three: "1" } }) };
+    const b = { "package.json": manifest({ dependencies: { three: "2" } }) };
+    const comparison = compare(extract(treeOf(a)), extract(treeOf(b)), { base: treeOf(a), head: treeOf(b) });
+    expect(JSON.parse(serializeComparison(comparison)).dependencyOnlyManifests).toEqual(["package.json"]);
+    const bare = compare(extract(treeOf(a)), extract(treeOf(b)));
+    expect(JSON.parse(serializeComparison(bare)).dependencyOnlyManifests).toEqual([]);
   });
 });

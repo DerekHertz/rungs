@@ -211,7 +211,7 @@ const followsDependencies = (comparison: Comparison, lockfile: ModuleChange): bo
 
 /** A package.json whose only change is dependency entries, all of them mentioned, is covered like its lockfile. */
 const explainedByDependencies = (comparison: Comparison, description: string, change: ModuleChange): boolean => {
-  if (!comparison.dependencyOnlyManifests.includes(change.node.path)) return false;
+  if (!(comparison.dependencyOnlyManifests ?? []).includes(change.node.path)) return false;
   const own = comparison.dependencies.filter((dependency) => dependency.path === change.node.path);
   return own.length > 0 && own.every((dependency) => dependencyMentioned(description, dependency.name));
 };

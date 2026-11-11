@@ -40,7 +40,7 @@ export interface Comparison {
   /** The dependencies package.json files added, removed or changed, sorted; see diffDependencies in src/dependencies.ts. */
   readonly dependencies: readonly DependencyChange[];
   /** The changed package.json files (head paths) whose only change is inside the dependency lists; see onlyDependenciesChanged. Empty when `compare` was not given the file texts. */
-  readonly dependencyOnlyManifests: readonly string[];
+  readonly dependencyOnlyManifests?: readonly string[];
 }
 
 export class ExtractorVersionMismatch extends Error {
@@ -185,16 +185,17 @@ export function compare(base: Graph, head: Graph, trees?: { readonly base: FileT
     else pairs.push({ basePath: change.kind === "moved" ? change.from.path : change.node.path, headPath: change.node.path });
   }
   const sections = trees === undefined ? [] : diffSections(base, head, pairs, trees);
+  const dependencies = diffDependencies(base, head, movedTo);
   const dependencyOnlyManifests: string[] = [];
   if (trees !== undefined) {
     for (const change of changes) {
       if (change.node.level !== "file" || (change.kind !== "altered" && change.kind !== "moved") || change.node.path.split("/").pop() !== "package.json") continue;
       const was = trees.base.get(change.kind === "moved" ? change.from.path : change.node.path);
       const now = trees.head.get(change.node.path);
-      if (was !== undefined && now !== undefined && onlyDependenciesChanged(was, now)) dependencyOnlyManifests.push(change.node.path);
+      if (was !== undefined && now !== undefined && onlyDependenciesChanged(was, now, new Set(dependencies.filter((one) => one.path === change.node.path).map((one) => one.name)))) dependencyOnlyManifests.push(change.node.path);
     }
   }
-  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections, dependencies: diffDependencies(base, head, movedTo), dependencyOnlyManifests };
+  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections, dependencies, dependencyOnlyManifests };
 }
 
 export type ContractMoveKind = "changed" | "effects" | "added" | "removed" | "exposed" | "unexported" | "moved";
@@ -367,7 +368,7 @@ export function serializeComparison(comparison: Comparison): string {
   });
   const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge), nth: change.nth }));
   const imports = comparison.imports.map((change) => ({ kind: change.kind, edge: canonicalImport(change.edge) }));
-  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports, sections: comparison.sections, dependencies: comparison.dependencies }, null, 2)}\n`;
+  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports, sections: comparison.sections, dependencies: comparison.dependencies, dependencyOnlyManifests: comparison.dependencyOnlyManifests ?? [] }, null, 2)}\n`;
 }
 
 export type Change = ChangeKind | "unchanged";
