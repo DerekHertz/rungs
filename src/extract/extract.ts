@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { compareEdges, compareIds, compareImports, compareResolutions, compareSections, nodeId, qualifiedName, resourceId } from "../graph.ts";
-import type { CodeNode, Edge, ImportEdge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge, SectionNode, TypeContract } from "../graph.ts";
+import { DEPENDENCY_LISTS, compareEdges, compareIds, compareImports, compareResolutions, compareSections, nodeId, qualifiedName, resourceId } from "../graph.ts";
+import type { CodeNode, Dependency, Edge, ImportEdge, FileTree, Graph, Manifest, ModuleNode, NodeId, ResolutionEdge, SectionNode, TypeContract } from "../graph.ts";
 import { countLines, isBinary, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
 import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "16";
+export const EXTRACTOR_VERSION = "17";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -84,7 +84,39 @@ export function extract(tree: FileTree): Graph {
   resolutions.sort(compareResolutions);
   imports.sort(compareImports);
   sections.sort(compareSections);
-  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges, resolutions, imports, sections };
+  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges, resolutions, imports, sections, manifests: manifestsOf(tree) };
+}
+
+// Dependencies as package.json writes them, one record per manifest. A file that is not a JSON
+// object is unreadable and declares nothing; an entry whose range is not a string is declared with a null range.
+function manifestsOf(tree: FileTree): Manifest[] {
+  const manifests: Manifest[] = [];
+  for (const [path, text] of tree) {
+    if (posix.basename(path) !== "package.json") continue;
+    const file = nodeId("file", path, "");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text.replace(/^\uFEFF/, ""));
+    } catch {
+      manifests.push({ file, path, readable: false, declared: [] });
+      continue;
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      manifests.push({ file, path, readable: false, declared: [] });
+      continue;
+    }
+    const declared: Dependency[] = [];
+    for (const list of DEPENDENCY_LISTS) {
+      const section = (parsed as Record<string, unknown>)[list];
+      if (typeof section !== "object" || section === null || Array.isArray(section)) continue;
+      for (const [name, range] of Object.entries(section)) {
+        declared.push({ name, range: typeof range === "string" ? range : null, list });
+      }
+    }
+    declared.sort((a, b) => DEPENDENCY_LISTS.indexOf(a.list) - DEPENDENCY_LISTS.indexOf(b.list) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    manifests.push({ file, path, readable: true, declared });
+  }
+  return manifests.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
 // The only place code identity is decided: ordinals among siblings with the same text in source

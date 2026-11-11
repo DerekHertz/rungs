@@ -1,5 +1,6 @@
-import { RESOURCE_ORDER, isCodeNode, lineCount, targetText } from "./graph.ts";
+import { LOCKFILE_NAMES, RESOURCE_ORDER, isCodeNode, lineCount, nodeId, targetText } from "./graph.ts";
 import type { CodeLevel, EffectTarget, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
+import type { DependencyChange } from "./dependencies.ts";
 import { resourceKindOf } from "./effects.ts";
 import type { ChangedEffect } from "./effects.ts";
 import type { SectionChange } from "./sections.ts";
@@ -79,6 +80,8 @@ export interface Unmentioned {
   readonly changedFiles: number;
   /** Files whose path or name the description never gives, linked by an agent or not. */
   readonly unmentionedFiles: number;
+  /** Of those, the lockfile changes listed under an unmentioned dependency change (see dependencyReview), not among the entries. */
+  readonly dependencyLockfiles: number;
   /** Of those, the files an agent linked a claim to. */
   readonly linkedFiles: number;
   /** "No claim covers it": neither mentioned nor linked. */
@@ -199,8 +202,16 @@ function mentionRules(comparison: Comparison, description: string) {
   };
 }
 
+/** A changed lockfile: a generated file the extractor's lockfile names recognise. */
+const isLockfileChange = (change: ModuleChange): boolean => change.node.level === "file" && change.node.role === "generated" && LOCKFILE_NAMES.has(baseName(change.node.path));
+
+/** A lockfile follows the dependency changes of the package.json in its own folder, and only those. */
+const followsDependencies = (comparison: Comparison, lockfile: ModuleChange): boolean =>
+  comparison.dependencies.some((change) => directoryOf(change.path) === directoryOf(lockfile.node.path));
+
 /**
  * The changed files, and the classes and functions under them, that no claim covers, rolled up.
+ * A lockfile's change is left out when a dependency changed: dependencyReview lists it.
  *
  * A file is mentioned when its path appears in `description`, or its base name does and no other
  * changed file has that base name; a moved file counts under its old path too. A class or
@@ -312,12 +323,18 @@ export function unmentioned(
   for (const change of comparison.changes) if (isCodeNode(change.node) && linked.has(change.node.id)) linkedPaths.add(change.node.path);
 
   const dirsChanged = new Map<string, number>();
+  const underDependencies = new Set(dependencyReview(comparison, description).lockfiles.map((entry) => entry.id));
+  let dependencyLockfiles = 0;
   const none: ReviewEntry[] = [];
   const byAgent: ReviewEntry[] = [];
   for (const change of fileChanges) {
     const node = change.node;
     for (let dir = directoryOf(node.path); dir !== ""; dir = directoryOf(dir)) dirsChanged.set(dir, (dirsChanged.get(dir) ?? 0) + 1);
     if (fileMentioned(change) || groupMentioned(change)) continue;
+    if (isLockfileChange(change) && followsDependencies(comparison, change)) {
+      if (underDependencies.has(node.id)) dependencyLockfiles += 1;
+      continue;
+    }
     const agent = linked.has(node.id) || linkedPaths.has(node.path);
     const children = (codeBy.get(node.path) ?? [])
       .map((child): ReviewEntry => (linked.has(child.id) && child.level !== "district" && child.level !== "moves" ? { ...child, linked: true } : child))
@@ -416,7 +433,8 @@ export function unmentioned(
   const linkedGroups = groupMoves(byAgent);
   return {
     changedFiles: fileChanges.length,
-    unmentionedFiles: none.length + byAgent.length,
+    unmentionedFiles: none.length + byAgent.length + dependencyLockfiles,
+    dependencyLockfiles,
     linkedFiles: byAgent.length,
     entries: [...rollUp(unlinked.rest), ...unlinked.groups].sort(bySeverity),
     linkedEntries: [...rollUp(linkedGroups.rest), ...linkedGroups.groups].sort(bySeverity),
@@ -755,4 +773,55 @@ export function effectParts(label: string): { resource: ResourceKind | undefined
 export function effectChip(label: string): string {
   const { resource, name, literal } = effectParts(label);
   return `${resource ?? ""} ${literal ?? name}`.trim();
+}
+
+/** One dependency change no claim covers. `id` is its package.json's file node. */
+export interface DependencyRow {
+  readonly id: NodeId;
+  readonly change: DependencyChange;
+}
+
+export interface DependencyReview {
+  /** Dependency changes whose name the description never gives, by path then name. */
+  readonly none: readonly DependencyRow[];
+  /** The lockfile changes those follow, as file entries; empty when none is listed. */
+  readonly lockfiles: readonly ReviewEntry[];
+}
+
+const NAME_WORD = "\\p{ID_Continue}\\u200C\\u200D_$";
+
+/**
+ * A dependency is mentioned when its name appears in the description as a whole name: not inside
+ * a longer one (`three` is not in `three-stdlib`, `@types/three` or `three.js`), a scope kept
+ * with its package.
+ */
+export function dependencyMentioned(description: string, name: string): boolean {
+  if (name.trim() === "") return false;
+  return new RegExp(`(?<![${NAME_WORD}@/.-])${escape(name)}(?![${NAME_WORD}/-]|\\.[${NAME_WORD}])`, "u").test(description);
+}
+
+/**
+ * The dependency changes (see diffDependencies in src/dependencies.ts) the description does not
+ * name, and the lockfile changes that follow them: a lockfile is listed under the unmentioned
+ * dependency changes of the package.json in its own folder. When every dependency change in its
+ * folder is mentioned, the lockfile counts as mentioned, explained by them (and `unmentioned`
+ * leaves it out); with no dependency change in its folder `unmentioned` lists it as a file.
+ */
+export function dependencyReview(comparison: Comparison, description: string): DependencyReview {
+  const none = comparison.dependencies
+    .filter((change) => !dependencyMentioned(description, change.name))
+    .map((change): DependencyRow => ({ id: nodeId("file", change.path, ""), change }));
+  const { fileMentioned } = mentionRules(comparison, description);
+  const lockfiles = comparison.changes
+    .filter((change) => isLockfileChange(change) && !fileMentioned(change) && none.some((row) => directoryOf(row.change.path) === directoryOf(change.node.path)))
+    .map((change): ReviewEntry => ({
+      id: change.node.id,
+      level: "file",
+      label: change.node.path,
+      change: change.kind,
+      lines: sizeOf(change.node),
+      children: [],
+      ...(change.kind === "moved" ? { from: change.from.path } : {}),
+    }));
+  return { none, lockfiles };
 }

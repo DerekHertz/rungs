@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "16",
+  "extractorVersion": "17",
   "nodes": [
     {
       "id": "class:src/shapes.ts#Circle",
@@ -1236,6 +1236,20 @@
         "start": 1,
         "end": 3
       }
+    }
+  ],
+  "manifests": [
+    {
+      "file": "file:package.json",
+      "path": "package.json",
+      "readable": true,
+      "declared": []
+    },
+    {
+      "file": "file:packages/widget/package.json",
+      "path": "packages/widget/package.json",
+      "readable": true,
+      "declared": []
     }
   ]
 }

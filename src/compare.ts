@@ -1,5 +1,7 @@
 import { argTokens, canonicalEdge, canonicalImport, canonicalNode, compareIds, isCodeNode, nodeId } from "./graph.ts";
 import { callKey, changedEffects, diffEffects, effectLabel, effectSets, occurrences } from "./effects.ts";
+import { diffDependencies } from "./dependencies.ts";
+import type { DependencyChange } from "./dependencies.ts";
 import { diffImports } from "./imports.ts";
 import type { ImportChange } from "./imports.ts";
 import { diffSections } from "./sections.ts";
@@ -35,6 +37,8 @@ export interface Comparison {
   readonly imports: readonly ImportChange[];
   /** The Markdown sections whose lines changed, sorted by path and line; see diffSections in src/sections.ts. Empty when `compare` was not given the file texts. */
   readonly sections: readonly SectionChange[];
+  /** The dependencies package.json files added, removed or changed, sorted; see diffDependencies in src/dependencies.ts. */
+  readonly dependencies: readonly DependencyChange[];
 }
 
 export class ExtractorVersionMismatch extends Error {
@@ -179,7 +183,7 @@ export function compare(base: Graph, head: Graph, trees?: { readonly base: FileT
     else pairs.push({ basePath: change.kind === "moved" ? change.from.path : change.node.path, headPath: change.node.path });
   }
   const sections = trees === undefined ? [] : diffSections(base, head, pairs, trees);
-  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections };
+  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections, dependencies: diffDependencies(base, head, movedTo) };
 }
 
 export type ContractMoveKind = "changed" | "effects" | "added" | "removed" | "exposed" | "unexported" | "moved";
@@ -352,7 +356,7 @@ export function serializeComparison(comparison: Comparison): string {
   });
   const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge), nth: change.nth }));
   const imports = comparison.imports.map((change) => ({ kind: change.kind, edge: canonicalImport(change.edge) }));
-  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports, sections: comparison.sections }, null, 2)}\n`;
+  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports, sections: comparison.sections, dependencies: comparison.dependencies }, null, 2)}\n`;
 }
 
 export type Change = ChangeKind | "unchanged";
