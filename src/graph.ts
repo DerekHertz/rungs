@@ -5,7 +5,7 @@ export type NodeId = string & { readonly __brand: "NodeId" };
 
 // Injective as long as qualifiedName is "" exactly for package, folder and file, and never
 // contains "#" otherwise: the level ends at the first ":" and the name starts after the last "#".
-export function nodeId(level: Level, path: string, qualifiedName: string): NodeId {
+export function nodeId(level: Level | "section", path: string, qualifiedName: string): NodeId {
   const suffix = qualifiedName === "" ? "" : `#${qualifiedName}`;
   return `${level}:${path}${suffix}` as NodeId;
 }
@@ -82,6 +82,45 @@ export interface CodeNode extends NodeBase {
    * class: type parameters, heritage clauses and public method signatures. Never inferred.
    */
   readonly signature: string;
+}
+
+/**
+ * One heading of a Markdown file and the lines under it, down to the next heading of the same or
+ * a higher level. A section has a name and lines, and no edges. Sections are not module nodes:
+ * they sit beside `Graph.nodes`, so nothing that lays out or counts modules sees them.
+ */
+export interface SectionNode {
+  readonly id: NodeId;
+  readonly level: "section";
+  /** The path of the Markdown file. */
+  readonly path: string;
+  /** The heading's text as written, without its hashes; "(2)" follows a repeat among siblings. For display only. */
+  readonly name: string;
+  /** The enclosing section, or the file for a top-level one. */
+  readonly parent: NodeId;
+  /** 1 to 6: the number of hashes. */
+  readonly headingLevel: number;
+  /** Built like a code node's: one segment per enclosing heading, see qualifiedName. */
+  readonly qualifiedName: string;
+  /** From the heading's line to the line before the next heading of the same or a higher level. */
+  readonly range: LineRange;
+}
+
+export function compareSections(a: SectionNode, b: SectionNode): number {
+  return compareIds(a.id, b.id);
+}
+
+export function canonicalSection(node: SectionNode): object {
+  return {
+    id: node.id,
+    level: node.level,
+    path: node.path,
+    name: node.name,
+    parent: node.parent,
+    headingLevel: node.headingLevel,
+    qualifiedName: node.qualifiedName,
+    range: { start: node.range.start, end: node.range.end },
+  };
 }
 
 export type ModuleNode = ContainerNode | FileNode | CodeNode;
@@ -217,6 +256,8 @@ export interface Graph {
   readonly resolutions: readonly ResolutionEdge[];
   /** Sorted by compareImports. */
   readonly imports: readonly ImportEdge[];
+  /** Sorted by id. The headings of the Markdown files. */
+  readonly sections: readonly SectionNode[];
 }
 
 /** The resources some edge reaches, in RESOURCE_ORDER. */
@@ -316,5 +357,6 @@ export function serializeGraph(graph: Graph): string {
   const edges = [...graph.edges].sort(compareEdges).map(canonicalEdge);
   const resolutions = [...graph.resolutions].sort(compareResolutions).map(canonicalResolution);
   const imports = [...graph.imports].sort(compareImports).map(canonicalImport);
-  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions, imports }, null, 2)}\n`;
+  const sections = [...graph.sections].sort(compareSections).map(canonicalSection);
+  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions, imports, sections }, null, 2)}\n`;
 }

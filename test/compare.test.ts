@@ -203,6 +203,7 @@ describe("pairing", () => {
       edges: [],
       resolutions: [],
       imports: [],
+      sections: [],
     });
     const result = compare(graphOf("a".repeat(32), code("class", "x")), graphOf("b".repeat(32), code("function", "y")));
     expect(summarize(result.changes)).toEqual([
@@ -234,6 +235,7 @@ describe("refusing graphs from different extractor versions", () => {
     edges: [],
     resolutions: [],
     imports: [],
+    sections: [],
   });
 
   test("throws before reading any node, naming both versions", () => {

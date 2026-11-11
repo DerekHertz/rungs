@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { compareEdges, compareIds, compareImports, compareResolutions, nodeId, qualifiedName, resourceId } from "../graph.ts";
-import type { CodeNode, Edge, ImportEdge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge, TypeContract } from "../graph.ts";
+import { compareEdges, compareIds, compareImports, compareResolutions, compareSections, nodeId, qualifiedName, resourceId } from "../graph.ts";
+import type { CodeNode, Edge, ImportEdge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge, SectionNode, TypeContract } from "../graph.ts";
 import { countLines, isBinary, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
+import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
@@ -26,6 +27,7 @@ export function extract(tree: FileTree): Graph {
     filesByAdapter.set(adapter, files);
   }
   const nodes: ModuleNode[] = [];
+  const sections: SectionNode[] = [];
   const edges: Edge[] = [];
   const resolutions: ResolutionEdge[] = [];
   const imports: ImportEdge[] = [];
@@ -48,6 +50,7 @@ export function extract(tree: FileTree): Graph {
 
   const directoryLines = new Map<string, number>([["", 0]]);
   for (const [path, text] of tree) {
+    if (posix.extname(path) === ".md" && !isBinary(text)) sections.push(...sectionNodes(path, text));
     const lines = isBinary(text) ? null : countLines(text);
     nodes.push({
       id: nodeId("file", path, ""),
@@ -80,7 +83,8 @@ export function extract(tree: FileTree): Graph {
   edges.sort(compareEdges);
   resolutions.sort(compareResolutions);
   imports.sort(compareImports);
-  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges, resolutions, imports };
+  sections.sort(compareSections);
+  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges, resolutions, imports, sections };
 }
 
 // The only place code identity is decided: ordinals among siblings with the same text in source
@@ -114,6 +118,35 @@ function codeNodes(path: string, text: string, declarations: readonly Declaratio
   };
   visit(declarations, nodeId("file", path, ""), "", 1);
   return { nodes, spans };
+}
+
+// A section's identity is decided here, like a code node's: ordinals among siblings with the same
+// heading text in source order, and the qualified name from the heading path.
+function sectionNodes(path: string, text: string): SectionNode[] {
+  const nodes: SectionNode[] = [];
+  const stack: { level: number; id: NodeId; name: string; seen: Map<string, number> }[] = [];
+  const topSeen = new Map<string, number>();
+  for (const heading of markdownSections(text)) {
+    while (stack.length > 0 && stack.at(-1)!.level >= heading.level) stack.pop();
+    const parent = stack.at(-1);
+    const seen = parent?.seen ?? topSeen;
+    const ordinal = (seen.get(heading.text) ?? 0) + 1;
+    seen.set(heading.text, ordinal);
+    const name = qualifiedName(parent?.name ?? "", heading.text, ordinal);
+    const id = nodeId("section", path, name);
+    nodes.push({
+      id,
+      level: "section",
+      path,
+      name: ordinal > 1 ? `${heading.text} (${ordinal})` : heading.text,
+      parent: parent?.id ?? nodeId("file", path, ""),
+      headingLevel: heading.level,
+      qualifiedName: name,
+      range: { start: heading.start, end: heading.end },
+    });
+    stack.push({ level: heading.level, id, name, seen: new Map() });
+  }
+  return nodes;
 }
 
 interface Span {

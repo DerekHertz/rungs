@@ -1221,5 +1221,20 @@
         "end": 1
       }
     }
+  ],
+  "sections": [
+    {
+      "id": "section:README.md#Small",
+      "level": "section",
+      "path": "README.md",
+      "name": "Small",
+      "parent": "file:README.md",
+      "headingLevel": 1,
+      "qualifiedName": "Small",
+      "range": {
+        "start": 1,
+        "end": 3
+      }
+    }
   ]
 }

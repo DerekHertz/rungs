@@ -104,7 +104,7 @@ export async function serve(
   const graph = extract(tree);
   const baseTree = base === undefined ? undefined : new Map(base.tree);
   const baseGraph = baseTree === undefined ? undefined : extract(baseTree);
-  const comparison = baseGraph === undefined ? undefined : compare(baseGraph, graph);
+  const comparison = baseGraph === undefined || baseTree === undefined ? undefined : compare(baseGraph, graph, { base: baseTree, head: tree });
   const removed = new Map<NodeId, ModuleNode>();
   for (const change of comparison?.changes ?? []) {
     if (change.kind === "removed") removed.set(change.node.id, change.node);

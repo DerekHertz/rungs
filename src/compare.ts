@@ -2,8 +2,10 @@ import { argTokens, canonicalEdge, canonicalImport, canonicalNode, compareIds, i
 import { callKey, changedEffects, diffEffects, effectLabel, effectSets, occurrences } from "./effects.ts";
 import { diffImports } from "./imports.ts";
 import type { ImportChange } from "./imports.ts";
+import { diffSections } from "./sections.ts";
+import type { FilePair, SectionChange } from "./sections.ts";
 import type { ChangedEffect, EffectChange } from "./effects.ts";
-import type { CodeNode, ContainerNode, EffectEdge, FileNode, Graph, ModuleNode, NodeId, TypeContract } from "./graph.ts";
+import type { CodeNode, ContainerNode, EffectEdge, FileNode, FileTree, Graph, ModuleNode, NodeId, TypeContract } from "./graph.ts";
 
 export type ChangeKind = "added" | "altered" | "removed" | "moved";
 
@@ -31,6 +33,8 @@ export interface Comparison {
   readonly changedEffects: readonly ChangedEffect[];
   /** The import edges that appeared or went away, sorted; see diffImports in src/imports.ts. */
   readonly imports: readonly ImportChange[];
+  /** The Markdown sections whose lines changed, sorted by path and line; see diffSections in src/sections.ts. Empty when `compare` was not given the file texts. */
+  readonly sections: readonly SectionChange[];
 }
 
 export class ExtractorVersionMismatch extends Error {
@@ -62,8 +66,11 @@ const isBody = (node: ModuleNode): node is Body => node.level !== "package" && n
  *   qualified name.
  * - Packages and folders pair by path, so a folder that gains a package.json is no change, and
  *   are never altered. A path only in head is added, a path only in base is removed.
+ *
+ * `trees` are the two sides' file texts. With them, `sections` lists the Markdown sections whose
+ * lines changed; without them it is empty, because a graph holds no text.
  */
-export function compare(base: Graph, head: Graph): Comparison {
+export function compare(base: Graph, head: Graph, trees?: { readonly base: FileTree; readonly head: FileTree }): Comparison {
   if (base.extractorVersion !== head.extractorVersion) {
     throw new ExtractorVersionMismatch(base.extractorVersion, head.extractorVersion);
   }
@@ -164,7 +171,15 @@ export function compare(base: Graph, head: Graph): Comparison {
     if (!isBody(node) && !baseDirs.has(node.path)) changes.push({ kind: "added", node });
   }
   changes.sort((a, b) => compareIds(a.node.id, b.node.id));
-  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo) };
+  const pairs: FilePair[] = [];
+  for (const change of changes) {
+    if (change.node.level !== "file" || !change.node.path.endsWith(".md")) continue;
+    if (change.kind === "added") pairs.push({ basePath: undefined, headPath: change.node.path });
+    else if (change.kind === "removed") pairs.push({ basePath: change.node.path, headPath: undefined });
+    else pairs.push({ basePath: change.kind === "moved" ? change.from.path : change.node.path, headPath: change.node.path });
+  }
+  const sections = trees === undefined ? [] : diffSections(base, head, pairs, trees);
+  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections };
 }
 
 export type ContractMoveKind = "changed" | "effects" | "added" | "removed" | "exposed" | "unexported" | "moved";
@@ -337,7 +352,7 @@ export function serializeComparison(comparison: Comparison): string {
   });
   const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge), nth: change.nth }));
   const imports = comparison.imports.map((change) => ({ kind: change.kind, edge: canonicalImport(change.edge) }));
-  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports }, null, 2)}\n`;
+  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports, sections: comparison.sections }, null, 2)}\n`;
 }
 
 export type Change = ChangeKind | "unchanged";
