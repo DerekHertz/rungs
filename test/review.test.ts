@@ -203,6 +203,10 @@ test("a bare ancestor word does not mention a move group, and a trailing slash n
   const moved = { "package.json": "{}\n", "new/a.md": "a\n", "new/b.md": "b\n" };
   expect(review(old, moved, "Move `old/` to `new/`.").entries).toEqual([]);
   expect(review(old, moved, "Move `new/`.").entries).toEqual([]);
+  expect(review(old, moved, "Move new/.").entries).toEqual([]);
+  expect(review(old, moved, "Moved (old/), then more.").entries).toEqual([]);
+  expect(review(old, moved, "Update new/@scope/index.ts.").entries.map((entry) => entry.level)).toEqual(["moves"]);
+  expect(review(old, moved, "Update new/.hidden and new/-x.").entries.map((entry) => entry.level)).toEqual(["moves"]);
   expect(review(old, moved, "Move old/a.md.").entries.map((entry) => entry.label)).toEqual(["new/b.md"]);
 });
 

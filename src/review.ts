@@ -218,7 +218,10 @@ export function unmentioned(
   }
   // A folder is named as a path, bare or with a trailing slash (never as the start of a file's path).
   // Only the group's own folder may be a bare word; a folder above it needs a slash: `themes/town` or `themes/`.
-  const slashed = (dir: string): boolean => new RegExp(`(?<![\\p{ID_Continue}\\u200C\\u200D_./-])${escape(dir)}/(?![\\p{ID_Continue}\\u200C\\u200D_./$-])`, "u").test(description);
+  // The path token ends after the slash: at white space, the end, a closing quote or bracket, or
+  // sentence punctuation that is itself followed by one of those. `new/@scope/x.ts` and `new/.env` go on.
+  const tokenEnd = "(?=$|[\\s\"'`)\\]}>]|[.,;:!?](?=$|[\\s\"'`)\\]}>]))";
+  const slashed = (dir: string): boolean => new RegExp(`(?<![\\p{ID_Continue}\\u200C\\u200D_./-])${escape(dir)}/${tokenEnd}`, "u").test(description);
   const folderNamed = (dir: string): boolean => {
     for (let at = dir; at !== ""; at = directoryOf(at)) {
       if ((at === dir || at.includes("/")) && appears(description, "path", at)) return true;
