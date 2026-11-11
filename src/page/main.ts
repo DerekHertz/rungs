@@ -23,6 +23,7 @@ import { observedReport } from "../observed-report.ts";
 import { changeNote, drawRows, loadRows, markRows } from "./code-rows.ts";
 import type { CodeParts, Drawn, Loaded } from "./code-rows.ts";
 import type { TestChanges } from "../test-changes-types.ts";
+import type { RiskItem } from "../risks.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
@@ -690,6 +691,8 @@ if (comparison !== null) {
     pickNode,
     observed: observed === null ? null : { document: observed, report: observedRun },
     testChanges,
+    risks: ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks,
+    pickRisk: (risk: RiskItem) => pickPlaces(risk.ids),
   });
 
   const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };

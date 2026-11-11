@@ -10,6 +10,7 @@ import { observedAbout, observedBody, observedNote } from "./observed-panel.ts";
 import type { ObservedInput } from "./observed-panel.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import { testChangesBlock } from "./test-changes-panel.ts";
+import type { RiskItem } from "../risks.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   changed: "~",
@@ -73,6 +74,10 @@ export interface ReviewInput {
   readonly observed: ObservedInput | null;
   /** What the change did to the tests, derived from the two trees. */
   readonly testChanges: TestChanges;
+  /** The derived risks, ranked; null without a comparison. */
+  readonly risks: readonly RiskItem[] | null;
+  /** The user picked a risk; the host selects its places. */
+  readonly pickRisk: (item: RiskItem) => void;
 }
 
 /** A new element with a class and, when given, text; never markup. */
@@ -83,7 +88,7 @@ export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className
   return made;
 }
 
-type RowId = "claims" | "unmentioned" | "contracts" | "tests";
+type RowId = "risks" | "claims" | "unmentioned" | "contracts" | "tests";
 
 const STORE_KEY = "streets.review.open";
 
@@ -501,6 +506,37 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     return fragment;
   }
 
+  // Risks
+
+  function fillRisks(body: HTMLElement): void {
+    const risks = input.risks ?? [];
+    if (risks.length === 0) {
+      body.append(element("p", "review-empty", "No risks found: no contract moved, no new call out, no test weakened, no dependency changed."));
+      return;
+    }
+    const titles: Record<RiskItem["kind"], string> = { contract: "Contracts moved", effect: "Effects reaching out", test: "Tests", dependency: "Dependencies" };
+    for (const kind of ["contract", "effect", "test", "dependency"] as const) {
+      const items = risks.filter((risk) => risk.kind === kind);
+      if (items.length === 0) continue;
+      const rows = element("ul", "review-list");
+      for (const risk of items) {
+        const detail = element("div", "risk-detail");
+        detail.hidden = true;
+        detail.append(element("pre", "review-claim", risk.detail));
+        if (risk.blast.count > 0) detail.append(element("p", "review-empty", `Rests on it: ${risk.blast.files.join(", ")}`));
+        const item = element("li", "review-row");
+        const pick = picker("review-pick", detail, () => input.pickRisk(risk));
+        pick.title = risk.path;
+        const text = element("span", "contract-text");
+        text.append(element("span", "review-label", risk.label), element("span", "contract-where", risk.blast.count > 0 ? `${risk.path} · ${plural(risk.blast.count, "file")} rest on it` : risk.path));
+        pick.append(element("span", "review-mark", "!"), text);
+        item.append(pick, detail);
+        rows.append(item);
+      }
+      body.append(element("h3", "review-subtitle", `${titles[kind]} (${items.length})`), rows);
+    }
+  }
+
   // Tests
 
   function fillTests(body: HTMLElement): void {
@@ -524,6 +560,13 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   const tested = input.observed !== null || testChangesBlock(input.testChanges, input.pickNode) !== null;
   const weakened = input.testChanges.deletedFiles.length + input.testChanges.removedTests.length + input.testChanges.markers.length + input.testChanges.weakened.length;
   const questions: Question[] = [
+    {
+      id: "risks",
+      name: "Risks",
+      tag: "derived",
+      summary: input.risks === null ? "none" : input.risks.length === 0 ? "none found" : `${input.risks.length} ${input.risks.length === 1 ? "risk" : "risks"}${input.risks.some((risk) => risk.kind === "contract") ? `, ${plural(input.risks.filter((risk) => risk.kind === "contract").length, "contract")} moved` : ""}`,
+      fill: fillRisks,
+    },
     { id: "claims", name: "Claims", tag: "claimed", summary: claimsSummary(input.description, input.claims, input.link.status, input.context.length), fill: fillClaims },
     {
       id: "unmentioned",
@@ -610,8 +653,9 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   }
 
   const saved = remembered();
-  const fallback: RowId = input.description === null ? "unmentioned" : "claims";
-  setOpen(questions.find((question) => question.id === saved)?.id ?? fallback);
+  const fallback: RowId = input.risks === null ? (input.description === null ? "unmentioned" : "claims") : "risks";
+  // The panel opens on Risks; a remembered row only applies when there are no risks to open on.
+  setOpen((input.risks === null ? questions.find((question) => question.id === saved)?.id : undefined) ?? fallback);
 
   // About this run
 
