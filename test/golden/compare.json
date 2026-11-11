@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "16",
+  "extractorVersion": "17",
   "changes": [
     {
       "kind": "added",
@@ -698,5 +698,6 @@
       }
     }
   ],
-  "sections": []
+  "sections": [],
+  "dependencies": []
 }

@@ -1,4 +1,5 @@
 import { posix } from "node:path";
+import { LOCKFILE_NAMES } from "../graph.ts";
 import type { Role } from "../graph.ts";
 
 interface RoleRule {
@@ -7,13 +8,7 @@ interface RoleRule {
   readonly matches: (path: string, analysed: boolean) => boolean;
 }
 
-const LOCKFILES: ReadonlySet<string> = new Set([
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "yarn.lock",
-  "pnpm-lock.yaml",
-  "bun.lock",
-]);
+const LOCKFILES = LOCKFILE_NAMES;
 
 const CONFIG_BASENAMES: ReadonlySet<string> = new Set([
   "package.json",

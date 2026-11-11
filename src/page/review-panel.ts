@@ -1,9 +1,10 @@
 import { tallyText } from "../compare.ts";
 import type { ChangeKind } from "../compare.ts";
 import { shortToken } from "../effects.ts";
+import { declarationText } from "../dependencies.ts";
 import { effectChip, sectionCount, signatureDiff } from "../review.ts";
 import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
-import type { ContractRow, ContractsReport, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
+import type { ContractRow, ContractsReport, DependencyReview, DependencyRow, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
 import { observedAbout, observedBody, observedNote } from "./observed-panel.ts";
 import type { ObservedInput } from "./observed-panel.ts";
@@ -60,6 +61,8 @@ export interface ReviewInput {
   readonly contracts: ContractsReport | null;
   /** Null without a comparison to derive them from. Shown with or without a description. */
   readonly effects: NewEffects | null;
+  /** Null without a comparison to derive them from. Shown with or without a description. */
+  readonly dependencies: DependencyReview | null;
   /** The user picked an entry; the host selects and flies to its place. */
   readonly pick: (entry: ReviewEntry) => void;
   /** The user picked a call; the host selects its module and marks the call's lines. */
@@ -238,13 +241,14 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     if (input.effects !== null && input.effects.changed.none.length > 0) {
       body.append(element("h3", "review-subtitle", `Effects changed, no claim covers them (${input.effects.changed.none.length})`), list(...input.effects.changed.none.map(effectsChangedRow)));
     }
+    if (input.dependencies !== null && input.dependencies.none.length > 0) body.append(...dependenciesBlock(input.dependencies));
     const result = input.unmentioned;
     if (result === null) {
       body.append(element("p", "review-empty", "No description was given, so no file can be checked against a claim."));
     } else {
       const uncovered = result.unmentionedFiles - result.linkedFiles;
       body.append(element("h3", "review-subtitle", `Files no claim covers (${uncovered} of ${result.changedFiles} changed)`));
-      if (result.entries.length === 0) body.append(element("p", "review-empty", result.linkedFiles > 0 ? "Every other changed file is mentioned." : "Every changed file is mentioned."));
+      if (result.entries.length === 0) body.append(element("p", "review-empty", result.dependencyLockfiles > 0 ? "The only uncovered change is a lockfile, listed under the dependency changes above." : result.linkedFiles > 0 ? "Every other changed file is mentioned." : "Every changed file is mentioned."));
       else body.append(list(...result.entries.map((entry) => row(entry, false))));
       if (input.link.status === "ok" && result.linkedEntries.length > 0) {
         const head = element("h3", "review-subtitle", `Linked by the agent only (${plural(result.linkedFiles, "file")})`);
@@ -260,6 +264,39 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       head.append(element("span", "review-tag claimed", "claimed"));
       body.append(head, list(...input.effects.changed.byAgent.map(effectsChangedRow)));
     }
+  }
+
+  function dependenciesBlock(review: DependencyReview): HTMLElement[] {
+    const title = element("h3", "review-subtitle", `Dependency changes, no claim covers them (${review.none.length})`);
+    const items = review.none.map(dependencyRow);
+    if (review.lockfiles.length > 0) {
+      const nested = review.lockfiles.map((entry) => row(entry, false));
+      items.push(
+        openable("dependency-lockfile", `lockfile follows (${review.lockfiles.length})`, "", (into) => {
+          into.append(...nested);
+        }),
+      );
+    }
+    return [title, list(...items)];
+  }
+
+  function dependencyRow(found: DependencyRow): HTMLElement {
+    const { change } = found;
+    const item = element("li", "review-row dependency-change");
+    const line = element("div", "review-line");
+    line.append(element("span", "review-toggle"));
+    const pick = picker("review-pick", undefined, () => input.pickNode(found.id));
+    pick.dataset.id = found.id;
+    const mark = change.kind === "added" ? "+" : change.kind === "removed" ? "−" : "~";
+    const written = (side: typeof change.before): string => side.map(declarationText).join(", ");
+    const detail = change.kind === "added" ? written(change.after) : change.kind === "removed" ? written(change.before) : `${written(change.before)} → ${written(change.after)}`;
+    pick.title = `${change.kind}: ${change.name} ${detail} in ${change.path}`;
+    pick.append(element("span", `review-mark ${change.kind === "changed" ? "altered" : change.kind}`, mark), element("span", "review-label rv-ellipsis", change.name));
+    const where = element("span", "contract-where rv-ellipsis", `${change.kind} · ${detail} · ${change.path}`);
+    pick.append(where);
+    line.append(pick);
+    item.append(line);
+    return item;
   }
 
   function effectsBlock(block: EffectsBlock, byAgent: boolean, agentOnly = 0): HTMLElement[] {
@@ -492,7 +529,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       id: "unmentioned",
       name: "Unmentioned",
       tag: "derived",
-      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, sections: result === null ? 0 : sectionCount(result.entries), moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0, agent: { files: result?.linkedFiles ?? 0, calls: (input.effects?.byAgent.edges ?? 0) + (input.effects?.byAgent.tests.edges ?? 0), changed: input.effects?.changed.byAgent.length ?? 0 } }),
+      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, sections: result === null ? 0 : sectionCount(result.entries), moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0, dependencies: input.dependencies?.none.length ?? 0, agent: { files: result?.linkedFiles ?? 0, calls: (input.effects?.byAgent.edges ?? 0) + (input.effects?.byAgent.tests.edges ?? 0), changed: input.effects?.changed.byAgent.length ?? 0 } }),
       fill: fillUnmentioned,
     },
     {
@@ -592,7 +629,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   });
   const notes: [string, string][] = [
     ["Claims", linkNote(input.link)],
-    ["Unmentioned", "A change counts as mentioned when its path or name appears in the description; a Markdown section when its heading, or an enclosing heading, appears as a whole phrase, ignoring case. One only an agent links to the module or its file stays in the count as linked by the agent only; an agent's link to a folder covers none of its files. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
+    ["Unmentioned", "A change counts as mentioned when its path or name appears in the description (a dependency by its name); a Markdown section when its heading, or an enclosing heading, appears as a whole phrase, ignoring case. One only an agent links to the module or its file stays in the count as linked by the agent only; an agent's link to a folder covers none of its files. A lockfile change is listed under the dependency changes it follows. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
     ...(input.observed === null ? [] : observedAbout(input.observed))
   ];
   for (const [title, text] of notes) aboutBody.append(element("h3", "review-subtitle", title), element("p", "rv-note", text));

@@ -250,6 +250,37 @@ export function canonicalImport(edge: ImportEdge): object {
   };
 }
 
+export const DEPENDENCY_LISTS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const;
+export type DependencyList = (typeof DEPENDENCY_LISTS)[number];
+
+/** One entry of a list in package.json: the name and the range exactly as written, never resolved. */
+export interface Dependency {
+  readonly name: string;
+  /** Null when package.json writes something other than a string: declared, range unknown. */
+  readonly range: string | null;
+  readonly list: DependencyList;
+}
+
+/**
+ * What one package.json declares, read from that file alone, never from a lockfile. `readable` is
+ * false when the file is not a JSON object, in which case `declared` is empty and says nothing: an
+ * unreadable manifest declares no dependency and removes none. An entry whose range is not a
+ * string is kept with a null range, so it is never taken for a removal. Sorted by list order, then name.
+ */
+export interface Manifest {
+  readonly file: NodeId;
+  readonly path: string;
+  readonly readable: boolean;
+  readonly declared: readonly Dependency[];
+}
+
+/** The file names the extractor treats as lockfiles. */
+export const LOCKFILE_NAMES: ReadonlySet<string> = new Set(["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock"]);
+
+export function canonicalManifest(manifest: Manifest): object {
+  return { file: manifest.file, path: manifest.path, readable: manifest.readable, declared: manifest.declared.map((d) => ({ name: d.name, range: d.range, list: d.list })) };
+}
+
 export interface Graph {
   readonly extractorVersion: string;
   readonly nodes: readonly ModuleNode[];
@@ -261,6 +292,8 @@ export interface Graph {
   readonly imports: readonly ImportEdge[];
   /** Sorted by id. The headings of the Markdown files. */
   readonly sections: readonly SectionNode[];
+  /** One per package.json in the tree, sorted by path. */
+  readonly manifests: readonly Manifest[];
 }
 
 /** The resources some edge reaches, in RESOURCE_ORDER. */
@@ -361,5 +394,6 @@ export function serializeGraph(graph: Graph): string {
   const resolutions = [...graph.resolutions].sort(compareResolutions).map(canonicalResolution);
   const imports = [...graph.imports].sort(compareImports).map(canonicalImport);
   const sections = [...graph.sections].sort(compareSections).map(canonicalSection);
-  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions, imports, sections }, null, 2)}\n`;
+  const manifests = [...graph.manifests].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map(canonicalManifest);
+  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions, imports, sections, manifests }, null, 2)}\n`;
 }
