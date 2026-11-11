@@ -478,14 +478,14 @@ def dish(at, aim, radius):
     quat = Vector(aim).normalized().to_track_quat("Z", "Y")
     forward = quat @ Vector((0, 0, 1))
     start = Vector(at)
-    bowl = frustum(0.05, radius, (0, 0, 0), 0.34, TRIM, 12)
-    face = frustum(radius * 0.9, radius * 0.9, (0, 0, 0.335), 0.02, toon("#9fb3d1"), 12)
+    bowl = frustum(0.03, radius, (0, 0, 0), 0.16, TRIM, 12)
+    face = frustum(radius * 0.9, radius * 0.9, (0, 0, 0.155), 0.015, toon("#9fb3d1"), 12)
     for part, shift in ((bowl, 0.0), (face, 0.0)):
         part.rotation_euler = quat.to_euler()
-        part.location = start + forward * (0.22 + shift)
-    beam(tuple(start), tuple(start + forward * 0.25), 0.07, DARK)
-    beam(tuple(start + forward * (0.22 + 0.26)), tuple(start + forward * (0.22 + 0.7)), 0.035, DARK)
-    box((0.07, 0.07, 0.07), tuple(start + forward * (0.22 + 0.7) - Vector((0.035, 0.035, 0.035))), PINK)
+        part.location = start + forward * (0.12 + shift)
+    beam(tuple(start), tuple(start + forward * 0.14), 0.06, DARK)
+    beam(tuple(start + forward * (0.12 + 0.16)), tuple(start + forward * (0.12 + 0.3)), 0.03, DARK)
+    box((0.07, 0.07, 0.07), tuple(start + forward * (0.12 + 0.3) - Vector((0.035, 0.035, 0.035))), PINK)
 
 
 def radio_mast():
@@ -496,7 +496,7 @@ def radio_mast():
     box((0.18, 0.18, 5.2), (0.5, -0.4, 0), METAL)
     for i in range(9):
         box((0.26, 0.26, 0.04), (0.5, -0.4, 0.5 + i * 0.55), DARK)
-    for z, r, aim in ((3.5, 0.55, (0.75, -0.65, 0.2)), (4.4, 0.4, (1.0, -0.25, 0.15))):
+    for z, r, aim in ((3.5, 0.22, (0.75, -0.65, 0.2)), (4.4, 0.16, (1.0, -0.25, 0.15))):
         dish((0.5, -0.4, z), aim, r)
     box((0.26, 0.26, 0.26), (0.5, -0.4, 5.2), PINK)
     return 5.6
@@ -601,21 +601,13 @@ def slab(low, high, material):
 
 
 def arch(centre, inner, outer, thick, material, segments=9):
-    """A half ring standing in the XZ plane, centred on `centre`, for a gate's arch."""
+    """A half ring standing in the XZ plane, centred on `centre`, built from closed wedges."""
     cx, cy, cz = centre
-    verts = []
-    for i in range(segments + 1):
-        a = math.pi * i / segments
-        for r in (inner, outer):
-            for dy in (-thick / 2, thick / 2):
-                verts.append((cx + r * math.cos(a), cy + dy, cz + r * math.sin(a)))
-    faces = []
     for i in range(segments):
-        a, b = i * 4, (i + 1) * 4
-        faces += [(a, a + 1, b + 1, b), (a + 2, a + 3, b + 3, b + 2), (a, a + 2, b + 2, b), (a + 1, a + 3, b + 3, b + 1)]
-    last = segments * 4
-    faces += [(0, 1, 3, 2), (last, last + 1, last + 3, last + 2)]
-    return mesh_object("arch", verts, faces, material)
+        a0, a1 = math.pi * i / segments, math.pi * (i + 1) / segments
+        low = [(cx + inner * math.cos(a0), cy - thick / 2, cz + inner * math.sin(a0)), (cx + outer * math.cos(a0), cy - thick / 2, cz + outer * math.sin(a0)), (cx + outer * math.cos(a1), cy - thick / 2, cz + outer * math.sin(a1)), (cx + inner * math.cos(a1), cy - thick / 2, cz + inner * math.sin(a1))]
+        high = [(x, y + thick, z) for x, y, z in low]
+        mesh_object("wedge", low + high, CUBE_FACES, material)
 
 
 # Harbour: one structure per kind of outside resource. Queue and code loaded at run time are new.
@@ -639,7 +631,7 @@ def port_queue():
 
 def port_dynamic_load():
     """The harbour's code-loaded-at-run-time structure: a cargo barge with its hatch open."""
-    hull = toon("#4a5878")
+    hull = toon("#8aa6cc")
     slab([(-1.8, -0.6, 0.0), (1.4, -0.6, 0.0), (1.4, 0.6, 0.0), (-1.8, 0.6, 0.0)], [(-1.95, -0.7, 0.8), (1.8, -0.7, 0.8), (1.8, 0.7, 0.8), (-1.95, 0.7, 0.8)], hull)
     box((3.7, 1.4, 0.05), (-0.07, 0, 0.8), WOOD)
     box((0.9, 1.0, 0.9), (-1.25, 0, 0.85), TRIM)
@@ -724,14 +716,14 @@ def sign_moved():
 
 
 # Inside a file, walls down. Tiles are one metre; origin is the tile's centre on the floor.
-FLOOR_A = toon("#8a6b4a")
-FLOOR_B = toon("#7a5d3f")
+FLOOR_A = toon("#a89b88")
+FLOOR_B = toon("#968a79")
 
 
 def floor_tile():
     box((1.0, 1.0, 0.06), (0, 0, 0), toon("#5f4a34"))
     for i in range(4):
-        box((0.23, 0.94, 0.04), (-0.355 + i * 0.237, 0, 0.0), FLOOR_A if i % 2 else FLOOR_B)
+        box((0.23, 0.94, 0.04), (-0.355 + i * 0.237, 0, 0.05), FLOOR_A if i % 2 else FLOOR_B)
     return 0.2
 
 
@@ -740,7 +732,7 @@ def floor_changed():
     box((1.0, 1.0, 0.06), (0, 0, 0), toon("#5f4a34"))
     for i in range(2):
         for j in range(2):
-            box((0.47, 0.47, 0.045), (-0.25 + i * 0.5, -0.25 + j * 0.5, 0.0), ORANGE if (i + j) % 2 else TRIM)
+            box((0.47, 0.47, 0.045), (-0.25 + i * 0.5, -0.25 + j * 0.5, 0.05), toon("#ff7a1a") if (i + j) % 2 else TRIM)
     return 0.2
 
 
@@ -875,12 +867,12 @@ render("port-dynamic-load", port_dynamic_load(), 288)
 for step, height in enumerate((0.3, 0.6, 0.9, 1.2), 1):
     render("plinth-%d" % step, plinth(height), 288, 190)
 render("gate", gate(), 144, 60)
-render("footpath-x", footpath(True), 96, 30)
-render("footpath-y", footpath(False), 96, 30)
+render("footpath-x", footpath(True), 96, 80)
+render("footpath-y", footpath(False), 96, 80)
 render("rubble", rubble(), 192, 60)
 render("sign-moved", sign_moved(), 176, 60)
-render("floor", floor_tile(), 96, 30)
-render("floor-changed", floor_changed(), 96, 30)
+render("floor", floor_tile(), 96, 80)
+render("floor-changed", floor_changed(), 96, 80)
 render("wall-x", wall_x(), 96, 40)
 render("wall-y", wall_y(), 96, 40)
 render("door-outside", door_outside(), 96, 40)
