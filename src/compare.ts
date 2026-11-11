@@ -300,7 +300,7 @@ export function serializeComparison(comparison: Comparison): string {
         return { kind: change.kind, node: canonicalNode(change.node), from: canonicalNode(change.from) };
     }
   });
-  const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge) }));
+  const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge), nth: change.nth }));
   const imports = comparison.imports.map((change) => ({ kind: change.kind, edge: canonicalImport(change.edge) }));
   return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports }, null, 2)}\n`;
 }

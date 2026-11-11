@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { compare, pictureOf } from "../src/compare.ts";
+import { compare, pictureOf, serializeComparison } from "../src/compare.ts";
+import type { Comparison } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree, Graph, NodeId } from "../src/graph.ts";
 import { insideOf, marksOf, objectSpriteName, roomNamesAt, ROOM_STEPS, sideOfLines } from "../src/town-inside.ts";
@@ -210,6 +211,13 @@ class Box { open() { return fs.readFileSync("y"); } }
     });
     test("calls pair with their identical twin first, so the odd one out rings", () => {
       expect(rung('fetch("/a", b); fetch("/a");', 'fetch("/a"); fetch("/a");')).toEqual([["0", false], ["1", true]]);
+    });
+    test("the rings survive the JSON round trip the browser reads", () => {
+      const one = extract(treeOf({ "a.js": `function f() { fetch("/a"); fetch("/b", x); }\n` }));
+      const two = extract(treeOf({ "a.js": `function f() { fetch("/a"); fetch("/a"); fetch("/b", y); }\n` }));
+      const sent = JSON.parse(serializeComparison(compare(one, two))) as Comparison;
+      const there = insideOf(two, FILE, SHEET, marksOf(sent, pictureOf(two, sent).overlay!, FILE, "a.js"))!;
+      expect(there.rooms[0]!.objects.map((object) => object.altered)).toEqual([false, true, true]);
     });
     test("an added argument still rings the call, and a call that did not change does not", () => {
       expect(rung('fetch("/a", opts); fetch("/a", other);', 'fetch("/a", opts, 1); fetch("/a", other);')).toEqual([["0", true], ["1", false]]);

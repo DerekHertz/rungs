@@ -108,6 +108,28 @@ describe("round-2 edge cases (#126)", () => {
     expect(scripts("tool.js", ["tool.js"])).toEqual([]);
     expect(scripts("/abs/tool.js", ["abs/tool.js"])).toEqual([]);
   });
+  test("tsx has a watch subcommand and takes node's --test", () => {
+    expect(scripts("tsx watch app.js", ["app.js"])).toEqual(["app.js"]);
+    expect(scripts("tsx --test a.js b.js", ["a.js", "b.js"])).toEqual(["a.js", "b.js"]);
+  });
+  test("an option the parser does not know never loses the script", () => {
+    const files = ["app.js", "other.js"];
+    expect(scripts("node --inspect-port 9230 app.js", files)).toEqual(["app.js"]);
+    expect(scripts("node --inspect-port=9230 app.js", files)).toEqual(["app.js"]);
+    expect(scripts("node --unknown app.js", files)).toEqual(["app.js"]);
+    expect(scripts("node --unknown app.js other.js", files)).toEqual(["app.js"]);
+    expect(scripts("deno --quiet run app.js", files)).toEqual(["app.js"]);
+  });
+  test("a repeated * is delimited from the digit after it", () => {
+    expect(pathsOf({ exports: { "./*": "./src/*/*1.js" } }, ["src/a/a1.js", "src/a/b1.js"])).toEqual(["src/a/a1.js"]);
+  });
+  test("a & puts the whole and-list before it in the background", () => {
+    const files = ["sub/app.js", "app.js", "sub/other.js", "other.js"];
+    expect(scripts("echo ok & cd sub; node app.js", files)).toEqual(["sub/app.js"]);
+    expect(scripts("cd sub && node app.js & node other.js", files)).toEqual(["other.js", "sub/app.js"]);
+    expect(scripts("cd sub && node app.js &\nnode other.js", files)).toEqual(["other.js", "sub/app.js"]);
+    expect(scripts("cd sub && node app.js && cd .. | cat; node other.js", files)).toEqual(["sub/app.js", "sub/other.js"]);
+  });
   test("a backslash in double quotes escapes only a dollar, a backtick, a double quote and a backslash", () => {
     expect(scripts(String.raw`node "dir\file.js"`, ["dirfile.js", String.raw`dir\file.js`])).toEqual([String.raw`dir\file.js`]);
     expect(scripts(String.raw`node "a\\b.js"`, [String.raw`a\b.js`])).toEqual([String.raw`a\b.js`]);
