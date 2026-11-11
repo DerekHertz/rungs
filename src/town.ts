@@ -1,6 +1,8 @@
 import type { Comparison } from "./compare.ts";
 import { resourcesOf } from "./graph.ts";
 import type { ContainerNode, FileNode, Graph, ModuleNode, NodeId, ResourceKind, Role } from "./graph.ts";
+import { importanceOf, reachedFrom } from "./importance.ts";
+import type { WayIn } from "./importance.ts";
 
 /*
  * The town: a pure function from the graph (and the names of the sprites the sheet has) to
@@ -57,6 +59,21 @@ export function namesAt(zoom: number): "blocks" | "files" {
 export function blockNamedAt(zoom: number, depth: number): boolean {
   if (depth === 0) return true;
   return 2 * LOT * AXIS * zoom >= FILE_NAMES_FROM_LOT_PX * 0.8 * (1 - 0.5 ** depth);
+}
+
+/** How tall each plinth sprite stands, in ground units (themes/town/make_sprites.py): the building on it is raised by this. */
+export const PLINTH_HEIGHTS = [0.3, 0.6, 0.9, 1.2] as const;
+/** On a lot, relative to its middle: the gate's gap stands this far towards the front (-Y), and a footpath's one tile runs from the door to the lot's edge. */
+export const GATE_FRONT = 2.15;
+export const PATH_AT = { X: -0.45, Y: -1.75 } as const;
+
+/**
+ * Where a lot's footpath tile lies on the ground. A plinth's front stair stands in the way, so the
+ * path starts beyond the stair, which is one 0.3 step deep for each 0.3 of the plinth's height.
+ */
+export function footpathAt(lot: Pick<Lot, "X" | "Y" | "raise">): { X: number; Y: number } {
+  if (lot.raise === 0) return { X: lot.X + PATH_AT.X, Y: lot.Y + PATH_AT.Y };
+  return { X: lot.X, Y: lot.Y + PATH_AT.Y - lot.raise };
 }
 
 export type BuildingKind = "workshop" | "lab" | "library" | "shed" | "warehouse" | "hut";
@@ -120,6 +137,17 @@ export interface Lot {
   readonly sprite: string;
   readonly classes: number;
   readonly functions: number;
+  /** The files that rest on this one through imports, directly or not, by path; the count is its length. */
+  readonly restsOn: readonly string[];
+  /** The plinth's sprite, none for a file nothing rests on, and how far the building is raised by it. */
+  readonly plinth: string | undefined;
+  readonly raise: number;
+  /** Why the repo declares this file a way in; empty for any other file. */
+  readonly wayIn: readonly string[];
+  /** A non-test way in: it has a gate. */
+  readonly gate: boolean;
+  /** Some way in reaches it through imports (a way in reaches itself). A file nothing reaches has no footpath. */
+  readonly reached: boolean;
   /** The change this lot shows; "unchanged" when nothing is compared. */
   readonly change: LotChange;
   /** The scaffolding over an altered file's building, when the sheet has one for its size. */
@@ -281,13 +309,26 @@ export interface Town {
   readonly quay: { readonly X: number; readonly Y: number };
   /** The fewest and most classes and functions in a file, generated files left out. */
   readonly counts: { readonly fewest: number; readonly most: number };
+  /** The fewest and most files resting on a file that has any: the ends of the plinth scale. */
+  readonly importance: { readonly fewest: number; readonly most: number };
+  /** How many files nothing reaches. */
+  readonly unreached: number;
   /** True under a comparison: names, marks and counts follow the change. */
   readonly comparing: boolean;
 }
 
-/** The harbour structure a kind of resource picks, by sheet name. */
+/** The harbour structure each kind of resource picks, by sheet name: written out, never derived from the kind's words. */
+const PIER_SPRITES: Readonly<Record<ResourceKind, string>> = {
+  process: "port-process",
+  network: "port-network",
+  queue: "port-queue",
+  "file system": "port-file-system",
+  timer: "port-timer",
+  "code loaded at run time": "port-dynamic-load",
+};
+
 export function pierSpriteName(kind: ResourceKind): string {
-  return `port-${kind.replaceAll(" ", "-")}`;
+  return PIER_SPRITES[kind];
 }
 
 /**
@@ -322,8 +363,17 @@ export function stepOf(count: number, fewest: number, most: number, steps: numbe
  * and the old path of a moved one), as rubble, and each lot and block carries the marks the change
  * picks (SPEC, Review): decided here from the graph and the comparison alone.
  */
-export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Comparison | null = null): Town {
+export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Comparison | null = null, waysIn: readonly WayIn[] = []): Town {
   const { graph, ghosts } = comparison === null ? { graph: head, ghosts: new Set<NodeId>() } : withGhosts(head, comparison);
+  // Importance and reach are the head's alone: a ghost has no place in them.
+  const rests = importanceOf(head);
+  const fromWays = reachedFrom(head, waysIn.map((way) => way.id));
+  const wayById = new Map(waysIn.map((way) => [way.id, way]));
+  const idPaths = new Map(graph.nodes.map((node) => [node.id, node.path]));
+  const weights = [...rests.values()].map((list) => list.length);
+  const fewestRests = weights.length === 0 ? 0 : Math.min(...weights);
+  const mostRests = weights.length === 0 ? 0 : Math.max(...weights);
+  const plinths = PLINTH_HEIGHTS.filter((_, index) => sprites.has(`plinth-${index + 1}`)).length;
   const kinds = new Map<NodeId, "added" | "altered" | "removed" | "moved">();
   const movedTo = new Map<NodeId, { id: NodeId; path: string }>();
   for (const change of comparison?.changes ?? []) {
@@ -498,6 +548,9 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     const steps = stepsOf(kind, sprites);
     // A generated file keeps the smallest size so it never crowds out written code (SPEC: The graph).
     const step = file.role === "generated" ? 1 : stepOf(countOf(file.path), fewest, most, steps);
+    const restsOn = (rests.get(file.id) ?? []).map((id) => idPaths.get(id) ?? id).sort(byCodeUnits);
+    const plinthStep = restsOn.length === 0 || plinths === 0 ? 0 : stepOf(restsOn.length, fewestRests, mostRests, plinths);
+    const way = wayById.get(file.id);
     return {
       id: file.id,
       name: file.name,
@@ -510,6 +563,12 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
       sprite: gone ? "rubble" : sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind,
       classes: classes.get(file.path) ?? 0,
       functions: functions.get(file.path) ?? 0,
+      restsOn,
+      plinth: plinthStep === 0 ? undefined : `plinth-${plinthStep}`,
+      raise: plinthStep === 0 ? 0 : PLINTH_HEIGHTS[plinthStep - 1]!,
+      wayIn: way?.reasons ?? [],
+      gate: way !== undefined && file.role !== "tests" && sprites.has("gate"),
+      reached: ghosts.has(file.id) || fromWays.has(file.id),
       change,
       overlay: change === "altered" ? scaffoldOf(sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind, sprites) : null,
       crane: change === "altered" && sprites.has("crane"),
@@ -605,6 +664,8 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     lawn: loop(0.95),
     quay,
     counts: { fewest, most },
+    importance: { fewest: fewestRests, most: mostRests },
+    unreached: lots.filter((lot) => !lot.reached).length,
     comparing: comparison !== null,
   };
 }

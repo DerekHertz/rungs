@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { compare, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
+import { RESOURCE_ORDER } from "../src/graph.ts";
 import type { Graph } from "../src/graph.ts";
 import { GAP, kindOfRole, LOT, namesAt, pierSpriteName, project, stepOf, stepsOf, townOf } from "../src/town.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
@@ -154,6 +155,8 @@ describe("size steps", () => {
     expect(stepsOf("workshop", new Set(["workshop-1", "workshop-2", "workshop-3", "workshop-4"]))).toBe(4);
     expect(stepsOf("hut", new Set())).toBe(0);
     expect(pierSpriteName("file system")).toBe("port-file-system");
+    expect(pierSpriteName("code loaded at run time")).toBe("port-dynamic-load");
+    expect(RESOURCE_ORDER.map(pierSpriteName)).toEqual(["port-process", "port-network", "port-queue", "port-file-system", "port-timer", "port-dynamic-load"]);
   });
 });
 

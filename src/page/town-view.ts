@@ -1,5 +1,5 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
-import { allBlocks, AXIS, blockAtGround, blockLabel, blockNamedAt, CRANE_AT, LOT, MOVED_SIGN_AT, namesAt, project } from "../town.ts";
+import { allBlocks, AXIS, blockAtGround, blockLabel, blockNamedAt, CRANE_AT, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt, namesAt, project } from "../town.ts";
 import { pickAt } from "../town-pick.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
@@ -69,13 +69,13 @@ const CLICK_SLOP = 4;
 const FLIGHT_MS = 260;
 
 /** Which sprite of a lot this is: the building (or rubble), or a mark standing on it. */
-type Part = "building" | "scaffold" | "crane" | "moved-sign";
+type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign";
 
 type Thing =
-  | { readonly kind: "lot"; readonly lot: Lot; readonly part: Part; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number }
+  | { readonly kind: "lot"; readonly lot: Lot; readonly part: Part; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number }
   /** A fence post or a block's sign: a fact about the block, not clickable. */
-  | { readonly kind: "mark"; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number }
-  | { readonly kind: "pier"; readonly pier: Pier; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number };
+  | { readonly kind: "mark"; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number }
+  | { readonly kind: "pier"; readonly pier: Pier; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number };
 
 /** A block's name as drawn: picking it picks the block's folder. */
 interface BlockName {
@@ -218,11 +218,11 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   /** The building thing of each lot: what its name stands for when picked. */
   const buildingOf = new Map<Lot, Thing>();
   let plaques: Plaque<Pick>[] = [];
-  function drawSprite(name: string, X: number, Y: number, line?: string, owner?: Pick): { x: number; y: number; w: number; h: number } | undefined {
+  function drawSprite(name: string, X: number, Y: number, line?: string, owner?: Pick, Z = 0): { x: number; y: number; w: number; h: number } | undefined {
     const image = sheet.images.get(name);
     const size = sheet.sizes[name];
     if (image === undefined || size === undefined) return undefined;
-    const at = groundScreen(X, Y);
+    const at = groundScreen(X, Y, Z);
     const box = {
       x: Math.round(at.x - size.ox * camera.zoom),
       y: Math.round(at.y - size.oy * camera.zoom),
@@ -339,8 +339,10 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
 
     placements = [];
     plaques = [];
+    // Footpaths lie on the ground, under everything that stands.
+    for (const lot of town.lots) if (lot.reached && lot.change !== "removed" && lot.change !== "moved-away") drawSprite("footpath-y", footpathAt(lot).X, footpathAt(lot).Y);
     for (const thing of things) {
-      drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing);
+      drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z);
       if (thing.kind === "lot" && thing.part === "moved-sign" && thing.lot.movedTo !== null) boardText(thing.lot.movedTo.path, thing.X, thing.Y);
     }
 
@@ -567,10 +569,12 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     show(next) {
       town = next;
       const marks = (lot: Lot): Thing[] => {
-        const mark = (part: Part, sprite: string, X: number, Y: number, bias: number): Thing => ({ kind: "lot", lot, part, sprite, X, Y, key: X - Y + bias });
+        const mark = (part: Part, sprite: string, X: number, Y: number, bias: number, Z = 0): Thing => ({ kind: "lot", lot, part, sprite, X, Y, Z, key: X - Y + bias });
         return [
-          mark("building", lot.sprite, lot.X, lot.Y, 0),
-          ...(lot.overlay === null ? [] : [mark("scaffold", lot.overlay, lot.X, lot.Y, 0.01)]),
+          ...(lot.plinth === undefined ? [] : [mark("plinth", lot.plinth, lot.X, lot.Y, -0.05)]),
+          mark("building", lot.sprite, lot.X, lot.Y, 0, lot.raise),
+          ...(lot.overlay === null ? [] : [mark("scaffold", lot.overlay, lot.X, lot.Y, 0.01, lot.raise)]),
+          ...(lot.gate ? [mark("gate", "gate", lot.X, lot.Y - GATE_FRONT, 0)] : []),
           ...(lot.crane ? [mark("crane", "crane", lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, -0.2)] : []),
           ...(lot.movedTo === null ? [] : [mark("moved-sign", "sign-moved", lot.X + MOVED_SIGN_AT.X, lot.Y + MOVED_SIGN_AT.Y, 0)]),
         ];
@@ -579,12 +583,12 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
         block.fence === null
           ? []
           : [...block.fence.posts.map((post) => ({ sprite: post.sprite, X: post.X, Y: post.Y })), { sprite: "sign", X: block.fence.sign.X, Y: block.fence.sign.Y }].map(
-              (mark): Thing => ({ kind: "mark", ...mark, key: mark.X - mark.Y }),
+              (mark): Thing => ({ kind: "mark", ...mark, Z: 0, key: mark.X - mark.Y }),
             );
       things = [
         ...next.lots.flatMap(marks),
         ...allBlocks(next).flatMap(fences),
-        ...next.piers.map((pier): Thing => ({ kind: "pier", pier, sprite: pier.sprite, X: pier.X, Y: pier.Y, key: pier.X - pier.Y })),
+        ...next.piers.map((pier): Thing => ({ kind: "pier", pier, sprite: pier.sprite, X: pier.X, Y: pier.Y, Z: 0, key: pier.X - pier.Y })),
       ]
         .map((thing, index) => ({ thing, index }))
         .sort((a, b) => a.thing.key - b.thing.key || a.index - b.index)
