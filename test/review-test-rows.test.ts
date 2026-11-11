@@ -1,18 +1,22 @@
 import { describe, expect, test } from "vitest";
 import { compare, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
+import { isCodeNode } from "../src/graph.ts";
 import type { FileTree } from "../src/graph.ts";
 import { testChanges } from "../src/test-changes.ts";
 import { unmentioned } from "../src/review.ts";
-import type { ReviewEntry } from "../src/review.ts";
+import type { BaseFunction, ReviewEntry } from "../src/review.ts";
 
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
 
 function reviewTests(base: Record<string, string>, head: Record<string, string>, description: string) {
   const headGraph = extract(tree(head));
   const comparison = compare(extract(tree(base)), headGraph);
-  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(), testChanges(tree(base), tree(head), { places: true }));
+  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(), testChanges(tree(base), tree(head), { places: true }), baseFunctionsOf(extract(tree(base))));
 }
+
+const baseFunctionsOf = (graph: ReturnType<typeof extract>): BaseFunction[] =>
+  graph.nodes.flatMap((node) => (isCodeNode(node) && node.level === "function" ? [{ id: node.id, path: node.path, range: node.range }] : []));
 
 const T = "t.test.ts";
 const spec = (title: string, body: string): string => `import { describe, it, expect } from "vitest";\ndescribe("town", () => {\n  it(${title}, () => {\n${body}  });\n});\n`;
@@ -108,6 +112,24 @@ describe("rows that share a line are never merged on a guess", () => {
     const head = { ...pkg, [T]: text("new", 2, "f2") };
     const rows = reviewTests(base, head, "").entries[0]!.children;
     expect(rows.some((row) => row.level === "function" && row.renamedFrom !== undefined)).toBe(false);
+  });
+
+  test("a base line that held the test and another function is crowded, whatever the head does with them", () => {
+    const base = { ...pkg, [T]: 'import { it } from "vitest";\nit("old", () => run(1)); function helper() { return 9; }\n' };
+    const head = { ...pkg, [T]: 'import { it } from "vitest";\nit("new", () => run(2));\nfunction helper() { return 9; }\n' };
+    const rows = reviewTests(base, head, "").entries[0]!.children;
+    expect(rows.some((row) => row.level === "function" && row.renamedFrom !== undefined)).toBe(false);
+    expect(rows.map((row) => row.label)).toEqual(expect.arrayContaining(['it("old")', 'it("new")']));
+  });
+
+  test("a moved test whose rename is rejected is two rows, and the new name does not cover the removal", () => {
+    const base = { ...pkg, [T]: 'import { it } from "vitest";\nit("old", () => run(1)); function helper() { return 9; }\n' };
+    const head = { ...pkg, [T]: 'import { it } from "vitest";\nit("new", () => run(1));\nfunction helper() { return 9; }\n' };
+    const shown = (description: string) => reviewTests(base, head, description).entries[0]?.children ?? [];
+    expect(shown("").map((row) => [row.label, row.level === "function" ? row.change : ""])).toEqual(expect.arrayContaining([['it("old")', "removed"], ['it("new")', "added"]]));
+    const covered = shown('Adds `"it(\\"new\\") callback"`.');
+    expect(covered.map((row) => row.label)).toContain('it("old")');
+    expect(covered.map((row) => row.label)).not.toContain('it("new")');
   });
 
   test("two test.each callbacks on one line get no title rather than the first one's", () => {

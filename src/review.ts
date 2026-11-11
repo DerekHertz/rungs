@@ -81,6 +81,13 @@ export type ReviewEntry =
   /** Files whose text is identical under a new path, all from one folder to one folder: one fact, not one item each. `children` are the moved files. */
   | (EntryBase & { readonly level: "moves"; readonly files: number; readonly from: string; readonly to: string });
 
+/** A function of the base graph, by file and lines: what the base side of a line range holds. */
+export interface BaseFunction {
+  readonly id: NodeId;
+  readonly path: string;
+  readonly range: LineRange;
+}
+
 export interface Unmentioned {
   /** Every changed file, mentioned or not. */
   readonly changedFiles: number;
@@ -254,6 +261,7 @@ export function unmentioned(
   description: string,
   linked: ReadonlySet<NodeId> = new Set(),
   tests: { readonly renamed: TestChanges["renamed"]; readonly weakened: TestChanges["weakened"]; readonly callbacks?: TestChanges["callbacks"] } = { renamed: [], weakened: [] },
+  baseFunctions: readonly BaseFunction[] = [],
 ): Unmentioned {
   const fileChanges = comparison.changes.filter((change) => change.node.level === "file");
   const { pathMentioned, fileMentioned, nameCovered, sectionCovered } = mentionRules(comparison, description);
@@ -315,10 +323,9 @@ export function unmentioned(
     const key = rangeKey(node);
     functionsAt[side].set(key, (functionsAt[side].get(key) ?? new Set()).add(node.id));
   };
-  for (const node of graph.nodes) {
-    noteFunction("head", node);
-    if (!changeOf.has(node.id)) noteFunction("base", node);
-  }
+  // The head side is the picture's graph; the base side is the base graph's own ranges, never the head's (a line can have moved).
+  for (const node of graph.nodes) noteFunction("head", node);
+  for (const fn of baseFunctions) functionsAt.base.set(`${fn.path}\0${fn.range.start}\0${fn.range.end}`, (functionsAt.base.get(`${fn.path}\0${fn.range.start}\0${fn.range.end}`) ?? new Set()).add(fn.id));
   for (const change of comparison.changes) {
     if (change.kind === "removed") noteFunction("base", change.node);
     else noteFunction("head", change.node);
@@ -416,10 +423,23 @@ export function unmentioned(
     if (moved !== undefined) renamedFrom.set(moved.node.id, { was: moved.from, weakened: weakened === true, names });
   }
 
+  // A moved test callback that a rename names, but whose pairing was rejected, is not one row: the old test is removed and the new one added.
+  const splitMoved = new Set<ModuleChange>();
+  for (const { file, fromCallback, callback } of tests.renamed) {
+    if (fromCallback === undefined || callback === undefined) continue;
+    for (const change of comparison.changes) {
+      if (change.kind !== "moved" || change.node.level !== "function" || !isCodeNode(change.node) || !isCodeNode(change.from) || change.node.path !== file || change.from.path !== file) continue;
+      const same = change.node.range.start === callback.start && change.node.range.end === callback.end && change.from.range.start === fromCallback.start && change.from.range.end === fromCallback.end;
+      if (same && !renamedFrom.has(change.node.id) && testCallOf(change) !== undefined) splitMoved.add(change);
+    }
+  }
   const folds = new Map<NodeId, NodeId[]>();
   const fileFolds = new Map<string, NodeId[]>();
   const codeChanges: ModuleChange[] = [];
-  for (const change of comparison.changes) {
+  const considered = comparison.changes.flatMap((change): ModuleChange[] =>
+    splitMoved.has(change) && change.kind === "moved" ? [{ kind: "removed", node: change.from }, { kind: "added", node: change.node }] : [change],
+  );
+  for (const change of considered) {
     const node = change.node;
     if (!isCodeNode(node) || pathsOf(change).some(pathMentioned)) continue;
     if (nameCovered(node.qualifiedName)) continue;

@@ -4,7 +4,8 @@ import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
 import { testChanges } from "../src/test-changes.ts";
 import { appears, unmentioned } from "../src/review.ts";
-import type { ReviewEntry } from "../src/review.ts";
+import type { BaseFunction, ReviewEntry } from "../src/review.ts";
+import { isCodeNode } from "../src/graph.ts";
 
 const fn = (name: string, body = 1): string => `export function ${name}() {\n  return ${body};\n}\n`;
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
@@ -14,6 +15,9 @@ function review(base: Record<string, string>, head: Record<string, string>, desc
   const comparison = compare(extract(tree(base)), headGraph);
   return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(linked as NodeId[]));
 }
+
+const baseFunctionsOf = (graph: ReturnType<typeof extract>): BaseFunction[] =>
+  graph.nodes.flatMap((node) => (isCodeNode(node) && node.level === "function" ? [{ id: node.id, path: node.path, range: node.range }] : []));
 
 const labels = (entries: readonly ReviewEntry[]): string[] => entries.map((entry) => entry.label);
 
@@ -363,7 +367,7 @@ const assertsTwo = "    expect(a).toBe(1);\n    expect(b).toBe(2);\n";
 function reviewTests(base: Record<string, string>, head: Record<string, string>, description: string) {
   const headGraph = extract(tree(head));
   const comparison = compare(extract(tree(base)), headGraph);
-  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(), testChanges(tree(base), tree(head), { places: true }));
+  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(), testChanges(tree(base), tree(head), { places: true }), baseFunctionsOf(extract(tree(base))));
 }
 
 test("a renamed test is one ~ row under its new name, with the old name as detail", () => {

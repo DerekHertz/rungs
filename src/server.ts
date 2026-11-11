@@ -146,6 +146,10 @@ export async function serve(
     const baseOwners = new Map<NodeId, ModuleNode>(baseGraph.nodes.map((node) => [node.id, node]));
     const ghostEdges = baseGraph.edges.filter((edge) => removedPaths.has(baseOwners.get(edge.from)?.path ?? ""));
     resources.set("/ghost-edges.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", edges: ghostEdges.map(canonicalEdge) }, null, 2)}\n` });
+    // The base's functions by lines, in the files the change touched: what the base side of a line range held, which the picture's graph cannot say.
+    const touched = new Set(comparison.changes.flatMap((change) => (change.node.level === "file" ? [change.node.path, ...(change.kind === "moved" ? [change.from.path] : [])] : [])));
+    const baseFunctions = baseGraph.nodes.flatMap((node) => (isCodeNode(node) && node.level === "function" && touched.has(node.path) ? [{ id: node.id, path: node.path, range: node.range }] : []));
+    resources.set("/base-functions.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", functions: baseFunctions })}\n` });
     const claims = splitClaims(description ?? "");
     const [outcome, tour] = await Promise.all([
       link === undefined || claims.length === 0 ? ({ status: "off" } satisfies LinkOutcome) : link(comparison, claims, graph),

@@ -6,7 +6,7 @@ import { isCodeNode } from "../graph.ts";
 import type { Edge, FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
 import { contractsReport, dependencyReview, effectsChangedRows, newEffects, unmentioned, unmentionedIds } from "../review.ts";
-import type { EffectRow, ReviewEntry } from "../review.ts";
+import type { EffectRow, BaseFunction, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
 import type { CameraState } from "./town-view.ts";
@@ -908,7 +908,7 @@ if (comparison !== null && testChanges !== null) {
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
   viewState = firstView(true);
-  const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked, testChanges);
+  const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked, testChanges, ((await (await fetch("/base-functions.json")).json()) as { functions: BaseFunction[] }).functions);
   const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
   const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
   const coverage = tourCoverage(tour.stops, comparison);
