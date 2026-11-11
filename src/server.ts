@@ -23,7 +23,7 @@ import type { Asked, LinkOutcome } from "./link.ts";
 import { observedDocument, treeDigest } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
 import { testChanges } from "./test-changes.ts";
-import { fileWhy } from "./defining.ts";
+import { effectStepsOf, fileWhy } from "./defining.ts";
 import { risksOf } from "./risks.ts";
 import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
@@ -317,7 +317,7 @@ export async function serve(
     if (url.pathname === "/calls") {
       const id = (url.searchParams.get("id") ?? "") as NodeId;
       if (!calls.has(id)) response.writeHead(404).end();
-      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", id, callers: calls.callersOf(id), callees: calls.calleesOf(id) }, null, 2)}\n`);
+      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", id, callers: calls.callersOf(id), callees: calls.calleesOf(id), effects: effectStepsOf(graph, id) }, null, 2)}\n`);
       return;
     }
     if (url.pathname === "/source") {

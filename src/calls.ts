@@ -5,6 +5,7 @@ import { adapterFor } from "./extract/adapters.ts";
 import type { Declaration } from "./extract/adapters.ts";
 import { ImportResolver } from "./extract/javascript-imports.ts";
 import type { ResolutionMode } from "./extract/javascript-imports.ts";
+import { effectSites } from "./extract/javascript-effects.ts";
 import { isCodeSyntax, outline, scriptKind } from "./extract/javascript.ts";
 import { isCodeNode, nodeId, qualifiedName } from "./graph.ts";
 import type { FileTree, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
@@ -55,17 +56,16 @@ export class CallResolver {
   private readonly tree: FileTree;
   private readonly graph: Graph;
   private readonly nodes: ReadonlyMap<NodeId, ModuleNode>;
-  private readonly effectLines = new Set<string>();
   private program: ts.Program | undefined;
+  private reassigned: Set<ts.Symbol> | undefined;
   private readonly indexes = new Map<string, Index>();
   private readonly found = new Map<string, readonly Site[]>();
-  private importersByFile: Map<NodeId, { from: NodeId; passes: boolean }[]> | undefined;
+  private importersByFile: Map<NodeId, NodeId[]> | undefined;
 
   constructor(tree: FileTree, graph: Graph) {
     this.tree = tree;
     this.graph = graph;
     this.nodes = new Map(graph.nodes.map((node) => [node.id, node]));
-    for (const edge of graph.edges) this.effectLines.add(`${edge.from}\0${edge.range.start}\0${edge.range.end}`);
   }
 
   /** Whether the graph has a class or function with this id. */
@@ -92,7 +92,7 @@ export class CallResolver {
     };
   }
 
-  /** The blocks that call `blockId`, found in its own file and the files that import it (through re-exports too). */
+  /** The blocks that call `blockId`, found in its own file and every file that imports it, directly or not. */
   callersOf(blockId: NodeId): CallRef[] {
     const block = this.nodes.get(blockId);
     if (block === undefined || !isCodeNode(block)) return [];
@@ -107,25 +107,22 @@ export class CallResolver {
     return [...holders].map(([id, at]) => this.refOf(id, at)).sort(compareRefs);
   }
 
-  /** The files that can call into `file`: itself, its importers, and the importers of any file that re-exports it. */
+  /** The files that can call into `file`: itself and every file that imports it, directly or through others. The compiler decides which calls really reach it. */
   private searchFor(file: NodeId): string[] {
     if (this.importersByFile === undefined) {
       this.importersByFile = new Map();
       for (const edge of this.graph.imports) {
         if (!("file" in edge.target)) continue;
-        const list = this.importersByFile.get(edge.target.file) ?? [];
-        list.push({ from: edge.from, passes: edge.reexports !== undefined });
-        this.importersByFile.set(edge.target.file, list);
+        this.importersByFile.set(edge.target.file, [...(this.importersByFile.get(edge.target.file) ?? []), edge.from]);
       }
     }
     const seen = new Set<NodeId>([file]);
     const queue = [file];
     for (let at = queue.pop(); at !== undefined; at = queue.pop()) {
-      for (const { from, passes } of this.importersByFile.get(at) ?? []) {
+      for (const from of this.importersByFile.get(at) ?? []) {
         if (seen.has(from)) continue;
         seen.add(from);
-        // A file that only imports is a caller's home; one that re-exports also hands the name on.
-        if (passes) queue.push(from);
+        queue.push(from);
       }
     }
     return [...seen].map((id) => this.nodes.get(id)?.path ?? "").filter((path) => path !== "").sort(byText);
@@ -171,16 +168,17 @@ export class CallResolver {
     const starts = lineStarts(text);
     const index = this.indexOf(path, source);
     const file = `file:${path}` as NodeId;
+    // An effect (fs.readFileSync, fetch) is shown as the effect it is, not as an unresolved call: matched by the call's own start.
+    const effects = new Set(effectSites(source, checker).map((site) => site.start));
     const sites: Site[] = [];
     const visit = (node: ts.Node): void => {
-      if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !isModuleLoad(node)) {
+      if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !isModuleLoad(node, checker)) {
         const start = node.getStart(source);
         const at = lineRangeOf(starts, start, Math.max(node.end, start + 1));
         const owner = innermost(index, start) ?? file;
         const to = this.targetOf(checker, node);
         const calleeText = `${ts.isNewExpression(node) ? "new " : ""}${oneLine(node.expression.getText(source))}`;
-        // An effect (fs.readFileSync, fetch) is shown as the effect it is, not as an unresolved call.
-        if (to !== undefined || !this.effectLines.has(`${owner}\0${at.start}\0${at.end}`)) sites.push({ owner, text: calleeText, at, ...(to === undefined ? {} : { to }) });
+        if (to !== undefined || !effects.has(start)) sites.push({ owner, text: calleeText, at, ...(to === undefined ? {} : { to }) });
       }
       node.forEachChild(visit);
     };
@@ -188,26 +186,70 @@ export class CallResolver {
     return sites.sort((a, b) => a.at.start - b.at.start || a.at.end - b.at.end);
   }
 
-  /** The code node the compiler says `call` runs, or undefined: no symbol, no body, or not in the tree. */
+  /**
+   * The code node `call` runs, only when the callee is a direct reference (an identifier, a property
+   * access, or `new X`) whose symbol has exactly one body: a function or method, a class, or a
+   * `const` bound to a function, never assigned to. Anything else is undefined: unresolved.
+   */
   private targetOf(checker: ts.TypeChecker, call: ts.CallExpression | ts.NewExpression): NodeId | undefined {
-    const callee = unwrap(call.expression);
-    const named = ts.isPropertyAccessExpression(callee) ? callee.name : ts.isIdentifier(callee) ? callee : ts.isElementAccessExpression(callee) ? callee.argumentExpression : undefined;
-    let symbol = named === undefined ? undefined : checker.getSymbolAtLocation(named);
+    let callee: ts.Expression = call.expression;
+    while (ts.isParenthesizedExpression(callee) || ts.isNonNullExpression(callee)) callee = callee.expression;
+    const named = ts.isPropertyAccessExpression(callee) ? callee.name : ts.isIdentifier(callee) ? callee : undefined;
+    if (named === undefined) return undefined;
+    // Any value typed `any` (a cast, an annotation) says nothing about what runs.
+    if (checker.getTypeAtLocation(callee).flags & ts.TypeFlags.Any) return undefined;
+    let symbol = checker.getSymbolAtLocation(named);
     if (symbol !== undefined && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
-    let found: ts.Node[];
-    if (symbol?.declarations !== undefined) found = codeOf(symbol.declarations);
-    else {
-      // No symbol to follow (the result of a call, say): the signature the compiler chose, if it has a declaration.
-      const declaration = ts.isNewExpression(call) ? undefined : checker.getResolvedSignature(call)?.declaration;
-      found = declaration === undefined ? [] : codeOf([declaration]);
+    const declarations = symbol?.declarations;
+    if (symbol === undefined || declarations === undefined || this.assigned(checker).has(symbol)) return undefined;
+    const bodies = new Set<ts.Node>();
+    let others = 0;
+    for (const declaration of declarations) {
+      const body = bodyOf(declaration);
+      if (body !== undefined) bodies.add(body);
+      // Overload signatures beside the one body are fine; any other second declaration (a merge) is a guess between them.
+      else if (!isOverload(declaration)) others += 1;
     }
-    // Two bodies would be a guess between them.
-    if (found.length !== 1) return undefined;
-    const declaration = found[0]!;
+    if (bodies.size !== 1 || others > 0) return undefined;
+    const declaration = [...bodies][0]!;
     const sourceFile = declaration.getSourceFile();
     const path = sourceFile.fileName.slice(1);
     if (!this.tree.has(path)) return undefined;
     return this.indexOf(path, sourceFile).byStart.get(declaration.getStart(sourceFile));
+  }
+
+  /** Every symbol the program assigns to anywhere (`f = ...`, `f++`, `[f] = ...`, `o.f = ...`): none of them names one function. */
+  private assigned(checker: ts.TypeChecker): Set<ts.Symbol> {
+    if (this.reassigned !== undefined) return this.reassigned;
+    const found = new Set<ts.Symbol>();
+    const mark = (target: ts.Node): void => {
+      if (ts.isParenthesizedExpression(target)) mark(target.expression);
+      else if (ts.isIdentifier(target)) {
+        const symbol = checker.getSymbolAtLocation(target);
+        if (symbol !== undefined) found.add(symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
+      } else if (ts.isPropertyAccessExpression(target)) mark(target.name);
+      else if (ts.isArrayLiteralExpression(target)) target.elements.forEach(mark);
+      else if (ts.isObjectLiteralExpression(target)) {
+        for (const property of target.properties) {
+          if (ts.isShorthandPropertyAssignment(property)) mark(property.name);
+          else if (ts.isPropertyAssignment(property)) mark(property.initializer);
+          else if (ts.isSpreadAssignment(property)) mark(property.expression);
+        }
+      } else if (ts.isSpreadElement(target)) mark(target.expression);
+      else if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) mark(target.left);
+    };
+    for (const file of this.programOver().getSourceFiles()) {
+      if (!this.tree.has(file.fileName.slice(1)) || file.isDeclarationFile) continue;
+      const visit = (node: ts.Node): void => {
+        if (ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) mark(node.left);
+        else if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)) mark(node.operand);
+        else if ((ts.isForInStatement(node) || ts.isForOfStatement(node)) && !ts.isVariableDeclarationList(node.initializer)) mark(node.initializer);
+        node.forEachChild(visit);
+      };
+      visit(file);
+    }
+    this.reassigned = found;
+    return found;
   }
 
   private indexOf(path: string, source: ts.SourceFile): Index {
@@ -291,25 +333,30 @@ const oneLine = (text: string): string => {
   return flat.length > MAX_TEXT ? `${flat.slice(0, MAX_TEXT - 1)}…` : flat;
 };
 
-/** `require("x")`, `import("x")` and `super(...)` are not calls to a block: imports have their own edges. */
-function isModuleLoad(call: ts.CallExpression | ts.NewExpression): boolean {
+/** `import("x")` and `super(...)` are not calls to a block, nor is `require("x")` when nothing declares `require`: imports have their own edges. A `require` the code declares itself is an ordinary call. */
+function isModuleLoad(call: ts.CallExpression | ts.NewExpression, checker: ts.TypeChecker): boolean {
   if (ts.isNewExpression(call)) return false;
-  return call.expression.kind === ts.SyntaxKind.ImportKeyword || call.expression.kind === ts.SyntaxKind.SuperKeyword || (ts.isIdentifier(call.expression) && call.expression.text === "require");
+  const callee = call.expression;
+  if (callee.kind === ts.SyntaxKind.ImportKeyword || callee.kind === ts.SyntaxKind.SuperKeyword) return true;
+  return ts.isIdentifier(callee) && callee.text === "require" && (checker.getSymbolAtLocation(callee)?.declarations?.length ?? 0) === 0;
 }
 
-function unwrap(expression: ts.Expression): ts.Expression {
-  let at = expression;
-  while (ts.isParenthesizedExpression(at) || ts.isNonNullExpression(at) || ts.isAsExpression(at) || ts.isSatisfiesExpression(at)) at = at.expression;
-  return at;
-}
-
-/** The declarations that are code nodes: a function or class with a body, or the one a variable, property or default export holds. */
-function codeOf(declarations: readonly ts.Declaration[]): ts.Node[] {
-  const found: ts.Node[] = [];
-  for (const declaration of declarations) {
-    const held = ts.isVariableDeclaration(declaration) || ts.isPropertyAssignment(declaration) || ts.isPropertyDeclaration(declaration) ? declaration.initializer : ts.isExportAssignment(declaration) ? declaration.expression : undefined;
-    const node = held !== undefined ? unwrap(held) : declaration;
-    if (isCodeSyntax(node)) found.push(node);
+/** The code a declaration stands for: a function or method with a body, a class, a default-exported function, or a `const` bound to a function. Not a getter. */
+function bodyOf(declaration: ts.Declaration): ts.Node | undefined {
+  if (ts.isGetAccessor(declaration) || ts.isSetAccessor(declaration)) return undefined;
+  if (ts.isVariableDeclaration(declaration)) {
+    if (!(ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) || declaration.initializer === undefined) return undefined;
+    let held = declaration.initializer;
+    while (ts.isParenthesizedExpression(held)) held = held.expression;
+    return isCodeSyntax(held) ? held : undefined;
   }
-  return found;
+  if (ts.isExportAssignment(declaration)) {
+    let held = declaration.expression;
+    while (ts.isParenthesizedExpression(held)) held = held.expression;
+    return isCodeSyntax(held) ? held : undefined;
+  }
+  return isCodeSyntax(declaration) ? declaration : undefined;
 }
+
+/** A function or method signature written without a body, ahead of the one that has it. */
+const isOverload = (declaration: ts.Declaration): boolean => (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) && declaration.body === undefined;

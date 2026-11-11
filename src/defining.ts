@@ -2,7 +2,7 @@ import { contractsMoved } from "./compare.ts";
 import type { Comparison, ContractMove } from "./compare.ts";
 import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
-import type { CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
+import type { CodeLevel, CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 import { exportNamesOf, exportRadiusOf, importanceOf } from "./importance.ts";
 import { effectParts, isAnonymous, labelOf } from "./review.ts";
 
@@ -20,7 +20,7 @@ import { effectParts, isAnonymous, labelOf } from "./review.ts";
 export interface CallRef {
   readonly id: NodeId;
   readonly label: string;
-  readonly level: "class" | "function" | "file";
+  readonly level: CodeLevel | "file";
   readonly path: string;
   /** The block's own lines; null for a file. */
   readonly range: LineRange | null;

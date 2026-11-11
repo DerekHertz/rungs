@@ -1,11 +1,13 @@
 import { count, effectStepsOf, whyLine } from "../defining.ts";
-import type { Block, CallList, CallRef, FileWhy } from "../defining.ts";
+import type { Block, CallList, CallRef, FileWhy, Step } from "../defining.ts";
 import type { Graph, LineRange, NodeId } from "../graph.ts";
 
 /** What a block's callers and callees are, as /calls serves them. */
 export interface Neighbours {
   readonly callers: readonly CallRef[];
   readonly callees: CallList;
+  /** The effects the block reaches, as /file-why shows them. */
+  readonly effects: readonly Step[];
 }
 
 /** What the panel needs from the page: the graph the effects are read from, what a click does, and the next step of a block's calls. */
@@ -67,7 +69,7 @@ function refRow(ref: CallRef, direction: "callers" | "callees", actions: WhyActi
       direction,
       async () => {
         const next = await actions.neighbours(ref.id);
-        const list = next === undefined ? el("div", "why-step unresolved", "not found") : direction === "callers" ? callersList(next.callers, actions) : calleesList(next.callees, [], actions);
+        const list = next === undefined ? el("div", "why-step unresolved", "not found") : direction === "callers" ? callersList(next.callers, actions) : calleesList(next.callees, next.effects, actions);
         list.classList.add("why-nested");
         return list;
       },
@@ -87,7 +89,7 @@ function callersList(refs: readonly CallRef[], actions: WhyActions): HTMLElement
 }
 
 /** The resolved callees, then the effects the block reaches, then "unresolved: N" and each call that could not be resolved. */
-function calleesList(callees: CallList, effects: readonly { label: string; unresolved?: true }[], actions: WhyActions): HTMLElement {
+function calleesList(callees: CallList, effects: readonly Step[], actions: WhyActions): HTMLElement {
   const list = el("div", "why-steps");
   for (const ref of callees.resolved) list.append(refRow(ref, "callees", actions));
   for (const effect of effects) list.append(el("div", effect.unresolved === true ? "why-step unresolved" : "why-step", effect.label));

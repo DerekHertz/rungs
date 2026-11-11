@@ -116,3 +116,78 @@ describe("the resolver", () => {
     expect(resolver.calleesOf("nope" as NodeId)).toEqual({ resolved: [], unresolved: [] });
   });
 });
+
+describe("review round 1: nothing is guessed, no caller is missed", () => {
+  const callees = (record: Record<string, string>, path: string, name: string) => over(files(record)).calleesOf(id(path, name));
+  const texts = (record: Record<string, string>, path: string, name: string): string[] => callees(record, path, name).unresolved.map((call) => call.text);
+
+  test("1. a conditional, logical or comma callee is unresolved", () => {
+    const record = { "a.ts": "function a() {}\nfunction b() {}\nexport function f(x: boolean) {\n  (x ? a : b)();\n  (x && a)();\n  (0, a)();\n}\n" };
+    expect(callees(record, "a.ts", "f").resolved).toEqual([]);
+    expect(texts(record, "a.ts", "f")).toHaveLength(3);
+  });
+
+  test("2. an element access is unresolved, named as written", () => {
+    const record = { "a.ts": "const o = { run() {} };\nexport function f(key: string) {\n  o[key]();\n}\n" };
+    expect(callees(record, "a.ts", "f").resolved).toEqual([]);
+    expect(texts(record, "a.ts", "f")).toEqual(["o[key]"]);
+  });
+
+  test("3. a let or var binding, or a function assigned to elsewhere, is unresolved", () => {
+    const record = { "a.ts": "export function f() {\n  let g = () => 1;\n  g = () => 2;\n  g();\n  var h = () => 1;\n  h();\n  k();\n}\nfunction k() {}\nk = () => 3;\n" };
+    expect(callees(record, "a.ts", "f").resolved).toEqual([]);
+    expect(texts(record, "a.ts", "f")).toEqual(["g", "h", "k"]);
+  });
+
+  test("4. a getter that returns the function is unresolved, not the getter", () => {
+    const record = { "a.ts": "function real() {}\nconst o = {\n  get f() {\n    return real;\n  },\n};\nexport function g() {\n  o.f();\n}\n" };
+    expect(callees(record, "a.ts", "g").resolved).toEqual([]);
+    expect(texts(record, "a.ts", "g")).toEqual(["o.f"]);
+  });
+
+  test("5. an import and a re-export of the same name in one file: both are followed", () => {
+    const resolver = over(
+      files({
+        "a.ts": "export function f() {}\n",
+        "b.ts": 'import { f } from "./a.ts";\nexport { f } from "./a.ts";\nexport function inB() {\n  f();\n}\n',
+        "c.ts": 'import { f } from "./b.ts";\nexport function inC() {\n  f();\n}\n',
+      }),
+    );
+    expect(names(resolver.callersOf(id("a.ts", "f")))).toEqual(["inB", "inC"]);
+  });
+
+  test("6. an import then export barrel is followed", () => {
+    const resolver = over(
+      files({
+        "a.ts": "export function f() {}\n",
+        "b.ts": 'import { f } from "./a.ts";\nexport { f };\n',
+        "c.ts": 'import { f } from "./b.ts";\nexport function inC() {\n  f();\n}\n',
+      }),
+    );
+    expect(names(resolver.callersOf(id("a.ts", "f")))).toEqual(["inC"]);
+  });
+
+  test("8. an effect does not hide an unrelated unresolved call on its line", () => {
+    const record = { "a.ts": 'import { readFileSync } from "node:fs";\nexport function f(u: any) {\n  readFileSync("x"); u();\n}\n' };
+    expect(texts(record, "a.ts", "f")).toEqual(["u"]);
+  });
+
+  test("9. a local require is a call, not a module load", () => {
+    const record = { "a.ts": 'function require(name: string) {\n  return name;\n}\nexport function f() {\n  require("x");\n}\n' };
+    expect(callees(record, "a.ts", "f").resolved.map((ref) => ref.label)).toEqual(["require"]);
+  });
+
+  test("10. a call through an assertion or a value typed any is unresolved", () => {
+    const record = { "a.ts": "function f0() {}\nconst viaAny: any = f0;\nexport function f() {\n  (f0 as any)();\n  (<any>f0)();\n  viaAny();\n}\n" };
+    expect(callees(record, "a.ts", "f").resolved).toEqual([]);
+    expect(texts(record, "a.ts", "f")).toHaveLength(3);
+  });
+
+  test("an overloaded function resolves to its one body, and a property holding a function does not resolve", () => {
+    const record = {
+      "a.ts": "export function o(a: number): number;\nexport function o(a: string): string;\nexport function o(a: any): any {\n  return a;\n}\nconst obj = { p: () => 1 };\nexport function f() {\n  o(1);\n  obj.p();\n}\n",
+    };
+    expect(callees(record, "a.ts", "f").resolved.map((ref) => ref.label)).toEqual(["o"]);
+    expect(texts(record, "a.ts", "f")).toEqual(["obj.p"]);
+  });
+});
