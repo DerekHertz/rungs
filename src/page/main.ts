@@ -16,7 +16,7 @@ import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
 import type { Walk } from "./walkthrough-panel.ts";
-import { NOT_RUN, stopFacts } from "../stops.ts";
+import { NOT_RUN, stopFacts, tourCoverage } from "../stops.ts";
 import type { WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 
@@ -421,6 +421,7 @@ if (comparison !== null) {
   walk = renderWalkthrough(host, {
     note: tour.walkthrough,
     stops: tour.stops,
+    coverage: tourCoverage(tour.stops, comparison),
     claims: claims.claims,
     facts: (stop) => stopFacts(stop, comparison, picture.graph, moves),
     observed: () => NOT_RUN,

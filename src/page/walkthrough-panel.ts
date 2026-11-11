@@ -1,6 +1,6 @@
 import { ROLLUP_OVER, signatureDiff } from "../review.ts";
 import type { LineRange, NodeId } from "../graph.ts";
-import { walkSummary } from "../stops.ts";
+import { coverageLine, walkSummary } from "../stops.ts";
 import type { Observed, StopEffect, StopFacts, WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 import { markRange } from "./mark.ts";
@@ -9,6 +9,8 @@ import { element } from "./review-panel.ts";
 export interface WalkInput {
   readonly note: WalkNote;
   readonly stops: readonly Stop[];
+  /** How many of the changed files the stops point at or into. */
+  readonly coverage: { readonly covered: number; readonly changed: number };
   /** The description's claims, by index. */
   readonly claims: readonly { readonly index: number; readonly text: string }[];
   /** The derived facts at a stop and what its narration leaves out. */
@@ -48,7 +50,9 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
   const next = element("button", "walk-button");
   const close = element("button", "walk-button", "Close");
   for (const button of [back, next, close]) button.type = "button";
-  bar.append(title, status, back, next, close);
+  const coverage = element("span", "walk-coverage", input.note.status === "ok" ? coverageLine(input.coverage) : "");
+  coverage.title = "Changed files outside the tour stay on the picture and in the review panel.";
+  bar.append(title, status, coverage, back, next, close);
   const body = element("div", "walk-body");
   host.replaceChildren(bar, body);
 
@@ -176,21 +180,30 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
         only.append(element("span", "contract-side", move.before !== null ? "was" : "now"), move.before ?? move.after ?? "");
         row.append(only);
       }
+      for (const [mark, kind, labels] of [["+", "added", move.effects?.added ?? []], ["−", "removed", move.effects?.removed ?? []]] as const) {
+        for (const label of labels) row.append(element("span", `walk-effect ${kind}`, `${mark} ${label}`));
+      }
       rows.push(row);
     }
     return rows;
   }
 
   function effectRows(effects: readonly StopEffect[], choose: (button: HTMLElement, id: NodeId, range: LineRange) => void): HTMLElement[] {
-    const byLabel = new Map<string, StopEffect[]>();
-    for (const effect of effects) byLabel.set(effect.label, [...(byLabel.get(effect.label) ?? []), effect]);
-    return [...byLabel].map(([label, calls]) => {
+    const groups = new Map<string, StopEffect[]>();
+    for (const effect of effects) groups.set(`${effect.kind} ${effect.label}`, [...(groups.get(`${effect.kind} ${effect.label}`) ?? []), effect]);
+    return [...groups.values()].map((calls) => {
+      const { kind, label, mentioned } = calls[0]!;
       const row = element("div", "walk-fact");
       const head = element("span", "contract-head");
-      head.append(element("span", "review-label", `new effect: ${label}`));
-      if (!calls[0]!.mentioned) head.append(element("span", "review-flag", "not mentioned"));
+      head.append(element("span", "review-label", `${kind === "added" ? "new effect" : "effect removed"}: ${label}`));
+      if (!mentioned) head.append(element("span", "review-flag", "not mentioned"));
       const places = element("span", "walk-calls");
       for (const call of calls) {
+        if (call.kind === "removed") {
+          // Its lines are the base's, so there is nothing in the shown source to band.
+          places.append(element("span", "contract-where", `was in ${input.describe(call.at).label}`));
+          continue;
+        }
         const button = element("button", "walk-call", `${input.describe(call.at).label} · ${where(call.range)}`);
         button.type = "button";
         button.addEventListener("click", () => choose(button, call.at, call.range));

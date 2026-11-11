@@ -164,3 +164,8 @@ export function walkSummary(note: WalkNote, stops: number): string {
   const d = note.dropped;
   return `${stops} ${stops === 1 ? "stop" : "stops"} by ${note.model}${note.cached ? ", cached" : ""} (prompt ${note.promptVersion}); dropped ${d.stops} stops, ${d.ids} unknown ids, ${d.claims} bad claim numbers and ${d.sentences} unanchored sentences, not shown.`;
 }
+
+/** One line on how much of the change the tour covers. */
+export function coverageLine(coverage: { readonly covered: number; readonly changed: number }): string {
+  return `The tour covers ${coverage.covered} of ${coverage.changed} changed ${coverage.changed === 1 ? "file" : "files"}.`;
+}
