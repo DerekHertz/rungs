@@ -60,3 +60,45 @@ test("an interface listed in an export clause counts as exported", () => {
   );
   expect(result.entries).toMatchObject([{ label: "A", move: { kind: "changed" } }]);
 });
+
+const one = (base: string, head: string, file = "src/t.ts"): string[] => lines(report({ ...pkg, [file]: base }, { ...pkg, [file]: head }));
+
+test("a declaration file's interface is a contract", () => {
+  expect(one("export interface A { x: string }\n", "export interface A { x: number }\n", "src/api.d.ts")).toEqual(["changed A"]);
+});
+
+test("a re-export is a contract by its exported name, and not resolved here", () => {
+  expect(one('export type { A } from "./types";\n', "export {};\n")).toEqual(["removed A"]);
+  expect(one("export {};\n", 'export type { A as B } from "./types";\n')).toEqual(["added B"]);
+  expect(one('export type { A } from "./types";\n', 'export type { A } from "./types";\n')).toEqual([]);
+  expect(one('export type { A } from "./types";\n', 'export type { A } from "./other";\n')).toEqual(["changed A"]);
+  expect(one("export {};\n", 'export * from "./types";\n')).toEqual(['added * from "./types"']);
+});
+
+test("members of exported and ambient namespaces are contracts, qualified by the namespace", () => {
+  expect(one("export namespace API { export interface A { x: 1 } }\n", "export namespace API { export interface A { x: 1; y: 2 } }\n")).toEqual(["changed API.A"]);
+  expect(one("export declare namespace API { interface A { x: 1 } }\n", "export declare namespace API { interface A { x: 2 } }\n")).toEqual(["changed API.A"]);
+  expect(one("namespace API { export interface A { x: 1 } }\n", "namespace API { export interface A { x: 2 } }\n")).toEqual([]);
+});
+
+test("a default export of an interface is a contract named default", () => {
+  expect(one("interface A { x: 1 }\nexport default A;\n", "interface A { x: 2 }\nexport default A;\n")).toEqual(["changed default"]);
+  expect(one("export default interface A { x: 1 }\n", "export default interface A { x: 2 }\n")).toEqual(["changed default"]);
+});
+
+test("a type is identified by its exported name, not its local one", () => {
+  expect(one("interface A { x: 1 }\nexport type { A as Public };\n", "interface A { x: 1 }\nexport type { A as Renamed };\n")).toEqual(["removed Public", "added Renamed"]);
+  expect(one("export default interface A {}\n", "export interface A {}\n")).toEqual(["removed default", "added A"]);
+  expect(one("interface A { x: 1 }\nexport type { A as P };\n", "interface A { x: 2 }\nexport type { A as P };\n")).toEqual(["changed P"]);
+});
+
+test("formatting alone is no change, however members are separated or nested", () => {
+  expect(one("export type A = { x: string; y: number };\n", "export type A = {\n  x: string\n  y: number\n};\n")).toEqual([]);
+  expect(one("export interface A { o: { x: string, y: number } }\n", "export interface A {\n  o: {\n    x: string\n    y: number;\n  };\n}\n")).toEqual([]);
+  expect(one("export interface A { x(a: 1): void, y: 2 }\n", "export interface A {\n  x(a: 1): void;\n  y: 2\n}\n")).toEqual([]);
+});
+
+test("consolidating a merged interface is no change; adding a merged member is", () => {
+  expect(one("export interface A { x: string }\nexport interface A { y: number }\n", "export interface A { x: string; y: number }\n")).toEqual([]);
+  expect(one("export interface A { x: string }\n", "export interface A { x: string }\nexport interface A { y: number }\n")).toEqual(["changed A"]);
+});

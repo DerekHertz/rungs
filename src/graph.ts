@@ -39,7 +39,7 @@ export interface ContainerNode extends NodeBase {
 /** An interface or type alias a file exports, with its shape as written (layout and comments normalised away). */
 export interface TypeContract {
   readonly name: string;
-  readonly kind: "interface" | "type";
+  readonly kind: "interface" | "type" | "re-export";
   readonly signature: string;
 }
 

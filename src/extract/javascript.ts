@@ -51,7 +51,7 @@ export const javaScriptAndTypeScript: LanguageAdapter = {
         const source =
           program.getSourceFile(`/${file.path}`) ??
           ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true, scriptKind(file.path));
-        return [file.path, { declarations: outline(source), types: source.isDeclarationFile ? [] : exportedTypes(source), effects: effectSites(source, checker), resolutions: resolutionSites(source, checker), imports: source.isDeclarationFile ? [] : importSites(source, checker, resolver, file.path) }];
+        return [file.path, { declarations: outline(source), types: exportedTypes(source), effects: effectSites(source, checker), resolutions: resolutionSites(source, checker), imports: source.isDeclarationFile ? [] : importSites(source, checker, resolver, file.path) }];
       }),
     );
   },

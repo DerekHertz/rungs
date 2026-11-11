@@ -409,7 +409,7 @@ export interface ContractRow {
   readonly label: string;
   /** Where it stands now; where it stood for a removed one. */
   readonly path: string;
-  readonly level: CodeLevel | "interface" | "type";
+  readonly level: CodeLevel | "interface" | "type" | "re-export";
   /** No claim covers the change to this node. */
   readonly unmentioned: boolean;
 }

@@ -182,7 +182,7 @@ export interface ContractMove {
   readonly after: string | null;
   /** Only for an exported interface or type alias: its name and kind. Its `id` is then its file's,
    *  and only "added", "removed" and "changed" occur. */
-  readonly type?: { readonly name: string; readonly kind: "interface" | "type" };
+  readonly type?: { readonly name: string; readonly kind: "interface" | "type" | "re-export" };
   /** The effects the node's set gained and lost, as labels; absent when its set did not change.
    *  "effects" moves are exactly the ones where only this moved. */
   readonly effects?: { readonly added: readonly string[]; readonly removed: readonly string[] };
