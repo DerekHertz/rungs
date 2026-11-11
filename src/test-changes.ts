@@ -23,7 +23,12 @@ const LOOSE = new Set(["ok", "assert", "toBeTruthy", "toBeDefined"]);
 interface Assertion {
   readonly name: string;
   readonly constant: boolean;
+  /** Called on node:assert's default export, where equal compares with ==. */
+  readonly plain: boolean;
 }
+
+/** In node:assert (not /strict) these coerce; their strict twins do not. */
+const COERCING = new Set(["equal", "deepEqual", "notEqual", "notDeepEqual"]);
 
 interface Found {
   readonly kind: "test" | "suite";
@@ -36,6 +41,8 @@ interface Parsed {
   readonly found: Map<string, Found[]>;
   /** The tests only, counted by name. */
   readonly tests: Map<string, number>;
+  /** The file imports node:assert/strict, so its `assert.equal` is strict. */
+  readonly strict: boolean;
 }
 
 const isLiteral = (node: ts.Node): boolean =>
@@ -60,7 +67,7 @@ function chainOf(node: ts.Expression): string[] | undefined {
 }
 
 /** The test or suite call this is, with the markers its own spelling gives it, or undefined. */
-function testCall(call: ts.CallExpression): { kind: "test" | "suite"; markers: Marker[] } | undefined {
+function testCall(call: ts.CallExpression, nested: boolean): { kind: "test" | "suite"; markers: Marker[] } | undefined {
   let callee: ts.Expression = call.expression;
   // test.each(rows)("title", fn) and test.skipIf(cond)("title", fn) call a call.
   const markers: Marker[] = [];
@@ -71,7 +78,10 @@ function testCall(call: ts.CallExpression): { kind: "test" | "suite"; markers: M
     else if (last !== "each" && last !== "runIf") return undefined;
     callee = callee.expression;
   }
-  const chain = chainOf(callee);
+  let chain = chainOf(callee);
+  // Inside a test, t.test(...) and t.describe(...) start subtests, whatever the context is called.
+  const [outer, inner] = chain ?? [];
+  if (nested && chain !== undefined && outer !== undefined && inner !== undefined && !SUITES.has(outer) && !TESTS.has(outer) && (SUITES.has(inner) || TESTS.has(inner))) chain = chain.slice(1);
   const [head, ...rest] = chain ?? [];
   if (head === undefined) return undefined;
   const kind = SUITES.has(head) ? "suite" : TESTS.has(head) ? "test" : undefined;
@@ -116,7 +126,8 @@ function assertionOf(call: ts.CallExpression): Assertion | undefined {
     const last = chain.at(-1) ?? "";
     if (first === "assert" || first === "strict" || (first === "t" && second === "assert" && chain.length > 2)) {
       const name = chain.length === 1 ? "assert" : last;
-      return { name, constant: call.arguments.length > 0 && call.arguments.every(isLiteral) };
+      const plain = first === "assert" && second !== "strict";
+      return { name, constant: call.arguments.length > 0 && call.arguments.every(isLiteral), plain };
     }
   }
   // expect(x).toBe(y), expect(x).not.toBe(y), expect(x).resolves.toEqual(y): the matcher is the assertion.
@@ -128,7 +139,7 @@ function assertionOf(call: ts.CallExpression): Assertion | undefined {
   }
   if (names.length > 0 && ts.isCallExpression(subject) && ts.isIdentifier(subject.expression) && subject.expression.text === "expect") {
     const matcher = names.at(-1) ?? "";
-    return { name: matcher, constant: subject.arguments.length > 0 && subject.arguments.every(isLiteral) };
+    return { name: matcher, constant: subject.arguments.length > 0 && subject.arguments.every(isLiteral), plain: false };
   }
   return undefined;
 }
@@ -143,9 +154,12 @@ function parse(text: string, path: string): Parsed {
     return made;
   };
   const outside = entry(OUTSIDE, "suite");
+  let strict = false;
   const visit = (node: ts.Node, titles: readonly string[], current: Found): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && /^(?:node:)?assert\/strict$/.test(node.moduleSpecifier.text)) strict = true;
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "require" && node.arguments[0] !== undefined && ts.isStringLiteralLike(node.arguments[0]) && /^(?:node:)?assert\/strict$/.test(node.arguments[0].text)) strict = true;
     if (ts.isCallExpression(node)) {
-      const test = testCall(node);
+      const test = testCall(node, titles.length > 0);
       if (test !== undefined) {
         const path = [...titles, titleOf(node)];
         const name = path.join(" > ");
@@ -166,7 +180,7 @@ function parse(text: string, path: string): Parsed {
     ts.forEachChild(node, (child) => visit(child, titles, current));
   };
   visit(source, [], outside);
-  return { found, tests };
+  return { found, tests, strict };
 }
 
 interface Totals {
@@ -176,13 +190,13 @@ interface Totals {
 }
 
 /** Everything the same name holds, summed: two tests with one title are one test to compare. */
-function totalsOf(entries: readonly Found[] | undefined): Totals {
+function totalsOf(entries: readonly Found[] | undefined, strict: boolean): Totals {
   const totals = { count: 0, constant: 0, loose: 0 };
   for (const found of entries ?? []) {
     for (const assertion of found.assertions) {
       totals.count += 1;
       if (assertion.constant) totals.constant += 1;
-      if (LOOSE.has(assertion.name)) totals.loose += 1;
+      if (LOOSE.has(assertion.name) || (assertion.plain && !strict && COERCING.has(assertion.name))) totals.loose += 1;
     }
   }
   return totals;
@@ -193,7 +207,7 @@ const plural = (count: number, noun: string): string => `${count} ${noun}${count
 function weakness(before: Totals, after: Totals): string | undefined {
   if (after.count < before.count) return `${plural(before.count, "assertion")} became ${after.count}`;
   if (after.constant > before.constant) return `${plural(after.constant - before.constant, "assertion")} of constants added`;
-  if (after.loose > before.loose) return `${plural(after.loose - before.loose, "assertion")} loosened (ok, toBeTruthy, toBeDefined or a bare assert)`;
+  if (after.loose > before.loose) return `${plural(after.loose - before.loose, "assertion")} loosened (ok, toBeTruthy, toBeDefined, a bare assert, or equal in place of strictEqual)`;
   return undefined;
 }
 
@@ -207,7 +221,9 @@ const byFileThenName = (a: { file: string; name: string }, b: { file: string; na
  * file is only noticed when it is deleted.
  */
 export function testChanges(base: FileTree, head: FileTree): TestChanges {
-  const headTexts = new Set(head.values());
+  // A deleted file is a move only when it pairs with one file the head added; each added file pairs once.
+  const added = new Map<string, string[]>();
+  for (const [path, text] of head) if (!base.has(path)) added.set(text, [...(added.get(text) ?? []), path]);
   const deletedFiles: { path: string; tests: number }[] = [];
   const removedTests: { file: string; name: string }[] = [];
   const markers: { file: string; name: string; marker: Marker }[] = [];
@@ -223,7 +239,12 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
     const after = head.get(path);
     const reads = SOURCE.test(posix.basename(path));
     if (after === undefined) {
-      if (before === undefined || headTexts.has(before)) continue;
+      if (before === undefined) continue;
+      const pair = added.get(before);
+      if (pair !== undefined && pair.length > 0) {
+        pair.pop();
+        continue;
+      }
       deletedFiles.push({ path, tests: reads ? [...parse(before, path).tests.values()].reduce((sum, n) => sum + n, 0) : 0 });
       continue;
     }
@@ -239,7 +260,7 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
     if (was === undefined) continue;
     for (const [name, count] of was.tests) if ((now.tests.get(name) ?? 0) < count) removedTests.push({ file: path, name });
     for (const [name, entries] of was.found) {
-      const why = weakness(totalsOf(entries), totalsOf(now.found.get(name)));
+      const why = weakness(totalsOf(entries, was.strict), totalsOf(now.found.get(name), now.strict));
       if (why !== undefined && now.found.has(name)) weakened.push({ file: path, name, why });
     }
   }
