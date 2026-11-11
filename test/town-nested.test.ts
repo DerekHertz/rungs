@@ -55,6 +55,12 @@ describe("nested blocks", () => {
     }
   });
 
+  test("the town knows its root, whose id the block of loose root files shares", () => {
+    expect(town.root).not.toBeNull();
+    expect(town.blocks.find((block) => block.name === "(root files)")!.id).toBe(town.root);
+    expect(allBlocks(town).filter((block) => block.name !== "(root files)").every((block) => block.id !== town.root)).toBe(true);
+  });
+
   test("subfolders are packed largest first", () => {
     const kids = town.nested.filter((block) => block.parent === named("tools").id).map((block) => block.files);
     expect(kids).toEqual([...kids].sort((a, b) => b - a));
@@ -173,7 +179,7 @@ describe("a comparison overlays the head's town at every nesting level", () => {
     }
   });
 
-  test("rubble stands inside the pad of the nested folder it was in", () => {
+  test("rubble of a nested folder stands in its top-level block's foot or yard", () => {
     const base = tree();
     const head = new Map(base);
     head.delete("tools/review/ui/u0.js");
@@ -181,12 +187,51 @@ describe("a comparison overlays the head's town at every nesting level", () => {
     const comparison = compare(extract(base), after);
     const compared = townOf(pictureOf(after, comparison).graph, SHEET, comparison);
     const rubble = compared.lots.find((lot) => lot.path === "tools/review/ui/u0.js")!;
-    const ui = allBlocks(compared).find((block) => block.name === "ui")!;
-    expect(rubble.folder).toBe(ui.id);
+    // At the foot of its block when that clears the blocks round it, in a yard of rubble named alike when not.
+    const tools = compared.blocks.find((block) => block.id === rubble.block)!;
+    expect(tools.name).toBe("tools");
     expect(rubble.change).toBe("removed");
-    expect(rubble.X).toBeGreaterThan(ui.X0);
-    expect(rubble.X).toBeLessThan(ui.X1);
-    expect(rubble.Y).toBeGreaterThan(ui.Y0);
-    expect(rubble.Y).toBeLessThan(ui.Y1);
+    expect(rubble.X).toBeGreaterThan(tools.X0);
+    expect(rubble.X).toBeLessThan(tools.X1);
+    expect(rubble.Y).toBeGreaterThan(tools.Y0);
+    expect(rubble.Y).toBeLessThan(tools.Y1);
+  });
+
+  const absolute = (t: Town) => new Map(t.lots.filter((lot) => !isGhost(lot.change)).map((lot) => [lot.path, [+lot.X.toFixed(6), +lot.Y.toFixed(6)]]));
+  const overlap = (a: Block, b: Block) => a.X0 < b.X1 && b.X0 < a.X1 && a.Y0 < b.Y1 && b.Y0 < a.Y1;
+
+  test("rubble in one nested folder moves no head lot, in absolute coordinates", () => {
+    const base = new Map<string, string>([["package.json", "{}\n"]]);
+    for (const dir of ["a", "b", "c"]) base.set(`src/${dir}/keep.js`, "function k() {}\n");
+    base.set("src/a/gone.js", "function g() {}\n");
+    const head = new Map(base);
+    head.delete("src/a/gone.js");
+    const after = extract(head);
+    const comparison = compare(extract(base), after);
+    const plain = townOf(after, SHEET);
+    const compared = townOf(pictureOf(after, comparison).graph, SHEET, comparison);
+    expect(absolute(compared)).toEqual(absolute(plain));
+    const all = allBlocks(compared);
+    for (const [i, a] of compared.blocks.entries()) for (const b of compared.blocks.slice(i + 1)) expect(overlap(a, b)).toBe(false);
+    for (const lot of compared.lots) expect(all.some((block) => lot.X > block.X0 && lot.X < block.X1 && lot.Y > block.Y0 && lot.Y < block.Y1)).toBe(true);
+  });
+
+  test.each([21, 22, 23, 24, 25, 26, 27, 28])("head lots stay put in absolute coordinates, and blocks never overlap, over random nested deletions (seed %i)", (seed) => {
+    const next = random(seed);
+    const base = new Map<string, string>([["package.json", "{}\n"]]);
+    for (const dir of ["src", "src/a", "src/a/b", "src/c", "src/d", "lib", "lib/x", "lib/y", "docs"]) {
+      const count = 1 + Math.floor(next() * 7);
+      for (let i = 0; i < count; i++) base.set(`${dir}/f${i}.js`, `function f${i}() { return ${i}; }\n`);
+    }
+    const head = new Map(base);
+    for (const path of base.keys()) if (path !== "package.json" && next() < 0.35) head.delete(path);
+    const after = extract(head);
+    const comparison = compare(extract(base), after);
+    const plain = townOf(after, SHEET);
+    const compared = townOf(pictureOf(after, comparison).graph, SHEET, comparison);
+    expect(absolute(compared)).toEqual(absolute(plain));
+    for (const [i, a] of compared.blocks.entries()) for (const b of compared.blocks.slice(i + 1)) expect(overlap(a, b)).toBe(false);
+    const lots = compared.lots;
+    for (const [i, a] of lots.entries()) for (const b of lots.slice(i + 1)) expect(Math.abs(a.X - b.X) >= LOT - 1e-6 || Math.abs(a.Y - b.Y) >= LOT - 1e-6).toBe(true);
   });
 });

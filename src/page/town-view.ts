@@ -108,6 +108,8 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   let highlighted: ReadonlySet<NodeId> = new Set();
   let chosen: ResourceKind | undefined;
   let hovered: Pick | undefined;
+  /** The block the camera was last sent to: its name is shown first and at any zoom. */
+  let focused: NodeId | undefined;
   let dirty = true;
   let dpr = 1;
 
@@ -367,8 +369,8 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     // Changed blocks are named first, then the rest from the largest, so a crowded picture loses the quietest names.
     const touched = (block: Block): boolean => block.changes.added + block.changes.altered + block.changes.removed + block.changes.moved > 0;
     const named = allBlocks(town)
-      .filter((block) => blockNamedAt(camera.zoom, block.depth))
-      .sort((a, b) => Number(touched(b)) - Number(touched(a)) || a.depth - b.depth);
+      .filter((block) => block.id === focused || blockNamedAt(camera.zoom, block.depth))
+      .sort((a, b) => Number(b.id === focused) - Number(a.id === focused) || Number(touched(b)) - Number(touched(a)) || a.depth - b.depth);
     for (const block of named) {
       const text = blockLabel(block, town.comparing, !files);
       const edge = block.fence === null ? COLOUR.pillEdge : COLOUR.mark;
@@ -379,11 +381,22 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       // a nested name stands on its block's far edge, in the clear ground the block keeps there.
       const spots =
         block.depth > 0
-          ? [groundScreen(midX, block.Y1 + 0.9, 0), groundScreen(midX, block.Y1 - 0.5, 0)]
+          ? [
+              groundScreen(midX, block.Y1 + 0.9, 0),
+              groundScreen(midX, block.Y1 - 0.5, 0),
+              groundScreen(midX, block.Y0, 0),
+              groundScreen(block.X0, midY, 0),
+              groundScreen(block.X1, midY, 0),
+              groundScreen(block.X0, block.Y1, 0),
+              groundScreen(block.X1, block.Y1, 0),
+              groundScreen(block.X0, block.Y0, 0),
+              groundScreen(block.X1, block.Y0, 0),
+              groundScreen(midX, midY, 7),
+            ]
           : files
             ? [groundScreen(midX, block.Y1 + 0.9, 0)]
             : [groundScreen(midX, midY, 7), groundScreen(midX, block.Y0, 0), groundScreen(block.X1, midY, 0), groundScreen(block.X0, midY, 0), groundScreen(midX, block.Y1, 0)];
-      for (const size of block.depth > 0 ? [13] : files ? [15] : [20, 15, 12]) {
+      for (const size of block.depth > 0 ? [13, 11] : files ? [15] : [20, 15, 12]) {
         if (spots.some((spot) => pill(text, spot.x, spot.y, Math.round(size * dpr), edge, Infinity, true, owner))) break;
       }
       if (files && block.fence !== null) {
@@ -605,6 +618,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       };
       if (!Number.isFinite(bounds.left)) bounds = { left: 0, right: 1, top: 0, bottom: 1 };
       touched = false;
+      focused = undefined;
       selected = undefined;
       highlighted = new Set();
       chosen = undefined;
@@ -623,12 +637,15 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     },
     flyTo(id) {
       // The smallest block holding the folder: a nested block's own pad when it is one.
-      const block = town === undefined ? undefined : allBlocks(town).filter((candidate) => candidate.id === id || candidate.folders.includes(id)).sort((a, b) => b.depth - a.depth)[0];
+      // The root frames the whole town: its synthetic block of loose files shares its id.
+      const block = town === undefined || id === town.root ? undefined : allBlocks(town).filter((candidate) => candidate.id === id || candidate.folders.includes(id)).sort((a, b) => b.depth - a.depth)[0];
+      focused = block?.id;
       if (block === undefined) flyTo(fitCamera());
       else flyTo(frameBlock(block));
     },
     reset() {
       touched = false;
+      focused = undefined;
       flyTo(fitCamera());
     },
     cyclePixel: () => 1,

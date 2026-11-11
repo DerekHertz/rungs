@@ -315,6 +315,8 @@ export interface Town {
   readonly unreached: number;
   /** True under a comparison: names, marks and counts follow the change. */
   readonly comparing: boolean;
+  /** The repository's root folder: a camera sent there frames the whole town, not the block of loose root files. */
+  readonly root: NodeId | null;
 }
 
 /** The harbour structure each kind of resource picks, by sheet name: written out, never derived from the kind's words. */
@@ -402,6 +404,8 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     readonly heads: ModuleNode[];
     readonly gone: ModuleNode[];
     readonly kids: Tree[];
+    /** For a yard block of rubble that would not fit at the foot of its top-level block: that block's id. */
+    readonly rubbleOf?: NodeId;
     /** Head files here and below, and rubble here and below. */
     headTotal: number;
     goneTotal: number;
@@ -526,14 +530,47 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     return laid;
   };
 
-  const topsLaid = tops.filter((tree) => tree.headTotal + tree.goneTotal > 0).sort(inOrder).map((tree) => lay(tree, true));
-  const topHeads = topsLaid.filter((top) => top.tree.headTotal > 0).map((top) => lay(top.tree, false));
-  const target = Math.sqrt((topHeads.length > 0 ? topHeads : topsLaid).reduce((sum, block) => sum + (block.w + GAP) * (block.d + GAP), 0)) * 1.3;
-  const packedTops = pack(topsLaid, target, GAP);
-  const width = packedTops.w;
-  const depth = packedTops.d;
+  // Everything about where head geometry goes is decided from the head alone, so a comparison never moves a head
+  // lot: the shelves, rows, blocks and centring below use head sizes. Rubble then goes only where no head thing
+  // is: in a strip at the foot of the top-level block it stood in (the pad grows outward on its far side), or when
+  // that would touch another block, in a yard of rubble below the whole head plan, like a block only rubble stood in.
+  const goneBelow = (tree: Tree): ModuleNode[] => [...tree.gone, ...tree.kids.flatMap(goneBelow)];
+  const headTrees = tops.filter((tree) => tree.headTotal > 0).sort(inOrder);
+  const headLaid = headTrees.map((tree) => lay(tree, false));
+  const headTarget = Math.sqrt(headLaid.reduce((sum, block) => sum + (block.w + GAP) * (block.d + GAP), 0)) * 1.3;
+  const packedHeads = pack(headLaid, headTarget, GAP);
+  const width = packedHeads.w;
+  const depth = packedHeads.d;
+  const planned = headLaid.map((laid, index) => ({ laid, x: packedHeads.places[index]!.x, z: packedHeads.places[index]!.z }));
+  const taken = planned.map((entry) => ({ x0: entry.x, x1: entry.x + entry.laid.w, z0: entry.z, z1: entry.z + entry.laid.d }));
+  const yardTrees: Tree[] = tops.filter((tree) => tree.headTotal === 0 && tree.goneTotal > 0).sort(inOrder);
+  const overflow: Tree[] = [];
+  let bottom = depth;
+  planned.forEach((entry, index) => {
+    const files = goneBelow(entry.laid.tree).sort(byPath);
+    if (files.length === 0) return;
+    const cols = Math.max(1, Math.floor((entry.laid.w - 2 * PAD) / LOT + 1e-9));
+    const gap = entry.laid.kids.length > 0 ? INNER_GAP : 0;
+    const grown = { x0: entry.x, x1: entry.x + entry.laid.w, z0: entry.z, z1: entry.z + entry.laid.d + gap + Math.ceil(files.length / cols) * LOT };
+    const clear = taken.every((other, j) => j === index || grown.x1 + GAP / 2 <= other.x0 || other.x1 + GAP / 2 <= grown.x0 || grown.z1 + GAP / 2 <= other.z0 || other.z1 + GAP / 2 <= grown.z0);
+    if (clear) {
+      taken[index] = grown;
+      bottom = Math.max(bottom, grown.z1);
+      entry.laid = { ...entry.laid, d: grown.z1 - grown.z0, strip: { files, cols, z: entry.laid.d - PAD + gap } };
+    } else {
+      const tree = entry.laid.tree;
+      overflow.push({ id: `${tree.id}~rubble` as NodeId, name: tree.name, parent: null, depth: 0, heads: [], gone: files, kids: [], headTotal: 0, goneTotal: files.length, rubbleOf: tree.id });
+    }
+  });
+  const yardLaid = [...yardTrees, ...overflow].map((tree) => lay(tree, true));
+  const yardTarget = Math.max(width, Math.sqrt(yardLaid.reduce((sum, block) => sum + (block.w + GAP) * (block.d + GAP), 0)) * 1.3);
+  const packedYard = pack(yardLaid, yardTarget, GAP);
+  const yardAt = planned.length > 0 ? bottom + GAP : 0;
+  const plan = [...planned, ...yardLaid.map((laid, index) => ({ laid, x: packedYard.places[index]!.x, z: yardAt + packedYard.places[index]!.z }))];
+  const centreW = planned.length > 0 ? width : packedYard.w;
+  const centreD = planned.length > 0 ? depth : packedYard.d;
   // Plan (x across, z down) to ground (X, Y): the plan's top edge is the far one.
-  const ground = (px: number, pz: number): [number, number] => [px - width / 2, depth / 2 - pz];
+  const ground = (px: number, pz: number): [number, number] => [px - centreW / 2, centreD / 2 - pz];
 
   const filesOf = (tree: Tree): ModuleNode[] => [...tree.heads, ...tree.gone, ...tree.kids.flatMap(filesOf)];
   const blocks: Block[] = [];
@@ -585,7 +622,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     const changes = { added: 0, altered: 0, removed: 0, moved: 0 };
     let present = 0;
     const all = filesOf(tree);
-    for (const file of all) {
+    for (const file of tree.rubbleOf === undefined ? all : []) {
       if (ghosts.has(file.id)) {
         if (kinds.get(file.id) === "removed") changes.removed++;
         continue;
@@ -623,11 +660,10 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     });
   };
   const lots: Lot[] = [];
-  topsLaid.forEach((laid, index) => {
+  plan.forEach(({ laid, x, z }) => {
     headLots.length = 0;
     goneLots.length = 0;
-    const at = packedTops.places[index]!;
-    place(laid, at.x, at.z, laid.tree.id);
+    place(laid, x, z, laid.tree.id);
     lots.push(...headLots, ...goneLots);
   });
 
@@ -635,8 +671,10 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
   // takes the radius below WOBBLE_LEAST of its base, so growing the ellipse through the plan's corners
   // (a margin out) by that and the lawn's share means even the lawn holds the whole plan.
   const grow = Math.SQRT2 / (WOBBLE_LEAST * LAWN_SHARE * CHORD);
-  const radiusX = (width / 2 + ISLAND_MARGIN) * grow;
-  const radiusY = (depth / 2 + ISLAND_MARGIN) * grow;
+  // The island holds every block, rubble yard included: its radius comes from how far the pads reach from the middle.
+  const reach = (side: (block: Block) => number): number => Math.max(0, ...blocks.map(side));
+  const radiusX = (reach((block) => Math.max(Math.abs(block.X0), Math.abs(block.X1))) + ISLAND_MARGIN) * grow;
+  const radiusY = (reach((block) => Math.max(Math.abs(block.Y0), Math.abs(block.Y1))) + ISLAND_MARGIN) * grow;
   const loop = (scale: number): [number, number][] =>
     Array.from({ length: 120 }, (_, i) => {
       const t = (i / 120) * Math.PI * 2;
@@ -667,6 +705,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     importance: { fewest: fewestRests, most: mostRests },
     unreached: lots.filter((lot) => !lot.reached).length,
     comparing: comparison !== null,
+    root: root?.id ?? null,
   };
 }
 
