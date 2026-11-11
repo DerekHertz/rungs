@@ -236,6 +236,7 @@ test("/test-changes.json is the derived list of what the change did to the tests
       tier: "derived",
       deletedFiles: [{ path: "test/a.test.mjs", tests: 1 }],
       removedTests: [],
+      renamed: [],
       markers: [],
       weakened: [],
     });

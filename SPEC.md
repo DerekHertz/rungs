@@ -155,7 +155,9 @@ runs, and is shown as deleted by this change. Test files the change wrote or edi
 are shown as "written by this change", claimed, never as evidence. What the change did to the
 tests is also read from the two trees, without running anything, and listed under Tests:
 test files deleted, tests removed by name, `.skip`, `.todo` or `.only` added, fewer or looser
-assertions.
+assertions. A removed test and an added test that are the only ones lost and gained in one describe
+path, with known bodies that are the same or at the same place, are one renamed test, not a removal;
+it is still weakened if it asserts less. Anything unclear stays removed.
 
 Even main's tests import the head's code, which can fake an outcome from inside the test process.
 Observed results are evidence against mistakes, not against a hostile author, and the page says so
