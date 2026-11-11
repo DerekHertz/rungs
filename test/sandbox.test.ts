@@ -590,3 +590,63 @@ test("no sandbox: tests are refused unless the person allows running unsandboxed
 test("a PATH without bwrap finds no sandbox, and says why", async () => {
   expect(await detectSandbox({ PATH: "/nonexistent" })).toEqual({ kind: "none", why: "bwrap is not on PATH" });
 });
+
+// Pinned files are the ones a step may read and not change: the tests that count as evidence.
+const PIN_SCRIPT = `import { execFileSync } from "node:child_process";
+import { chmodSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+const tries = {
+  write: () => writeFileSync("test/a.test.mjs", "FORGED"),
+  append: () => writeFileSync("test/a.test.mjs", "FORGED", { flag: "a" }),
+  remove: () => rmSync("test/a.test.mjs"),
+  rename: () => renameSync("test/a.test.mjs", "test/gone.mjs"),
+  replace: () => { writeFileSync("test/new.mjs", "FORGED"); renameSync("test/new.mjs", "test/a.test.mjs"); },
+  renameFolder: () => renameSync("test", "moved"),
+  removeFolder: () => rmSync("test", { recursive: true }),
+  link: () => { rmSync("test/a.test.mjs"); symlinkSync("/etc/passwd", "test/a.test.mjs"); },
+  chmod: () => { chmodSync("test/a.test.mjs", 0o644); writeFileSync("test/a.test.mjs", "FORGED"); },
+  renameDeep: () => renameSync("test/deep", "test/deeper"),
+  removeDeep: () => rmSync("test/deep", { recursive: true }),
+  unmount: () => execFileSync("umount", ["/work/test/a.test.mjs"], { stdio: "ignore" }),
+  unmountFolder: () => execFileSync("umount", ["/work/test"], { stdio: "ignore" }),
+};
+const outcome = {};
+for (const [name, attempt] of Object.entries(tries)) {
+  try { attempt(); outcome[name] = "done"; } catch (error) { outcome[name] = error.code; }
+}
+writeFileSync("free.txt", "changed");
+console.log(JSON.stringify({ outcome, kept: readFileSync("test/a.test.mjs", "utf8"), deep: readFileSync("test/deep/b.test.mjs", "utf8"), free: readFileSync("free.txt", "utf8") }));
+`;
+
+test("bwrap: a step cannot change, remove, replace or move a pinned file, and can change files that are not pinned", async () => {
+  const run = await runIsolated({
+    tree: new Map([["test/a.test.mjs", "ORIGINAL"], ["test/deep/b.test.mjs", "DEEP"], ["free.txt", "before"], ["pin.mjs", PIN_SCRIPT]]),
+    pinned: new Set(["test/a.test.mjs", "test/deep/b.test.mjs"]),
+    isolation: bwrap,
+    steps: (places) => [{ argv: [places.node, "pin.mjs"] }],
+    timeoutMs: 30_000,
+    outputBytes: 1 << 16,
+  });
+  const result = JSON.parse(run.steps[0]?.output ?? "{}") as { outcome: Record<string, string>; kept: string; deep: string; free: string };
+  expect(result.kept).toBe("ORIGINAL");
+  expect(result.deep).toBe("DEEP");
+  expect(result.free).toBe("changed");
+  for (const [name, code] of Object.entries(result.outcome)) expect(code, name).not.toBe("done");
+});
+
+test("unsandboxed: a pinned file is written read-only, which is all the copy can promise", async () => {
+  const run = await runIsolated({
+    tree: new Map([["test/a.test.mjs", "ORIGINAL"], ["pin.mjs", `import { statSync, writeFileSync } from "node:fs"; try { writeFileSync("test/a.test.mjs", "X"); } catch (error) { console.log(error.code, (statSync("test/a.test.mjs").mode & 0o777).toString(8)); }`]]),
+    pinned: new Set(["test/a.test.mjs"]),
+    isolation: { kind: "unsandboxed" },
+    steps: (places) => [{ argv: [places.node, "pin.mjs"] }],
+    timeoutMs: 30_000,
+    outputBytes: 1 << 16,
+  });
+  expect(run.steps[0]?.output.trim()).toBe("EACCES 444");
+});
+
+test("a pinned path the tree does not hold is refused before anything runs", async () => {
+  await expect(
+    runIsolated({ tree: new Map([["a", "x"]]), pinned: new Set(["b"]), isolation: { kind: "unsandboxed" }, steps: () => [], timeoutMs: 1000, outputBytes: 100 }),
+  ).rejects.toThrow('a pinned file is not in the tree: "b"');
+});
