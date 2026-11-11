@@ -6,7 +6,7 @@ import { typeChange } from "./type-change.ts";
 import type { ChangedEffect } from "./effects.ts";
 import type { SectionChange } from "./sections.ts";
 import type { ChangeKind, Comparison, ContractMove, ContractMoveKind, ModuleChange, Tally } from "./compare.ts";
-import type { CallbackLines, TestCallback, TestChanges } from "./test-changes-types.ts";
+import type { CallbackLines, TestChanges } from "./test-changes-types.ts";
 
 /** Most urgent first: a removed or altered module changed what already stood, a moved one is the same text. */
 const URGENCY: Record<ChangeKind, number> = { removed: 0, altered: 1, added: 2, moved: 3 };
@@ -306,6 +306,26 @@ export function unmentioned(
   const changeOf = new Map<NodeId, ModuleChange>(comparison.changes.map((change) => [change.node.id, change]));
   // Removed nodes are not in the picture graph; their parents are the base graph's, read from the change itself.
   const nodeOf = new Map<NodeId, ModuleNode>([...comparison.changes.map((change): [NodeId, ModuleNode] => [change.node.id, change.node]), ...graph.nodes.map((node): [NodeId, ModuleNode] => [node.id, node])]);
+  // The functions of each file by line range, on each side. Nodes keep lines only, so two functions on one line cannot be told
+  // apart by their range: a range held by another function is never taken to be a test's callback, and a pairing or a title is not guessed.
+  const rangeKey = (node: ModuleNode & { readonly range: { readonly start: number; readonly end: number } }): string => `${node.path}\0${node.range.start}\0${node.range.end}`;
+  const functionsAt = { head: new Map<string, Set<NodeId>>(), base: new Map<string, Set<NodeId>>() };
+  const noteFunction = (side: "head" | "base", node: ModuleNode): void => {
+    if (!isCodeNode(node) || node.level !== "function") return;
+    const key = rangeKey(node);
+    functionsAt[side].set(key, (functionsAt[side].get(key) ?? new Set()).add(node.id));
+  };
+  for (const node of graph.nodes) {
+    noteFunction("head", node);
+    if (!changeOf.has(node.id)) noteFunction("base", node);
+  }
+  for (const change of comparison.changes) {
+    if (change.kind === "removed") noteFunction("base", change.node);
+    else noteFunction("head", change.node);
+    if (change.kind === "moved") noteFunction("base", change.from);
+    if (change.kind === "altered") noteFunction("base", change.before);
+  }
+  const crowded = (side: "head" | "base", node: ModuleNode): boolean => isCodeNode(node) && [...(functionsAt[side].get(rangeKey(node)) ?? [])].some((id) => id !== node.id);
   // Which callbacks are tests is read from the source (testChanges' `callbacks`), because the extractor names a callback by the
   // last name of its callee: `stream.skip("data", fn)` reads like `it.skip("x", fn)`, and `test.each(rows)("x", fn)` has no name at all.
   // A file with no list keeps the names' reading.
@@ -313,16 +333,25 @@ export function unmentioned(
   const callName = /^([\w$]+)\((.*)\) callback$/su;
   const MODIFIER_CALLEE = new Set(["skip", "only", "todo", "concurrent", "sequential", "fails", "failing"]);
   /** The test or suite call whose callback this change is, by the callback's lines: the node's own name must fit the call too. */
-  const testCallOf = (change: ModuleChange): TestCallback | undefined => {
+  const testCallOf = (change: ModuleChange): { readonly label: string | undefined } | undefined => {
     const node = change.node;
     if (!isCodeNode(node) || node.level !== "function") return undefined;
     const lists = listed.get(node.path);
     if (lists === undefined) return undefined;
     const text = segmentsOf(node.qualifiedName).at(-1)!.text;
     const callee = callName.exec(text)?.[1];
-    return (change.kind === "removed" ? lists.base : lists.head).find(
+    const side = change.kind === "removed" ? "base" : "head";
+    const found = lists[side].filter(
       (call) => call.start === node.range.start && call.end === node.range.end && (text === "<function>" || (callee !== undefined && call.label.slice(0, call.label.indexOf("(")).split(".").at(-1) === callee)),
     );
+    if (found.length === 0) return undefined;
+    // Several calls or functions on these lines: it is a test, but which title is its own is not known.
+    return { label: found.length === 1 && !crowded(side, node) ? found[0]!.label : undefined };
+  };
+  /** The one callback of the call list at these lines on this side, and no other function there. */
+  const soleTest = (side: "head" | "base", node: ModuleNode, file: string): boolean => {
+    const lists = listed.get(file);
+    return isCodeNode(node) && lists !== undefined && !crowded(side, node) && lists[side].filter((call) => call.start === node.range.start && call.end === node.range.end).length === 1;
   };
   /** A function with no name a reviewer could tell apart, or a callback of an ordinary method that only borrows a test runner's modifier name. */
   const unnamed = (change: ModuleChange): boolean => {
@@ -350,7 +379,7 @@ export function unmentioned(
     const hits = comparison.changes.filter(
       (change) => change.kind === kind && change.node.level === "function" && change.node.path === file && isCodeNode(change.node) && change.node.range.start === lines.start && change.node.range.end === lines.end,
     );
-    return hits.length === 1 ? hits[0] : undefined;
+    return hits.length === 1 && soleTest(kind === "removed" ? "base" : "head", hits[0]!.node, file) ? hits[0] : undefined;
   };
   // A rename whose body is identical is reported as one `moved` function: the old node is its `from`.
   const movedCallback = (file: string, was: CallbackLines | undefined, now: CallbackLines | undefined): (ModuleChange & { readonly kind: "moved" }) | undefined => {
@@ -360,8 +389,12 @@ export function unmentioned(
         change.kind === "moved" && change.node.level === "function" && change.node.path === file && change.from.path === file && isCodeNode(change.node) && isCodeNode(change.from) &&
         change.node.range.start === now.start && change.node.range.end === now.end && change.from.range.start === was.start && change.from.range.end === was.end,
     );
-    return hits.length === 1 ? hits[0] : undefined;
+    return hits.length === 1 && soleTest("head", hits[0]!.node, file) && soleTest("base", hits[0]!.from, file) ? hits[0] : undefined;
   };
+  // A title is claimed by the description only when it is quoted whole, or is three words or more and appears whole: a short title is
+  // too likely to be a word in unrelated prose. Anything else leaves the row shown.
+  const titleCovered = (title: string): boolean =>
+    title.trim() !== "" && ([`"${title}"`, `'${title}'`, `\`${title}\``, `\u201c${title}\u201d`].some((quoted) => description.includes(quoted)) || (title.trim().split(/\s+/).length >= 3 && appears(description, "name", title)));
   interface Rename {
     readonly was: ModuleNode;
     readonly weakened: boolean;
@@ -392,7 +425,7 @@ export function unmentioned(
     if (nameCovered(node.qualifiedName)) continue;
     if (renamedAway.has(node.id)) continue;
     const renamed = renamedFrom.get(node.id);
-    if (renamed !== undefined && isCodeNode(renamed.was) && (nameCovered(renamed.was.qualifiedName) || pathMentioned(renamed.was.path) || renamed.names.some((name) => appears(description, "name", name)))) continue;
+    if (renamed !== undefined && isCodeNode(renamed.was) && (nameCovered(renamed.was.qualifiedName) || pathMentioned(renamed.was.path) || renamed.names.some(titleCovered))) continue;
     if (!unnamed(change) || renamedFrom.has(node.id)) {
       codeChanges.push(change);
       continue;
@@ -406,7 +439,7 @@ export function unmentioned(
   const eachLabel = (change: ModuleChange): string | undefined => {
     const call = testCallOf(change);
     const node = change.node;
-    if (call === undefined || !isCodeNode(node)) return undefined;
+    if (call?.label === undefined || !isCodeNode(node)) return undefined;
     const last = segmentsOf(node.qualifiedName).at(-1)!;
     return last.text === "<function>" ? `${call.label}${last.ordinal > 1 ? `@${last.ordinal}` : ""}` : undefined;
   };

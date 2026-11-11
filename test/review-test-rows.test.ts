@@ -69,12 +69,52 @@ describe("a mention of either test's title or displayed name covers the renamed 
     expect(shown("Nothing.")).toBe(1);
   });
 
-  test.each(["Renames old name to new name.", 'Updates it("old name").', "Updates the `new name` test.", "The town > old name test.", "town > new name is clearer."])("%s", (description) => {
+  test.each(['Updates it("old name").', "Updates the `new name` test.", "The town > old name test.", "town > new name is clearer."])("%s", (description) => {
     expect(shown(description)).toBe(0);
   });
 
   test("a title that only shares a word with a mention is not covered", () => {
     expect(shown("Renames the old things.")).toBe(1);
+  });
+
+  test("a short title unquoted is not covered, whatever prose it appears in", () => {
+    expect(shown("Renames old name to new name.")).toBe(1);
+  });
+
+  test.each(["Renames “old name”.", "Renames 'new name'.", 'Renames "new name".'])("a quoted title covers: %s", (description) => {
+    expect(shown(description)).toBe(0);
+  });
+
+  test("a one-word title is not covered by the word in prose", () => {
+    const one = (title: string): string => spec(JSON.stringify(title), two + (title === "a" ? "" : "    expect(c).toBe(3);\n"));
+    const rows = rowsOf(reviewTests({ [T]: one("a") }, { [T]: one("b") }, "Adds a network timeout.").entries);
+    expect(rows).toHaveLength(1);
+  });
+
+  test("a title of three words or more covers when it appears whole", () => {
+    const three = (title: string): string => spec(JSON.stringify(title), two + (title.startsWith("old") ? "" : "    expect(c).toBe(3);\n"));
+    const rows = (d: string): number => rowsOf(reviewTests({ [T]: three("old test name") }, { [T]: three("new test name") }, d).entries).length;
+    expect(rows("Renames old test name to the new one.")).toBe(0);
+    expect(rows("Renames the old test.")).toBe(1);
+  });
+});
+
+describe("rows that share a line are never merged on a guess", () => {
+  const pkg = { "package.json": "{}\n" };
+
+  test("a renamed test does not take a moved function that shares its line", () => {
+    const text = (title: string, n: number, f: string): string => `import { it } from "vitest";\nit("${title}", () => run(${n})); function ${f}() { return ${n}; } const m${title} = () => 5;\n`;
+    const base = { ...pkg, [T]: text("old", 1, "f1") };
+    const head = { ...pkg, [T]: text("new", 2, "f2") };
+    const rows = reviewTests(base, head, "").entries[0]!.children;
+    expect(rows.some((row) => row.level === "function" && row.renamedFrom !== undefined)).toBe(false);
+  });
+
+  test("two test.each callbacks on one line get no title rather than the first one's", () => {
+    const code = (n: number): string => `import { test } from "vitest";\ntest.each([1])("one", (x) => a(x + ${n})); test.each([2])("two", (x) => b(x + ${n}));\n`;
+    const rows = reviewTests({ ...pkg, [T]: code(1) }, { ...pkg, [T]: code(2) }, "").entries[0]!.children;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => !row.label.includes("test.each"))).toBe(true);
   });
 });
 
