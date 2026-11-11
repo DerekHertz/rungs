@@ -19,6 +19,8 @@ export const LOT = 4.3;
 export const PAD = 0.5;
 /** The clear ground between blocks. */
 export const GAP = 3.2;
+/** The clear ground between the parts inside a block: its own lots, its smaller blocks, its rubble. */
+export const INNER_GAP = 2;
 /** Harbour structures stand this far apart along the east shore. */
 export const PIER_SPACING = 4.4;
 /** The least the coast's wobble takes its radius to: 1 - (0.07 + 0.05 + 0.03). */
@@ -47,6 +49,16 @@ export const FILE_NAMES_FROM_LOT_PX = 200;
 /** What is named at `zoom` (screen pixels per native sprite pixel): only blocks far away, files as well close in. */
 export function namesAt(zoom: number): "blocks" | "files" {
   return 2 * LOT * AXIS * zoom >= FILE_NAMES_FROM_LOT_PX ? "files" : "blocks";
+}
+
+/**
+ * Whether a block `depth` folders below the top is named when a lot is `lotPx` pixels wide on screen:
+ * a top-level block always, a nested one from 40% of the width files are named at, a deeper one a
+ * halving step closer in, so names arrive level by level as you zoom and never before the files'.
+ */
+export function blockNamedAt(zoom: number, depth: number): boolean {
+  if (depth === 0) return true;
+  return 2 * LOT * AXIS * zoom >= FILE_NAMES_FROM_LOT_PX * 0.8 * (1 - 0.5 ** depth);
 }
 
 /** How tall each plinth sprite stands, in ground units (themes/town/make_sprites.py): the building on it is raised by this. */
@@ -113,8 +125,10 @@ export interface Lot {
   /** The file's name and path, for display. */
   readonly name: string;
   readonly path: string;
-  /** The block the lot is in. */
+  /** The top-level block the lot is in. */
   readonly block: NodeId;
+  /** The innermost block the lot is in: the lot's own folder (the top-level block's id when it stands directly in it). */
+  readonly folder: NodeId;
   readonly role: Role | null;
   readonly kind: BuildingKind;
   /** 1 for the smallest size step; always 1 where the sheet has one size of that kind. */
@@ -150,12 +164,18 @@ export interface Lot {
 }
 
 export interface Block {
-  /** The top-level folder's id; the root's id for the files that sit in no folder. */
+  /** The folder's id; for a top-level block the root's id stands for the files that sit in no folder. */
   readonly id: NodeId;
   readonly name: string;
+  /** The block this one is inside; null for a top-level block. */
+  readonly parent: NodeId | null;
+  /** 0 for a top-level block, 1 for a folder inside it, and so on. */
+  readonly depth: number;
   /** Every package and folder in the block, itself first (none for the root's loose files): the ids a camera can be flown to. */
   readonly folders: readonly NodeId[];
+  /** Files in the block, nested blocks' included. */
   readonly files: number;
+  /** The grid of the block's own files: columns and rows (the rubble's, for a block only rubble stands in). */
   readonly cols: number;
   readonly rows: number;
   /** The pad, on the ground: X0 to X1 across, Y0 (near) to Y1 (far). */
@@ -275,7 +295,9 @@ export interface Pier {
 export interface Town {
   /** Largest first, in the order they were packed. */
   readonly blocks: readonly Block[];
-  /** Block by block, each in path order. */
+  /** Every block nested inside a top-level one, each after the block it is in. */
+  readonly nested: readonly Block[];
+  /** Top-level block by top-level block: head lots first, rubble after. */
   readonly lots: readonly Lot[];
   readonly piers: readonly Pier[];
   /** Reached kinds the sheet has no structure for yet: nothing is drawn for them. TODO(#100). */
@@ -293,6 +315,8 @@ export interface Town {
   readonly unreached: number;
   /** True under a comparison: names, marks and counts follow the change. */
   readonly comparing: boolean;
+  /** The repository's root folder: a camera sent there frames the whole town, not the block of loose root files. */
+  readonly root: NodeId | null;
 }
 
 /** The harbour structure each kind of resource picks, by sheet name: written out, never derived from the kind's words. */
@@ -332,8 +356,9 @@ export function stepOf(count: number, fewest: number, most: number, steps: numbe
 
 /**
  * The town of `graph`, built from the sprites named in `sprites`. Each top-level folder is a block
- * and its files lots of one size in a grid in path order; blocks are packed in rows, largest
- * first. Every lot is a fact (a file), and so is every harbour structure (a reached kind of
+ * whose own files are lots of one size in a grid in path order, and each folder inside it is a smaller
+ * block packed inside it by the same rule (rows, largest first), at every depth; top-level blocks are
+ * packed the same way. Every lot is a fact (a file), and so is every harbour structure (a reached kind of
  * resource): empty ground has nothing on it.
  *
  * Under a comparison the lots of the files the base had and the head lacks stay (a removed file,
@@ -367,82 +392,237 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     else if (node.level === "function") functions.set(node.path, (functions.get(node.path) ?? 0) + 1);
   }
 
-  /** The child of the root a node stands in, or the root when it stands directly in it. */
-  const topOf = (node: ModuleNode): NodeId | undefined => {
-    let at: ModuleNode | undefined = node;
-    while (at !== undefined && at.parent !== null && at.parent !== root?.id) at = nodes.get(at.parent);
-    return at?.parent === root?.id && at !== undefined ? at.id : undefined;
-  };
 
-  // A comparison overlays the head's town: head files lay out exactly as they do with no comparison, and the ghosts come after.
-  const filesByBlock = new Map<NodeId, ModuleNode[]>();
-  const ghostsByBlock = new Map<NodeId, ModuleNode[]>();
+  // A block is a folder: its own files are a grid of equal lots in path order, and its subfolders are smaller blocks
+  // packed under the grid. A comparison overlays the head's town: head files and blocks lay out exactly as they do
+  // with no comparison, and the ghosts (rubble) come after, in a strip at the foot of the block they stood in.
+  interface Tree {
+    readonly id: NodeId;
+    readonly name: string;
+    readonly parent: Tree | null;
+    readonly depth: number;
+    readonly heads: ModuleNode[];
+    readonly gone: ModuleNode[];
+    readonly kids: Tree[];
+    /** For a yard block of rubble that would not fit at the foot of its top-level block: that block's id. */
+    readonly rubbleOf?: NodeId;
+    /** Head files here and below, and rubble here and below. */
+    headTotal: number;
+    goneTotal: number;
+  }
+  const trees = new Map<NodeId, Tree>();
+  const treeFor = (id: NodeId): Tree | undefined => {
+    const known = trees.get(id);
+    if (known !== undefined) return known;
+    const node = nodes.get(id);
+    if (node === undefined || (node.level !== "folder" && node.level !== "package") || id === root?.id) return undefined;
+    let parent: Tree | null = null;
+    if (node.parent !== root?.id) {
+      parent = node.parent === null ? null : (treeFor(node.parent) ?? null);
+      if (parent === null) return undefined;
+    }
+    const made: Tree = { id, name: node.name, parent, depth: parent === null ? 0 : parent.depth + 1, heads: [], gone: [], kids: [], headTotal: 0, goneTotal: 0 };
+    trees.set(id, made);
+    parent?.kids.push(made);
+    return made;
+  };
+  const rootTree: Tree | undefined = root === undefined ? undefined : { id: root.id, name: "(root files)", parent: null, depth: 0, heads: [], gone: [], kids: [], headTotal: 0, goneTotal: 0 };
   for (const node of graph.nodes) {
     if (node.level !== "file") continue;
-    const top = node.parent === root?.id ? root.id : topOf(node);
-    if (top === undefined) continue;
-    const into = ghosts.has(node.id) ? ghostsByBlock : filesByBlock;
-    into.set(top, [...(into.get(top) ?? []), node]);
+    const at = node.parent === root?.id ? rootTree : node.parent === null ? undefined : treeFor(node.parent);
+    if (at === undefined) continue;
+    (ghosts.has(node.id) ? at.gone : at.heads).push(node);
+    for (let up: Tree | null = at; up !== null; up = up.parent) {
+      if (ghosts.has(node.id)) up.goneTotal++;
+      else up.headTotal++;
+    }
   }
+  const tops: Tree[] = [...trees.values()].filter((tree) => tree.parent === null);
+  if (rootTree !== undefined && rootTree.heads.length + rootTree.gone.length > 0) tops.push(rootTree);
 
-  const foldersByBlock = new Map<NodeId, NodeId[]>();
+  // Every package and folder in a block, nested ones and ones with no files included, itself first.
+  const folderIds = new Map<NodeId, NodeId[]>([...trees.keys()].map((id) => [id, [id]]));
   for (const node of graph.nodes) {
-    if (node.level !== "folder" && node.level !== "package") continue;
-    const top = node.id === root?.id ? undefined : topOf(node);
-    if (top !== undefined) foldersByBlock.set(top, [...(foldersByBlock.get(top) ?? []), node.id]);
+    if ((node.level !== "folder" && node.level !== "package") || node.id === root?.id) continue;
+    for (let up = node.parent === null ? undefined : nodes.get(node.parent); up !== undefined; up = up.parent === null ? undefined : nodes.get(up.parent)) {
+      folderIds.get(up.id)?.push(node.id);
+    }
   }
 
   const countOf = (path: string): number => (classes.get(path) ?? 0) + (functions.get(path) ?? 0);
-  const measured = [...filesByBlock.values()].flat().filter((file) => file.level === "file" && file.role !== "generated").map((file) => countOf(file.path));
+  const measured = graph.nodes.filter((file) => file.level === "file" && file.role !== "generated" && !ghosts.has(file.id)).map((file) => countOf(file.path));
   const fewest = measured.length === 0 ? 0 : Math.min(...measured);
   const most = measured.length === 0 ? 0 : Math.max(...measured);
 
-  // Size every block, then pack them in shelves, largest first.
-  const sizedBlock = (id: NodeId) => {
-    const own = [...(filesByBlock.get(id) ?? [])].sort((a, b) => byCodeUnits(a.path, b.path));
-    const gone = [...(ghostsByBlock.get(id) ?? [])].sort((a, b) => byCodeUnits(a.path, b.path));
-    const files = [...own, ...gone];
-    // The grid is as wide as the head's own files make it, so ghosts only add rows after them.
-    const cols = Math.max(1, Math.ceil(Math.sqrt(own.length > 0 ? own.length : files.length)));
-    const rows = Math.ceil(files.length / cols);
-    const container = nodes.get(id);
-    const name = id === root?.id ? "(root files)" : (container?.name ?? id);
-    return { id, name, files, own: own.length, cols, rows, w: cols * LOT + 2 * PAD, d: rows * LOT + 2 * PAD };
-  };
-  // Blocks with head files in the order they have without a comparison, then the blocks only ghosts stand in.
-  const sized = [...new Set([...filesByBlock.keys(), ...ghostsByBlock.keys()])]
-    .map(sizedBlock)
-    .sort((a, b) => b.own - a.own || (a.own > 0 ? 0 : b.files.length - a.files.length) || byCodeUnits(a.name, b.name) || byCodeUnits(a.id, b.id));
-  const target = Math.sqrt(sized.reduce((sum, block) => sum + (block.w + GAP) * (block.d + GAP), 0)) * 1.3;
-  const places = new Map<NodeId, { x: number; z: number }>();
-  let x = 0;
-  let z = 0;
-  let shelf = 0;
-  let width = 0;
-  for (const block of sized) {
-    if (x > 0 && x + block.w > target) {
-      x = 0;
-      z += shelf + GAP;
-      shelf = 0;
-    }
-    places.set(block.id, { x, z });
-    x += block.w + GAP;
-    shelf = Math.max(shelf, block.d);
-    width = Math.max(width, x - GAP);
-  }
-  const depth = z + shelf;
-  // Plan (x across, z down) to ground (X, Y): the plan's top edge is the far one.
-  const ground = (px: number, pz: number): [number, number] => [px - width / 2, depth / 2 - pz];
+  const byPath = (a: ModuleNode, b: ModuleNode): number => byCodeUnits(a.path, b.path);
+  /** Blocks with head files in the order they have without a comparison, then those only rubble stands in. */
+  const inOrder = (a: Tree, b: Tree): number => b.headTotal - a.headTotal || (a.headTotal > 0 ? 0 : b.goneTotal - a.goneTotal) || byCodeUnits(a.name, b.name) || byCodeUnits(a.id, b.id);
 
+  interface Laid {
+    readonly tree: Tree;
+    readonly w: number;
+    readonly d: number;
+    readonly cols: number;
+    readonly rows: number;
+    readonly own: ModuleNode[];
+    readonly kids: { readonly laid: Laid; readonly x: number; readonly z: number }[];
+    /** Where the grid of its own files starts, and where each smaller block does, from the pad's inner corner. */
+    readonly gridAt: { readonly x: number; readonly z: number };
+    readonly strip: { readonly files: ModuleNode[]; readonly cols: number; readonly z: number };
+  }
+  /** Shelves, left to right: a block that does not fit what is left of `target` starts the next shelf. */
+  const pack = (items: readonly { w: number; d: number }[], target: number, gap: number): { places: { x: number; z: number }[]; w: number; d: number } => {
+    const places: { x: number; z: number }[] = [];
+    let x = 0;
+    let z = 0;
+    let shelf = 0;
+    let w = 0;
+    for (const item of items) {
+      if (x > 0 && x + item.w > target) {
+        x = 0;
+        z += shelf + gap;
+        shelf = 0;
+      }
+      places.push({ x, z });
+      x += item.w + gap;
+      shelf = Math.max(shelf, item.d);
+      w = Math.max(w, x - gap);
+    }
+    return { places, w, d: items.length === 0 ? 0 : z + shelf };
+  };
+  const memo = new Map<string, Laid>();
+  const lay = (tree: Tree, withGhosts: boolean): Laid => {
+    const key = `${tree.id}|${withGhosts}`;
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    const own = [...tree.heads].sort(byPath);
+    const gone = withGhosts ? [...tree.gone].sort(byPath) : [];
+    const kids = tree.kids.filter((kid) => (withGhosts ? kid.headTotal + kid.goneTotal : kid.headTotal) > 0).sort(inOrder);
+    const gridCols = own.length > 0 ? Math.ceil(Math.sqrt(own.length)) : 0;
+    const gridRows = gridCols === 0 ? 0 : Math.ceil(own.length / gridCols);
+    const gridW = gridCols * LOT;
+    const gridD = gridRows * LOT;
+    const laidKids = kids.map((kid) => lay(kid, withGhosts));
+    // How the shelves wrap is decided by the head's blocks as they are with no comparison, so rubble never changes it.
+    const headKids = kids.filter((kid) => kid.headTotal > 0);
+    const sizing = headKids.length > 0 ? headKids.map((kid) => lay(kid, false)) : laidKids;
+    // The block's own grid is the first thing on the first shelf, and its smaller blocks fill in beside and below it.
+    const grid = own.length > 0 ? [{ w: gridW, d: gridD }] : [];
+    const target = Math.max(gridW, Math.sqrt([...grid, ...sizing].reduce((sum, item) => sum + (item.w + INNER_GAP) * (item.d + INNER_GAP), 0)) * 1.3);
+    const packed = pack([...grid, ...laidKids], target, INNER_GAP);
+    const headInner = Math.max(gridW, packed.w);
+    const stripCols = gone.length === 0 ? 0 : headInner > 0 ? Math.max(1, Math.floor(headInner / LOT + 1e-9)) : Math.ceil(Math.sqrt(gone.length));
+    const inner = headInner > 0 ? headInner : stripCols * LOT;
+    const stripRows = stripCols === 0 ? 0 : Math.ceil(gone.length / stripCols);
+    const stripZ = PAD + packed.d + (kids.length > 0 && gone.length > 0 ? INNER_GAP : 0);
+    const laid: Laid = {
+      tree,
+      w: inner + 2 * PAD,
+      d: stripZ + stripRows * LOT + PAD,
+      cols: own.length > 0 ? gridCols : stripCols,
+      rows: own.length > 0 ? gridRows : stripRows,
+      own,
+      gridAt: grid.length > 0 ? packed.places[0]! : { x: 0, z: 0 },
+      kids: laidKids.map((kid, index) => ({ laid: kid, x: packed.places[index + grid.length]!.x, z: packed.places[index + grid.length]!.z })),
+      strip: { files: gone, cols: stripCols, z: stripZ },
+    };
+    memo.set(key, laid);
+    return laid;
+  };
+
+  // Everything about where head geometry goes is decided from the head alone, so a comparison never moves a head
+  // lot: the shelves, rows, blocks and centring below use head sizes. Rubble then goes only where no head thing
+  // is: in a strip at the foot of the top-level block it stood in (the pad grows outward on its far side), or when
+  // that would touch another block, in a yard of rubble below the whole head plan, like a block only rubble stood in.
+  const goneBelow = (tree: Tree): ModuleNode[] => [...tree.gone, ...tree.kids.flatMap(goneBelow)];
+  const headTrees = tops.filter((tree) => tree.headTotal > 0).sort(inOrder);
+  const headLaid = headTrees.map((tree) => lay(tree, false));
+  const headTarget = Math.sqrt(headLaid.reduce((sum, block) => sum + (block.w + GAP) * (block.d + GAP), 0)) * 1.3;
+  const packedHeads = pack(headLaid, headTarget, GAP);
+  const width = packedHeads.w;
+  const depth = packedHeads.d;
+  const planned = headLaid.map((laid, index) => ({ laid, x: packedHeads.places[index]!.x, z: packedHeads.places[index]!.z }));
+  const taken = planned.map((entry) => ({ x0: entry.x, x1: entry.x + entry.laid.w, z0: entry.z, z1: entry.z + entry.laid.d }));
+  const yardTrees: Tree[] = tops.filter((tree) => tree.headTotal === 0 && tree.goneTotal > 0).sort(inOrder);
+  const overflow: Tree[] = [];
+  let bottom = depth;
+  planned.forEach((entry, index) => {
+    const files = goneBelow(entry.laid.tree).sort(byPath);
+    if (files.length === 0) return;
+    const cols = Math.max(1, Math.floor((entry.laid.w - 2 * PAD) / LOT + 1e-9));
+    const gap = entry.laid.kids.length > 0 ? INNER_GAP : 0;
+    const grown = { x0: entry.x, x1: entry.x + entry.laid.w, z0: entry.z, z1: entry.z + entry.laid.d + gap + Math.ceil(files.length / cols) * LOT };
+    const clear = taken.every((other, j) => j === index || grown.x1 + GAP / 2 <= other.x0 || other.x1 + GAP / 2 <= grown.x0 || grown.z1 + GAP / 2 <= other.z0 || other.z1 + GAP / 2 <= grown.z0);
+    if (clear) {
+      taken[index] = grown;
+      bottom = Math.max(bottom, grown.z1);
+      entry.laid = { ...entry.laid, d: grown.z1 - grown.z0, strip: { files, cols, z: entry.laid.d - PAD + gap } };
+    } else {
+      const tree = entry.laid.tree;
+      overflow.push({ id: `${tree.id}~rubble` as NodeId, name: tree.name, parent: null, depth: 0, heads: [], gone: files, kids: [], headTotal: 0, goneTotal: files.length, rubbleOf: tree.id });
+    }
+  });
+  const yardLaid = [...yardTrees, ...overflow].map((tree) => lay(tree, true));
+  const yardTarget = Math.max(width, Math.sqrt(yardLaid.reduce((sum, block) => sum + (block.w + GAP) * (block.d + GAP), 0)) * 1.3);
+  const packedYard = pack(yardLaid, yardTarget, GAP);
+  const yardAt = planned.length > 0 ? bottom + GAP : 0;
+  const plan = [...planned, ...yardLaid.map((laid, index) => ({ laid, x: packedYard.places[index]!.x, z: yardAt + packedYard.places[index]!.z }))];
+  const centreW = planned.length > 0 ? width : packedYard.w;
+  const centreD = planned.length > 0 ? depth : packedYard.d;
+  // Plan (x across, z down) to ground (X, Y): the plan's top edge is the far one.
+  const ground = (px: number, pz: number): [number, number] => [px - centreW / 2, centreD / 2 - pz];
+
+  const filesOf = (tree: Tree): ModuleNode[] => [...tree.heads, ...tree.gone, ...tree.kids.flatMap(filesOf)];
   const blocks: Block[] = [];
-  const lots: Lot[] = [];
-  for (const block of sized) {
-    const at = places.get(block.id)!;
-    const [X0, Y1] = ground(at.x, at.z);
-    const [X1, Y0] = ground(at.x + block.w, at.z + block.d);
+  const nested: Block[] = [];
+  const headLots: Lot[] = [];
+  const goneLots: Lot[] = [];
+  const lotAt = (file: ModuleNode, X: number, Y: number, top: NodeId, folder: NodeId): Lot | undefined => {
+    if (file.level !== "file") return undefined;
+    const kind = kindOfRole(file.role);
+    const gone = ghosts.has(file.id);
+    const change: LotChange = comparison === null ? "unchanged" : gone ? (movedTo.has(file.id) ? "moved-away" : "removed") : (kinds.get(file.id) as LotChange | undefined) ?? "unchanged";
+    const steps = stepsOf(kind, sprites);
+    // A generated file keeps the smallest size so it never crowds out written code (SPEC: The graph).
+    const step = file.role === "generated" ? 1 : stepOf(countOf(file.path), fewest, most, steps);
+    const restsOn = (rests.get(file.id) ?? []).map((id) => idPaths.get(id) ?? id).sort(byCodeUnits);
+    const plinthStep = restsOn.length === 0 || plinths === 0 ? 0 : stepOf(restsOn.length, fewestRests, mostRests, plinths);
+    const way = wayById.get(file.id);
+    return {
+      id: file.id,
+      name: file.name,
+      path: file.path,
+      block: top,
+      folder,
+      role: file.role,
+      kind,
+      step,
+      sprite: gone ? "rubble" : sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind,
+      classes: classes.get(file.path) ?? 0,
+      functions: functions.get(file.path) ?? 0,
+      restsOn,
+      plinth: plinthStep === 0 ? undefined : `plinth-${plinthStep}`,
+      raise: plinthStep === 0 ? 0 : PLINTH_HEIGHTS[plinthStep - 1]!,
+      wayIn: way?.reasons ?? [],
+      gate: way !== undefined && file.role !== "tests" && sprites.has("gate"),
+      reached: ghosts.has(file.id) || fromWays.has(file.id),
+      change,
+      overlay: change === "altered" ? scaffoldOf(sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind, sprites) : null,
+      crane: change === "altered" && sprites.has("crane"),
+      named: comparison === null || change === "altered",
+      movedTo: movedTo.get(file.id) ?? null,
+      X,
+      Y,
+    };
+  };
+  const place = (laid: Laid, ax: number, az: number, top: NodeId): void => {
+    const tree = laid.tree;
+    const [X0, Y1] = ground(ax, az);
+    const [X1, Y0] = ground(ax + laid.w, az + laid.d);
     const changes = { added: 0, altered: 0, removed: 0, moved: 0 };
     let present = 0;
-    for (const file of block.files) {
+    const all = filesOf(tree);
+    for (const file of tree.rubbleOf === undefined ? all : []) {
       if (ghosts.has(file.id)) {
         if (kinds.get(file.id) === "removed") changes.removed++;
         continue;
@@ -451,54 +631,50 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
       const kind = kinds.get(file.id);
       if (kind !== undefined) changes[kind]++;
     }
-    const pad = { name: block.name, X0, X1, Y0, Y1 };
-    blocks.push({ id: block.id, name: block.name, folders: foldersByBlock.get(block.id) ?? [], files: block.files.length, cols: block.cols, rows: block.rows, X0, X1, Y0, Y1, changes, fence: comparison !== null && mostlyNew(changes.added, present) ? fenceOf(pad, changes.added) : null });
-    block.files.forEach((file, index) => {
-      if (file.level !== "file") return;
-      const [X, Y] = ground(at.x + PAD + (index % block.cols) * LOT + LOT / 2, at.z + PAD + Math.floor(index / block.cols) * LOT + LOT / 2);
-      const kind = kindOfRole(file.role);
-      const gone = ghosts.has(file.id);
-      const change: LotChange = comparison === null ? "unchanged" : gone ? (movedTo.has(file.id) ? "moved-away" : "removed") : (kinds.get(file.id) as LotChange | undefined) ?? "unchanged";
-      const steps = stepsOf(kind, sprites);
-      // A generated file keeps the smallest size so it never crowds out written code (SPEC: The graph).
-      const step = file.role === "generated" ? 1 : stepOf(countOf(file.path), fewest, most, steps);
-      const restsOn = (rests.get(file.id) ?? []).map((id) => idPaths.get(id) ?? id).sort(byCodeUnits);
-      const plinthStep = restsOn.length === 0 || plinths === 0 ? 0 : stepOf(restsOn.length, fewestRests, mostRests, plinths);
-      const way = wayById.get(file.id);
-      lots.push({
-        id: file.id,
-        name: file.name,
-        path: file.path,
-        block: block.id,
-        role: file.role,
-        kind,
-        step,
-        sprite: gone ? "rubble" : sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind,
-        classes: classes.get(file.path) ?? 0,
-        functions: functions.get(file.path) ?? 0,
-        restsOn,
-        plinth: plinthStep === 0 ? undefined : `plinth-${plinthStep}`,
-        raise: plinthStep === 0 ? 0 : PLINTH_HEIGHTS[plinthStep - 1]!,
-        wayIn: way?.reasons ?? [],
-        gate: way !== undefined && file.role !== "tests" && sprites.has("gate"),
-        reached: ghosts.has(file.id) || fromWays.has(file.id),
-        change,
-        overlay: change === "altered" ? scaffoldOf(sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind, sprites) : null,
-        crane: change === "altered" && sprites.has("crane"),
-        named: comparison === null || change === "altered",
-        movedTo: movedTo.get(file.id) ?? null,
-        X,
-        Y,
-      });
+    const pad = { name: tree.name, X0, X1, Y0, Y1 };
+    const block: Block = {
+      id: tree.id,
+      name: tree.name,
+      parent: tree.parent?.id ?? null,
+      depth: tree.depth,
+      folders: tree.id === root?.id ? [] : (folderIds.get(tree.id) ?? [tree.id]),
+      files: all.length,
+      cols: laid.cols,
+      rows: laid.rows,
+      X0, X1, Y0, Y1,
+      changes,
+      fence: comparison !== null && mostlyNew(changes.added, present) ? fenceOf(pad, changes.added) : null,
+    };
+    (tree.depth === 0 ? blocks : nested).push(block);
+    const gridCols = laid.own.length > 0 ? laid.cols : 1;
+    laid.own.forEach((file, index) => {
+      const [X, Y] = ground(ax + PAD + laid.gridAt.x + (index % gridCols) * LOT + LOT / 2, az + PAD + laid.gridAt.z + Math.floor(index / gridCols) * LOT + LOT / 2);
+      const lot = lotAt(file, X, Y, top, tree.id);
+      if (lot !== undefined) headLots.push(lot);
     });
-  }
+    for (const kid of laid.kids) place(kid.laid, ax + PAD + kid.x, az + PAD + kid.z, top);
+    laid.strip.files.forEach((file, index) => {
+      const [X, Y] = ground(ax + PAD + (index % laid.strip.cols) * LOT + LOT / 2, az + laid.strip.z + Math.floor(index / laid.strip.cols) * LOT + LOT / 2);
+      const lot = lotAt(file, X, Y, top, tree.id);
+      if (lot !== undefined) goneLots.push(lot);
+    });
+  };
+  const lots: Lot[] = [];
+  plan.forEach(({ laid, x, z }) => {
+    headLots.length = 0;
+    goneLots.length = 0;
+    place(laid, x, z, laid.tree.id);
+    lots.push(...headLots, ...goneLots);
+  });
 
   // The island is a wobbled ellipse round the plan; the harbour stands on its east shore. The wobble never
   // takes the radius below WOBBLE_LEAST of its base, so growing the ellipse through the plan's corners
   // (a margin out) by that and the lawn's share means even the lawn holds the whole plan.
   const grow = Math.SQRT2 / (WOBBLE_LEAST * LAWN_SHARE * CHORD);
-  const radiusX = (width / 2 + ISLAND_MARGIN) * grow;
-  const radiusY = (depth / 2 + ISLAND_MARGIN) * grow;
+  // The island holds every block, rubble yard included: its radius comes from how far the pads reach from the middle.
+  const reach = (side: (block: Block) => number): number => Math.max(0, ...blocks.map(side));
+  const radiusX = (reach((block) => Math.max(Math.abs(block.X0), Math.abs(block.X1))) + ISLAND_MARGIN) * grow;
+  const radiusY = (reach((block) => Math.max(Math.abs(block.Y0), Math.abs(block.Y1))) + ISLAND_MARGIN) * grow;
   const loop = (scale: number): [number, number][] =>
     Array.from({ length: 120 }, (_, i) => {
       const t = (i / 120) * Math.PI * 2;
@@ -518,6 +694,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
 
   return {
     blocks,
+    nested,
     lots,
     piers,
     unpictured: reached.filter((kind) => !sprites.has(pierSpriteName(kind))),
@@ -528,5 +705,21 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     importance: { fewest: fewestRests, most: mostRests },
     unreached: lots.filter((lot) => !lot.reached).length,
     comparing: comparison !== null,
+    root: root?.id ?? null,
   };
+}
+
+/** The innermost block whose pad holds the ground point: a nested block's pad picks its folder, not the block round it. */
+export function blockAtGround(town: Pick<Town, "blocks" | "nested">, X: number, Y: number): Block | undefined {
+  let found: Block | undefined;
+  for (const block of [...town.blocks, ...town.nested]) {
+    if (X < block.X0 || X > block.X1 || Y < block.Y0 || Y > block.Y1) continue;
+    if (found === undefined || block.depth > found.depth) found = block;
+  }
+  return found;
+}
+
+/** Every block, top-level first and each nested one after the block it is in. */
+export function allBlocks(town: Pick<Town, "blocks" | "nested">): Block[] {
+  return [...town.blocks, ...town.nested];
 }

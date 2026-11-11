@@ -63,7 +63,9 @@ describe("a comparison overlays the head's town", () => {
       const lot = town.lots.find((candidate) => candidate.path === `src/${name}.js`)!;
       return [lot.X - block.X0, block.Y1 - lot.Y];
     };
-    for (const name of ["b", "c", "d"]) expect(at(compared, name)).toEqual(at(plain, name));
+    for (const name of ["b", "c", "d"]) {
+      at(compared, name).forEach((value, axis) => expect(value).toBeCloseTo(at(plain, name)[axis]!, 9));
+    }
   });
 
   test("a folder whose files all moved keeps a block after the head's, with rubble in it", () => {

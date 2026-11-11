@@ -57,10 +57,10 @@ describe("townOf", () => {
     expect(town.lots.find((lot) => lot.path === "package.json")?.block).toBe(byName.get("(root files)")?.id);
   });
 
-  test("gives every lot the same size and a grid slot in path order", () => {
+  test("gives every lot the same size and a grid slot in path order, in the block of its own folder", () => {
     const town = townOf(synthetic, SHEET);
-    for (const block of town.blocks) {
-      const lots = town.lots.filter((lot) => lot.block === block.id);
+    for (const block of [...town.blocks, ...town.nested]) {
+      const lots = town.lots.filter((lot) => lot.folder === block.id);
       expect(lots.map((lot) => lot.path)).toEqual(lots.map((lot) => lot.path).sort());
       lots.forEach((lot, index) => {
         const col = index % block.cols;
@@ -68,9 +68,12 @@ describe("townOf", () => {
         expect(lot.X).toBeCloseTo(block.X0 + 0.5 + col * LOT + LOT / 2, 9);
         expect(lot.Y).toBeCloseTo(block.Y1 - 0.5 - row * LOT - LOT / 2, 9);
       });
-      expect(block.X1 - block.X0).toBeCloseTo(block.cols * LOT + 1, 9);
-      expect(block.Y1 - block.Y0).toBeCloseTo(block.rows * LOT + 1, 9);
     }
+    const src = town.blocks.find((block) => block.name === "src")!;
+    const flat = town.blocks.find((block) => block.name === "docs")!;
+    expect(flat.X1 - flat.X0).toBeCloseTo(flat.cols * LOT + 1, 9);
+    expect(flat.Y1 - flat.Y0).toBeCloseTo(flat.rows * LOT + 1, 9);
+    expect(src.X1 - src.X0).toBeGreaterThan(src.cols * LOT + 1);
   });
 
   test("packs blocks in rows, largest first, without overlap", () => {
