@@ -89,6 +89,9 @@ and never changes the layout.
   source, a lab for tests, a library for docs, a shed for config and build, a warehouse for
   generated files, and a hut for a file with no role. Its size is its count of classes and
   functions, in a few steps on a square-root scale between the repository's smallest and largest.
+- **Plinths.** A building stands on a stone plinth whose height is its file's importance, in a
+  few steps on a square-root scale, from none for a file nothing rests on. Pointing at a plinth
+  lists the files that rest on it.
 - **Harbour.** Each kind of outside resource the code reaches is one structure in the harbour,
   and a kind nothing reaches has none.
 - **Names by zoom.** From far away only blocks are named, in large type. Closer in, the files the
