@@ -772,6 +772,15 @@ def flag_failing():
     return 2.75
 
 
+def mast_call():
+    """A pink-tipped mast: new code in this file calls out to the outside world (a new effect edge)."""
+    box((0.1, 0.1, 3.4), (0, 0, 0), DARK)
+    box((0.7, 0.05, 0.05), (0, 0, 2.7), DARK)
+    box((0.45, 0.05, 0.05), (0, 0, 3.0), DARK)
+    box((0.26, 0.26, 0.26), (0, 0, 3.4), PINK)
+    return 3.7
+
+
 def cone():
     """A traffic cone, for a changed function's room."""
     box((0.3, 0.3, 0.04), (0, 0, 0), DARK)
@@ -887,6 +896,7 @@ render("wall-y", wall_y(), 96, 40)
 render("door-outside", door_outside(), 96, 40)
 render("cone", cone(), 64, 30)
 render("flag-failing", flag_failing(), 96, 40)
+render("mast-call", mast_call(), 96, 40)
 render("object-process", object_process(), 112, 40)
 render("object-network", object_network(), 96, 40)
 render("object-file-system", object_file_system(), 96, 40)

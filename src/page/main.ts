@@ -11,6 +11,7 @@ import type { PseudoLine } from "../pseudo-line.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
 import type { TownHandlers } from "./town-view.ts";
 import { townOf } from "../town.ts";
+import { callsOut } from "../town-calls.ts";
 import { importanceOf, reachedFrom } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
 import { insideOf, marksOf } from "../town-inside.ts";
@@ -93,6 +94,8 @@ const ghostIds = new Set<NodeId>((comparison?.changes ?? []).flatMap((change) =>
 const reachedByWays = new Set([...reachedFrom(picture.graph, waysIn.map((way) => way.id)), ...ghostIds]);
 const importance = importanceOf(picture.graph);
 
+const reaches = reachMap(picture);
+
 const handlers: TownHandlers = {
   hover(id, at) {
     const facts = id === undefined ? undefined : describe(id);
@@ -134,7 +137,7 @@ const handlers: TownHandlers = {
     if (to !== undefined) focusOn(to);
   },
 };
-const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles);
+const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles, reaches);
 const insideView = createTownInsideView(
     stage,
     {
@@ -160,7 +163,6 @@ const insideView = createTownInsideView(
 let insideFile: NodeId | undefined;
 
 let chosenKind: ResourceKind | undefined;
-const reaches = reachMap(picture);
 
 /** Outlines every building that reaches `kind`, only the ones with a new edge to it under a comparison. */
 function chooseResource(kind: ResourceKind | undefined): void {
@@ -263,7 +265,15 @@ function showTownLegend(town: Town): void {
   if (comparison !== null) {
     against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
   }
-  legend.replaceChildren(kinds, size, stone, ways, harbour, ...(comparison === null ? [] : [against]), ...(observed?.status === "ran" ? [flag] : []));
+  const outside = document.createElement("div");
+  const marked = callsOut(town.lots, reaches).size;
+  outside.textContent = [
+    marked > 0 ? "pink mast: a changed file whose new code calls out to the outside world (named only inside the file)" : "",
+    town.piers.length > 0 ? "line: a selected building to the harbour structures it reaches, bright for a new call, dim for an old one" : "",
+  ]
+    .filter((text) => text !== "")
+    .join(" \u00b7 ");
+  legend.replaceChildren(kinds, size, stone, ways, harbour, ...(outside.textContent === "" ? [] : [outside]), ...(comparison === null ? [] : [against]), ...(observed?.status === "ran" ? [flag] : []));
 }
 
 /** Opens a file walls down over the town: its functions as rooms, its outside calls as objects. */
@@ -488,7 +498,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   offerNarration(node);
   markLines(marked);
   chosenKind = undefined;
-  townView.select(outline);
+  townView.select(outline, reaches.get(node.id));
   // A function lights the harbour structures it reaches; a file or class lights none.
   const reach = node.level === "function" ? reaches.get(node.id) : undefined;
   if (reach !== undefined) townView.highlight([], reach.kinds);

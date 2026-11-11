@@ -1,6 +1,8 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
 import { allBlocks, AXIS, blockAtGround, blockLabel, blockNamedAt, CRANE_AT, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt, namesAt, project } from "../town.ts";
 import { pickAt } from "../town-pick.ts";
+import { callsOut, clipToView, reachLines } from "../town-calls.ts";
+import type { Reach } from "../reach.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
 import { EFFECT_COLOR } from "./palette.ts";
@@ -67,7 +69,8 @@ export interface TownHandlers {
 
 export interface TownView {
   show(town: Town): void;
-  select(id: NodeId | undefined): void;
+  /** `reach` is what the selected thing (a file, class or function) reaches: lines run from its building to those harbour structures. */
+  select(id: NodeId | undefined, reach?: Reach): void;
   /** Outlines these buildings together; `chosen` lights those resources' structures and outlines them in its colour. */
   highlight(ids: readonly NodeId[], chosen?: ResourceKind | readonly ResourceKind[]): void;
   /** Frames the block holding this folder. */
@@ -85,11 +88,15 @@ const RISE_UNIT = 48 * Math.cos(Math.PI / 6);
 const ZOOM = { fitFill: 0.92, min: 0.5, max: 1.5 };
 /** Where the pennant of a file with a failing test stands, from the lot's middle (the crane is on the other side). */
 const FLAG_AT = { X: 1.75, Y: 1.75 } as const;
+/** Where the mast of a new call to the outside stands, from the lot's middle: the corner opposite the pennant (the crane is behind). */
+const CALL_AT = { X: -1.75, Y: -1.75 } as const;
+/** How far inside the screen's edge a line to a harbour structure out of view is cut, in CSS pixels. */
+const LINE_MARGIN = 28;
 const CLICK_SLOP = 4;
 const FLIGHT_MS = 260;
 
 /** Which sprite of a lot this is: the building (or rubble), or a mark standing on it. */
-type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag";
+type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag" | "call-mast";
 
 type Thing =
   | { readonly kind: "lot"; readonly lot: Lot; readonly part: Part; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number }
@@ -112,7 +119,7 @@ interface Camera {
   cy: number;
 }
 
-export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set()): TownView {
+export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set(), reaches: ReadonlyMap<NodeId, Reach> = new Map()): TownView {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
   canvas.setAttribute("aria-label", "Town of the repository");
@@ -125,6 +132,9 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   let camera: Camera = { zoom: 1, cx: 0, cy: 0 };
   let flight: { from: Camera; to: Camera; start: number } | undefined;
   let selected: NodeId | undefined;
+  /** What the selected thing reaches (a function reaches less than its file); the lines follow it, not the building. */
+  let selectedReach: Reach | undefined;
+  let calls: ReadonlySet<NodeId> = new Set();
   let highlighted: ReadonlySet<NodeId> = new Set();
   let chosen: ReadonlySet<ResourceKind> = new Set();
   let hovered: Pick | undefined;
@@ -322,6 +332,57 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     ctx.restore();
   }
 
+  /**
+   * From the selected building (else the one pointed at) to each harbour structure it reaches: bright for a
+   * new edge, dim for an old one. A structure out of view takes the line to the screen's edge, where a tag names it.
+   */
+  function drawReachLines(): void {
+    if (town === undefined) return;
+    const pointed = hovered?.kind === "lot" && hovered.part === "building" ? hovered.lot : undefined;
+    const lot = selected !== undefined ? town.lots.find((candidate) => candidate.id === selected) : pointed;
+    if (lot === undefined) return;
+    const reach = selected !== undefined ? selectedReach : reaches.get(lot.id);
+    const from = groundScreen(lot.X, lot.Y, lot.raise + 3);
+    const margin = Math.round(LINE_MARGIN * dpr);
+    // The source panel covers the stage's right side when open: a line ends at its edge, not under it.
+    const cover = host.querySelector<HTMLElement>("#source:not([hidden])");
+    const visible = cover === null ? canvas.width : Math.min(canvas.width, Math.max(1, Math.round((cover.getBoundingClientRect().left - canvas.getBoundingClientRect().left) * dpr)));
+    const view = { width: visible, height: canvas.height };
+    ctx.save();
+    ctx.lineCap = "round";
+    const tags: { text: string; x: number; y: number }[] = [];
+    for (const line of reachLines(reach, town.piers, town.comparing)) {
+      const to = groundScreen(line.X, line.Y, 2);
+      const clipped = clipToView(from, to, view, margin);
+      if (clipped === undefined) continue;
+      ctx.setLineDash(line.fresh ? [] : [Math.round(7 * dpr), Math.round(6 * dpr)]);
+      ctx.globalAlpha = line.fresh ? 1 : 0.8;
+      ctx.strokeStyle = COLOUR.pill;
+      ctx.lineWidth = Math.round((line.fresh ? 7 : 6) * dpr);
+      ctx.beginPath();
+      ctx.moveTo(clipped.from.x, clipped.from.y);
+      ctx.lineTo(clipped.to.x, clipped.to.y);
+      ctx.stroke();
+      ctx.strokeStyle = EFFECT_COLOR;
+      ctx.lineWidth = Math.round((line.fresh ? 4 : 3) * dpr);
+      ctx.stroke();
+      ctx.fillStyle = EFFECT_COLOR;
+      ctx.beginPath();
+      ctx.arc(clipped.to.x, clipped.to.y, Math.round((line.fresh ? 5 : 4) * dpr), 0, Math.PI * 2);
+      ctx.fill();
+      if (clipped.cut) tags.push({ text: `${line.kind} \u2192`, x: clipped.to.x, y: clipped.to.y });
+    }
+    ctx.restore();
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    for (const tag of tags) {
+      const size = Math.round(12 * dpr);
+      ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
+      const half = ctx.measureText(tag.text).width / 2 + size * 0.4;
+      pill(tag.text, Math.min(view.width - half - 2, Math.max(half + 2, tag.x)), Math.min(canvas.height - size, Math.max(size, tag.y)), size, EFFECT_COLOR);
+    }
+  }
+
   function draw(): void {
     ctx.imageSmoothingEnabled = false;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -367,6 +428,8 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z);
       if (thing.kind === "lot" && thing.part === "moved-sign" && thing.lot.movedTo !== null) boardText(thing.lot.movedTo.path, thing.X, thing.Y);
     }
+
+    drawReachLines();
 
     // Names go on top of everything, so a building never hides one. Far away only blocks are named, in
     // large type; close in the files are named too.
@@ -601,6 +664,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   return {
     show(next) {
       town = next;
+      calls = callsOut(next.lots, reaches);
       const marks = (lot: Lot): Thing[] => {
         const mark = (part: Part, sprite: string, X: number, Y: number, bias: number, Z = 0): Thing => ({ kind: "lot", lot, part, sprite, X, Y, Z, key: X - Y + bias });
         return [
@@ -609,6 +673,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
           ...(lot.overlay === null ? [] : [mark("scaffold", lot.overlay, lot.X, lot.Y, 0.01, lot.raise)]),
           ...(lot.gate ? [mark("gate", "gate", lot.X, lot.Y - GATE_FRONT, 0)] : []),
           ...(lot.crane ? [mark("crane", "crane", lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, -0.2)] : []),
+          ...(calls.has(lot.id) && sheet.sizes["mast-call"] !== undefined ? [mark("call-mast", "mast-call", lot.X + CALL_AT.X, lot.Y + CALL_AT.Y, 0.2, lot.raise)] : []),
           ...(failing.has(lot.id) && sheet.sizes["flag-failing"] !== undefined ? [mark("flag", "flag-failing", lot.X + FLAG_AT.X, lot.Y + FLAG_AT.Y, 0.2, lot.raise)] : []),
           ...(lot.movedTo === null ? [] : [mark("moved-sign", "sign-moved", lot.X + MOVED_SIGN_AT.X, lot.Y + MOVED_SIGN_AT.Y, 0)]),
         ];
@@ -641,15 +706,17 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       touched = false;
       focused = undefined;
       selected = undefined;
+      selectedReach = undefined;
       highlighted = new Set();
       chosen = new Set();
       resize();
       camera = fitCamera();
       dirty = true;
     },
-    select(id) {
+    select(id, reach) {
       // Any new selection, or none, replaces what a claim, a stop or a resource had lit.
       selected = id;
+      selectedReach = reach;
       highlighted = new Set();
       chosen = new Set();
       dirty = true;
