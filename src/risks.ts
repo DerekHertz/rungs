@@ -152,7 +152,7 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     const files = `${blast.count} ${blast.count === 1 ? "file" : "files"}`;
     items.push({
       kind: "contract",
-      label: change.kind === "moved" ? `${change.node.path} moved: ${files} still ${blast.count === 1 ? "imports" : "import"} the old path ${old.path}` : `${old.path} removed: ${files} still ${blast.count === 1 ? "imports" : "import"} it`,
+      label: change.kind === "moved" ? `${change.node.path} moved from ${old.path}: ${files} ${blast.count === 1 ? "rests" : "rest"} on it` : `${old.path} removed: ${files} rested on it`,
       detail: blast.files.join(", "),
       path: change.node.path,
       blast,

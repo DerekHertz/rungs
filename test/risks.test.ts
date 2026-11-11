@@ -108,14 +108,14 @@ const client = 'import type { Config } from "./types.ts";\nexport const c: Confi
 
 test("a moved file that the base imported is a risk even when no contract changed", () => {
   const found = risks({ "package.json": "{}\n", "types.ts": typesFile, "client.ts": client }, { "package.json": "{}\n", "new.ts": typesFile, "client.ts": client });
-  expect(found.map((item) => item.label)).toEqual(["new.ts moved: 1 file still imports the old path types.ts"]);
+  expect(found.map((item) => item.label)).toEqual(["new.ts moved from types.ts: 1 file rests on it"]);
   expect(found[0]!.blast.files).toEqual(["client.ts"]);
   expect(found[0]!.ids).toEqual(["file:new.ts"]);
 });
 
 test("a removed file that the base imported is a risk in its own right", () => {
   const found = risks({ "package.json": "{}\n", "types.ts": typesFile, "client.ts": client }, { "package.json": "{}\n", "client.ts": client });
-  expect(found.map((item) => item.label)).toContain("types.ts removed: 1 file still imports it");
+  expect(found.map((item) => item.label)).toContain("types.ts removed: 1 file rested on it");
 });
 
 test("changed effects group by resource and target like new ones", () => {
