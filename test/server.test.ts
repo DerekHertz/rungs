@@ -132,3 +132,15 @@ test("serves the snapshot it was given, even if the caller's map changes later",
     await own.close();
   }
 });
+
+test("serves the town sheet: its sizes and a sprite, and nothing else from /town/", async () => {
+  const sizes = await fetch(`${server.url}town/sprites.json`);
+  expect(sizes.status).toBe(200);
+  const sheet = (await sizes.json()) as Record<string, { w: number; h: number; ox: number; oy: number }>;
+  expect(Object.keys(sheet)).toContain("workshop-1");
+  const sprite = await fetch(`${server.url}town/workshop-1.png`);
+  expect(sprite.status).toBe(200);
+  expect(sprite.headers.get("content-type")).toBe("image/png");
+  expect((await fetch(`${server.url}town/make_sprites.py`)).status).toBe(404);
+  expect((await fetch(`${server.url}town/..%2Fmake_sprites.py`)).status).toBe(404);
+});
