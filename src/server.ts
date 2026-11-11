@@ -9,6 +9,8 @@ import type { Comparison } from "./compare.ts";
 import { extract } from "./extract/extract.ts";
 import { isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
+import { changeCounts, diffText, rowsInRange } from "./diff.ts";
+import type { LineOp } from "./diff.ts";
 import { sliceLines } from "./lines.ts";
 import { isStale } from "./narration.ts";
 import type { NarratedDoc, Narration } from "./narration.ts";
@@ -61,6 +63,9 @@ interface Resource {
  * derived from the two trees' text alone: deleted files, removed names, skips, weakened tests. The contracts are the comparison's contract moves as a derived fact, kept in
  * their own resource so `/comparison.json` stays the plain diff of the two graphs. A
  * module the comparison lists as removed has its source read from the base tree, not the head.
+ * `GET /changes?id=` is what changed in the lines `/source` serves for that module, as rows of
+ * added, removed and unchanged lines from a line diff of the base and head files (derived). It is
+ * 404 without a base, for folders, removed and moved modules, and when nothing there changed.
  * The claims are the person's `description` as a claimed fact, kept apart from the graph and the
  * comparison; `description` is null in them when none was given. The description is split into
  * claims by rules, and `link`, when given, is asked once for the agent's links from each claim to
@@ -205,6 +210,35 @@ export async function serve(
     return isCodeNode(node) ? sliceLines(text, node.range) : text;
   }
 
+  const opsByPath = new Map<string, LineOp[] | undefined>();
+  const baseNodes = new Map<NodeId, ModuleNode>((baseGraph?.nodes ?? []).map((node) => [node.id, node]));
+  const kindOf = new Map<NodeId, string>((comparison?.changes ?? []).map((change) => [change.node.id, change.kind]));
+
+  /** What changed in the lines `sourceOf` serves: undefined without a base, and when nothing there changed. */
+  function changesOf(id: string | null): string | undefined {
+    const node = id === null ? undefined : nodes.get(id as NodeId);
+    if (node === undefined || baseTree === undefined) return undefined;
+    if (node.level === "package" || node.level === "folder" || kindOf.get(node.id) === "moved") return undefined;
+    const text = tree.get(node.path);
+    if (text === undefined) return undefined;
+    if (!opsByPath.has(node.path)) {
+      try {
+        opsByPath.set(node.path, diffText(baseTree.get(node.path) ?? "", text));
+      } catch {
+        // Whatever goes wrong inside a diff, the page is told it is too large and the server stays up.
+        opsByPath.set(node.path, undefined);
+      }
+    }
+    const ops = opsByPath.get(node.path);
+    if (ops === undefined) return `${JSON.stringify({ tier: "derived", id, tooLarge: true, added: 0, removed: 0, rows: [] }, null, 2)}\n`;
+    const before = baseNodes.get(node.id);
+    const baseRange = !isCodeNode(node) ? undefined : before !== undefined && isCodeNode(before) ? before.range : null;
+    const rows = rowsInRange(ops, isCodeNode(node) ? node.range : undefined, baseRange);
+    const counts = changeCounts(rows);
+    if (counts.added + counts.removed === 0) return undefined;
+    return `${JSON.stringify({ tier: "derived", id, ...counts, rows }, null, 2)}\n`;
+  }
+
   function pseudocodeOf(id: string | null): string | undefined {
     if (id === null) return undefined;
     const ghost = removed.has(id as NodeId);
@@ -236,6 +270,12 @@ export async function serve(
     }
     if (url.pathname === "/pseudocode") {
       const body = pseudocodeOf(url.searchParams.get("id"));
+      if (body === undefined) response.writeHead(404).end();
+      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(body);
+      return;
+    }
+    if (url.pathname === "/changes") {
+      const body = changesOf(url.searchParams.get("id"));
       if (body === undefined) response.writeHead(404).end();
       else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(body);
       return;
