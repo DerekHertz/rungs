@@ -21,15 +21,23 @@ export interface Drawn {
  * its first line numbered `first`. Undefined when the node has no source. Text from the reviewed
  * tree is only ever set as textContent.
  */
-export async function loadRows(id: NodeId, first: number): Promise<Row[] | undefined> {
+export async function loadRows(id: NodeId, first: number): Promise<Loaded | undefined> {
   const changes = await fetch(`/changes?id=${encodeURIComponent(id)}`);
-  if (changes.ok) return ((await changes.json()) as { rows: Row[] }).rows;
+  const found = changes.ok ? ((await changes.json()) as { rows: Row[]; tooLarge?: true }) : undefined;
+  if (found !== undefined && found.tooLarge !== true) return { rows: found.rows, tooLarge: false };
   const source = await fetch(`/source?id=${encodeURIComponent(id)}`);
-  return source.ok ? rowsFromText(await source.text(), first) : undefined;
+  return source.ok ? { rows: rowsFromText(await source.text(), first), tooLarge: found !== undefined } : undefined;
 }
 
-/** "3 changed lines", or undefined when no row changed. */
-export function changeNote(rows: readonly Row[]): string | undefined {
+/** A node's rows; `tooLarge` when its changes could not be worked out, so the lines are shown plain. */
+export interface Loaded {
+  readonly rows: readonly Row[];
+  readonly tooLarge: boolean;
+}
+
+/** "3 changed lines", "too large to diff", or undefined when no row changed. */
+export function changeNote(rows: readonly Row[], tooLarge = false): string | undefined {
+  if (tooLarge) return "too large to diff";
   const { added, removed } = changeCounts(rows);
   const total = added + removed;
   return total === 0 ? undefined : `${total} changed ${total === 1 ? "line" : "lines"}`;
@@ -45,9 +53,24 @@ export function drawRows(parts: CodeParts, rows: readonly Row[]): Drawn {
     span.textContent = text;
     return span;
   };
-  parts.gutter.replaceChildren(...rows.map((row) => cell(row.kind, row.line === undefined ? GUTTER_MARK[row.kind] : `${row.line}`)));
-  const cells = rows.map((row) => cell(row.kind, row.text));
-  parts.code.replaceChildren(...cells);
+  // Appended through fragments: spreading 100k rows into replaceChildren overflows the call stack.
+  const gutter = document.createDocumentFragment();
+  const code = document.createDocumentFragment();
+  const cells: HTMLElement[] = [];
+  for (const row of rows) {
+    gutter.append(cell(row.kind, row.line === undefined ? GUTTER_MARK[row.kind] : `${row.line}`));
+    const text = cell(row.kind, row.text);
+    if (row.noEol === true) {
+      const note = document.createElement("span");
+      note.className = "eol-note";
+      note.textContent = "  \u23CE no newline at end of file";
+      text.append(note);
+    }
+    code.append(text);
+    cells.push(text);
+  }
+  parts.gutter.replaceChildren(gutter);
+  parts.code.replaceChildren(code);
   parts.body.scrollTop = parts.body.scrollLeft = 0;
   parts.mark.hidden = true;
   return { rows, cells };

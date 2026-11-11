@@ -192,14 +192,14 @@ test("--link asks claude, serves the links, and a second run reads the cache", {
   const cache = mkdtempSync(join(tmpdir(), "rungs-cache-"));
   scratch.push(cache);
   const bin = stubClaude(
-    `process.stdin.resume().on("data", () => {}).on("end", () => console.log(JSON.stringify({ is_error: false, structured_output: { links: [{ claim: 0, ids: ["file:src/a.ts", "file:src/nope.ts"] }] }, modelUsage: { "stub-model": {} } })));`,
+    `process.stdin.resume().on("data", () => {}).on("end", () => console.log(JSON.stringify({ is_error: false, structured_output: { links: [{ claim: 0, ids: ["file:src/a.ts", "file:src/nope.ts"], say: "Reworks a", mergeInto: -1 }, { claim: 1, ids: [], say: "context", mergeInto: -1 }] }, modelUsage: { "stub-model": {} } })));`,
   );
   const env = { PATH: `${bin}:${bareBin()}`, XDG_CACHE_HOME: cache };
   const first = startLinked(dir, env, ["--link"]);
   try {
     const body = (await (await fetch(new URL("claims.json", await first.url))).json()) as { claims: { ids: string[] }[]; link: Record<string, unknown> };
-    expect(body.claims.map((claim) => claim.ids)).toEqual([["file:src/a.ts"], []]);
-    expect(body.link).toEqual({ status: "ok", model: "stub-model", promptVersion: "claims-v3", dropped: { ids: 1, claims: 0 }, cached: false });
+    expect(body.claims.map((claim) => claim.ids)).toEqual([["file:src/a.ts"]]);
+    expect(body.link).toEqual({ status: "ok", model: "stub-model", promptVersion: "claims-v4", dropped: { ids: 1, claims: 0, restatements: 0 }, cached: false });
     expect(first.stderr()).toMatch(/linked 1 of 2 claims by stub-model/);
   } finally {
     first.child.kill();

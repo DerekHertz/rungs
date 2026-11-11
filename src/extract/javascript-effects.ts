@@ -1,8 +1,8 @@
 import ts from "typescript";
-import type { EffectSite } from "./adapters.ts";
+import type { EffectSite, ResolutionSite } from "./adapters.ts";
 import { GLOBAL_NAMESPACES, GLOBAL_OBJECTS, SUBMODULES, TRANSPARENT_WRAPPERS, effectKey, lookupEffect } from "./javascript-effects-catalog.ts";
 import type { EffectEntry } from "./javascript-effects-catalog.ts";
-import type { EffectTarget } from "../graph.ts";
+import type { EffectArg, EffectTarget } from "../graph.ts";
 
 /**
  * What a name provably stands for. Only binder facts decide it: an import, a `const` initialised
@@ -55,6 +55,97 @@ class Resolver {
   constructor(file: ts.SourceFile, checker: ts.TypeChecker) {
     this.file = file;
     this.checker = checker;
+  }
+
+  /** `createRequire`, imported from "module", is the one resolver that is a function of a module. */
+  isCreateRequire(call: ts.CallExpression): boolean {
+    const ref = this.resolve(call.expression, 0);
+    return ref?.kind === "member" && ref.module === "module" && ref.name === "createRequire";
+  }
+
+  /** `require.resolve`, with the global `require`. */
+  isRequireResolve(call: ts.CallExpression): boolean {
+    const callee = unwrap(call.expression);
+    if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "resolve") return false;
+    const object = unwrap(callee.expression);
+    return ts.isIdentifier(object) && object.text === "require" && this.declarationsOf(object).length === 0;
+  }
+
+  /**
+   * The elements a spread stands for, when it spreads a module-level `const` of this file that is
+   * an array literal; undefined for any other spread.
+   */
+  spreadElements(spread: ts.Expression, depth: number): readonly EffectArg[] | undefined {
+    const node = unwrap(spread);
+    if (depth > MAX_DEPTH || !ts.isIdentifier(node)) return undefined;
+    const [declaration, ...rest] = this.declarationsOf(node);
+    if (
+      declaration === undefined ||
+      rest.length > 0 ||
+      !ts.isVariableDeclaration(declaration) ||
+      !isConst(declaration) ||
+      !ts.isIdentifier(declaration.name) ||
+      declaration.initializer === undefined
+    ) {
+      return undefined;
+    }
+    const init = unwrap(declaration.initializer);
+    if (!ts.isArrayLiteralExpression(init)) return undefined;
+    const symbol = this.checker.getSymbolAtLocation(node);
+    return symbol !== undefined && this.onlyRead(symbol, declaration.name) ? this.elements(init.elements, depth + 1) : undefined;
+  }
+
+  private references: Map<ts.Symbol, ts.Identifier[]> | undefined;
+
+  private referencesOf(symbol: ts.Symbol): readonly ts.Identifier[] {
+    if (this.references === undefined) {
+      const found = new Map<ts.Symbol, ts.Identifier[]>();
+      const visit = (node: ts.Node): void => {
+        if (ts.isIdentifier(node)) {
+          const target = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node
+            ? this.checker.getShorthandAssignmentValueSymbol(node.parent)
+            : this.checker.getSymbolAtLocation(node);
+          if (target !== undefined) found.set(target, [...(found.get(target) ?? []), node]);
+        }
+        node.forEachChild(visit);
+      };
+      visit(this.file);
+      this.references = found;
+    }
+    return this.references.get(symbol) ?? [];
+  }
+
+  /** True when every use of the array, besides its declaration, is a spread or an index read. */
+  private onlyRead(symbol: ts.Symbol, declared: ts.Identifier): boolean {
+    return this.referencesOf(symbol).every((use) => {
+      if (use === declared) return true;
+      const parent = use.parent;
+      if (ts.isSpreadElement(parent) && parent.expression === use) return true;
+      if (!ts.isElementAccessExpression(parent) || parent.expression !== use) return false;
+      const outer = parent.parent;
+      const written =
+        (ts.isBinaryExpression(outer) && outer.left === parent && outer.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && outer.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+        ((ts.isPrefixUnaryExpression(outer) || ts.isPostfixUnaryExpression(outer)) && (outer.operator === ts.SyntaxKind.PlusPlusToken || outer.operator === ts.SyntaxKind.MinusMinusToken)) ||
+        ts.isDeleteExpression(outer) ||
+        ((ts.isForOfStatement(outer) || ts.isForInStatement(outer)) && outer.initializer === parent);
+      return !written;
+    });
+  }
+
+  /** Arguments or array elements as written; a spread of a known array is opened in place. */
+  elements(nodes: readonly ts.Expression[], depth: number): EffectArg[] {
+    return nodes.flatMap((node): EffectArg[] => {
+      if (!ts.isSpreadElement(node)) return [this.arg(node, depth)];
+      return [...(this.spreadElements(node.expression, depth) ?? [{ unknown: written(node.expression, this.file) }])];
+    });
+  }
+
+  arg(expression: ts.Expression, depth: number): EffectArg {
+    const node = unwrap(expression);
+    const literal = stringOf(node);
+    if (literal !== undefined) return { literal };
+    if (ts.isArrayLiteralExpression(node)) return { list: this.elements(node.elements, depth) };
+    return { unknown: written(node, this.file) };
   }
 
   /** The one place a callee becomes a catalog entry; a full type checker can replace it. */
@@ -181,6 +272,11 @@ function isConst(declaration: ts.VariableDeclaration): boolean {
   return (ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) !== 0;
 }
 
+/** The expression exactly as written; display shortens it, comparison never does. */
+function written(node: ts.Node, file: ts.SourceFile): string {
+  return node.getText(file);
+}
+
 function targetOf(call: ts.CallExpression | ts.NewExpression, index: number | null): EffectTarget {
   if (index === null) return "none";
   const args = call.arguments ?? [];
@@ -202,9 +298,34 @@ export function effectSites(file: ts.SourceFile, checker: ts.TypeChecker): Effec
           resource: entry.resource,
           operation: effectKey(entry),
           target: targetOf(node, entry.target),
+          args: resolver.elements(node.arguments ?? [], 0),
           start: node.getStart(file),
           end: node.end,
         });
+      }
+    }
+    node.forEachChild(visit);
+  };
+  visit(file);
+  return sites;
+}
+
+/** Calls that decide which file a module name or path means: createRequire, require.resolve, import(). */
+export function resolutionSites(file: ts.SourceFile, checker: ts.TypeChecker): ResolutionSite[] {
+  if (file.isDeclarationFile) return [];
+  const resolver = new Resolver(file, checker);
+  const sites: ResolutionSite[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const operation = ts.isToken(node.expression) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+        ? "import()"
+        : resolver.isCreateRequire(node)
+          ? "module createRequire"
+          : resolver.isRequireResolve(node)
+            ? "require.resolve"
+            : undefined;
+      if (operation !== undefined) {
+        sites.push({ operation, args: resolver.elements(node.arguments, 0), start: node.getStart(file), end: node.end });
       }
     }
     node.forEachChild(visit);

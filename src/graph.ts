@@ -120,6 +120,13 @@ export function resourceId(kind: ResourceKind): ResourceId {
 /** What an effect names: a literal in the source, "unknown" for any other argument, "none" for an API with no target. */
 export type EffectTarget = { readonly literal: string } | "unknown" | "none";
 
+/**
+ * One argument as the source writes it. A literal string, an array of arguments (a spread of a
+ * module-level `const` array of literals is read through, in place), or `unknown` with the
+ * expression as written: never a guessed value.
+ */
+export type EffectArg = { readonly literal: string } | { readonly list: readonly EffectArg[] } | { readonly unknown: string };
+
 /** A call that reaches a resource, pinned to the call's lines. */
 export interface EffectEdge {
   readonly kind: "effect";
@@ -129,6 +136,20 @@ export interface EffectEdge {
   /** The catalog key: "child_process execFileSync", or "fetch" for a global. */
   readonly operation: string;
   readonly target: EffectTarget;
+  /** Every argument of the call, in order. */
+  readonly args: readonly EffectArg[];
+  readonly range: LineRange;
+}
+
+/**
+ * A call that decides which file a module name or path means: `createRequire(base)`,
+ * `require.resolve(name)`, `import(name)`. Kept apart from effects, which name a resource.
+ */
+export interface ResolutionEdge {
+  readonly from: NodeId;
+  /** "module createRequire", "require.resolve" or "import()". */
+  readonly operation: string;
+  readonly args: readonly EffectArg[];
   readonly range: LineRange;
 }
 
@@ -139,6 +160,8 @@ export interface Graph {
   readonly nodes: readonly ModuleNode[];
   /** Sorted by compareEdges. */
   readonly edges: readonly Edge[];
+  /** Sorted by compareResolutions. */
+  readonly resolutions: readonly ResolutionEdge[];
 }
 
 /** The resources some edge reaches, in RESOURCE_ORDER. */
@@ -182,8 +205,34 @@ export function canonicalEdge(edge: Edge): object {
     to: edge.to,
     operation: edge.operation,
     target: edge.target,
+    args: edge.args,
     range: { start: edge.range.start, end: edge.range.end },
   };
+}
+
+export function compareResolutions(a: ResolutionEdge, b: ResolutionEdge): number {
+  return compareIds(a.from, b.from) || a.range.start - b.range.start || a.range.end - b.range.end || (a.operation < b.operation ? -1 : a.operation > b.operation ? 1 : 0);
+}
+
+export function canonicalResolution(edge: ResolutionEdge): object {
+  return { from: edge.from, operation: edge.operation, args: edge.args, range: { start: edge.range.start, end: edge.range.end } };
+}
+
+/** An argument as text: `"x"`, `["a", "b"]`, or `?expression` for what is not known. */
+export function argText(arg: EffectArg): string {
+  if ("literal" in arg) return JSON.stringify(arg.literal);
+  return "list" in arg ? `[${arg.list.map(argText).join(", ")}]` : `?${arg.unknown}`;
+}
+
+/** Every literal and unknown of the arguments, arrays opened, in order. */
+export function argTokens(args: readonly EffectArg[]): string[] {
+  const tokens: string[] = [];
+  const walk = (arg: EffectArg): void => {
+    if ("list" in arg) arg.list.forEach(walk);
+    else tokens.push(argText(arg));
+  };
+  args.forEach(walk);
+  return tokens;
 }
 
 export function canonicalNode(node: ModuleNode): object {
@@ -210,5 +259,6 @@ export function canonicalNode(node: ModuleNode): object {
 export function serializeGraph(graph: Graph): string {
   const nodes = [...graph.nodes].sort((a, b) => compareIds(a.id, b.id)).map(canonicalNode);
   const edges = [...graph.edges].sort(compareEdges).map(canonicalEdge);
-  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges }, null, 2)}\n`;
+  const resolutions = [...graph.resolutions].sort(compareResolutions).map(canonicalResolution);
+  return `${JSON.stringify({ extractorVersion: graph.extractorVersion, nodes, edges, resolutions }, null, 2)}\n`;
 }
