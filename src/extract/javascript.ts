@@ -84,7 +84,7 @@ function hasModifier(node: ts.HasModifiers, kind: ts.ModifierSyntaxKind): boolea
   return ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false;
 }
 
-function outline(file: ts.SourceFile): Declaration[] {
+export function outline(file: ts.SourceFile): Declaration[] {
   if (file.isDeclarationFile) return [];
   const exported = exportedNodes(file);
   const within = (node: ts.Node): Declaration[] => {

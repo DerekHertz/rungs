@@ -23,6 +23,7 @@ import { observedReport } from "../observed-report.ts";
 import { changeNote, collapseRows, drawRows, loadRows, markRows, revealRange } from "./code-rows.ts";
 import type { CodeParts, Drawn, Fold, Loaded } from "./code-rows.ts";
 import { renderFileWhy } from "./file-why-panel.ts";
+import type { Neighbours } from "./file-why-panel.ts";
 import type { FileWhy } from "../defining.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import type { RiskItem } from "../risks.ts";
@@ -486,7 +487,16 @@ function drawWhy(found: FileWhy): void {
   renderFileWhy(whyPane, found, {
     graph: picture.graph,
     pickBlock: (block) => markLines(block.range),
-    pickFile: (id) => pickNode(id),
+    pickNode: (id, marked) => {
+      const target = nodes.get(id);
+      // A block of the open file stays inside it, so its panel stays: its lines are marked.
+      if (target !== undefined && isCodeNode(target) && selected === `file:${target.path}`) markLines(marked ?? target.range);
+      else pickNode(id, marked);
+    },
+    neighbours: async (id) => {
+      const answer = await fetch(`/calls?id=${encodeURIComponent(id)}`);
+      return answer.ok ? ((await answer.json()) as Neighbours) : undefined;
+    },
   });
   folds = collapseRows(drawn, (found.defining.length > 0 ? found.defining : found.other).map((block) => block.range));
 }

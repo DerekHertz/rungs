@@ -9,12 +9,40 @@ import { effectParts, isAnonymous, labelOf } from "./review.ts";
 /*
  * A selected file says why it matters before its lines (SPEC, Review: Risks), all derived.
  *
- * "Most dependents" does not rank blocks: the graph has import edges between files and effect
- * edges from blocks, but no call edge from one block to another (calls are lazy, SPEC rule 4), so
- * a block has no dependents of its own, and every block of a file would share the file's count.
- * Blocks are ranked by the facts that are per block: a contract moved, an effect gained or
- * changed, exported. A block is defining when it has any of them.
+ * The graph has no call edge from one block to another (calls are lazy, SPEC rule 4). When the
+ * caller passes `calls` (src/calls.ts, which asks the TypeScript compiler), a block's callers are
+ * known: the changed blocks with the most callers are defining too, and each block carries its
+ * callers and callees. Without it, blocks are ranked by the facts that are per block: a contract
+ * moved, an effect gained or changed, exported. A block is defining when it has any of them.
  */
+
+/** A block a call edge names, or the file for a call at module top level; `at` is the lines of the calls. */
+export interface CallRef {
+  readonly id: NodeId;
+  readonly label: string;
+  readonly level: "class" | "function" | "file";
+  readonly path: string;
+  /** The block's own lines; null for a file. */
+  readonly range: LineRange | null;
+  readonly at: readonly LineRange[];
+}
+
+/** A call the compiler could not land on a code node of the tree, shown as that with its callee text. */
+export interface UnresolvedCall {
+  readonly text: string;
+  readonly at: LineRange;
+}
+
+export interface CallList {
+  readonly resolved: readonly CallRef[];
+  readonly unresolved: readonly UnresolvedCall[];
+}
+
+/** What fileWhy needs from the call resolver. */
+export interface Calls {
+  callersOf(id: NodeId): readonly CallRef[];
+  calleesOf(id: NodeId): CallList;
+}
 
 export interface Why {
   /** The contract moves in this file (an export only added is not one: nothing rests on it yet), one line each. */
@@ -44,6 +72,9 @@ export interface Block {
    * the files resting on them. Never fewer than the truth: a use the extractor cannot name counts.
    */
   readonly rests?: readonly string[];
+  /** Resolved callers and callees, when the file's calls were asked for (derived by the compiler). */
+  readonly callers?: readonly CallRef[];
+  readonly callees?: CallList;
 }
 
 export interface FileWhy {
@@ -70,9 +101,10 @@ const WORD: Record<ContractMove["kind"], string> = {
 /**
  * The why-line and the block list of the file `fileId`, or undefined when the head has no such
  * file. `head` and `base` are the graphs `comparison` was made from; `isTest` is the test-file
- * predicate (isTestFile), passed in so this module stays free of node:*.
+ * predicate (isTestFile), passed in so this module stays free of node:*. `calls`, when given, adds each block's
+ * callers and callees and makes the changed blocks with the most callers defining.
  */
-export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, head: Graph, isTest: (path: string) => boolean): FileWhy | undefined {
+export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, head: Graph, isTest: (path: string) => boolean, calls?: Calls): FileWhy | undefined {
   const file = head.nodes.find((node) => node.id === fileId);
   if (file === undefined || file.level !== "file") return undefined;
   const nodes = new Map<NodeId, ModuleNode>(head.nodes.map((node) => [node.id, node]));
@@ -129,11 +161,35 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
     if (!changedIds.has(node.id) && move === undefined && !effectLines.has(node.id)) continue;
     const reasons = [...(move === undefined ? [] : [`contract ${WORD[move.kind]}`]), ...[...(effectLines.get(node.id) ?? [])].sort(byText), ...(node.exported ? ["exported"] : [])];
     const rests = restsOf(node);
-    blocks.push({ id: node.id, level: node.level, label: labelOf(node), range: node.range, reasons, folded: (folds.get(node.id) ?? []).sort(byText), ...(rests === undefined ? {} : { rests }) });
+    const callers = calls?.callersOf(node.id);
+    const callees = calls?.calleesOf(node.id);
+    blocks.push({
+      id: node.id,
+      level: node.level,
+      label: labelOf(node),
+      range: node.range,
+      reasons,
+      folded: (folds.get(node.id) ?? []).sort(byText),
+      ...(rests === undefined ? {} : { rests }),
+      ...(callers === undefined || callees === undefined ? {} : { callers, callees }),
+    });
   }
-  // A moved contract first, then an effect, then exported; within a rank, in source order.
+  // The changed blocks with the most callers (at least one) are defining: "most dependents", from real calls.
+  const most = Math.max(0, ...blocks.map((block) => block.callers?.length ?? 0));
+  if (most > 0) {
+    for (const [at, block] of blocks.entries()) if (block.callers?.length === most) blocks[at] = { ...block, reasons: [...block.reasons, `most callers (${most})`] };
+  }
+  // A moved contract first, then an effect, then exported, then most callers; within a rank, in source order.
   const rank = (block: Block): number =>
-    block.reasons.some((reason) => reason.startsWith("contract ")) ? 0 : block.reasons.some((reason) => reason !== "exported") ? 1 : block.reasons.length > 0 ? 2 : 3;
+    block.reasons.some((reason) => reason.startsWith("contract "))
+      ? 0
+      : block.reasons.some((reason) => reason !== "exported" && !reason.startsWith("most callers"))
+        ? 1
+        : block.reasons.includes("exported")
+          ? 2
+          : block.reasons.length > 0
+            ? 3
+            : 4;
   blocks.sort((a, b) => rank(a) - rank(b) || a.range.start - b.range.start || byText(a.id, b.id));
 
   const rests = (importanceOf(head).get(file.id) ?? []).map((id) => nodes.get(id)?.path ?? id).sort(byText);
@@ -159,17 +215,14 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
 /** One step of a block's neighbours. `unresolved` is shown as that, never guessed (SPEC rule 5). */
 export interface Step {
   readonly label: string;
-  /** A file the step can open one step further from. */
-  readonly open?: NodeId;
   readonly unresolved?: true;
 }
 
 /**
- * The first step of what a block calls: its outside calls, named by their target (an unknown
- * target is unresolved). Calls from one block to another are not in the graph, so they are
- * listed as unresolved rather than guessed.
+ * The outside calls (effects) a block makes, named by their target; an unknown target is
+ * unresolved. Calls from one block to another are in `CallList`, not here.
  */
-export function calleesOf(graph: Graph, blockId: NodeId): Step[] {
+export function effectStepsOf(graph: Graph, blockId: NodeId): Step[] {
   const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
   const inside = (owner: NodeId): boolean => {
     for (let at = nodes.get(owner); at !== undefined; at = isCodeNode(at) ? nodes.get(at.parent) : undefined) if (at.id === blockId) return true;
@@ -182,29 +235,7 @@ export function calleesOf(graph: Graph, blockId: NodeId): Step[] {
     if (edge.target === "unknown") steps.set(`${text}: target unresolved`, { label: `${text}: target unresolved`, unresolved: true });
     else steps.set(text, { label: text });
   }
-  const others: Step = { label: "calls to other functions", unresolved: true };
-  return [...steps.values(), others].sort(
-    (a, b) => Number(a.label === "calls to other functions") - Number(b.label === "calls to other functions") || byText(a.label, b.label),
-  );
-}
-
-/**
- * The first step of what calls a block: the files that import its file directly. An import edge
- * names the file, not the export it uses, so which block of it each file calls is unresolved, and
- * so is a caller inside the same file. Each file opens one step further, through `importersOf`.
- */
-export function callersOf(graph: Graph, blockId: NodeId): Step[] {
-  const block = graph.nodes.find((node) => node.id === blockId);
-  if (block === undefined) return [{ label: "callers", unresolved: true }];
-  return [...importersOf(graph, `file:${block.path}` as NodeId), { label: "callers of this block", unresolved: true }];
-}
-
-/** The files that import `fileId` directly, sorted by path; each can open one step further. */
-export function importersOf(graph: Graph, fileId: NodeId): Step[] {
-  const from = new Set<NodeId>();
-  for (const edge of graph.imports) if ("file" in edge.target && edge.target.file === fileId && edge.from !== fileId) from.add(edge.from);
-  const names = new Map<NodeId, string>(graph.nodes.map((node) => [node.id, node.path]));
-  return [...from].map((id): Step => ({ label: `${names.get(id) ?? id} imports this file (calls not resolved)`, open: id })).sort((a, b) => byText(a.label, b.label));
+  return [...steps.values()].sort((a, b) => byText(a.label, b.label));
 }
 
 export const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;

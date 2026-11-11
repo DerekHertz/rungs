@@ -1,0 +1,254 @@
+[
+  {
+    "id": "class:src/shapes.ts#Counter",
+    "callers": [
+      {
+        "id": "function:src/app.ts#main",
+        "label": "main",
+        "level": "function",
+        "path": "src/app.ts",
+        "range": {
+          "start": 8,
+          "end": 15
+        },
+        "at": [
+          {
+            "start": 9,
+            "end": 9
+          }
+        ]
+      }
+    ],
+    "callees": {
+      "resolved": [],
+      "unresolved": []
+    }
+  },
+  {
+    "id": "function:src/app.ts#main",
+    "callers": [],
+    "callees": {
+      "resolved": [
+        {
+          "id": "class:src/shapes.ts#Counter",
+          "label": "Counter",
+          "level": "class",
+          "path": "src/shapes.ts",
+          "range": {
+            "start": 1,
+            "end": 7
+          },
+          "at": [
+            {
+              "start": 9,
+              "end": 9
+            }
+          ]
+        },
+        {
+          "id": "function:src/shapes.ts#Counter.bump",
+          "label": "Counter.bump",
+          "level": "function",
+          "path": "src/shapes.ts",
+          "range": {
+            "start": 3,
+            "end": 6
+          },
+          "at": [
+            {
+              "start": 10,
+              "end": 10
+            }
+          ]
+        },
+        {
+          "id": "function:src/shout.ts#shout",
+          "label": "shout",
+          "level": "function",
+          "path": "src/shout.ts",
+          "range": {
+            "start": 1,
+            "end": 3
+          },
+          "at": [
+            {
+              "start": 14,
+              "end": 14
+            }
+          ]
+        },
+        {
+          "id": "function:src/util.ts#greet",
+          "label": "greet",
+          "level": "function",
+          "path": "src/util.ts",
+          "range": {
+            "start": 1,
+            "end": 3
+          },
+          "at": [
+            {
+              "start": 14,
+              "end": 14
+            }
+          ]
+        }
+      ],
+      "unresolved": [
+        {
+          "text": "handlers[name]",
+          "at": {
+            "start": 11,
+            "end": 11
+          }
+        },
+        {
+          "text": "leftPad",
+          "at": {
+            "start": 12,
+            "end": 12
+          }
+        },
+        {
+          "text": "JSON.stringify",
+          "at": {
+            "start": 13,
+            "end": 13
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "function:src/shapes.ts#Counter.bump",
+    "callers": [
+      {
+        "id": "function:src/app.ts#main",
+        "label": "main",
+        "level": "function",
+        "path": "src/app.ts",
+        "range": {
+          "start": 8,
+          "end": 15
+        },
+        "at": [
+          {
+            "start": 10,
+            "end": 10
+          }
+        ]
+      }
+    ],
+    "callees": {
+      "resolved": [],
+      "unresolved": []
+    }
+  },
+  {
+    "id": "function:src/shout.ts#shout",
+    "callers": [
+      {
+        "id": "function:src/app.ts#main",
+        "label": "main",
+        "level": "function",
+        "path": "src/app.ts",
+        "range": {
+          "start": 8,
+          "end": 15
+        },
+        "at": [
+          {
+            "start": 14,
+            "end": 14
+          }
+        ]
+      }
+    ],
+    "callees": {
+      "resolved": [],
+      "unresolved": [
+        {
+          "text": "text.toUpperCase",
+          "at": {
+            "start": 2,
+            "end": 2
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "function:src/util.ts#greet",
+    "callers": [
+      {
+        "id": "function:src/app.ts#main",
+        "label": "main",
+        "level": "function",
+        "path": "src/app.ts",
+        "range": {
+          "start": 8,
+          "end": 15
+        },
+        "at": [
+          {
+            "start": 14,
+            "end": 14
+          }
+        ]
+      },
+      {
+        "id": "function:src/util.ts#twice",
+        "label": "twice",
+        "level": "function",
+        "path": "src/util.ts",
+        "range": {
+          "start": 5,
+          "end": 7
+        },
+        "at": [
+          {
+            "start": 6,
+            "end": 6
+          },
+          {
+            "start": 6,
+            "end": 6
+          }
+        ]
+      }
+    ],
+    "callees": {
+      "resolved": [],
+      "unresolved": []
+    }
+  },
+  {
+    "id": "function:src/util.ts#twice",
+    "callers": [],
+    "callees": {
+      "resolved": [
+        {
+          "id": "function:src/util.ts#greet",
+          "label": "greet",
+          "level": "function",
+          "path": "src/util.ts",
+          "range": {
+            "start": 1,
+            "end": 3
+          },
+          "at": [
+            {
+              "start": 6,
+              "end": 6
+            },
+            {
+              "start": 6,
+              "end": 6
+            }
+          ]
+        }
+      ],
+      "unresolved": []
+    }
+  }
+]
