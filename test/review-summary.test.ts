@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, unmentionedSummary } from "../src/review-summary.ts";
+import { noNewCallsText, claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, unmentionedSummary } from "../src/review-summary.ts";
 import type { EffectGroup } from "../src/review.ts";
 import type { ContractRow } from "../src/review.ts";
 import type { NodeId } from "../src/graph.ts";
@@ -92,13 +92,16 @@ test("each row's number comes first", () => {
   expect(unmentionedSummary({ files: 25, calls: 0, moves: 1, movedFiles: 25 })).toBe("1 move group");
   expect(unmentionedSummary({ files: null, calls: 2 })).toBe("2 new calls out");
   expect(unmentionedSummary({ files: 0, calls: 0 })).toBe("nothing");
+  expect(unmentionedSummary({ files: 0, calls: 0, agent: { files: 14, calls: 0, changed: 0 } })).toBe("14 files linked by the agent only");
+  expect(unmentionedSummary({ files: 2, calls: 0, agent: { files: 1, calls: 3, changed: 0 } })).toBe("2 files · 1 file linked by the agent only · 3 new calls out linked by the agent only");
+  expect(unmentionedSummary({ files: 0, calls: 0, agent: { files: 0, calls: 0, changed: 0 } })).toBe("nothing");
   expect(contractsSummary({ changed: 2, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 118 })).toBe("2 changed · 118 added");
   expect(contractsSummary({ changed: 0, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 })).toBe("none");
   expect(claimsSummary("d", [], "ok", 3)).toBe("no claims · 3 context lines");
   expect(claimsSummary("d", [], "ok", 1)).toBe("no claims · 1 context line");
   expect(claimsSummary("d", [{ ids: ["a"] }], "ok", 4)).toBe("1 of 1 linked");
   expect(unmentionedSummary({ files: 2, calls: 0, changed: 3 })).toBe("2 files · 3 effects changed");
-  expect(unmentionedSummary({ files: null, calls: 0, changed: 1 })).toBe("1 effects changed");
+  expect(unmentionedSummary({ files: null, calls: 0, changed: 1 })).toBe("1 effect changed");
   expect(contractsSummary({ changed: 2, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 }, 4)).toBe("2 changed · 4 effects changed");
   expect(contractsSummary({ changed: 0, effects: 0, removed: 0, unexported: 0, exposed: 0, moved: 0, added: 0 }, 1)).toBe("1 effects changed");
 });
@@ -113,6 +116,9 @@ test("commas inside generics do not split parameters", () => {
 test("no description means unmentioned is not checked, never nothing", () => {
   expect(unmentionedSummary({ files: null, calls: 0 })).toBe("not checked, no description");
   expect(unmentionedSummary({ files: 0, calls: 0 })).toBe("nothing");
+  expect(unmentionedSummary({ files: 0, calls: 0, agent: { files: 14, calls: 0, changed: 0 } })).toBe("14 files linked by the agent only");
+  expect(unmentionedSummary({ files: 2, calls: 0, agent: { files: 1, calls: 3, changed: 0 } })).toBe("2 files · 1 file linked by the agent only · 3 new calls out linked by the agent only");
+  expect(unmentionedSummary({ files: 0, calls: 0, agent: { files: 0, calls: 0, changed: 0 } })).toBe("nothing");
 });
 
 test("the tests row says fail of total, or why there is no run", () => {
@@ -125,4 +131,10 @@ test("the tests row says fail of total, or why there is no run", () => {
   expect(testsSummary({ ...ran, status: "failed" } as never, 0)).toBe("run failed");
   expect(testsSummary(null, 3)).toBe("3 weakened or removed");
   expect(testsSummary(ran as never, 3)).toBe("23 fail of 210 · 3 weakened");
+});
+
+test("the empty state of new calls out never says none while an agent-only call is counted", () => {
+  expect(noNewCallsText(0)).toMatch(/^No new call reaches/);
+  expect(noNewCallsText(1)).toBe("Every other new call out is mentioned.");
+  expect(unmentionedSummary({ files: 0, calls: 0, agent: { files: 0, calls: 0, changed: 1 } })).toBe("1 effect changed linked by the agent only");
 });

@@ -33,7 +33,8 @@ test("the candidates are the folders holding changed files, with counts and kind
     "removed file:src/gone.ts",
     "added file:src/new.ts",
   ]);
-  expect(candidates[0]!.files).toEqual(["file:src/a.ts", "file:src/gone.ts", "file:src/new.ts"]);
+  expect(candidates[0]!.files).toEqual([]);
+  expect(candidates[1]!.files).toEqual(["file:src/a.ts"]);
 });
 
 test("the prompt holds the claims and candidate lines and no source text, and names its version", () => {
@@ -61,9 +62,9 @@ test("validation drops ids outside the candidates and claim indexes out of range
   });
 });
 
-test("a link to a folder covers every changed file under it, without repeats", () => {
-  const out = validate({ links: [{ claim: 0, ids: ["file:src/a.ts", "folder:src"] }] }, claims.slice(0, 1), known);
-  expect(out.byClaim).toEqual([["file:src/a.ts", "file:src/gone.ts", "file:src/new.ts"]]);
+test("a link to a folder covers none of its files, and the claim keeps its other links", () => {
+  const out = validate({ links: [{ claim: 0, ids: ["file:src/a.ts", "folder:src"] }, { claim: 1, ids: ["folder:src"] }] }, claims, known);
+  expect(out.byClaim).toEqual([["file:src/a.ts"], []]);
 });
 
 const three = splitClaims("Speeds up alpha.\nFound by the security review.\nAlpha now runs faster.\n");
@@ -160,6 +161,11 @@ test("linking validates the agent's answer and reports the model, prompt version
     dropped: { ids: 1, claims: 0, restatements: 0 },
     cached: false,
   });
+});
+
+test("an agent that links only folders leaves the claims unlinked, so the files stay unmentioned", async () => {
+  const outcome = await linkClaims({ claims, candidates, runner: fake({ links: [say(0, "Speeds up alpha", ["folder:src"]), say(1, "Adds fresh things", ["folder:src"])] }), cacheDir: temp(), relink: false, timeoutMs: 1000 });
+  expect(outcome).toMatchObject({ status: "ok", byClaim: [[], []], dropped: { ids: 0 } });
 });
 
 test("a second run reuses the cache without calling the agent, and relink forces a new call", async () => {
