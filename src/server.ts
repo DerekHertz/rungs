@@ -23,6 +23,7 @@ import { observedDocument, treeDigest } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
 import { testChanges } from "./test-changes.ts";
 import { risksOf } from "./risks.ts";
+import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
 import type { NarrateRequest } from "./narrate.ts";
 
@@ -163,7 +164,7 @@ export async function serve(
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
     const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(baseTree ?? new Map(), tree) }, null, 2)}\n`;
     resources.set("/test-changes.json", { contentType: "application/json; charset=utf-8", body: testsChanged });
-    const risks = `${JSON.stringify({ tier: "derived", risks: risksOf(comparison, baseGraph, graph, testChanges(baseTree ?? new Map(), tree)) }, null, 2)}\n`;
+    const risks = `${JSON.stringify({ tier: "derived", risks: risksOf(comparison, baseGraph, graph, testChanges(baseTree ?? new Map(), tree), isTestFile) }, null, 2)}\n`;
     resources.set("/risks.json", { contentType: "application/json; charset=utf-8", body: risks });
   }
 

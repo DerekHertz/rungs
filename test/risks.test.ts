@@ -3,6 +3,7 @@ import { compare } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree } from "../src/graph.ts";
 import { risksOf } from "../src/risks.ts";
+import { isTestFile } from "../src/test-files.ts";
 import { testChanges } from "../src/test-changes.ts";
 
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
@@ -13,7 +14,7 @@ function risks(base: Record<string, string>, head: Record<string, string>) {
   const baseGraph = extract(baseTree);
   const headGraph = extract(headTree);
   const comparison = compare(baseGraph, headGraph, { base: baseTree, head: headTree });
-  return risksOf(comparison, baseGraph, headGraph, testChanges(baseTree, headTree));
+  return risksOf(comparison, baseGraph, headGraph, testChanges(baseTree, headTree), isTestFile);
 }
 
 const exp = (name: string, params = ""): string => `export function ${name}(${params}) {\n  return 1;\n}\n`;
@@ -76,4 +77,34 @@ test("a removed file's contract takes its dependents from the base", () => {
   delete rest["src/core.ts"];
   const core = risks(base, rest).find((item) => item.label === "core removed")!;
   expect(core.blast.files).toEqual(["src/mid.ts", "src/top.ts", "src/top2.ts"]);
+});
+
+const exec = 'import { execSync } from "node:child_process";\nexport function go() {\n  execSync("git status");\n}\n';
+
+test("effects in test and generated files are kept, ranked after the rest of their kind", () => {
+  const found = risks({ "package.json": "{}\n" }, { "package.json": "{}\n", "test/a.test.js": exec, "a.min.js": exec, "src/s.js": exec });
+  const effects = found.filter((item) => item.kind === "effect");
+  expect(effects.map((item) => `${item.path} ${item.demoted === true}`)).toEqual(["src/s.js false", "a.min.js true"]);
+  expect(effects[1]!.detail).toContain("test/a.test.js");
+});
+
+test("a moved file keeps the dependents it had in the base", () => {
+  const b = { "package.json": "{}\n", "a.ts": exp("f"), "b.ts": user("./a.ts", "f") };
+  const found = risks(b, { "package.json": "{}\n", "b.ts": b["b.ts"], "new.ts": b["a.ts"] });
+  expect(found.find((item) => item.label === "f moved")!.blast.files).toEqual(["b.ts"]);
+});
+
+test("files that depend on each other count one another in a grouped effect", () => {
+  const call = (from: string): string => `import "${from}";\nexport async function x() {\n  await fetch("https://e.com");\n}\n`;
+  const found = risks(
+    { "package.json": "{}\n", "a.ts": 'import "./b.ts";\nexport const a = 1;\n', "b.ts": 'import "./a.ts";\nexport const b = 1;\n' },
+    { "package.json": "{}\n", "a.ts": call("./b.ts"), "b.ts": call("./a.ts") },
+  );
+  expect(found.find((item) => item.kind === "effect")!.blast.files).toEqual(["a.ts", "b.ts"]);
+});
+
+test("an edited base file the runner counts as a test is listed even when its role is source", () => {
+  const b = { "package.json": "{}\n", "smoke-test.js": "export const a = 1;\n" };
+  const found = risks(b, { ...b, "smoke-test.js": "export const a = 2;\n" });
+  expect(found.map((item) => item.label)).toContain("smoke-test.js edited");
 });

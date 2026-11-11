@@ -10,7 +10,6 @@ import { observedAbout, observedBody, observedNote } from "./observed-panel.ts";
 import type { ObservedInput } from "./observed-panel.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import { testChangesBlock } from "./test-changes-panel.ts";
-import { RISK_KINDS } from "../risks.ts";
 import type { RiskItem } from "../risks.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
@@ -516,7 +515,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       return;
     }
     const titles: Record<RiskItem["kind"], string> = { contract: "Contracts moved", effect: "Effects reaching out", test: "Tests", dependency: "Dependencies" };
-    for (const kind of RISK_KINDS) {
+    for (const kind of ["contract", "effect", "test", "dependency"] as const) {
       const items = risks.filter((risk) => risk.kind === kind);
       if (items.length === 0) continue;
       const rows = element("ul", "review-list");

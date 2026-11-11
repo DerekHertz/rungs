@@ -35,6 +35,8 @@ export interface RiskItem {
   /** The file the item is about; sorts after blast radius. */
   readonly path: string;
   readonly blast: Blast;
+  /** Calls in test or generated files: kept, but ranked after the rest of their kind. */
+  readonly demoted?: boolean;
   /** The places the item selects. */
   readonly ids: readonly NodeId[];
 }
@@ -63,29 +65,34 @@ function contractDetail(move: ContractMove): string {
  * nothing rests on it yet), new or changed effects reaching a process, the file system or the
  * network, tests weakened, removed, skipped or edited, and dependency changes, in that order.
  * Within a kind, larger blast radius first, then path, then label. `head` and `base` are the two
- * graphs `comparison` was made from.
+ * graphs `comparison` was made from; `isTest` is the test-file predicate the test run uses (isTestFile),
+ * passed in so this module stays free of node:*.
  */
-export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests: TestChanges): RiskItem[] {
+export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests: TestChanges, isTest: (path: string) => boolean): RiskItem[] {
   const headRests = importanceOf(head);
   const baseRests = importanceOf(base);
   const headNodes = new Map<NodeId, ModuleNode>(head.nodes.map((node) => [node.id, node]));
   const baseNodes = new Map<NodeId, ModuleNode>(base.nodes.map((node) => [node.id, node]));
 
   /** The files resting on the files at `paths`, by the head's edges, or the base's for a file the head no longer has. */
-  const blastOf = (paths: readonly string[]): Blast => {
+  const blastOf = (paths: readonly string[], basePaths: readonly string[] = []): Blast => {
     const found = new Set<string>();
-    for (const path of paths) {
+    const add = (path: string, rests: ReadonlyMap<NodeId, readonly NodeId[]>, names: ReadonlyMap<NodeId, ModuleNode>): void => {
       const id = `file:${path}` as NodeId;
-      const inHead = headNodes.has(id);
-      const names = inHead ? headNodes : baseNodes;
-      for (const rest of (inHead ? headRests : baseRests).get(id) ?? []) found.add(names.get(rest)?.path ?? rest);
+      if (names.has(id)) for (const rest of rests.get(id) ?? []) found.add(names.get(rest)?.path ?? rest);
+    };
+    for (const path of paths) {
+      add(path, headRests, headNodes);
+      // A file the head no longer has at that path keeps the dependents the base gave it.
+      if (!headNodes.has(`file:${path}` as NodeId)) add(path, baseRests, baseNodes);
     }
-    for (const path of paths) found.delete(path);
+    // A moved file's old place: the files that rested on it there still do, or are broken by it.
+    for (const path of basePaths) add(path, baseRests, baseNodes);
     const files = [...found].sort(byText);
     return { count: files.length, files };
   };
   const fileOf = (owner: ModuleNode | undefined): ModuleNode | undefined => (owner === undefined ? undefined : headNodes.get(`file:${owner.path}` as NodeId));
-  const counts = (file: ModuleNode | undefined): boolean => file?.level === "file" && file.role !== "tests" && file.role !== "generated";
+  const demotes = (file: ModuleNode | undefined): boolean => file?.level === "file" && (file.role === "tests" || file.role === "generated");
 
   const items: RiskItem[] = [];
 
@@ -94,18 +101,20 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     const node = headNodes.get(move.id) ?? baseNodes.get(move.id);
     if (node === undefined) continue;
     const name = move.type?.name ?? (isCodeNode(node) ? node.qualifiedName : node.path);
-    items.push({ kind: "contract", label: `${name} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path]), ids: [move.id] });
+    const was = move.from === undefined ? undefined : baseNodes.get(move.from);
+    items.push({ kind: "contract", label: `${name} ${CONTRACT_WORD[move.kind]}`, detail: contractDetail(move), path: node.path, blast: blastOf([node.path], was === undefined ? [] : [was.path]), ids: [move.id] });
   }
 
-  const groups = new Map<string, { resource: ResourceKind; target: string; operations: Set<string>; owners: Set<NodeId>; paths: Set<string> }>();
+  const groups = new Map<string, { demoted: boolean; resource: ResourceKind; target: string; operations: Set<string>; owners: Set<NodeId>; paths: Set<string> }>();
   for (const change of comparison.effects) {
     if (change.kind !== "added") continue;
     const resource = resourceKindOf(change.edge);
     const owner = headNodes.get(change.edge.from);
-    if (!EFFECT_RESOURCES.has(resource) || owner === undefined || !counts(fileOf(owner))) continue;
+    if (!EFFECT_RESOURCES.has(resource) || owner === undefined) continue;
+    const demoted = demotes(fileOf(owner));
     const target = targetText(change.edge.target);
-    const key = `${resource}\0${target}`;
-    const group = groups.get(key) ?? { resource, target, operations: new Set(), owners: new Set(), paths: new Set() };
+    const key = `${demoted}\0${resource}\0${target}`;
+    const group = groups.get(key) ?? { demoted, resource, target, operations: new Set(), owners: new Set(), paths: new Set() };
     group.operations.add(change.edge.operation);
     group.owners.add(owner.id);
     group.paths.add(owner.path);
@@ -116,6 +125,7 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     items.push({
       kind: "effect",
       label: `new ${group.resource} call ${group.target}`,
+      ...(group.demoted ? { demoted: true } : {}),
       detail: `${[...group.operations].sort(byText).join(", ")} in ${paths.join(", ")}`,
       path: paths[0]!,
       blast: blastOf(paths),
@@ -125,9 +135,9 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
   for (const change of comparison.changedEffects) {
     const resource = effectParts(change.label).resource;
     const owner = headNodes.get(change.owner);
-    if (resource === undefined || !EFFECT_RESOURCES.has(resource) || owner === undefined || !counts(fileOf(owner))) continue;
+    if (resource === undefined || !EFFECT_RESOURCES.has(resource) || owner === undefined) continue;
     const edits = [...change.added.map((token) => `+ ${token}`), ...change.removed.map((token) => `− ${token}`)].join("  ");
-    items.push({ kind: "effect", label: `changed ${change.label}`, detail: `${edits} in ${owner.path}`, path: owner.path, blast: blastOf([owner.path]), ids: [owner.id] });
+    items.push({ kind: "effect", label: `changed ${change.label}`, detail: `${edits} in ${owner.path}`, path: owner.path, blast: blastOf([owner.path]), ...(demotes(fileOf(owner)) ? { demoted: true } : {}), ids: [owner.id] });
   }
 
   const testItem = (path: string, label: string, detail: string): RiskItem => ({ kind: "test", label, detail, path, blast: blastOf([path]), ids: [`file:${path}` as NodeId] });
@@ -138,7 +148,7 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
   for (const mark of tests.markers) items.push(testItem(mark.file, `${mark.name} now ${mark.marker}`, `${mark.marker} added in ${mark.file}`));
   for (const test of tests.weakened) items.push(testItem(test.file, `${test.name} weakened`, `${test.why} in ${test.file}`));
   for (const change of comparison.changes) {
-    if (change.kind !== "altered" || change.node.level !== "file" || change.node.role !== "tests") continue;
+    if (change.kind !== "altered" || change.node.level !== "file" || !isTest(change.node.path)) continue;
     items.push(testItem(change.node.path, `${change.node.path} edited`, "a test file the base had was edited"));
   }
 
@@ -156,6 +166,6 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
   }
 
   return items.sort(
-    (a, b) => RISK_KINDS.indexOf(a.kind) - RISK_KINDS.indexOf(b.kind) || b.blast.count - a.blast.count || byText(a.path, b.path) || byText(a.label, b.label),
+    (a, b) => RISK_KINDS.indexOf(a.kind) - RISK_KINDS.indexOf(b.kind) || Number(a.demoted === true) - Number(b.demoted === true) || b.blast.count - a.blast.count || byText(a.path, b.path) || byText(a.label, b.label),
   );
 }
