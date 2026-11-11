@@ -239,6 +239,7 @@ test("/test-changes.json is the derived list of what the change did to the tests
       renamed: [],
       markers: [],
       weakened: [],
+      edited: [],
     });
   } finally {
     await server.close();

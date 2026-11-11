@@ -185,6 +185,8 @@ export interface Block {
   readonly Y1: number;
   /** Files of each kind of change in the block, nested folders counted; all zero with no comparison. */
   readonly changes: BlockChanges;
+  /** Test files in the block, nested folders counted, that the change weakened or edited: the town marks each; zero with none. */
+  readonly testsChanged: number;
   /** The fence round the pad and the sign by its corner, for a block where more than half the files are added. */
   readonly fence: Fence | null;
 }
@@ -208,11 +210,17 @@ export interface Fence {
  * A block's name with its counts under a comparison ("tools · 93 new · 4 altered"); with none, its
  * name alone near, and with its file count far away. A block nothing changed in has no counts.
  */
-export function blockLabel(block: Pick<Block, "name" | "files" | "changes">, comparing: boolean, far: boolean): string {
+export function blockLabel(block: Pick<Block, "name" | "files" | "changes"> & { readonly testsChanged?: number }, comparing: boolean, far: boolean): string {
   if (!comparing) return far ? `${block.name} · ${block.files}` : block.name;
   const { added, altered, removed, moved } = block.changes;
   const parts = [added > 0 ? `${added} new` : "", altered > 0 ? `${altered} altered` : "", removed > 0 ? `${removed} removed` : "", moved > 0 ? `${moved} moved` : ""];
-  return [block.name, ...parts.filter((part) => part !== "")].join(" · ");
+  const tests = block.testsChanged ?? 0;
+  return [block.name, ...parts.filter((part) => part !== ""), ...(tests > 0 ? [testsTail(tests)] : [])].join(" · ");
+}
+
+/** The end of a block's label that counts its marked test files. */
+export function testsTail(count: number): string {
+  return `\u26a0 ${count} ${count === 1 ? "test" : "tests"} changed`;
 }
 
 /** More than half of the `present` files are added. */
@@ -365,7 +373,7 @@ export function stepOf(count: number, fewest: number, most: number, steps: numbe
  * and the old path of a moved one), as rubble, and each lot and block carries the marks the change
  * picks (SPEC, Review): decided here from the graph and the comparison alone.
  */
-export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Comparison | null = null, waysIn: readonly WayIn[] = []): Town {
+export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Comparison | null = null, waysIn: readonly WayIn[] = [], testFiles: ReadonlySet<string> = new Set()): Town {
   const { graph, ghosts } = comparison === null ? { graph: head, ghosts: new Set<NodeId>() } : withGhosts(head, comparison);
   // Importance and reach are the head's alone: a ghost has no place in them.
   const rests = importanceOf(head);
@@ -621,6 +629,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     const [X1, Y0] = ground(ax + laid.w, az + laid.d);
     const changes = { added: 0, altered: 0, removed: 0, moved: 0 };
     let present = 0;
+    let testsChanged = 0;
     const all = filesOf(tree);
     for (const file of tree.rubbleOf === undefined ? all : []) {
       if (ghosts.has(file.id)) {
@@ -628,6 +637,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
         continue;
       }
       present++;
+      if (testFiles.has(file.path)) testsChanged++;
       const kind = kinds.get(file.id);
       if (kind !== undefined) changes[kind]++;
     }
@@ -643,6 +653,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
       rows: laid.rows,
       X0, X1, Y0, Y1,
       changes,
+      testsChanged,
       fence: comparison !== null && mostlyNew(changes.added, present) ? fenceOf(pad, changes.added) : null,
     };
     (tree.depth === 0 ? blocks : nested).push(block);

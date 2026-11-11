@@ -2,7 +2,7 @@ import { isCodeNode, targetText } from "./graph.ts";
 import type { CodeNode, EffectEdge, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
 import { resourceKindOf } from "./effects.ts";
 import type { Comparison, Overlay } from "./compare.ts";
-import { titlesOf } from "./test-marks.ts";
+import type { CallbackLines } from "./test-changes-types.ts";
 import { AXIS } from "./town.ts";
 
 /*
@@ -56,8 +56,8 @@ export interface InsideMarks {
   readonly changed: ReadonlySet<NodeId>;
   /** True for a call that is new, or whose arguments changed. */
   readonly altered: (edge: EffectEdge) => boolean;
-  /** Tests of a changed test file (titles joined with " > ") that the change weakened or newly skipped: their rooms are marked. */
-  readonly tests?: ReadonlySet<string> | undefined;
+  /** Callback lines of the tests of a changed test file that the change weakened or newly skipped: their rooms are marked. */
+  readonly tests?: readonly CallbackLines[] | undefined;
 }
 
 /** The marks of the file `fileId` under `comparison`; `overlay` is the picture's. */
@@ -176,10 +176,11 @@ export function insideOf(graph: Graph, fileId: NodeId, sprites: ReadonlySet<stri
   }
   for (const calls of callsByRoom.values()) calls.sort((a, b) => a.range.start - b.range.start || a.range.end - b.range.end || byCodeUnits(a.operation, b.operation));
 
-  const testMarked = (node: CodeNode | undefined): boolean => {
-    const titles = node === undefined || marks?.tests === undefined ? undefined : titlesOf(node.qualifiedName);
-    return titles !== undefined && marks?.tests?.has(titles.join(" > ")) === true;
-  };
+  // A test is found by the lines of its callback, and only when one function holds exactly those lines.
+  const holders = new Map<string, number>();
+  for (const node of code) if (hasRoom(node)) holders.set(`${node.range.start}-${node.range.end}`, (holders.get(`${node.range.start}-${node.range.end}`) ?? 0) + 1);
+  const testMarked = (node: CodeNode | undefined): boolean =>
+    node !== undefined && marks?.tests?.some((lines) => lines.start === node.range.start && lines.end === node.range.end && holders.get(`${lines.start}-${lines.end}`) === 1) === true;
 
   interface Plan {
     readonly id: NodeId;

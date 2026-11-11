@@ -1,5 +1,4 @@
-import type { Comparison } from "./compare.ts";
-import type { TestChanges } from "./test-changes-types.ts";
+import type { CallbackLines, TestChanges } from "./test-changes-types.ts";
 
 /*
  * Which test files and tests the picture marks, from facts alone (SPEC, The picture; Review:
@@ -12,30 +11,28 @@ import type { TestChanges } from "./test-changes-types.ts";
 export type TestMark = "weakened" | "edited";
 
 export interface TestMarks {
-  /** The mark of each test file, by path. */
+  /** The mark of each test file, by path. Only a test file both trees have can be marked. */
   readonly files: ReadonlyMap<string, TestMark>;
-  /** Per test file, the tests (titles joined with " > ") whose rooms are marked. */
-  readonly tests: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Per test file, the callback lines of the tests whose rooms are marked; a test whose name two tests share has none. */
+  readonly tests: ReadonlyMap<string, readonly CallbackLines[]>;
 }
 
 export const NO_TEST_MARKS: TestMarks = { files: new Map(), tests: new Map() };
 
-export function testMarks(comparison: Comparison, changes: TestChanges): TestMarks {
+export function testMarks(changes: TestChanges): TestMarks {
+  // A new test file has no base to weaken, and a moved one is the same file: only an edited one counts.
+  const existing = new Set(changes.edited ?? []);
   const files = new Map<string, TestMark>();
-  const tests = new Map<string, Set<string>>();
-  const mark = (file: string, name: string | undefined): void => {
+  const tests = new Map<string, CallbackLines[]>();
+  const mark = (file: string, callback: CallbackLines | undefined): void => {
+    if (!existing.has(file)) return;
     files.set(file, "weakened");
-    if (name === undefined) return;
-    const names = tests.get(file) ?? new Set<string>();
-    names.add(name);
-    tests.set(file, names);
+    if (callback !== undefined) tests.set(file, [...(tests.get(file) ?? []), callback]);
   };
   for (const test of changes.removedTests) mark(test.file, undefined);
-  for (const test of changes.weakened) mark(test.file, test.name);
-  for (const test of changes.markers) mark(test.file, test.name);
-  for (const change of comparison.changes) {
-    if (change.kind === "altered" && change.node.level === "file" && change.node.role === "tests" && !files.has(change.node.path)) files.set(change.node.path, "edited");
-  }
+  for (const test of changes.weakened) mark(test.file, test.callback);
+  for (const test of changes.markers) mark(test.file, test.callback);
+  for (const file of existing) if (!files.has(file)) files.set(file, "edited");
   return { files, tests };
 }
 

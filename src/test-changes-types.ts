@@ -16,8 +16,19 @@ export interface TestChanges {
   /** A removed test paired with the one test added in its describe path: the same test under a new name. Not a removal. */
   readonly renamed: readonly { readonly file: string; readonly from: string; readonly to: string }[];
   /** A skip, todo or only that the head has and the base did not, on the test or suite it marks. */
-  readonly markers: readonly { readonly file: string; readonly name: string; readonly marker: Marker }[];
-  readonly weakened: readonly { readonly file: string; readonly name: string; readonly why: string }[];
+  readonly markers: readonly { readonly file: string; readonly name: string; readonly marker: Marker; readonly callback?: CallbackLines }[];
+  readonly weakened: readonly { readonly file: string; readonly name: string; readonly why: string; readonly callback?: CallbackLines }[];
+  /** Given when the places are asked for (the picture's): test files both trees have whose text differs, the base test files the change edited. */
+  readonly edited?: readonly string[];
+}
+
+/**
+ * The lines of the callback of a test, in the head's file, given only when the test's name is held
+ * once in the file, so the picture can find its room by place and never by a title two tests share.
+ */
+export interface CallbackLines {
+  readonly start: number;
+  readonly end: number;
 }
 
 export type Marker = "skip" | "todo" | "only";

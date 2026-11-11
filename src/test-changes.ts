@@ -2,7 +2,7 @@ import { posix } from "node:path";
 import ts from "typescript";
 import type { FileTree } from "./graph.ts";
 import { isDiscovered, isTestFile } from "./test-files.ts";
-import type { Marker, TestChanges } from "./test-changes-types.ts";
+import type { CallbackLines, Marker, TestChanges } from "./test-changes-types.ts";
 
 const OUTSIDE = "(outside any test)";
 const SOURCE = /\.[cm]?[jt]sx?$/;
@@ -34,6 +34,8 @@ interface Found {
   readonly kind: "test" | "suite";
   readonly assertions: Assertion[];
   readonly markers: Set<Marker>;
+  /** The callback's lines, when the call has one. */
+  readonly callback?: CallbackLines;
 }
 
 interface Parsed {
@@ -227,7 +229,14 @@ function parse(text: string, path: string): Parsed {
       if (test !== undefined) {
         const path = [...titles, titleOf(node)];
         const name = path.join(" > ");
+        const callbackArg = [...node.arguments].reverse().find((arg) => ts.isFunctionLike(arg));
         const made = entry(name, test.kind);
+        if (callbackArg !== undefined) {
+          (made as { callback?: CallbackLines }).callback = {
+            start: source.getLineAndCharacterOfPosition(callbackArg.getStart()).line + 1,
+            end: source.getLineAndCharacterOfPosition(callbackArg.getEnd()).line + 1,
+          };
+        }
         for (const marker of [...test.markers, ...optionMarkers(node)]) made.markers.add(marker);
         if (test.kind === "test") tests.set(name, (tests.get(name) ?? 0) + 1);
         const callback = [...node.arguments].reverse().find((arg) => ts.isFunctionLike(arg));
@@ -323,15 +332,23 @@ const byFileThenName = (a: { file: string; name: string }, b: { file: string; na
  * failure that matters. Only JavaScript and TypeScript files are read for tests; any other test
  * file is only noticed when it is deleted.
  */
-export function testChanges(base: FileTree, head: FileTree): TestChanges {
+export function testChanges(base: FileTree, head: FileTree, options: { readonly places?: boolean } = {}): TestChanges {
   // A deleted file is a move only when it pairs with one file the head added at a path node --test
   // still finds; each added file pairs once. A move out of the test run is a removal.
   const added = new Map<string, string[]>();
   for (const [path, text] of head) if (!base.has(path)) added.set(text, [...(added.get(text) ?? []), path]);
   const deletedFiles: { path: string; tests: number; movedTo?: string }[] = [];
   const removedTests: { file: string; name: string }[] = [];
-  const markers: { file: string; name: string; marker: Marker }[] = [];
-  const weakened: { file: string; name: string; why: string }[] = [];
+  const markers: { file: string; name: string; marker: Marker; callback?: CallbackLines }[] = [];
+  const weakened: { file: string; name: string; why: string; callback?: CallbackLines }[] = [];
+  const edited: string[] = [];
+  /** Where the head's one test of this name is, or nothing when two tests share it. */
+  const placeOf = (parsed: Parsed, name: string): { callback?: CallbackLines } => {
+    if (options.places !== true) return {};
+    const entries = parsed.found.get(name);
+    const callback = entries?.length === 1 ? entries[0]?.callback : undefined;
+    return callback === undefined ? {} : { callback };
+  };
   const renamed: { file: string; from: string; to: string }[] = [];
   const markersOf = (parsed: Parsed): Set<string> => {
     const set = new Set<string>();
@@ -355,6 +372,7 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
       deletedFiles.push(pair[0] === undefined ? { path, tests } : { path, tests, movedTo: pair[0] });
       continue;
     }
+    if (before !== undefined && before !== after) edited.push(path);
     if (!reads || before === after) continue;
     const now = parse(after, path);
     const was = before === undefined ? undefined : parse(before, path);
@@ -369,20 +387,20 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
     for (const key of markersOf(now)) {
       if (seen.has(key)) continue;
       const [name, marker] = JSON.parse(key) as [string, Marker];
-      markers.push({ file: path, name, marker });
+      markers.push({ file: path, name, marker, ...placeOf(now, name) });
     }
     if (was === undefined) continue;
     for (const { from, to } of pairs) {
       renamed.push({ file: path, from, to });
       const why = weakness(totalsOf(was.found.get(from)), totalsOf(now.found.get(to)));
-      if (why !== undefined) weakened.push({ file: path, name: to, why: `renamed from "${from}"; ${why}` });
+      if (why !== undefined) weakened.push({ file: path, name: to, why: `renamed from "${from}"; ${why}`, ...placeOf(now, to) });
     }
     const renamedAway = new Set(pairs.map((pair) => pair.from));
     for (const [name, count] of was.tests) if ((now.tests.get(name) ?? 0) < count && !renamedAway.has(name)) removedTests.push({ file: path, name });
     for (const [name, entries] of was.found) {
       const why = weakness(totalsOf(entries), totalsOf(now.found.get(name)));
-      if (why !== undefined && now.found.has(name)) weakened.push({ file: path, name, why });
+      if (why !== undefined && now.found.has(name)) weakened.push({ file: path, name, why, ...placeOf(now, name) });
     }
   }
-  return { deletedFiles, removedTests: removedTests.sort(byFileThenName), renamed: renamed.sort((a, b) => byFileThenName({ file: a.file, name: a.to }, { file: b.file, name: b.to })), markers: markers.sort((a, b) => byFileThenName(a, b) || (a.marker < b.marker ? -1 : 1)), weakened: weakened.sort(byFileThenName) };
+  return { deletedFiles, removedTests: removedTests.sort(byFileThenName), renamed: renamed.sort((a, b) => byFileThenName({ file: a.file, name: a.to }, { file: b.file, name: b.to })), markers: markers.sort((a, b) => byFileThenName(a, b) || (a.marker < b.marker ? -1 : 1)), weakened: weakened.sort(byFileThenName), ...(options.places === true ? { edited } : {}) };
 }

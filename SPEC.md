@@ -129,6 +129,12 @@ altered, removed or moved. Moved means identical text under a new path, never a 
   construction fence and a sign with its counts ("tools · 93 new").
 - A removed file leaves rubble on its lot. A moved file leaves rubble with a sign naming its new
   path, and stands at its new place with no crane.
+- A test file in which the change removed, weakened or newly skipped a test has a hazard banner on
+  its lab; a base test file the change edited has a violet flag. Inside a file, the room of a
+  weakened or newly skipped test has a hazard floor and sign. A block holding marked test files adds
+  their count to its sign ("test · 2 new · 2 altered · ⚠ 2 tests changed"), counting its nested
+  folders. Each mark comes from the same derived facts as the Tests row, and is shown with or
+  without a test run.
 - A dependency is added, removed or changed (its range or its list). The picture does not show
   dependencies; the panel does.
 - Inside a file, a changed function's room has a different floor and cones, and an altered or

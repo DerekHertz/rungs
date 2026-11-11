@@ -66,7 +66,7 @@ const picture = pictureOf(graph, comparison);
 const ghostEdges: readonly Edge[] = comparison === null ? [] : (await (await fetch("/ghost-edges.json")).json() as { edges: Edge[] }).edges;
 const testChanges = comparison === null ? null : ((await (await fetch("/test-changes.json")).json()) as TestChanges);
 /** The test files the change weakened or edited, which the town flags and whose weakened tests' rooms are marked. */
-const marksOfTests = comparison === null || testChanges === null ? NO_TEST_MARKS : testMarks(comparison, testChanges);
+const marksOfTests = comparison === null || testChanges === null ? NO_TEST_MARKS : testMarks(testChanges);
 const observedResponse = await fetch("/observed.json");
 const observed = observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null;
 const observedRun = observed?.status === "ran" && comparison !== null ? observedReport(observed, picture.graph, comparison) : null;
@@ -386,7 +386,7 @@ function showTown(): void {
   chosenKind = undefined;
   panel.hidden = true;
   tooltip.style.display = "none";
-  const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison, waysIn);
+  const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison, waysIn, new Set(marksOfTests.files.keys()));
   lots = new Map(town.lots.map((lot) => [lot.id, lot]));
   townView.show(town);
   showTownLegend(town);

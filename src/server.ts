@@ -162,7 +162,7 @@ export async function serve(
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
     const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison, baseGraph, graph), effectsChanged: comparison.changedEffects }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
-    const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(baseTree ?? new Map(), tree) }, null, 2)}\n`;
+    const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(baseTree ?? new Map(), tree, { places: true }) }, null, 2)}\n`;
     resources.set("/test-changes.json", { contentType: "application/json; charset=utf-8", body: testsChanged });
     const risks = `${JSON.stringify({ tier: "derived", risks: risksOf(comparison, baseGraph, graph, testChanges(baseTree ?? new Map(), tree), isTestFile) }, null, 2)}\n`;
     resources.set("/risks.json", { contentType: "application/json; charset=utf-8", body: risks });
