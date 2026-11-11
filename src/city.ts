@@ -202,6 +202,11 @@ export function changedBand(height: number, floors: number, tally: Tally): numbe
   return Math.min(height, Math.max(BAND_MIN, (height * changed) / floors));
 }
 
+/** Only a code file shows what changed by its functions; any other altered file is changed throughout. */
+function isCodeFile(file: ModuleNode): boolean {
+  return file.level === "file" && file.analysis === "analysed" && file.role !== "docs" && file.role !== "config" && file.role !== "generated";
+}
+
 /** `rects` are a layout of `picture.graph`; the rects of classes and functions are ignored. */
 export function buildCity(picture: Picture, rects: readonly Rect[]): City {
   const { graph, overlay } = picture;
@@ -269,7 +274,7 @@ export function buildCity(picture: Picture, rects: readonly Rect[]): City {
       functions: functions.get(file.path) ?? 0,
       change,
       tally,
-      ...(change === "altered" && tally !== null ? { band: changedBand(height, countOf(file.path), tally) } : {}),
+      ...(change === "altered" && tally !== null ? { band: isCodeFile(file) ? changedBand(height, countOf(file.path), tally) : height } : {}),
       reach: reaches.get(rect.id) ?? NO_REACH,
     });
   }

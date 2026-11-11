@@ -132,3 +132,24 @@ describe("a comment-only change", () => {
     expect(a.band).toBe(0);
   });
 });
+
+describe("what lights in an altered file", () => {
+  const trees = (files: [string, string, string][]) => {
+    const make = (side: 1 | 2) => extract(new Map([["package.json", "{}\n"], ...files.map(([path, before, after]): [string, string] => [path, side === 1 ? before : after])]));
+    return cityOf(pictureOf(make(2), compare(make(1), make(2))), rootOf(make(2)));
+  };
+  const city = trees([
+    ["src/code.ts", "// old\nexport function f() {}\n", "// new\nexport function f() {}\n"],
+    ["README.md", "old\n", "new\n"],
+    ["config.json", "{\"a\":1}\n", "{\"a\":2}\n"],
+  ]);
+  const band = (path: string) => city.buildings.find((b) => b.id === `file:${path}`)!;
+
+  test("a code file with no changed function lights only its roof edge", () => {
+    expect(band("src/code.ts").band).toBe(0);
+  });
+
+  test("a docs or config file, or one with no adapter, lights fully", () => {
+    for (const path of ["README.md", "config.json"]) expect(band(path).band, path).toBe(band(path).height);
+  });
+});
