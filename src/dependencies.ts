@@ -69,11 +69,14 @@ export function diffDependencies(base: Graph, head: Graph, movedTo: ReadonlyMap<
 /** One declaration as text, `^1.2.0 (devDependencies)`. */
 export const declarationText = (declaration: Declaration): string => `${declaration.range ?? "range not readable"} (${declaration.list})`;
 
+/** An own property only: parsed JSON can hold `__proto__` or `constructor` as plain keys, and an inherited one is no entry. */
+const ownOf = (object: object, key: string): unknown => (Object.hasOwn(object, key) ? (object as Record<string, unknown>)[key] : undefined);
+
 const isEqual = (a: unknown, b: unknown): boolean => {
   if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((one, index) => isEqual(one, b[index]));
   if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
     const keys = Object.keys(a);
-    return keys.length === Object.keys(b).length && keys.every((key) => key in b && isEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+    return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && isEqual(ownOf(a, key), ownOf(b, key)));
   }
   return a === b;
 };
@@ -92,12 +95,16 @@ const rawChangedNames = (was: Record<string, unknown>, now: Record<string, unkno
   const names = new Set<string>();
   for (const list of DEPENDENCY_LISTS) {
     const isMap = (value: unknown): boolean => typeof value === "object" && value !== null && !Array.isArray(value);
-    if (((was[list] !== undefined && !isMap(was[list])) || (now[list] !== undefined && !isMap(now[list]))) && !isEqual(was[list], now[list])) return undefined;
-    const before = typeof was[list] === "object" && was[list] !== null && !Array.isArray(was[list]) ? (was[list] as Record<string, unknown>) : {};
-    const after = typeof now[list] === "object" && now[list] !== null && !Array.isArray(now[list]) ? (now[list] as Record<string, unknown>) : {};
+    const wasList = ownOf(was, list);
+    const nowList = ownOf(now, list);
+    if (((wasList !== undefined && !isMap(wasList)) || (nowList !== undefined && !isMap(nowList))) && !isEqual(wasList, nowList)) return undefined;
+    const before = isMap(wasList) ? (wasList as object) : {};
+    const after = isMap(nowList) ? (nowList as object) : {};
     for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
-      if (isEqual(before[name], after[name]) && name in before === name in after) continue;
-      if ((name in before && typeof before[name] !== "string") || (name in after && typeof after[name] !== "string")) return undefined;
+      const hadBefore = Object.hasOwn(before, name);
+      const hadAfter = Object.hasOwn(after, name);
+      if (hadBefore === hadAfter && isEqual(ownOf(before, name), ownOf(after, name))) continue;
+      if ((hadBefore && typeof ownOf(before, name) !== "string") || (hadAfter && typeof ownOf(after, name) !== "string")) return undefined;
       names.add(name);
     }
   }

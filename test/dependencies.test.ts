@@ -287,3 +287,22 @@ describe("a package.json stays listed when the dependency diff cannot see its ch
     expect(JSON.parse(serializeComparison(bare)).dependencyOnlyManifests).toEqual([]);
   });
 });
+
+describe("a package.json is read by its own keys only", () => {
+  const raw = (before: string, after: string, text: string): string[] => {
+    const a = { "package.json": before };
+    const b = { "package.json": after };
+    const head = extract(treeOf(b));
+    const comparison = compare(extract(treeOf(a)), head, { base: treeOf(a), head: treeOf(b) });
+    return unmentioned(comparison, head, text).entries.map((entry) => entry.label);
+  };
+
+  test("an own __proto__ key is a change, not an inherited one", () => {
+    expect(raw('{"custom":{"__proto__":{}},"dependencies":{"three":"1"}}', '{"custom":{"other":42},"dependencies":{"three":"2"}}', "Update three.")).toEqual(["package.json"]);
+  });
+
+  test("a dependency named constructor is added and removed like any other", () => {
+    expect(raw('{"dependencies":{}}', '{"dependencies":{"constructor":"1.0.0"}}', "Add constructor.")).toEqual([]);
+    expect(raw('{"dependencies":{"constructor":"1.0.0"}}', '{"dependencies":{}}', "Remove constructor.")).toEqual([]);
+  });
+});
