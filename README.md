@@ -4,7 +4,7 @@ Coding agents now open pull requests of thousands of lines, and someone still ha
 
 ![Rungs' own repository drawn as a town.](docs/media/town.png)
 
-*Rungs drawing its own repository. Blue buildings are source, green are tests, yellow are docs, dark blue is config and orange is generated. Height is the number of classes and functions in a file. Striped buildings are files Rungs cannot analyse yet.*
+*Rungs drawing its own repository. A workshop is source, a lab is tests, a library is docs, a shed is config and build, a warehouse is generated and a hut is a file with no role. A building's size is the number of classes and functions in the file, and the stone it stands on is how much rests on it through imports.*
 
 **The target.** Run one command on a real agent-written change of 10,000 lines or more, and approve or reject it in 15 minutes without opening a diff. To decide, a reviewer needs three answers: what the change claims to do, what it touches that nobody mentioned, and which contracts moved. The test case is [a 14,370-line agent-written pull request](https://github.com/DerekHertz/docviz/pull/18).
 
@@ -40,7 +40,7 @@ The architecture borrows from operating systems and distributed systems: Ensembl
 | **The pull request is untrusted input.** The base is read through a temporary index and a scratch checkout, never by parsing git's output by content, and the agent sees names, never source text. | A file crafted to look like git's reply framing cannot make another file read wrong, and a description cannot inject into the page or the agent's command. |
 | **Lazy release consistency for expensive views.** Pseudocode, narration and call edges are computed when a view first opens them, and ahead of time only for contracts that moved. | Opening a function is the acquire. Nobody pays for analysis of code they never look at, which matters on a change of thousands of lines. Part of the specification, not built yet. |
 | **A cache with recorded reads.** Each record lists everything it read, including lookups that found nothing, and is valid only while all of those are unchanged. | An incremental update must equal a build from nothing, byte for byte, which is checked with random edits. Part of the specification, not built yet. |
-| **One meaning per visual channel.** Colour shows role, from a colour-blind-safe palette. Height shows classes and functions per file, on a square-root scale. Stripes mark files with no language adapter. | People read only a few features at a glance, and each can carry one message ([research notes](docs/research/visual-understanding-for-review.md)). Stripes follow the rule that Rungs never guesses: what it cannot analyse is shown as exactly that. |
+| **One meaning per visual channel.** Kind of building shows role. Size shows classes and functions per file, on a square-root scale. Plinth height shows what rests on the file through imports. | People read only a few features at a glance, and each can carry one message ([research notes](docs/research/visual-understanding-for-review.md)). The rule that Rungs never guesses holds here too: a file with no role is a hut, and a code file nothing reaches shows "nothing reaches it", never "dead". |
 
 ## Try it
 

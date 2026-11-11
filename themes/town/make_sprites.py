@@ -763,6 +763,15 @@ def door_outside():
     return 0.7
 
 
+def flag_failing():
+    """A red pennant on a pole: a test in this file failed when the tests ran."""
+    box((0.1, 0.1, 2.6), (0, 0, 0), DARK)
+    box((0.2, 0.2, 0.1), (0, 0, 2.6), DARK)
+    for i, length in enumerate((1.0, 0.8, 0.6, 0.4, 0.2)):
+        box((length, 0.04, 0.12), (length / 2 + 0.05, 0, 2.45 - i * 0.12), RED)
+    return 2.75
+
+
 def cone():
     """A traffic cone, for a changed function's room."""
     box((0.3, 0.3, 0.04), (0, 0, 0), DARK)
@@ -877,6 +886,7 @@ render("wall-x", wall_x(), 96, 40)
 render("wall-y", wall_y(), 96, 40)
 render("door-outside", door_outside(), 96, 40)
 render("cone", cone(), 64, 30)
+render("flag-failing", flag_failing(), 96, 40)
 render("object-process", object_process(), 112, 40)
 render("object-network", object_network(), 96, 40)
 render("object-file-system", object_file_system(), 96, 40)

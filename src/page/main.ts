@@ -134,7 +134,7 @@ const handlers: TownHandlers = {
     if (to !== undefined) focusOn(to);
   },
 };
-const townView = createTownView(stage, handlers, sheet);
+const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles);
 const insideView = createTownInsideView(
     stage,
     {
@@ -180,6 +180,7 @@ function describe(id: NodeId): string[] | undefined {
     ...changeFacts(file),
     `role: ${file.role ?? "none"}`,
     ...townFacts(file),
+    ...failingFacts(file),
     `lines: ${file.lines}`,
     file.analysis === "analysed"
       ? `functions: ${lot.functions}   classes: ${lot.classes}`
@@ -188,6 +189,12 @@ function describe(id: NodeId): string[] | undefined {
 }
 
 const TOOLTIP_FILES = 10;
+
+/** The tests of the file that failed when main's tests ran against this change. */
+function failingFacts(file: FileNode): string[] {
+  const failed = (observedRun?.failing ?? []).filter((test) => test.id === file.id);
+  return failed.length === 0 ? [] : [`failing tests (observed): ${failed.map((test) => test.name).slice(0, 5).join("; ")}${failed.length > 5 ? ` and ${failed.length - 5} more` : ""}`];
+}
 
 /** In the town: what rests on the file (the count with its list), how the repo declares it a way in, and whether anything reaches it. */
 function townFacts(file: FileNode): string[] {
@@ -251,10 +258,12 @@ function showTownLegend(town: Town): void {
   const ways = document.createElement("div");
   ways.textContent = `gate: a way in the repo declares in package.json (main, bin, exports, scripts); test files are ways in too, with no gate \u00b7 footpath: every file but code has one; a code file has one when a way in reaches it through imports, and ${town.unreached} code files have none: nothing reaches them`;
   const against = document.createElement("div");
+  const flag = document.createElement("div");
+  if (observed?.status === "ran") flag.textContent = "red pennant: a test in the file failed when main's tests ran against this change (observed, one run; evidence against mistakes, not against a hostile author)";
   if (comparison !== null) {
     against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
   }
-  legend.replaceChildren(kinds, size, stone, ways, harbour, ...(comparison === null ? [] : [against]));
+  legend.replaceChildren(kinds, size, stone, ways, harbour, ...(comparison === null ? [] : [against]), ...(observed?.status === "ran" ? [flag] : []));
 }
 
 /** Opens a file walls down over the town: its functions as rooms, its outside calls as objects. */
@@ -480,6 +489,9 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   markLines(marked);
   chosenKind = undefined;
   townView.select(outline);
+  // A function lights the harbour structures it reaches; a file or class lights none.
+  const reach = node.level === "function" ? reaches.get(node.id) : undefined;
+  if (reach !== undefined) townView.highlight([], reach.kinds);
 }
 
 /** An entry of the review panel: fly to its district, and select the file or code it names. */
