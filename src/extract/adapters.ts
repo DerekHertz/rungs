@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { CodeLevel, EffectTarget, ResourceKind } from "../graph.ts";
+import type { CodeLevel, EffectArg, EffectTarget, ResourceKind } from "../graph.ts";
 import { javaScriptAndTypeScript } from "./javascript.ts";
 
 export interface SourceFile {
@@ -38,7 +38,16 @@ export interface EffectSite {
   /** The catalog key, such as "child_process execFileSync". */
   readonly operation: string;
   readonly target: EffectTarget;
+  readonly args: readonly EffectArg[];
   /** The whole call expression, end exclusive. */
+  readonly start: number;
+  readonly end: number;
+}
+
+/** One call that resolves a module name or path; owned like an EffectSite. */
+export interface ResolutionSite {
+  readonly operation: string;
+  readonly args: readonly EffectArg[];
   readonly start: number;
   readonly end: number;
 }
@@ -46,6 +55,7 @@ export interface EffectSite {
 export interface FileOutline {
   readonly declarations: readonly Declaration[];
   readonly effects: readonly EffectSite[];
+  readonly resolutions: readonly ResolutionSite[];
 }
 
 // The language seam in SPEC.md: files of one language in, an outline of each file out.

@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "9",
+  "extractorVersion": "10",
   "changes": [
     {
       "kind": "added",
@@ -568,6 +568,14 @@
         "to": "resource:file system",
         "operation": "fs/promises writeFile",
         "target": "unknown",
+        "args": [
+          {
+            "unknown": "path"
+          },
+          {
+            "unknown": "data"
+          }
+        ],
         "range": {
           "start": 15,
           "end": 15
@@ -584,6 +592,11 @@
         "target": {
           "literal": "https://example.com/hook"
         },
+        "args": [
+          {
+            "literal": "https://example.com/hook"
+          }
+        ],
         "range": {
           "start": 19,
           "end": 19
@@ -600,11 +613,27 @@
         "target": {
           "literal": "git"
         },
+        "args": [
+          {
+            "literal": "git"
+          },
+          {
+            "list": [
+              {
+                "literal": "tag"
+              },
+              {
+                "unknown": "name"
+              }
+            ]
+          }
+        ],
         "range": {
           "start": 45,
           "end": 45
         }
       }
     }
-  ]
+  ],
+  "changedEffects": []
 }

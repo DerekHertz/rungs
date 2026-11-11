@@ -1,5 +1,5 @@
-import { compareEdges, isCodeNode, targetText } from "./graph.ts";
-import type { EffectEdge, Graph, NodeId, ResourceKind } from "./graph.ts";
+import { argTokens, compareEdges, isCodeNode, targetText } from "./graph.ts";
+import type { EffectArg, EffectEdge, Graph, LineRange, NodeId, ResourceKind } from "./graph.ts";
 
 // Page-safe: the review panel bundles this module, so nothing here may import node:*.
 
@@ -47,6 +47,105 @@ export function diffEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<NodeI
   }
   return changes.sort((a, b) => compareEdges(a.edge, b.edge) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
 }
+
+/**
+ * A call that is the same effect on both sides, by owner, resource, operation and target, whose
+ * arguments are not. Calls in one owner with the same change collapse into one entry.
+ */
+export interface ChangedEffect {
+  readonly kind: "changed";
+  /** The head owner: the class, function or file that holds the calls. */
+  readonly owner: NodeId;
+  /** "process child_process execFileSync "git"", or "module createRequire" for a resolution. */
+  readonly label: string;
+  /** Arguments the head has and the base lacks, as `"literal"` or `?expression`; repeats count. */
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  /** The calls with this change. */
+  readonly count: number;
+  /** Their lines in the head file, in source order. */
+  readonly ranges: readonly LineRange[];
+}
+
+/** The tokens of `a` that `b` does not have, counting repeats, in order. */
+function without(a: readonly string[], b: readonly string[]): string[] {
+  const left = new Map<string, number>();
+  for (const token of b) left.set(token, (left.get(token) ?? 0) + 1);
+  return a.filter((token) => {
+    const n = left.get(token) ?? 0;
+    if (n > 0) left.set(token, n - 1);
+    return n === 0;
+  });
+}
+
+/**
+ * The effect calls, and the module-resolution calls, that exist on both sides under the same
+ * owner (followed through `movedTo`), resource, operation and target but with other arguments.
+ * Matching is one to one in source order, as in diffEffects. A resolution has no target, so it
+ * pairs on owner and operation alone; one left unpaired is reported with all its arguments as
+ * added or removed, since its specifier or base is new or gone. Sorted by owner, then label.
+ */
+export function changedEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<NodeId, NodeId>): ChangedEffect[] {
+  interface Site {
+    readonly owner: NodeId;
+    readonly key: string;
+    readonly label: string;
+    readonly args: readonly EffectArg[];
+    readonly range: LineRange;
+    readonly resolution: boolean;
+  }
+  const sitesOf = (graph: Graph, ownerOf: (id: NodeId) => NodeId): Site[] => [
+    ...graph.edges.map((edge): Site => ({
+      owner: ownerOf(edge.from),
+      key: `${ownerOf(edge.from)}\0${edge.to}\0${edge.operation}\0${targetText(edge.target)}`,
+      label: effectLabel(edge),
+      args: edge.args,
+      range: edge.range,
+      resolution: false,
+    })),
+    ...graph.resolutions.map((edge): Site => ({
+      owner: ownerOf(edge.from),
+      key: `${ownerOf(edge.from)}\0resolution\0${edge.operation}`,
+      label: edge.operation,
+      args: edge.args,
+      range: edge.range,
+      resolution: true,
+    })),
+  ];
+  const before = new Map<string, Site[]>();
+  for (const site of sitesOf(base, (id) => movedTo.get(id) ?? id)) before.set(site.key, [...(before.get(site.key) ?? []), site]);
+  const seen = new Map<string, number>();
+  const groups = new Map<string, { owner: NodeId; label: string; added: string[]; removed: string[]; ranges: LineRange[] }>();
+  const report = (site: Site, added: string[], removed: string[]): void => {
+    if (added.length === 0 && removed.length === 0) return;
+    const id = `${site.owner}\0${site.label}\0${added.join("\0")}\0\u0001${removed.join("\0")}`;
+    const found = groups.get(id) ?? { owner: site.owner, label: site.label, added, removed, ranges: [] };
+    found.ranges.push(site.range);
+    groups.set(id, found);
+  };
+  for (const site of sitesOf(head, (id) => id)) {
+    const index = seen.get(site.key) ?? 0;
+    seen.set(site.key, index + 1);
+    const was = before.get(site.key)?.[index];
+    if (was === undefined) {
+      if (site.resolution) report(site, argTokens(site.args), []);
+      continue;
+    }
+    const now = argTokens(site.args);
+    const then = argTokens(was.args);
+    report(site, without(now, then), without(then, now));
+  }
+  for (const [key, sites] of before) {
+    for (const site of sites.slice(seen.get(key) ?? 0)) if (site.resolution) report(site, [], argTokens(site.args));
+  }
+  return [...groups.values()]
+    .map((group) => ({ kind: "changed" as const, ...group, count: group.ranges.length, ranges: group.ranges.sort((a, b) => a.start - b.start) }))
+    .sort((a, b) => (a.owner < b.owner ? -1 : a.owner > b.owner ? 1 : 0) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+}
+
+/** `+"-c" +"core.fsmonitor=" -?base`: what the head's arguments added and removed. */
+export const changeText = (change: Pick<ChangedEffect, "added" | "removed">): string =>
+  [...change.added.map((token) => `+${token}`), ...change.removed.map((token) => `-${token}`)].join(" ");
 
 /**
  * For each class and function, the labels of the effects of its own calls and of every class or
