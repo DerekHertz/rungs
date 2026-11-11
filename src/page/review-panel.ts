@@ -372,6 +372,11 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
     if (entry.level === "file" && entry.from !== undefined) label.title = `moved from ${entry.from}`;
     else if (entry.level === "class" || entry.level === "function") label.title = entry.id.slice(entry.id.indexOf("#") + 1);
     pick.append(label);
+    if ((entry.level === "function" || entry.level === "class") && entry.renamedFrom !== undefined) {
+      const detail = `renamed from ${entry.renamedFrom}${entry.weakened === true ? " · weakened" : ""}`;
+      pick.title = detail;
+      pick.append(element("span", "contract-where rv-ellipsis", detail));
+    }
     const size =
       entry.level === "district"
         ? `${entry.files} files ${tallyText(entry.kinds)}`
