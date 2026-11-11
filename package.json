@@ -4,9 +4,6 @@
   "private": true,
   "description": "Turns a changing codebase into a navigable visual system, from the big picture down to the details of a change.",
   "type": "module",
-  "bin": {
-    "streets": "src/cli.ts"
-  },
   "engines": {
     "node": ">=22.18"
   },

@@ -106,4 +106,4 @@ Larger features start from two independent design sketches on different models, 
 - [Specification](SPEC.md): the product contract and the rules every change is held to
 - [ADR 0001: code node identity](docs/adr/0001-code-node-identity.md)
 - [Research: how people read a picture at a glance](docs/research/visual-understanding-for-review.md)
-- [Issues](https://github.com/DerekHertz/streets/issues): the remaining work, in order
+- [Issues](https://github.com/DerekHertz/systems-to-streets/issues): the remaining work, in order
