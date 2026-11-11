@@ -3,6 +3,10 @@ import ts from "typescript";
 import type { ImportSite, ImportSiteTarget } from "./adapters.ts";
 import type { FileTree, ImportSyntax } from "../graph.ts";
 
+// The tree is mounted here, not at "/", so a path that climbs out of it stays outside: the
+// host answers "no such file" for anything not under this root, where "/" would clamp it back in.
+const ROOT = "/__tree__";
+
 /** How the runtime reads the specifier: `import` and `import()` are ESM, `require` is CommonJS. */
 export type ResolutionMode = "esm" | "cjs";
 
@@ -11,6 +15,8 @@ interface Settings {
   readonly cache: ts.ModuleResolutionCache;
   /** The `paths` patterns, so a miss on one is never taken for a package outside the tree. */
   readonly patterns: readonly string[];
+  /** Why bare names cannot be trusted to be outside the tree, when a config points out of it. */
+  readonly blind?: string;
 }
 
 /**
@@ -45,8 +51,8 @@ export class ImportResolver {
     this.tree = tree;
     const named = new Map<string, string[]>();
     for (const [path, text] of tree) {
-      for (let dir = posix.dirname(path); dir !== "." && dir !== "/" && !this.directories.has(`/${dir}`); dir = posix.dirname(dir)) {
-        this.directories.add(`/${dir}`);
+      for (let dir = posix.dirname(path); dir !== "." && dir !== "/" && !this.directories.has(`${ROOT}/${dir}`); dir = posix.dirname(dir)) {
+        this.directories.add(`${ROOT}/${dir}`);
       }
       if (posix.basename(path) !== "package.json") continue;
       const name = packageName(text);
@@ -57,12 +63,12 @@ export class ImportResolver {
       if (dirs.length === 1) this.workspaces.set(name, dirs[0]!);
       else this.ambiguous.add(name);
     }
-    this.directories.add("/");
+    this.directories.add(ROOT);
     this.host = {
       fileExists: (name) => this.tree.has(this.real(name)),
       readFile: (name) => this.tree.get(this.real(name)),
       directoryExists: (name) => this.directoryExists(name),
-      getCurrentDirectory: () => "/",
+      getCurrentDirectory: () => ROOT,
       useCaseSensitiveFileNames: true,
     };
   }
@@ -79,7 +85,7 @@ export class ImportResolver {
     const settings = this.settingsFor(from);
     const found = ts.resolveModuleName(
       clean,
-      `/${from}`,
+      `${ROOT}/${from}`,
       settings.options,
       this.host,
       settings.cache,
@@ -100,6 +106,7 @@ export class ImportResolver {
       return { unresolved: true, reason: "it matches a tsconfig paths pattern that names no file" };
     }
     if (specifier.startsWith("node:")) return { external: specifier };
+    if (settings.blind !== undefined) return { unresolved: true, reason: settings.blind };
     const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0]!;
     if (this.ambiguous.has(name)) return { unresolved: true, reason: `two packages of the tree are named ${name}` };
     return this.workspaces.has(name) ? { unresolved: true } : { external: name };
@@ -118,35 +125,45 @@ export class ImportResolver {
     if (known !== undefined) return known;
     let options = this.base;
     let patterns: string[] = [];
+    let blind: string | undefined;
     if (config !== undefined) {
       const dir = posix.dirname(config);
-      const parsed = ts.parseConfigFileTextToJson(`/${config}`, this.tree.get(config) ?? "");
+      const parsed = ts.parseConfigFileTextToJson(`${ROOT}/${config}`, this.tree.get(config) ?? "");
+      const extended = (parsed.config as { extends?: unknown } | undefined)?.extends;
+      for (const name of typeof extended === "string" ? [extended] : Array.isArray(extended) ? extended : []) {
+        if (typeof name === "string" && name.startsWith(".") && leaves(posix.join(dir, name))) {
+          blind = `${config} extends a file outside the tree`;
+        }
+      }
       const content = ts.parseJsonConfigFileContent(
         parsed.config ?? {},
         { useCaseSensitiveFileNames: true, readDirectory: () => [], fileExists: this.host.fileExists, readFile: this.host.readFile! },
-        dir === "." ? "/" : `/${dir}`,
+        dir === "." ? ROOT : `${ROOT}/${dir}`,
         undefined,
-        `/${config}`,
+        `${ROOT}/${config}`,
       );
       const { baseUrl, paths, pathsBasePath } = content.options;
       options = { ...this.base, baseUrl, paths, pathsBasePath };
       patterns = Object.keys(paths ?? {});
+      if (baseUrl !== undefined && baseUrl !== ROOT && !baseUrl.startsWith(`${ROOT}/`)) blind = `${config} sets a baseUrl outside the tree`;
     }
-    const made: Settings = { options, patterns, cache: ts.createModuleResolutionCache("/", (name) => name, options) };
+    const made: Settings = { options, patterns, blind, cache: ts.createModuleResolutionCache(ROOT, (name) => name, options) };
     this.settings.set(key, made);
     return made;
   }
 
-  // Path in the host's world ("/a/b" or ".../node_modules/<workspace>/x") to a tree path.
+  // Path in the host's world (under ROOT, or ".../node_modules/<workspace>/x") to a tree path.
+  // Anything outside ROOT maps to a path no tree has.
   private real(name: string): string {
+    if (name !== ROOT && !name.startsWith(`${ROOT}/`)) return OUTSIDE;
     const at = name.lastIndexOf("/node_modules/");
-    if (at < 0) return name.slice(1);
+    if (at < 0) return name.slice(ROOT.length + 1);
     const rest = name.slice(at + "/node_modules/".length);
     for (const [pkg, dir] of this.workspaces) {
       if (rest === pkg) return dir;
       if (rest.startsWith(`${pkg}/`)) return posix.join(dir, rest.slice(pkg.length + 1));
     }
-    return name.slice(1);
+    return name.slice(ROOT.length + 1);
   }
 
   private directoryExists(name: string): boolean {
@@ -156,9 +173,17 @@ export class ImportResolver {
     const rest = name.slice(at + "/node_modules/".length);
     if ([...this.workspaces.keys()].some((pkg) => pkg.startsWith(`${rest}/`))) return true;
     const dir = this.real(name);
-    return dir !== name.slice(1) && (dir === "" || this.directories.has(`/${dir}`));
+    return dir !== name.slice(ROOT.length + 1) && dir !== OUTSIDE && (dir === "" || this.directories.has(`${ROOT}/${dir}`));
   }
 }
+
+// Not a path any tree has: a file named so would need a NUL in it.
+const OUTSIDE = "\0outside";
+
+const leaves = (path: string): boolean => {
+  const place = posix.normalize(path);
+  return place === ".." || place.startsWith("../");
+};
 
 // A tsconfig `paths` key holds at most one `*`.
 function matches(pattern: string, specifier: string): boolean {
