@@ -420,6 +420,44 @@
         background: #1f2a3a;
         color: #e8edf2;
       }
+      #outline {
+        flex: none;
+        max-height: 60%;
+        overflow: auto;
+        padding: 4px 0;
+        border-bottom: 1px solid #263140;
+        line-height: 1.5;
+      }
+      #outline[hidden] {
+        display: none;
+      }
+      .outline-line {
+        display: flex;
+        gap: 8px;
+        padding: 0 10px;
+        cursor: pointer;
+        white-space: pre;
+      }
+      .outline-line:hover {
+        background: #16202c;
+      }
+      .outline-line.on {
+        background: #ffd84a2e;
+      }
+      .outline-line .at {
+        flex: none;
+        width: 10ch;
+        color: #5b6b7e;
+      }
+      .outline-line .exit {
+        color: #ff9d6b;
+      }
+      .outline-line .effect {
+        color: #ff7ab8;
+      }
+      .outline-line .quiet {
+        color: #8a9bb0;
+      }
       #source-mark {
         position: absolute;
         left: 0;
@@ -460,6 +498,228 @@
         flex: none;
         padding: 6px 10px;
         tab-size: 2;
+      }
+      #walk {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        background: #0b0f14;
+        color: #d6dee8;
+        border-top: 1px solid #263140;
+      }
+      #walk[hidden] {
+        display: none;
+      }
+      #walk.open {
+        height: 46vh;
+      }
+      .walk-bar {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px 4px 0;
+      }
+      .walk-status {
+        flex: 1;
+        min-width: 0;
+        color: #b8c4d4;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .walk-coverage {
+        flex: none;
+        color: #8a9bb0;
+      }
+      .walk-effect {
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+      .walk-effect.added {
+        color: #7ee787;
+      }
+      .walk-effect.removed {
+        color: #ff7b72;
+      }
+      .walk-button,
+      .walk-tab,
+      .walk-call {
+        font: inherit;
+        color: #b8c8de;
+        background: #121922;
+        border: 1px solid #263140;
+        padding: 2px 8px;
+        cursor: pointer;
+      }
+      .walk-button[hidden] {
+        display: none;
+      }
+      .walk-button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .walk-button:hover:not(:disabled),
+      .walk-tab:hover,
+      .walk-call:hover {
+        background: #1f2a3a;
+        color: #e8edf2;
+      }
+      .walk-tab.active,
+      .walk-call.active {
+        background: #26364d;
+        color: #fff;
+      }
+      .walk-body {
+        flex: 1;
+        min-height: 0;
+        display: none;
+        grid-template-columns: 1fr 1.4fr 2.4fr 0.7fr;
+        border-top: 1px solid #263140;
+      }
+      #walk.open .walk-body {
+        display: grid;
+      }
+      .walk-column {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #263140;
+      }
+      .walk-column:last-child {
+        border-right: 0;
+      }
+      .walk-head {
+        flex: none;
+        margin: 0;
+        padding: 6px 10px 4px;
+        font-size: 12px;
+        color: #b8c4d4;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .review-tag.observed {
+        border-style: dotted;
+        color: #6cb6ff;
+        border-color: #6cb6ff;
+      }
+      .walk-inner {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 2px 10px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .walk-claim {
+        flex: none;
+      }
+      .walk-sentence {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        font: inherit;
+        text-align: left;
+        color: #e6d9b8;
+        font-style: italic;
+        background: none;
+        border: 0;
+        border-left: 2px dashed #e6b85c;
+        padding: 2px 4px 2px 8px;
+        cursor: pointer;
+      }
+      .walk-sentence .contract-where {
+        font-style: normal;
+      }
+      .walk-sentence:hover {
+        background: #1f2a3a;
+      }
+      .walk-sentence.active {
+        background: #26364d;
+      }
+      .walk-note {
+        flex: none;
+        margin: 0;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        color: #ff9d8a;
+        font-weight: 600;
+      }
+      .walk-note .review-tag {
+        flex: none;
+      }
+      .walk-tabs,
+      .walk-calls {
+        flex: none;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .walk-facts {
+        flex: none;
+        max-height: 35%;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .walk-fact {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .walk-source {
+        position: relative;
+        flex: 1;
+        min-height: 60px;
+        display: flex;
+        overflow: auto;
+        line-height: 1.5;
+        border: 1px solid #1c2531;
+      }
+      .walk-source pre {
+        margin: 0;
+        font: inherit;
+        line-height: inherit;
+      }
+      .walk-gutter {
+        flex: none;
+        position: sticky;
+        left: 0;
+        padding: 6px 8px;
+        text-align: right;
+        color: #5b6b7e;
+        background: #0b0f14;
+        border-right: 1px solid #1c2531;
+        user-select: none;
+      }
+      .walk-code {
+        flex: none;
+        padding: 6px 10px;
+        tab-size: 2;
+      }
+      .walk-mark {
+        position: absolute;
+        left: 0;
+        z-index: 2;
+        background: #ffd84a2e;
+        border-top: 1px solid #ffd84a99;
+        border-bottom: 1px solid #ffd84a99;
+        pointer-events: none;
+      }
+      .walk-mark[hidden] {
+        display: none;
+      }
+      .walk-observed {
+        margin: 0;
+        color: #6cb6ff;
+        font-weight: 600;
       }
       .name {
         position: absolute;
@@ -517,10 +777,12 @@
           <div id="source-facts"></div>
           <button id="source-close" type="button" aria-label="Close source">&times;</button>
         </header>
+        <div id="outline" aria-label="Pseudocode" hidden></div>
         <div id="source-body"><pre id="source-gutter"></pre><pre id="source-code"></pre><div id="source-mark" hidden></div></div>
       </aside>
     </div>
     </div>
+    <section id="walk" aria-label="Walkthrough" hidden></section>
     <div id="tooltip"></div>
     <script type="module" src="/main.js"></script>
   </body>

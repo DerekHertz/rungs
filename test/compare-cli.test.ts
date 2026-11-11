@@ -275,3 +275,37 @@ test("--run-tests with no sandbox refuses, says so, and still serves the compari
     child.kill();
   }
 });
+
+const tourStub = `process.stdin.resume().on("data", () => {}).on("end", () => console.log(JSON.stringify({ is_error: false, structured_output: { stops: [{ title: "A", ids: ["function:src/a.ts#a", "file:src/nope.ts"], claims: [0, 9], narration: [{ text: "Returns more.", id: "function:src/a.ts#a", start: 1, end: 3 }, { text: "Off the end.", id: "function:src/a.ts#a", start: 1, end: 40 }] }] }, modelUsage: { "stub-model": {} } })));`;
+
+test("--walkthrough asks claude for a tour, serves it, and a second run reads the cache until --rewalk", { timeout: 30000 }, async () => {
+  const dir = repo();
+  const cache = mkdtempSync(join(tmpdir(), "rungs-cache-"));
+  scratch.push(cache);
+  const first = startLinked(dir, { PATH: `${stubClaude(tourStub)}:${bareBin()}`, XDG_CACHE_HOME: cache }, ["--walkthrough"]);
+  try {
+    const body = (await (await fetch(new URL("walkthrough.json", await first.url))).json()) as { walkthrough: Record<string, unknown>; stops: unknown[] };
+    expect(body.walkthrough).toEqual({ status: "ok", model: "stub-model", promptVersion: "tour-v1", dropped: { stops: 0, ids: 1, claims: 1, sentences: 1 }, cached: false });
+    expect(body.stops).toEqual([{ title: "A", ids: ["function:src/a.ts#a"], claims: [0], sentences: [{ text: "Returns more.", id: "function:src/a.ts#a", range: { start: 1, end: 3 } }] }]);
+    expect(first.stderr()).toMatch(/walkthrough of 1 stops by stub-model in \d+s \(dropped 0 stops, 1 unknown ids, 1 bad claim numbers, 1 unanchored sentences\)/);
+  } finally {
+    first.child.kill();
+  }
+  const second = startLinked(dir, { PATH: bareBin(), XDG_CACHE_HOME: cache }, ["--walkthrough"]);
+  try {
+    const body = (await (await fetch(new URL("walkthrough.json", await second.url))).json()) as { walkthrough: { cached: boolean } };
+    expect(body.walkthrough.cached).toBe(true);
+  } finally {
+    second.child.kill();
+  }
+  const third = startLinked(dir, { PATH: bareBin(), XDG_CACHE_HOME: cache }, ["--rewalk"]);
+  try {
+    const body = (await (await fetch(new URL("walkthrough.json", await third.url))).json()) as { walkthrough: { status: string; message: string }; stops: unknown[] };
+    expect(body.walkthrough.status).toBe("failed");
+    expect(body.walkthrough.message).toMatch(/not found/);
+    expect(body.stops).toEqual([]);
+    expect(third.stderr().split("\n").filter((line) => line.includes("no walkthrough"))).toHaveLength(1);
+  } finally {
+    third.child.kill();
+  }
+});
