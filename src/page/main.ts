@@ -13,6 +13,8 @@ import { createCityView } from "./city-view.ts";
 import type { CityHandlers, CityView } from "./city-view.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
 import { townOf } from "../town.ts";
+import { insideOf, marksOf } from "../town-inside.ts";
+import { createTownInsideView } from "./town-inside-view.ts";
 import type { Town } from "../town.ts";
 import { EFFECT_COLOR, FAIL_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
 import type { ObservedDocument } from "../observed-types.ts";
@@ -116,15 +118,41 @@ const handlers: CityHandlers = {
     chooseResource(chosenKind === kind ? undefined : kind);
   },
   doubleClick(hit) {
-    // A building is reserved for entering it; until then a double-click on one only cancels the
-    // first click's selection.
+    // In the town a double-click on a building opens its inside; the city reserves it for entering later.
     cancelPending();
+    if (hit?.kind === "building" && townView !== undefined) openInside(hit.id);
     if (hit?.kind === "building" || hit?.kind === "resource") return;
     const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
     if (to !== undefined) focusOn(to);
   },
 };
 const townView = sheet === undefined ? undefined : createTownView(stage, handlers, sheet);
+const insideView =
+  townView === undefined || sheet === undefined
+    ? undefined
+    : createTownInsideView(
+        stage,
+        {
+          pick(id, lines) {
+            cancelPending();
+            const ticket = requested;
+            const node = nodes.get(id);
+            if (node === undefined) return;
+            insideView?.select(id);
+            void select(node, ticket, node.id, lines);
+          },
+          hover(text) {
+            if (text === undefined) {
+              tooltip.style.display = "none";
+              return;
+            }
+            tooltip.textContent = text;
+            tooltip.style.display = "block";
+          },
+        },
+        sheet,
+      );
+let insideFile: NodeId | undefined;
 const cityView = townView === undefined ? createCityView(stage, handlers, observedRun?.failingFiles) : undefined;
 const view: Omit<CityView, "show"> = townView ?? cityView!;
 
@@ -230,7 +258,35 @@ function showTownLegend(town: Town): void {
   legend.replaceChildren(kinds, size, harbour);
 }
 
+/** Opens a file walls down over the town: its functions as rooms, its outside calls as objects. */
+function openInside(fileId: NodeId): void {
+  const file = nodes.get(fileId);
+  if (insideView === undefined || sheet === undefined || file?.level !== "file") return;
+  const marks = comparison === null || picture.overlay === null ? null : marksOf(comparison, picture.overlay, file.id, file.path);
+  const inside = insideOf(picture.graph, file.id, new Set(Object.keys(sheet.sizes)), marks);
+  if (inside === undefined) return;
+  closePanel();
+  tooltip.style.display = "none";
+  insideFile = file.id;
+  legend.hidden = true;
+  insideView.open(inside);
+  showTrail();
+}
+
+/** Closes the inside and shows the town again, as it was. */
+function leaveInside(): void {
+  if (insideFile === undefined) return;
+  closePanel();
+  insideFile = undefined;
+  insideView?.close();
+  legend.hidden = false;
+  showTrail();
+}
+
 function showCity(root: NodeId): void {
+  insideFile = undefined;
+  insideView?.close();
+  legend.hidden = false;
   cancelPending();
   cityRoot = root;
   focus = root;
@@ -260,6 +316,7 @@ function focusOn(id: NodeId): void {
 }
 
 function resetView(): void {
+  leaveInside();
   cancelPending();
   focus = cityRoot;
   showTrail();
@@ -267,7 +324,7 @@ function resetView(): void {
 }
 
 function showTrail(): void {
-  const steps = trail(tree, focus).map((node, index, all) => {
+  const steps = trail(tree, insideFile ?? focus).map((node, index, all) => {
     const name = node.path === "" ? "/" : node.name;
     if (index === all.length - 1) {
       const here = document.createElement("span");
@@ -278,6 +335,7 @@ function showTrail(): void {
     step.textContent = name;
     step.addEventListener("click", () => {
       cancelPending();
+      leaveInside();
       focusOn(node.id);
     });
     return step;
@@ -299,6 +357,7 @@ function closePanel(): void {
   chosenKind = undefined;
   panel.hidden = true;
   view.select(undefined);
+  insideView?.select(undefined);
 }
 
 const sourceParts: CodeParts = { gutter: panelGutter, code: panelCode, body: panelBody, mark: panelMark };
@@ -501,7 +560,8 @@ window.addEventListener("keydown", (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === "Escape") {
     cancelPending();
-    if (selected !== undefined) closePanel();
+    if (insideFile !== undefined) leaveInside();
+    else if (selected !== undefined) closePanel();
     else if (focus !== cityRoot) focusOn(zoomOut(tree, focus));
   } else if (event.key === "r" || event.key === "R") resetView();
   else if (event.key === "p" || event.key === "P") cyclePixel();

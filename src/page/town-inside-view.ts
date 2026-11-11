@@ -1,5 +1,7 @@
 import type { LineRange, NodeId } from "../graph.ts";
 import { AXIS, project } from "../town.ts";
+import { pickAt } from "../town-pick.ts";
+import type { Placement, Plaque } from "../town-pick.ts";
 import { roomNamesAt } from "../town-inside.ts";
 import type { Inside, Room, RoomObject } from "../town-inside.ts";
 import { EFFECT_COLOR } from "./palette.ts";
@@ -39,6 +41,9 @@ type Piece =
   | { readonly kind: "cone"; readonly sprite: string; readonly X: number; readonly Y: number; readonly room: NodeId }
   | { readonly kind: "object"; readonly sprite: string; readonly X: number; readonly Y: number; readonly room: NodeId; readonly object: RoomObject };
 
+/** What a click can land on: an object, or a room by its name. */
+type Target = { readonly kind: "object"; readonly piece: Piece & { readonly kind: "object" } } | { readonly kind: "room"; readonly room: Room };
+
 interface Camera {
   zoom: number;
   cx: number;
@@ -49,7 +54,9 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
   const canvas = document.createElement("canvas");
   canvas.style.cssText = `position:absolute;inset:0;width:100%;height:100%;display:none;touch-action:none;background:${COLOUR.sea}`;
   canvas.setAttribute("aria-label", "Inside of a file");
-  host.prepend(canvas);
+  // Just above the town's canvas and below the page's own controls.
+  if (host.firstElementChild === null) host.prepend(canvas);
+  else host.firstElementChild.after(canvas);
   const ctx = canvas.getContext("2d")!;
 
   let inside: Inside | undefined;
@@ -58,7 +65,6 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
   let bounds = { left: 0, right: 1, top: 0, bottom: 1 };
   let camera: Camera = { zoom: 1, cx: 0, cy: 0 };
   let selected: NodeId | undefined;
-  let hovered: Piece | undefined;
   let touched = false;
   let dirty = true;
   let dpr = 1;
@@ -115,7 +121,10 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
     return { X: (x / AXIS + (2 * y) / AXIS) / 2, Y: (x / AXIS - (2 * y) / AXIS) / 2 };
   }
 
-  function drawSprite(name: string, X: number, Y: number): void {
+  /** What the last frame drew, as drawn: picking reads these, never the camera, so rounding is inverted exactly. */
+  let placements: Placement<Target>[] = [];
+  let plaques: Plaque<Target>[] = [];
+  function drawSprite(name: string, X: number, Y: number, owner?: Target): void {
     const image = sheet.images.get(name);
     const size = sheet.sizes[name];
     if (image === undefined || size === undefined) return;
@@ -124,6 +133,7 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
     const y = Math.round(at.y - size.oy * camera.zoom);
     const w = Math.max(1, Math.round(size.w * camera.zoom));
     const h = Math.max(1, Math.round(size.h * camera.zoom));
+    if (owner !== undefined) placements.push({ thing: owner, box: { x, y, w, h }, cols: size.w, rows: size.h });
     if (x > canvas.width || y > canvas.height || x + w < 0 || y + h < 0) return;
     ctx.drawImage(image, x, y, w, h);
   }
@@ -148,7 +158,7 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
   }
 
   let taken: { left: number; top: number; right: number; bottom: number }[] = [];
-  function pill(text: string, x: number, y: number, size: number, edge: string, avoid: boolean): void {
+  function pill(text: string, x: number, y: number, size: number, edge: string, avoid: boolean, owner?: Target): void {
     ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
     const w = Math.ceil(ctx.measureText(text).width + size * 0.8);
     const h = Math.round(size * 1.5);
@@ -157,6 +167,7 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
     const box = { left, top, right: left + w, bottom: top + h };
     if (avoid && taken.some((other) => box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom)) return;
     taken.push(box);
+    if (owner !== undefined) plaques.push({ thing: owner, box: { x: left, y: top, w, h } });
     ctx.fillStyle = COLOUR.pill;
     ctx.fillRect(left, top, w, h);
     ctx.lineWidth = Math.max(1, Math.round(size / 11));
@@ -171,6 +182,8 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = COLOUR.sea;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    placements = [];
+    plaques = [];
     if (inside === undefined) return;
     const g = inside.ground;
     diamond(g.X0, g.Y0, g.X1, g.Y1, COLOUR.ground, COLOUR.edge, Math.max(2, Math.round(3 * camera.zoom)));
@@ -180,11 +193,11 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
         const at = groundScreen(piece.X, piece.Y);
         ctx.beginPath();
         ctx.ellipse(at.x, at.y, 0.72 * AXIS * camera.zoom, 0.72 * HALF * camera.zoom, 0, 0, Math.PI * 2);
-        ctx.lineWidth = Math.max(2, Math.round(3.5 * camera.zoom));
+        ctx.lineWidth = Math.max(3, Math.round(6 * camera.zoom));
         ctx.strokeStyle = EFFECT_COLOR;
         ctx.stroke();
       }
-      drawSprite(piece.sprite, piece.X, piece.Y);
+      drawSprite(piece.sprite, piece.X, piece.Y, piece.kind === "object" ? { kind: "object", piece } : undefined);
     }
     const chosen = selected === undefined ? undefined : roomsById.get(selected);
     if (chosen !== undefined) diamond(chosen.X0 - 0.5, chosen.Y0 - 0.5, chosen.X0 + chosen.side - 0.5, chosen.Y0 + chosen.side - 0.5, undefined, COLOUR.select, Math.max(2, Math.round(2.5 * dpr)));
@@ -199,13 +212,14 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
         if (object.name === null) continue;
         const size = sheet.sizes[object.sprite];
         const at = groundScreen(object.X, object.Y);
-        pill(object.name, at.x, at.y - Math.round((size?.oy ?? 60) * camera.zoom) - Math.round(10 * dpr), Math.round(12 * dpr), EFFECT_COLOR, true);
+        const piece = pieces.find((candidate) => candidate.kind === "object" && candidate.object === object);
+        pill(object.name, at.x, at.y - Math.round((size?.oy ?? 60) * camera.zoom) - Math.round(10 * dpr), Math.round(12 * dpr), EFFECT_COLOR, true, piece?.kind === "object" ? { kind: "object", piece } : undefined);
       }
     }
     if (roomNamesAt(camera.zoom)) {
       for (const room of inside.rooms) {
         const at = groundScreen(room.X0 + (room.side - 1) / 2, room.Y0 - 0.5);
-        pill(room.name, at.x, at.y + Math.round(16 * dpr), Math.round(12 * dpr), room.changed ? EFFECT_COLOR : COLOUR.pillEdge, true);
+        pill(room.name, at.x, at.y + Math.round(16 * dpr), Math.round(12 * dpr), room.changed ? EFFECT_COLOR : COLOUR.pillEdge, true, { kind: "room", room });
       }
     }
   }
@@ -217,30 +231,32 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
       (room) => ground.X >= room.X0 - 0.5 && ground.X <= room.X0 + room.side - 0.5 && ground.Y >= room.Y0 - 0.5 && ground.Y <= room.Y0 + room.side - 0.5,
     );
   }
-  /** The topmost object under the pointer, by its drawn pixels. */
-  function objectAt(clientX: number, clientY: number): Piece | undefined {
+  /** What the pointer is over as drawn: a name or an object first, else the room whose ground it is on. */
+  function targetAt(clientX: number, clientY: number): Target | undefined {
     const rectOf = canvas.getBoundingClientRect();
     const px = (clientX - rectOf.left) * dpr;
     const py = (clientY - rectOf.top) * dpr;
-    for (let i = pieces.length - 1; i >= 0; i--) {
-      const piece = pieces[i]!;
-      if (piece.kind !== "object") continue;
-      const size = sheet.sizes[piece.sprite];
-      const mask = maskOf(piece.sprite);
-      if (size === undefined || mask === undefined) continue;
-      const at = groundScreen(piece.X, piece.Y);
-      const u = Math.floor((px - (at.x - size.ox * camera.zoom)) / camera.zoom);
-      const v = Math.floor((py - (at.y - size.oy * camera.zoom)) / camera.zoom);
-      if (u >= 0 && v >= 0 && u < size.w && v < size.h && mask[(v * size.w + u) * 4 + 3]! > 8) return piece;
+    if (dirty) {
+      dirty = false;
+      draw();
     }
-    return undefined;
+    const found = pickAt(plaques, placements, px, py, (target, column, row) => {
+      if (target.kind !== "object") return false;
+      const mask = maskOf(target.piece.sprite);
+      const size = sheet.sizes[target.piece.sprite];
+      return mask !== undefined && size !== undefined && mask[(row * size.w + column) * 4 + 3]! > 8;
+    });
+    if (found !== undefined) return found;
+    const room = roomAt(clientX, clientY);
+    return room === undefined ? undefined : { kind: "room", room };
   }
-  const describe = (piece: Piece | undefined, room: Room | undefined): string | undefined => {
-    if (piece?.kind === "object") {
-      const o = piece.object;
+  const describe = (target: Target | undefined): string | undefined => {
+    if (target?.kind === "object") {
+      const o = target.piece.object;
       return `${o.kind} · ${o.operation}${o.target === null ? "" : ` ${o.target}`}${o.altered ? " · new or changed" : ""}`;
     }
-    if (room === undefined) return undefined;
+    if (target === undefined) return undefined;
+    const room = target.room;
     return `${room.name}${room.exported ? " · exported" : ""}${room.changed ? " · changed" : ""}`;
   };
 
@@ -259,12 +275,7 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
   canvas.addEventListener("pointermove", (event) => {
     const last = pressed.get(event.pointerId);
     if (last === undefined) {
-      const piece = objectAt(event.clientX, event.clientY);
-      callbacks.hover(describe(piece, roomAt(event.clientX, event.clientY)));
-      if (piece !== hovered) {
-        hovered = piece;
-        dirty = true;
-      }
+      callbacks.hover(describe(targetAt(event.clientX, event.clientY)));
       return;
     }
     pressed.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -283,9 +294,7 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
   canvas.addEventListener("pointercancel", release);
   canvas.addEventListener("pointerleave", () => {
     if (pressed.size > 0) return;
-    hovered = undefined;
     callbacks.hover(undefined);
-    dirty = true;
   });
   canvas.addEventListener(
     "wheel",
@@ -307,13 +316,9 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
   );
   canvas.addEventListener("click", (event) => {
     if (travelled >= CLICK_SLOP) return;
-    const piece = objectAt(event.clientX, event.clientY);
-    if (piece?.kind === "object") {
-      callbacks.pick(piece.object.owner, piece.object.range);
-      return;
-    }
-    const room = roomAt(event.clientX, event.clientY);
-    if (room !== undefined) callbacks.pick(room.id);
+    const target = targetAt(event.clientX, event.clientY);
+    if (target?.kind === "object") callbacks.pick(target.piece.object.owner, target.piece.object.range);
+    else if (target?.kind === "room") callbacks.pick(target.room.id);
   });
 
   new ResizeObserver(resize).observe(host);
@@ -347,7 +352,6 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
         bottom: Math.max(...corners.map((c) => c.y)) + 60,
       };
       selected = undefined;
-      hovered = undefined;
       touched = false;
       canvas.style.display = "block";
       resize();
