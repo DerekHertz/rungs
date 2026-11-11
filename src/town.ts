@@ -1,8 +1,8 @@
+import type { Comparison } from "./compare.ts";
 import { resourcesOf } from "./graph.ts";
-import type { Graph, ModuleNode, NodeId, ResourceKind, Role } from "./graph.ts";
+import type { ContainerNode, FileNode, Graph, ModuleNode, NodeId, ResourceKind, Role } from "./graph.ts";
 import { importanceOf, reachedFrom } from "./importance.ts";
 import type { WayIn } from "./importance.ts";
-import type { Picture } from "./compare.ts";
 
 /*
  * The town: a pure function from the graph (and the names of the sprites the sheet has) to
@@ -84,6 +84,30 @@ export function kindOfRole(role: Role | null): BuildingKind {
   }
 }
 
+/**
+ * What a lot says about the change: "unchanged" when there is no comparison. A moved file is
+ * "moved" at its new place and "moved-away" on the lot it left, which is rubble like a removed one.
+ */
+export type LotChange = "unchanged" | "altered" | "added" | "removed" | "moved" | "moved-away";
+
+/** Where a crane stands beside the building it marks, from the lot's middle. */
+export const CRANE_AT = { X: -1.75, Y: 1.75 } as const;
+/** Where the sign naming a moved file's new path stands, from the lot's middle (it faces the viewer on -Y). */
+export const MOVED_SIGN_AT = { X: 0, Y: -1.3 } as const;
+/** How far a block's fence stands outside its pad. */
+export const FENCE_OUT = 0.4;
+
+/**
+ * The scaffolding sprite a building takes, by the building's own sprite: a workshop or lab takes
+ * the scaffold of its size step, a shed or hut the small one, a warehouse the low one, and a library (whose roof and steps reach 1.6 m out on the near side, past the low scaffold's poles) scaffold-1.
+ * Null when the sheet has none, so nothing is drawn that the sheet cannot show.
+ */
+export function scaffoldOf(sprite: string, sprites: ReadonlySet<string>): string | null {
+  const sized = /^(?:workshop|lab)-(\d+)$/.exec(sprite);
+  const wanted = sized !== null ? `scaffold-${sized[1]}` : sprite === "shed" || sprite === "hut" ? "scaffold-small" : sprite === "warehouse" ? "scaffold-low" : "scaffold-1";
+  return sprites.has(wanted) ? wanted : null;
+}
+
 export interface Lot {
   readonly id: NodeId;
   /** The file's name and path, for display. */
@@ -110,6 +134,16 @@ export interface Lot {
   readonly gate: boolean;
   /** Some way in reaches it through imports (a way in reaches itself). A file nothing reaches has no footpath. */
   readonly reached: boolean;
+  /** The change this lot shows; "unchanged" when nothing is compared. */
+  readonly change: LotChange;
+  /** The scaffolding over an altered file's building, when the sheet has one for its size. */
+  readonly overlay: string | null;
+  /** True for an altered file: a crane stands beside it. */
+  readonly crane: boolean;
+  /** Whether the file is named at near zoom: every file with no comparison, only altered files under one. */
+  readonly named: boolean;
+  /** For the rubble a moved file left: the file at its new path, whose path goes on the sign. */
+  readonly movedTo: { readonly id: NodeId; readonly path: string } | null;
   /** The middle of the lot on the ground. */
   readonly X: number;
   readonly Y: number;
@@ -129,6 +163,105 @@ export interface Block {
   readonly X1: number;
   readonly Y0: number;
   readonly Y1: number;
+  /** Files of each kind of change in the block, nested folders counted; all zero with no comparison. */
+  readonly changes: BlockChanges;
+  /** The fence round the pad and the sign by its corner, for a block where more than half the files are added. */
+  readonly fence: Fence | null;
+}
+
+export interface BlockChanges {
+  readonly added: number;
+  readonly altered: number;
+  readonly removed: number;
+  readonly moved: number;
+}
+
+export interface Fence {
+  /** One metre of barrier each. */
+  readonly posts: readonly { readonly sprite: "fence-x" | "fence-y"; readonly X: number; readonly Y: number }[];
+  readonly sign: { readonly X: number; readonly Y: number };
+  /** The sign's words, e.g. "tools · 93 new". */
+  readonly text: string;
+}
+
+/**
+ * A block's name with its counts under a comparison ("tools · 93 new · 4 altered"); with none, its
+ * name alone near, and with its file count far away. A block nothing changed in has no counts.
+ */
+export function blockLabel(block: Pick<Block, "name" | "files" | "changes">, comparing: boolean, far: boolean): string {
+  if (!comparing) return far ? `${block.name} · ${block.files}` : block.name;
+  const { added, altered, removed, moved } = block.changes;
+  const parts = [added > 0 ? `${added} new` : "", altered > 0 ? `${altered} altered` : "", removed > 0 ? `${removed} removed` : "", moved > 0 ? `${moved} moved` : ""];
+  return [block.name, ...parts.filter((part) => part !== "")].join(" · ");
+}
+
+/** More than half of the `present` files are added. */
+export function mostlyNew(added: number, present: number): boolean {
+  return present > 0 && added * 2 > present;
+}
+
+/** The fence round a pad and the sign by its near corner: a pure function of the pad and its count of new files. */
+export function fenceOf(pad: Pick<Block, "X0" | "X1" | "Y0" | "Y1" | "name">, added: number): Fence {
+  const posts: { sprite: "fence-x" | "fence-y"; X: number; Y: number }[] = [];
+  const along = (from: number, to: number): number[] => {
+    const count = Math.max(1, Math.ceil(to - from - 0.01));
+    return Array.from({ length: count }, (_, i) => from + ((i + 0.5) * (to - from)) / count);
+  };
+  for (const X of along(pad.X0, pad.X1)) posts.push({ sprite: "fence-x", X, Y: pad.Y0 - FENCE_OUT }, { sprite: "fence-x", X, Y: pad.Y1 + FENCE_OUT });
+  for (const Y of along(pad.Y0, pad.Y1)) posts.push({ sprite: "fence-y", X: pad.X0 - FENCE_OUT, Y }, { sprite: "fence-y", X: pad.X1 + FENCE_OUT, Y });
+  return { posts, sign: { X: pad.X1 + 1.7, Y: pad.Y0 - 1.5 }, text: `${pad.name} · ${added} new` };
+}
+
+function byCodeUnits(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * The graph with a ghost file for each file the base had and the head has not: a removed file, and
+ * the path a moved file left (one a picture's graph already holds is not added twice). A ghost stands in the nearest folder the picture has by path, and a
+ * folder only the base had comes back when a ghost stands in it.
+ */
+export function withGhosts(graph: Graph, comparison: Comparison): { graph: Graph; ghosts: ReadonlySet<NodeId> } {
+  const present = new Set<NodeId>(graph.nodes.map((node) => node.id));
+  const root = graph.nodes.find((node) => node.parent === null && (node.level === "package" || node.level === "folder"));
+  if (root === undefined) return { graph, ghosts: new Set() };
+  const ghostFiles: FileNode[] = [];
+  for (const change of comparison.changes) {
+    if (change.kind === "removed" && change.node.level === "file") ghostFiles.push(change.node);
+    else if (change.kind === "moved" && change.from.level === "file") ghostFiles.push(change.from);
+  }
+  const directoryOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf("/")));
+  const directoryAt = new Map<string, NodeId>();
+  for (const node of graph.nodes) if (node.level === "folder" || node.level === "package") directoryAt.set(node.path, node.id);
+  const standIn = (path: string): NodeId => {
+    for (let dir = directoryOf(path); ; dir = directoryOf(dir)) {
+      const found = directoryAt.get(dir);
+      if (found !== undefined) return found;
+      if (dir === "") return root.id;
+    }
+  };
+  const gone = new Map<string, ContainerNode>();
+  for (const change of comparison.changes) {
+    if (change.kind === "removed" && (change.node.level === "folder" || change.node.level === "package")) gone.set(change.node.path, change.node);
+  }
+  const wanted = new Set<string>();
+  for (const file of ghostFiles) for (let dir = directoryOf(file.path); dir !== ""; dir = directoryOf(dir)) wanted.add(dir);
+  const added: ModuleNode[] = [];
+  for (const path of [...wanted].sort((a, b) => a.length - b.length || byCodeUnits(a, b))) {
+    const node = gone.get(path);
+    if (node === undefined || directoryAt.has(path) || present.has(node.id)) continue;
+    added.push({ ...node, parent: standIn(path) });
+    directoryAt.set(path, node.id);
+    present.add(node.id);
+  }
+  const ghosts = new Set<NodeId>();
+  for (const file of ghostFiles) {
+    ghosts.add(file.id);
+    if (present.has(file.id)) continue;
+    added.push({ ...file, parent: standIn(file.path) });
+    present.add(file.id);
+  }
+  return { graph: { ...graph, nodes: [...graph.nodes, ...added] }, ghosts };
 }
 
 /** One structure in the harbour, for a kind of outside resource some effect edge reaches. */
@@ -158,6 +291,8 @@ export interface Town {
   readonly importance: { readonly fewest: number; readonly most: number };
   /** How many files nothing reaches. */
   readonly unreached: number;
+  /** True under a comparison: names, marks and counts follow the change. */
+  readonly comparing: boolean;
 }
 
 /** The harbour structure each kind of resource picks, by sheet name: written out, never derived from the kind's words. */
@@ -195,36 +330,34 @@ export function stepOf(count: number, fewest: number, most: number, steps: numbe
   return Math.min(steps, Math.floor(Math.sqrt(share) * steps) + 1);
 }
 
-function byCodeUnits(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
-/**
- * The removed files a comparison's picture stands as ghosts. A ghost has no import edges (the
- * picture's imports are the head's), so nothing rests on it and nothing is judged by reach: it
- * gets a footpath and is never counted unreached.
- */
-export function ghostFiles(picture: Picture): Set<NodeId> {
-  const ghosts = new Set<NodeId>();
-  for (const node of picture.graph.nodes) if (node.level === "file" && picture.overlay?.entry(node.id)?.kind === "removed") ghosts.add(node.id);
-  return ghosts;
-}
-
 /**
  * The town of `graph`, built from the sprites named in `sprites`. Each top-level folder is a block
  * and its files lots of one size in a grid in path order; blocks are packed in rows, largest
  * first. Every lot is a fact (a file), and so is every harbour structure (a reached kind of
  * resource): empty ground has nothing on it.
+ *
+ * Under a comparison the lots of the files the base had and the head lacks stay (a removed file,
+ * and the old path of a moved one), as rubble, and each lot and block carries the marks the change
+ * picks (SPEC, Review): decided here from the graph and the comparison alone.
  */
-export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: readonly WayIn[] = [], ghosts: ReadonlySet<NodeId> = new Set()): Town {
-  const rests = importanceOf(graph);
-  const fromWays = reachedFrom(graph, waysIn.map((way) => way.id));
+export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Comparison | null = null, waysIn: readonly WayIn[] = []): Town {
+  const { graph, ghosts } = comparison === null ? { graph: head, ghosts: new Set<NodeId>() } : withGhosts(head, comparison);
+  // Importance and reach are the head's alone: a ghost has no place in them.
+  const rests = importanceOf(head);
+  const fromWays = reachedFrom(head, waysIn.map((way) => way.id));
   const wayById = new Map(waysIn.map((way) => [way.id, way]));
   const idPaths = new Map(graph.nodes.map((node) => [node.id, node.path]));
   const weights = [...rests.values()].map((list) => list.length);
   const fewestRests = weights.length === 0 ? 0 : Math.min(...weights);
   const mostRests = weights.length === 0 ? 0 : Math.max(...weights);
   const plinths = PLINTH_HEIGHTS.filter((_, index) => sprites.has(`plinth-${index + 1}`)).length;
+  const kinds = new Map<NodeId, "added" | "altered" | "removed" | "moved">();
+  const movedTo = new Map<NodeId, { id: NodeId; path: string }>();
+  for (const change of comparison?.changes ?? []) {
+    if (change.node.level !== "file") continue;
+    kinds.set(change.node.id, change.kind);
+    if (change.kind === "moved" && change.from.level === "file") movedTo.set(change.from.id, { id: change.node.id, path: change.node.path });
+  }
   const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
   const root = graph.nodes.find((node) => node.parent === null && (node.level === "package" || node.level === "folder"));
   const classes = new Map<string, number>();
@@ -241,12 +374,15 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: reado
     return at?.parent === root?.id && at !== undefined ? at.id : undefined;
   };
 
+  // A comparison overlays the head's town: head files lay out exactly as they do with no comparison, and the ghosts come after.
   const filesByBlock = new Map<NodeId, ModuleNode[]>();
+  const ghostsByBlock = new Map<NodeId, ModuleNode[]>();
   for (const node of graph.nodes) {
     if (node.level !== "file") continue;
     const top = node.parent === root?.id ? root.id : topOf(node);
     if (top === undefined) continue;
-    filesByBlock.set(top, [...(filesByBlock.get(top) ?? []), node]);
+    const into = ghosts.has(node.id) ? ghostsByBlock : filesByBlock;
+    into.set(top, [...(into.get(top) ?? []), node]);
   }
 
   const foldersByBlock = new Map<NodeId, NodeId[]>();
@@ -262,15 +398,21 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: reado
   const most = measured.length === 0 ? 0 : Math.max(...measured);
 
   // Size every block, then pack them in shelves, largest first.
-  const sized = [...filesByBlock]
-    .map(([id, files]) => {
-      const cols = Math.max(1, Math.ceil(Math.sqrt(files.length)));
-      const rows = Math.ceil(files.length / cols);
-      const container = nodes.get(id);
-      const name = id === root?.id ? "(root files)" : (container?.name ?? id);
-      return { id, name, files: [...files].sort((a, b) => byCodeUnits(a.path, b.path)), cols, rows, w: cols * LOT + 2 * PAD, d: rows * LOT + 2 * PAD };
-    })
-    .sort((a, b) => b.files.length - a.files.length || byCodeUnits(a.name, b.name) || byCodeUnits(a.id, b.id));
+  const sizedBlock = (id: NodeId) => {
+    const own = [...(filesByBlock.get(id) ?? [])].sort((a, b) => byCodeUnits(a.path, b.path));
+    const gone = [...(ghostsByBlock.get(id) ?? [])].sort((a, b) => byCodeUnits(a.path, b.path));
+    const files = [...own, ...gone];
+    // The grid is as wide as the head's own files make it, so ghosts only add rows after them.
+    const cols = Math.max(1, Math.ceil(Math.sqrt(own.length > 0 ? own.length : files.length)));
+    const rows = Math.ceil(files.length / cols);
+    const container = nodes.get(id);
+    const name = id === root?.id ? "(root files)" : (container?.name ?? id);
+    return { id, name, files, own: own.length, cols, rows, w: cols * LOT + 2 * PAD, d: rows * LOT + 2 * PAD };
+  };
+  // Blocks with head files in the order they have without a comparison, then the blocks only ghosts stand in.
+  const sized = [...new Set([...filesByBlock.keys(), ...ghostsByBlock.keys()])]
+    .map(sizedBlock)
+    .sort((a, b) => b.own - a.own || (a.own > 0 ? 0 : b.files.length - a.files.length) || byCodeUnits(a.name, b.name) || byCodeUnits(a.id, b.id));
   const target = Math.sqrt(sized.reduce((sum, block) => sum + (block.w + GAP) * (block.d + GAP), 0)) * 1.3;
   const places = new Map<NodeId, { x: number; z: number }>();
   let x = 0;
@@ -298,11 +440,25 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: reado
     const at = places.get(block.id)!;
     const [X0, Y1] = ground(at.x, at.z);
     const [X1, Y0] = ground(at.x + block.w, at.z + block.d);
-    blocks.push({ id: block.id, name: block.name, folders: foldersByBlock.get(block.id) ?? [], files: block.files.length, cols: block.cols, rows: block.rows, X0, X1, Y0, Y1 });
+    const changes = { added: 0, altered: 0, removed: 0, moved: 0 };
+    let present = 0;
+    for (const file of block.files) {
+      if (ghosts.has(file.id)) {
+        if (kinds.get(file.id) === "removed") changes.removed++;
+        continue;
+      }
+      present++;
+      const kind = kinds.get(file.id);
+      if (kind !== undefined) changes[kind]++;
+    }
+    const pad = { name: block.name, X0, X1, Y0, Y1 };
+    blocks.push({ id: block.id, name: block.name, folders: foldersByBlock.get(block.id) ?? [], files: block.files.length, cols: block.cols, rows: block.rows, X0, X1, Y0, Y1, changes, fence: comparison !== null && mostlyNew(changes.added, present) ? fenceOf(pad, changes.added) : null });
     block.files.forEach((file, index) => {
       if (file.level !== "file") return;
       const [X, Y] = ground(at.x + PAD + (index % block.cols) * LOT + LOT / 2, at.z + PAD + Math.floor(index / block.cols) * LOT + LOT / 2);
       const kind = kindOfRole(file.role);
+      const gone = ghosts.has(file.id);
+      const change: LotChange = comparison === null ? "unchanged" : gone ? (movedTo.has(file.id) ? "moved-away" : "removed") : (kinds.get(file.id) as LotChange | undefined) ?? "unchanged";
       const steps = stepsOf(kind, sprites);
       // A generated file keeps the smallest size so it never crowds out written code (SPEC: The graph).
       const step = file.role === "generated" ? 1 : stepOf(countOf(file.path), fewest, most, steps);
@@ -317,7 +473,7 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: reado
         role: file.role,
         kind,
         step,
-        sprite: sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind,
+        sprite: gone ? "rubble" : sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind,
         classes: classes.get(file.path) ?? 0,
         functions: functions.get(file.path) ?? 0,
         restsOn,
@@ -326,6 +482,11 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: reado
         wayIn: way?.reasons ?? [],
         gate: way !== undefined && file.role !== "tests" && sprites.has("gate"),
         reached: ghosts.has(file.id) || fromWays.has(file.id),
+        change,
+        overlay: change === "altered" ? scaffoldOf(sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind, sprites) : null,
+        crane: change === "altered" && sprites.has("crane"),
+        named: comparison === null || change === "altered",
+        movedTo: movedTo.get(file.id) ?? null,
         X,
         Y,
       });
@@ -366,5 +527,6 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: reado
     counts: { fewest, most },
     importance: { fewest: fewestRests, most: mostRests },
     unreached: lots.filter((lot) => !lot.reached).length,
+    comparing: comparison !== null,
   };
 }

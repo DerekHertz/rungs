@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import type { NodeId } from "../src/graph.ts";
 import { importanceOf, reachedFrom } from "../src/importance.ts";
-import { compare, pictureOf } from "../src/compare.ts";
-import { ghostFiles, townOf } from "../src/town.ts";
+import { compare } from "../src/compare.ts";
+import { townOf } from "../src/town.ts";
 import { waysIn } from "../src/ways-in.ts";
 
 const tree = new Map<string, string>([
@@ -42,9 +42,8 @@ describe("a comparison's ghosts", () => {
   const head = new Map<string, string>([["package.json", JSON.stringify({ main: "main.js" })], ["main.js", "export const m = 1;\n"]]);
   const base = new Map<string, string>([...head, ["removed.js", 'import { m } from "./main.js";\nexport const r = m;\n'], ["gone.md", "# gone\n"]]);
   const headGraph = extract(head);
-  const picture = pictureOf(headGraph, compare(extract(base), headGraph));
   const sprites = new Set(["workshop-1", "library", "shed", "hut", "plinth-1", "gate"]);
-  const town = townOf(picture.graph, sprites, waysIn(head, headGraph), ghostFiles(picture));
+  const town = townOf(headGraph, sprites, compare(extract(base), headGraph), waysIn(head, headGraph));
 
   test("a removed file has a lot but is never unreached, never counted, and nothing rests on it", () => {
     const ghost = town.lots.find((lot) => lot.path === "removed.js")!;
@@ -58,7 +57,7 @@ describe("a comparison's ghosts", () => {
 
 describe("the town's lots", () => {
   const sprites = new Set(["workshop-1", "hut", "shed", "plinth-1", "plinth-2", "plinth-3", "plinth-4", "gate"]);
-  const town = townOf(graph, sprites, waysIn(tree, graph));
+  const town = townOf(graph, sprites, null, waysIn(tree, graph));
   const lot = (p: string) => town.lots.find((candidate) => candidate.path === p)!;
 
   test("a plinth stands where files rest on a file, tallest for the most, none for none", () => {

@@ -4,7 +4,7 @@ import { pictureOf, tallyText } from "../compare.ts";
 import type { Comparison, ContractMove } from "../compare.ts";
 import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
-import type { FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
+import type { Edge, FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
 import { contractsReport, effectsChangedRows, newEffects, unmentioned, unmentionedIds } from "../review.ts";
 import type { EffectRow, ReviewEntry } from "../review.ts";
@@ -12,9 +12,11 @@ import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
 import type { CityHandlers, CityView } from "./city-view.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
-import { ghostFiles, townOf } from "../town.ts";
+import { townOf } from "../town.ts";
 import { importanceOf, reachedFrom } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
+import { insideOf, marksOf } from "../town-inside.ts";
+import { createTownInsideView } from "./town-inside-view.ts";
 import type { Town } from "../town.ts";
 import { EFFECT_COLOR, FAIL_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
 import type { ObservedDocument } from "../observed-types.ts";
@@ -59,6 +61,8 @@ const comparison = comparisonResponse.ok
 /** Narration is on offer only when the server was started with --narrate. */
 const narrating = (await fetch("/narrate.json")).ok;
 const picture = pictureOf(graph, comparison);
+/** The base's outside calls in removed files: the picture's graph restores the removed nodes but keeps only the head's edges. */
+const ghostEdges: readonly Edge[] = comparison === null ? [] : (await (await fetch("/ghost-edges.json")).json() as { edges: Edge[] }).edges;
 const observedResponse = await fetch("/observed.json");
 const observed = observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null;
 const observedRun = observed?.status === "ran" && comparison !== null ? observedReport(observed, picture.graph, comparison) : null;
@@ -90,7 +94,8 @@ function cancelPending(): void {
 const townMode = new URLSearchParams(location.search).get("view") === "town";
 const sheet = townMode ? await loadSheet() : undefined;
 const waysIn = townMode ? ((await (await fetch("/ways-in.json")).json()) as { waysIn: WayIn[] }).waysIn : [];
-const ghostIds = townMode ? ghostFiles(picture) : new Set<NodeId>();
+/** The files a comparison's base had and the head lacks: a ghost has no place in reach. */
+const ghostIds = new Set<NodeId>((comparison?.changes ?? []).flatMap((change) => (change.kind === "removed" && change.node.level === "file" ? [change.node.id] : change.kind === "moved" && change.from.level === "file" ? [change.from.id] : [])));
 const reachedByWays = townMode ? new Set([...reachedFrom(picture.graph, waysIn.map((way) => way.id)), ...ghostIds]) : new Set<NodeId>();
 const importance = townMode ? importanceOf(picture.graph) : new Map<NodeId, NodeId[]>();
 
@@ -122,15 +127,46 @@ const handlers: CityHandlers = {
     chooseResource(chosenKind === kind ? undefined : kind);
   },
   doubleClick(hit) {
-    // A building is reserved for entering it; until then a double-click on one only cancels the
-    // first click's selection.
+    // In the town a double-click on a building opens its inside; the city reserves it for entering later.
     cancelPending();
+    if (hit?.kind === "building" && townView !== undefined) openInside(hit.id);
     if (hit?.kind === "building" || hit?.kind === "resource") return;
+    // A block only a moved file's old path stands in has no node in the picture's graph to focus: frame it alone.
+    if (hit?.kind === "district" && !nodes.has(hit.id)) {
+      view.flyTo(hit.id);
+      return;
+    }
     const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
     if (to !== undefined) focusOn(to);
   },
 };
 const townView = sheet === undefined ? undefined : createTownView(stage, handlers, sheet);
+const insideView =
+  townView === undefined || sheet === undefined
+    ? undefined
+    : createTownInsideView(
+        stage,
+        {
+          pick(id, lines) {
+            cancelPending();
+            const ticket = requested;
+            const node = nodes.get(id);
+            if (node === undefined) return;
+            insideView?.select(id);
+            void select(node, ticket, node.id, lines);
+          },
+          hover(text) {
+            if (text === undefined) {
+              tooltip.style.display = "none";
+              return;
+            }
+            tooltip.textContent = text;
+            tooltip.style.display = "block";
+          },
+        },
+        sheet,
+      );
+let insideFile: NodeId | undefined;
 const cityView = townView === undefined ? createCityView(stage, handlers, observedRun?.failingFiles) : undefined;
 const view: Omit<CityView, "show"> = townView ?? cityView!;
 
@@ -275,10 +311,42 @@ function showTownLegend(town: Town): void {
       : `plinth: the taller the stone, the more files rest on it through imports, square-root scale (${town.importance.fewest} to ${town.importance.most}); none where nothing rests on it \u00b7 point at a building for the list`;
   const ways = document.createElement("div");
   ways.textContent = `gate: a way in the repo declares in package.json (main, bin, exports, scripts); test files are ways in too, with no gate \u00b7 footpath: every file but code has one; a code file has one when a way in reaches it through imports, and ${town.unreached} code files have none: nothing reaches them`;
-  legend.replaceChildren(kinds, size, stone, ways, harbour);
+  const against = document.createElement("div");
+  if (comparison !== null) {
+    against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
+  }
+  legend.replaceChildren(kinds, size, stone, ways, harbour, ...(comparison === null ? [] : [against]));
+}
+
+/** Opens a file walls down over the town: its functions as rooms, its outside calls as objects. */
+function openInside(fileId: NodeId): void {
+  const file = nodes.get(fileId);
+  if (insideView === undefined || sheet === undefined || file?.level !== "file") return;
+  const marks = comparison === null || picture.overlay === null ? null : marksOf(comparison, picture.overlay, file.id, file.path);
+  const inside = insideOf(ghostEdges.length === 0 ? picture.graph : { ...picture.graph, edges: [...picture.graph.edges, ...ghostEdges] }, file.id, new Set(Object.keys(sheet.sizes)), marks);
+  if (inside === undefined) return;
+  closePanel();
+  tooltip.style.display = "none";
+  insideFile = file.id;
+  legend.hidden = true;
+  insideView.open(inside);
+  showTrail();
+}
+
+/** Closes the inside and shows the town again, as it was. */
+function leaveInside(): void {
+  if (insideFile === undefined) return;
+  closePanel();
+  insideFile = undefined;
+  insideView?.close();
+  legend.hidden = false;
+  showTrail();
 }
 
 function showCity(root: NodeId): void {
+  insideFile = undefined;
+  insideView?.close();
+  legend.hidden = false;
   cancelPending();
   cityRoot = root;
   focus = root;
@@ -289,7 +357,7 @@ function showCity(root: NodeId): void {
   const city = cityOf(picture, root);
   buildings = new Map(city.buildings.map((building) => [building.id, building]));
   if (townView !== undefined && sheet !== undefined) {
-    const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), waysIn, ghostIds);
+    const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison, waysIn);
     townView.show(town);
     showTownLegend(town);
   } else {
@@ -308,6 +376,7 @@ function focusOn(id: NodeId): void {
 }
 
 function resetView(): void {
+  leaveInside();
   cancelPending();
   focus = cityRoot;
   showTrail();
@@ -315,7 +384,7 @@ function resetView(): void {
 }
 
 function showTrail(): void {
-  const steps = trail(tree, focus).map((node, index, all) => {
+  const steps = trail(tree, insideFile ?? focus).map((node, index, all) => {
     const name = node.path === "" ? "/" : node.name;
     if (index === all.length - 1) {
       const here = document.createElement("span");
@@ -326,6 +395,7 @@ function showTrail(): void {
     step.textContent = name;
     step.addEventListener("click", () => {
       cancelPending();
+      leaveInside();
       focusOn(node.id);
     });
     return step;
@@ -347,6 +417,7 @@ function closePanel(): void {
   chosenKind = undefined;
   panel.hidden = true;
   view.select(undefined);
+  insideView?.select(undefined);
 }
 
 const sourceParts: CodeParts = { gutter: panelGutter, code: panelCode, body: panelBody, mark: panelMark };
@@ -482,6 +553,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
 /** An entry of the review panel: fly to its district, and select the file or code it names. */
 function pickEntry(entry: ReviewEntry): void {
   if (entry.level === "district") {
+    leaveInside();
     cancelPending();
     closePanel();
     focusOn(entry.id);
@@ -493,12 +565,16 @@ function pickEntry(entry: ReviewEntry): void {
 /** A node by id, a ghost or a module removed from a surviving file included: fly to its file, select it. */
 function pickNode(id: NodeId, marked?: LineRange): void {
   cancelPending();
-  const ticket = requested;
   const node = nodes.get(id) ?? changed.get(id);
   if (node === undefined) return;
   const place = nodes.get(node.level === "file" ? node.id : (`file:${node.path}` as NodeId));
   if (place === undefined || place.parent === null) return;
-  focusOn(place.parent);
+  // A node in the file that is open stays inside and selects its room; one anywhere else leaves first.
+  const stay = insideFile === place.id;
+  if (!stay) leaveInside();
+  const ticket = requested;
+  if (stay) insideView?.select(node.id);
+  else focusOn(place.parent);
   void select(node, ticket, place.id, marked);
 }
 
@@ -512,6 +588,7 @@ function placeOf(id: string): NodeId | undefined {
 
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
 function pickClaim(claim: ClaimRow): void {
+  leaveInside();
   cancelPending();
   closePanel();
   const places = [...new Set(claim.ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
@@ -523,6 +600,7 @@ function pickClaim(claim: ClaimRow): void {
 
 /** A stop of the walkthrough: outline its nodes' files and fly to the district holding them all. Closing the tour clears the outline. */
 function visitStop(stop: Stop | undefined): void {
+  leaveInside();
   cancelPending();
   closePanel();
   const places = [...new Set((stop?.ids ?? []).map(placeOf).filter((place): place is NodeId => place !== undefined))];
@@ -554,7 +632,8 @@ window.addEventListener("keydown", (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === "Escape") {
     cancelPending();
-    if (selected !== undefined) closePanel();
+    if (insideFile !== undefined) leaveInside();
+    else if (selected !== undefined) closePanel();
     else if (focus !== cityRoot) focusOn(zoomOut(tree, focus));
   } else if (event.key === "r" || event.key === "R") resetView();
   else if (event.key === "p" || event.key === "P") cyclePixel();

@@ -7,7 +7,7 @@ import type { Base } from "./checkout.ts";
 import { compare, contractsMoved, serializeComparison } from "./compare.ts";
 import type { Comparison } from "./compare.ts";
 import { extract } from "./extract/extract.ts";
-import { isCodeNode, serializeGraph } from "./graph.ts";
+import { canonicalEdge, isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { changeCounts, diffText, rowsInRange } from "./diff.ts";
 import type { LineOp } from "./diff.ts";
@@ -110,6 +110,10 @@ export async function serve(
     if (change.kind === "removed") removed.set(change.node.id, change.node);
   }
   const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+  // A function that moved away leaves a ghost in a removed file under its old id, which the head does not have: its source is the base's.
+  for (const change of comparison?.changes ?? []) {
+    if (change.kind === "moved" && !nodes.has(change.from.id)) removed.set(change.from.id, change.from);
+  }
   const [html, script] = await Promise.all([
     readFile(new URL("page/index.html", import.meta.url), "utf8"),
     bundlePage(),
@@ -124,6 +128,11 @@ export async function serve(
   if (base !== undefined && baseGraph !== undefined && comparison !== undefined) {
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
+    // The base's outside calls in files the change removed, so a ghost's inside has its objects. Derived from the base graph alone.
+    const removedPaths = new Set(comparison.changes.flatMap((change) => (change.kind === "removed" && change.node.level === "file" ? [change.node.path] : [])));
+    const baseOwners = new Map<NodeId, ModuleNode>(baseGraph.nodes.map((node) => [node.id, node]));
+    const ghostEdges = baseGraph.edges.filter((edge) => removedPaths.has(baseOwners.get(edge.from)?.path ?? ""));
+    resources.set("/ghost-edges.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", edges: ghostEdges.map(canonicalEdge) }, null, 2)}\n` });
     const claims = splitClaims(description ?? "");
     const [outcome, tour] = await Promise.all([
       link === undefined || claims.length === 0 ? ({ status: "off" } satisfies LinkOutcome) : link(comparison, claims, graph),
