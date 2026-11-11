@@ -90,9 +90,13 @@ describe("changedBand", () => {
     expect(changedBand(100, 40, { ...none, altered: 1 })).toBe(BAND_MIN);
   });
 
-  test("is the whole building when every floor changed, or a file with no code changed", () => {
+  test("is the whole building when every floor changed", () => {
     expect(changedBand(40, 4, { ...none, altered: 4 })).toBe(40);
-    expect(changedBand(40, 0, { ...none, altered: 1 })).toBe(40);
+  });
+
+  test("is 0 for a file with no functions or classes, whatever changed in it", () => {
+    expect(changedBand(5, 0, { ...none })).toBe(0);
+    expect(changedBand(5, 0, { ...none, altered: 1 })).toBe(0);
   });
 
   test("is 0 when no function or class changed: a comment or a removal lights no floor", () => {
