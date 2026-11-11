@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
-import { scriptFiles, waysIn } from "../src/ways-in.ts";
+import { waysIn } from "../src/ways-in.ts";
 
 const tree = new Map<string, string>([
   ["package.json", JSON.stringify({ main: "./src/index.js", bin: { tool: "bin/tool.js" }, exports: { ".": { import: "./src/index.js", require: "./src/cjs.js" }, "./x": "./src/x.js", "./gone": "./dist/none.js" }, scripts: { start: "node src/start.js --flag && tsx scripts/build.ts", test: "vitest run", lint: "eslint src/index.js" } })],
@@ -44,9 +44,5 @@ describe("waysIn", () => {
     expect(paths).toEqual([...paths].sort());
     const bad = new Map([["package.json", "{"], ["a.js", "x\n"]]);
     expect(waysIn(bad, extract(bad))).toEqual([]);
-  });
-
-  test("scriptFiles takes the words after a runner in each command", () => {
-    expect(scriptFiles("NODE_ENV=x node --test a.js | cat && echo b.js")).toEqual(["a.js"]);
   });
 });

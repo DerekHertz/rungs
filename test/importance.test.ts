@@ -2,7 +2,8 @@ import { describe, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import type { NodeId } from "../src/graph.ts";
 import { importanceOf, reachedFrom } from "../src/importance.ts";
-import { townOf } from "../src/town.ts";
+import { compare, pictureOf } from "../src/compare.ts";
+import { ghostFiles, townOf } from "../src/town.ts";
 import { waysIn } from "../src/ways-in.ts";
 
 const tree = new Map<string, string>([
@@ -34,6 +35,24 @@ describe("reachedFrom", () => {
   test("follows imports forward from the ways in; a file nothing reaches is absent", () => {
     const reached = reachedFrom(graph, waysIn(tree, graph).map((way) => way.id));
     expect([...reached].map(path).sort()).toEqual(["README.md", "a.js", "b.js", "main.js", "package.json", "types.ts"]);
+  });
+});
+
+describe("a comparison's ghosts", () => {
+  const head = new Map<string, string>([["package.json", JSON.stringify({ main: "main.js" })], ["main.js", "export const m = 1;\n"]]);
+  const base = new Map<string, string>([...head, ["removed.js", 'import { m } from "./main.js";\nexport const r = m;\n'], ["gone.md", "# gone\n"]]);
+  const headGraph = extract(head);
+  const picture = pictureOf(headGraph, compare(extract(base), headGraph));
+  const sprites = new Set(["workshop-1", "library", "shed", "hut", "plinth-1", "gate"]);
+  const town = townOf(picture.graph, sprites, waysIn(head, headGraph), ghostFiles(picture));
+
+  test("a removed file has a lot but is never unreached, never counted, and nothing rests on it", () => {
+    const ghost = town.lots.find((lot) => lot.path === "removed.js")!;
+    expect(ghost).toBeDefined();
+    expect(ghost.reached).toBe(true);
+    expect(ghost.restsOn).toEqual([]);
+    expect(town.unreached).toBe(0);
+    expect(town.lots.find((lot) => lot.path === "main.js")!.restsOn).toEqual([]);
   });
 });
 

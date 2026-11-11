@@ -12,7 +12,7 @@ import type { PseudoLine } from "../pseudo-line.ts";
 import { createCityView } from "./city-view.ts";
 import type { CityHandlers, CityView } from "./city-view.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
-import { townOf } from "../town.ts";
+import { ghostFiles, townOf } from "../town.ts";
 import { importanceOf, reachedFrom } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
 import type { Town } from "../town.ts";
@@ -90,7 +90,8 @@ function cancelPending(): void {
 const townMode = new URLSearchParams(location.search).get("view") === "town";
 const sheet = townMode ? await loadSheet() : undefined;
 const waysIn = townMode ? ((await (await fetch("/ways-in.json")).json()) as { waysIn: WayIn[] }).waysIn : [];
-const reachedByWays = townMode ? reachedFrom(picture.graph, waysIn.map((way) => way.id)) : new Set<NodeId>();
+const ghostIds = townMode ? ghostFiles(picture) : new Set<NodeId>();
+const reachedByWays = townMode ? new Set([...reachedFrom(picture.graph, waysIn.map((way) => way.id)), ...ghostIds]) : new Set<NodeId>();
 const importance = townMode ? importanceOf(picture.graph) : new Map<NodeId, NodeId[]>();
 
 const handlers: CityHandlers = {
@@ -288,7 +289,7 @@ function showCity(root: NodeId): void {
   const city = cityOf(picture, root);
   buildings = new Map(city.buildings.map((building) => [building.id, building]));
   if (townView !== undefined && sheet !== undefined) {
-    const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), waysIn);
+    const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), waysIn, ghostIds);
     townView.show(town);
     showTownLegend(town);
   } else {
@@ -372,7 +373,7 @@ function showSource(node: ModuleNode, { rows, tooLarge }: Loaded): void {
     panelFacts.append(" · ", small);
   }
   drawn = drawRows(sourceParts, rows);
-  outlinePane.hidden = !showRests(node);
+  outlinePane.hidden = true;
   panel.hidden = false;
 }
 
@@ -380,6 +381,11 @@ const EXIT_KINDS: ReadonlySet<string> = new Set(["return", "throw", "break", "co
 
 /** The function's outline above its source: a line selects its source lines, a function line also opens that node. */
 function showOutline(node: ModuleNode, lines: readonly PseudoLine[]): void {
+  // A file in the town has no outline: its pane lists the files that rest on it, and nothing may clear that.
+  if (showRests(node)) {
+    outlinePane.hidden = false;
+    return;
+  }
   const rows = lines.map((line) => {
     const row = document.createElement("div");
     row.className = "outline-line";

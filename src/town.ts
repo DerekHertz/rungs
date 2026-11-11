@@ -2,6 +2,7 @@ import { resourcesOf } from "./graph.ts";
 import type { Graph, ModuleNode, NodeId, ResourceKind, Role } from "./graph.ts";
 import { importanceOf, reachedFrom } from "./importance.ts";
 import type { WayIn } from "./importance.ts";
+import type { Picture } from "./compare.ts";
 
 /*
  * The town: a pure function from the graph (and the names of the sprites the sheet has) to
@@ -199,12 +200,23 @@ function byCodeUnits(a: string, b: string): number {
 }
 
 /**
+ * The removed files a comparison's picture stands as ghosts. A ghost has no import edges (the
+ * picture's imports are the head's), so nothing rests on it and nothing is judged by reach: it
+ * gets a footpath and is never counted unreached.
+ */
+export function ghostFiles(picture: Picture): Set<NodeId> {
+  const ghosts = new Set<NodeId>();
+  for (const node of picture.graph.nodes) if (node.level === "file" && picture.overlay?.entry(node.id)?.kind === "removed") ghosts.add(node.id);
+  return ghosts;
+}
+
+/**
  * The town of `graph`, built from the sprites named in `sprites`. Each top-level folder is a block
  * and its files lots of one size in a grid in path order; blocks are packed in rows, largest
  * first. Every lot is a fact (a file), and so is every harbour structure (a reached kind of
  * resource): empty ground has nothing on it.
  */
-export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: readonly WayIn[] = []): Town {
+export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: readonly WayIn[] = [], ghosts: ReadonlySet<NodeId> = new Set()): Town {
   const rests = importanceOf(graph);
   const fromWays = reachedFrom(graph, waysIn.map((way) => way.id));
   const wayById = new Map(waysIn.map((way) => [way.id, way]));
@@ -313,7 +325,7 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>, waysIn: reado
         raise: plinthStep === 0 ? 0 : PLINTH_HEIGHTS[plinthStep - 1]!,
         wayIn: way?.reasons ?? [],
         gate: way !== undefined && file.role !== "tests" && sprites.has("gate"),
-        reached: fromWays.has(file.id),
+        reached: ghosts.has(file.id) || fromWays.has(file.id),
         X,
         Y,
       });
