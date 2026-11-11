@@ -16,6 +16,9 @@ type Ref =
 
 const MAX_DEPTH = 4;
 
+/** The global `require`, or one made by `createRequire`: either takes a module name and loads it. */
+const REQUIRE: Ref = { kind: "member", module: null, name: "require" };
+
 const moduleName = (specifier: string): string => (specifier.startsWith("node:") ? specifier.slice(5) : specifier);
 
 function memberRef(module: string, name: string): Ref {
@@ -73,15 +76,15 @@ class Resolver {
   isRequireResolve(call: ts.CallExpression): boolean {
     const callee = unwrap(call.expression);
     if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "resolve") return false;
-    const object = unwrap(callee.expression);
-    return ts.isIdentifier(object) && object.text === "require" && this.declarationsOf(object).length === 0;
+    const ref = this.resolve(callee.expression, 0);
+    return ref?.kind === "member" && ref.module === null && ref.name === "require";
   }
 
   /**
    * The elements a spread stands for, when it spreads a module-level `const` of this file that is
    * an array literal; undefined for any other spread.
    */
-  spreadElements(spread: ts.Expression, depth: number): readonly EffectArg[] | undefined {
+  spreadElements(spread: ts.Expression, depth: number, topLevel = false): readonly EffectArg[] | undefined {
     const node = unwrap(spread);
     if (depth > MAX_DEPTH || !ts.isIdentifier(node)) return undefined;
     const [declaration, ...rest] = this.declarationsOf(node);
@@ -98,7 +101,7 @@ class Resolver {
     const init = unwrap(declaration.initializer);
     if (!ts.isArrayLiteralExpression(init)) return undefined;
     const symbol = this.checker.getSymbolAtLocation(node);
-    return symbol !== undefined && this.onlyRead(symbol, declaration.name) ? this.elements(init.elements, depth + 1) : undefined;
+    return symbol !== undefined && this.onlyRead(symbol, declaration.name) ? this.elements(init.elements, depth + 1, topLevel) : undefined;
   }
 
   private references: Map<ts.Symbol, ts.Identifier[]> | undefined;
@@ -142,7 +145,7 @@ class Resolver {
   elements(nodes: readonly ts.Expression[], depth: number, topLevel = false): EffectArg[] {
     return nodes.flatMap((node): EffectArg[] => {
       if (!ts.isSpreadElement(node)) return [this.arg(node, depth)];
-      return [...(this.spreadElements(node.expression, depth) ?? [{ unknown: `${topLevel ? "..." : ""}${written(node.expression, this.file)}` }])];
+      return [...(this.spreadElements(node.expression, depth, topLevel) ?? [{ unknown: `${topLevel ? "..." : ""}${written(node.expression, this.file)}` }])];
     });
   }
 
@@ -188,13 +191,15 @@ class Resolver {
   private call(node: ts.CallExpression, depth: number): Ref | undefined {
     const callee = unwrap(node.expression);
     const [first] = node.arguments;
-    if (ts.isIdentifier(callee) && callee.text === "require" && this.declarationsOf(callee).length === 0) {
+    if (this.isCreateRequire(node)) return REQUIRE;
+    const resolver = this.resolve(callee, depth + 1);
+    if (resolver?.kind === "member" && resolver.module === null && resolver.name === "require") {
       const specifier = stringOf(first);
       return specifier === undefined || node.arguments.length !== 1
         ? undefined
         : { kind: "namespace", module: moduleName(specifier) };
     }
-    const wrapper = this.resolve(callee, depth + 1);
+    const wrapper = resolver;
     if (wrapper?.kind !== "member" || first === undefined || ts.isSpreadElement(first)) return undefined;
     const wraps = TRANSPARENT_WRAPPERS.some((entry) => entry.module === wrapper.module && entry.name === wrapper.name);
     return wraps ? this.resolve(first, depth + 1) : undefined;

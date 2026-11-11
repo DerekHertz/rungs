@@ -1,4 +1,4 @@
-import { argTokens, compareEdges, isCodeNode, targetText } from "./graph.ts";
+import { argText, argTokens, compareEdges, isCodeNode, targetText } from "./graph.ts";
 import type { EffectArg, EffectEdge, Graph, LineRange, NodeId, ResourceKind } from "./graph.ts";
 
 // Page-safe: the review panel bundles this module, so nothing here may import node:*.
@@ -9,6 +9,9 @@ export interface EffectChange {
   /** As its own graph has it: the head edge for "added", the base edge for "removed". */
   readonly edge: EffectEdge;
 }
+
+/** The arguments with their lists kept, so `f([x])` and `f(x)` are not the same call when pairing. */
+const argShape = (args: readonly EffectArg[]): string => args.map(argText).join("\u0000");
 
 export const resourceKindOf = (edge: EffectEdge): ResourceKind => edge.to.slice("resource:".length) as ResourceKind;
 
@@ -29,7 +32,7 @@ export function effectLabel(edge: EffectEdge): string {
 export function diffEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<NodeId, NodeId>): EffectChange[] {
   const keyOf = (edge: EffectEdge, owner: NodeId): string =>
     `${owner}\0${edge.to}\0${edge.operation}\0${targetText(edge.target)}`;
-  const sequence = (edge: EffectEdge): string => argTokens(edge.args).join("\u0000");
+  const sequence = (edge: EffectEdge): string => argShape(edge.args);
   const before = new Map<string, EffectEdge[]>();
   for (const edge of base.edges) {
     const key = keyOf(edge, movedTo.get(edge.from) ?? edge.from);
@@ -136,7 +139,7 @@ export function changedEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<No
     })),
   ];
   const before = new Map<string, Site[]>();
-  const sequence = (site: Site): string => argTokens(site.args).join("\u0000");
+  const sequence = (site: Site): string => argShape(site.args);
   for (const site of sitesOf(base, (id) => movedTo.get(id) ?? id)) before.set(site.key, [...(before.get(site.key) ?? []), site]);
   const groups = new Map<string, { owner: NodeId; label: string; added: string[]; removed: string[]; ranges: LineRange[] }>();
   const report = (site: Site, added: string[], removed: string[]): void => {
