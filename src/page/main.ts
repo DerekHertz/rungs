@@ -13,6 +13,8 @@ import { createCityView } from "./city-view.ts";
 import type { CityHandlers, CityView } from "./city-view.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
 import { townOf } from "../town.ts";
+import { importanceOf, reachedFrom } from "../importance.ts";
+import type { WayIn } from "../importance.ts";
 import { insideOf, marksOf } from "../town-inside.ts";
 import { createTownInsideView } from "./town-inside-view.ts";
 import type { Town } from "../town.ts";
@@ -91,6 +93,11 @@ function cancelPending(): void {
 /** The town is a second picture beside the city: `?view=town` draws it, and the page's switch moves between them. */
 const townMode = new URLSearchParams(location.search).get("view") === "town";
 const sheet = townMode ? await loadSheet() : undefined;
+const waysIn = townMode ? ((await (await fetch("/ways-in.json")).json()) as { waysIn: WayIn[] }).waysIn : [];
+/** The files a comparison's base had and the head lacks: a ghost has no place in reach. */
+const ghostIds = new Set<NodeId>((comparison?.changes ?? []).flatMap((change) => (change.kind === "removed" && change.node.level === "file" ? [change.node.id] : change.kind === "moved" && change.from.level === "file" ? [change.from.id] : [])));
+const reachedByWays = townMode ? new Set([...reachedFrom(picture.graph, waysIn.map((way) => way.id)), ...ghostIds]) : new Set<NodeId>();
+const importance = townMode ? importanceOf(picture.graph) : new Map<NodeId, NodeId[]>();
 
 const handlers: CityHandlers = {
   hover(id, at) {
@@ -183,11 +190,46 @@ function describe(id: NodeId): string[] | undefined {
     file.path,
     ...changeFacts(file, building),
     `role: ${file.role ?? "none"}`,
+    ...townFacts(file),
     `lines: ${file.lines}`,
     file.analysis === "analysed"
       ? `functions: ${building.functions}   classes: ${building.classes}`
       : "not analysed",
   ];
+}
+
+const TOOLTIP_FILES = 10;
+
+/** In the town: what rests on the file (the count with its list), how the repo declares it a way in, and whether anything reaches it. */
+function townFacts(file: FileNode): string[] {
+  if (!townMode) return [];
+  const above = (importance.get(file.id) ?? []).map((id) => nodes.get(id)?.path ?? id);
+  const way = waysIn.find((entry) => entry.id === file.id);
+  return [
+    above.length === 0 ? "importance: nothing rests on it" : `importance: ${above.length} files rest on it`,
+    ...above.slice(0, TOOLTIP_FILES).map((path) => `  ${path}`),
+    ...(above.length > TOOLTIP_FILES ? [`  and ${above.length - TOOLTIP_FILES} more: click the building for the full list`] : []),
+    ...(way === undefined ? [] : [`way in: ${way.reasons.join(", ")}`]),
+    ...(reachedByWays.has(file.id) ? [] : ["nothing reaches it"]),
+  ];
+}
+
+/** The full list of files resting on `file`, in the pane the outline uses, each one opening on a click. */
+function showRests(file: ModuleNode): boolean {
+  const above = (importance.get(file.id) ?? []).map((id) => nodes.get(id)).filter((node): node is ModuleNode => node !== undefined);
+  if (!townMode || file.level !== "file" || above.length === 0) return false;
+  const head = document.createElement("div");
+  head.className = "outline-line";
+  head.textContent = `${above.length} files rest on this one, through imports`;
+  const rows = above.map((node) => {
+    const row = document.createElement("div");
+    row.className = "outline-line";
+    row.textContent = node.path;
+    row.addEventListener("click", () => pickNode(node.id));
+    return row;
+  });
+  outlinePane.replaceChildren(head, ...rows);
+  return true;
 }
 
 function changeFacts(file: FileNode, building: Building): string[] {
@@ -262,11 +304,18 @@ function showTownLegend(town: Town): void {
     town.piers.length === 0 && town.unpictured.length === 0
       ? "harbour: no outside resource is reached"
       : `harbour: ${town.piers.map((pier) => pier.kind).join(", ")}${town.unpictured.length > 0 ? ` (no sprite yet for ${town.unpictured.join(", ")})` : ""}`;
+  const stone = document.createElement("div");
+  stone.textContent =
+    town.importance.most === 0
+      ? "plinth: the stone a building stands on is as tall as the files resting on it through imports; no file has any here"
+      : `plinth: the taller the stone, the more files rest on it through imports, square-root scale (${town.importance.fewest} to ${town.importance.most}); none where nothing rests on it \u00b7 point at a building for the list`;
+  const ways = document.createElement("div");
+  ways.textContent = `gate: a way in the repo declares in package.json (main, bin, exports, scripts); test files are ways in too, with no gate \u00b7 footpath: every file but code has one; a code file has one when a way in reaches it through imports, and ${town.unreached} code files have none: nothing reaches them`;
   const against = document.createElement("div");
   if (comparison !== null) {
     against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
   }
-  legend.replaceChildren(kinds, size, harbour, ...(comparison === null ? [] : [against]));
+  legend.replaceChildren(kinds, size, stone, ways, harbour, ...(comparison === null ? [] : [against]));
 }
 
 /** Opens a file walls down over the town: its functions as rooms, its outside calls as objects. */
@@ -308,7 +357,7 @@ function showCity(root: NodeId): void {
   const city = cityOf(picture, root);
   buildings = new Map(city.buildings.map((building) => [building.id, building]));
   if (townView !== undefined && sheet !== undefined) {
-    const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison);
+    const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison, waysIn);
     townView.show(town);
     showTownLegend(town);
   } else {
@@ -403,6 +452,11 @@ const EXIT_KINDS: ReadonlySet<string> = new Set(["return", "throw", "break", "co
 
 /** The function's outline above its source: a line selects its source lines, a function line also opens that node. */
 function showOutline(node: ModuleNode, lines: readonly PseudoLine[]): void {
+  // A file in the town has no outline: its pane lists the files that rest on it, and nothing may clear that.
+  if (showRests(node)) {
+    outlinePane.hidden = false;
+    return;
+  }
   const rows = lines.map((line) => {
     const row = document.createElement("div");
     row.className = "outline-line";
