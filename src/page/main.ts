@@ -13,7 +13,8 @@ import { createCityView } from "./city-view.ts";
 import { EFFECT_COLOR, FAIL_COLOR, LEGEND_ROLES, roleColor } from "./palette.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
-import { markRange } from "./mark.ts";
+import { changeNote, drawRows, loadRows, markRows } from "./code-rows.ts";
+import type { CodeParts, Drawn, Loaded } from "./code-rows.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
@@ -269,26 +270,30 @@ function closePanel(): void {
   view.select(undefined);
 }
 
-/** Bands the lines of `range` in the source panel and scrolls them into view; clears the band without one. */
-function markLines(node: ModuleNode, range: LineRange | undefined): void {
-  markRange({ code: panelCode, body: panelBody, mark: panelMark }, isCodeNode(node) ? node.range.start : 1, range);
+const sourceParts: CodeParts = { gutter: panelGutter, code: panelCode, body: panelBody, mark: panelMark };
+let drawn: Drawn | undefined;
+
+/** Scrolls the source panel to the first change in `range` (in the node, without one), banding a narrower range. */
+function markLines(range: LineRange | undefined): void {
+  if (drawn !== undefined) markRows(sourceParts, drawn, range);
 }
 
-function showSource(node: ModuleNode, text: string): void {
-  const first = isCodeNode(node) ? node.range.start : 1;
-  const lines = text.split("\n");
-  if (lines.length > 1 && lines.at(-1) === "") lines.pop();
-  const last = first + lines.length - 1;
+function showSource(node: ModuleNode, { rows, tooLarge }: Loaded): void {
+  const numbered = rows.flatMap((row) => (row.line === undefined ? [] : [row.line]));
   panelTitle.textContent = isCodeNode(node) ? `${node.level} ${node.qualifiedName}` : `file ${node.path}`;
   panelFacts.textContent = isCodeNode(node)
     ? `${node.path} · lines ${node.range.start}-${node.range.end}`
-    : text === ""
+    : numbered.length === 0
       ? `${node.path} · empty`
-      : `lines ${first}-${last}`;
-  panelGutter.textContent = lines.map((_, index) => first + index).join("\n");
-  panelCode.textContent = text;
-  panelBody.scrollTop = panelBody.scrollLeft = 0;
-  panelMark.hidden = true;
+      : `lines ${numbered[0]}-${numbered.at(-1)}`;
+  const note = changeNote(rows, tooLarge);
+  if (note !== undefined) {
+    const small = document.createElement("span");
+    small.className = "changed-note";
+    small.textContent = note;
+    panelFacts.append(" · ", small);
+  }
+  drawn = drawRows(sourceParts, rows);
   outlinePane.hidden = true;
   panel.hidden = false;
 }
@@ -310,7 +315,7 @@ function showOutline(node: ModuleNode, lines: readonly PseudoLine[]): void {
     row.append(at, text);
     row.addEventListener("click", () => {
       for (const other of outlinePane.children) other.classList.toggle("on", other === row);
-      markLines(node, line.range);
+      markLines(line.range);
     });
     if (line.node !== undefined) {
       const open = document.createElement("button");
@@ -354,7 +359,7 @@ async function narrateFunction(node: ModuleNode, fresh: boolean): Promise<void> 
     pick(sentence: { from: number; to: number; range: LineRange }, row: HTMLElement) {
       for (const other of narrationPane.children) other.classList.toggle("on", other === row);
       outlinePane.querySelectorAll(".outline-line").forEach((line, index) => line.classList.toggle("on", index >= sentence.from && index <= sentence.to));
-      markLines(node, sentence.range);
+      markLines(sentence.range);
     },
   };
   renderNarration(narrationPane, { state: "loading" }, actions);
@@ -372,22 +377,20 @@ async function narrateFunction(node: ModuleNode, fresh: boolean): Promise<void> 
 /** Selects `node`, showing its source and outlining `outline` on the picture. */
 async function select(node: ModuleNode, ticket: number, outline: NodeId = node.id, marked?: LineRange): Promise<void> {
   if (node.id === selected) {
-    markLines(node, marked);
+    markLines(marked);
     return;
   }
-  const response = await fetch(`/source?id=${encodeURIComponent(node.id)}`);
+  const loaded = await loadRows(node.id, isCodeNode(node) ? node.range.start : 1);
   if (ticket !== requested) return;
-  if (!response.ok) return closePanel();
-  const text = await response.text();
-  if (ticket !== requested) return;
+  if (loaded === undefined) return closePanel();
   const outlined = node.level === "function" ? await fetch(`/pseudocode?id=${encodeURIComponent(node.id)}`) : undefined;
   const pseudo = outlined?.ok ? ((await outlined.json()) as { lines: PseudoLine[] }).lines : [];
   if (ticket !== requested) return;
   selected = node.id;
-  showSource(node, text);
+  showSource(node, loaded);
   showOutline(node, pseudo);
   offerNarration(node);
-  markLines(node, marked);
+  markLines(marked);
   chosenKind = undefined;
   view.select(outline, isCodeNode(node) ? reachOf(reaches, node.id) : undefined);
 }
@@ -503,12 +506,12 @@ if (comparison !== null) {
     observed: (stop) => observedAt(stop, picture.graph, comparison, observed, testChanges),
     describe(id) {
       const node = nodes.get(id) ?? changed.get(id);
-      if (node === undefined) return { label: id, first: 1 };
-      return isCodeNode(node) ? { label: `${node.qualifiedName} in ${node.path}`, first: node.range.start } : { label: node.path, first: 1 };
+      if (node === undefined) return { label: id };
+      return isCodeNode(node) ? { label: `${node.qualifiedName} in ${node.path}` } : { label: node.path };
     },
-    async source(id) {
-      const response = await fetch(`/source?id=${encodeURIComponent(id)}`);
-      return response.ok ? response.text() : undefined;
+    rows(id) {
+      const node = nodes.get(id) ?? changed.get(id);
+      return loadRows(id, node !== undefined && isCodeNode(node) ? node.range.start : 1);
     },
     visit: visitStop,
   });

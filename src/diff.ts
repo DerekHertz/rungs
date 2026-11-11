@@ -249,3 +249,24 @@ export function changeCounts(rows: readonly Row[]): { added: number; removed: nu
   }
   return { added, removed };
 }
+
+/** Unchanged rows for text served without a diff, its first line numbered `first`. */
+export function rowsFromText(text: string, first: number): Row[] {
+  return splitLines(text).map((line, index) => ({ kind: "same", line: first + index, text: line }));
+}
+
+/**
+ * The index of the first added or removed row inside the head lines `range` (the first change
+ * anywhere without one). A removed row counts as the line it sits before.
+ */
+export function firstChange(rows: readonly Row[], range?: LineRange): number | undefined {
+  let next = Infinity;
+  const before: number[] = new Array<number>(rows.length);
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i]!;
+    if (row.line !== undefined) next = row.line;
+    before[i] = next;
+  }
+  const index = rows.findIndex((row, i) => row.kind !== "same" && (range === undefined || (before[i]! >= range.start && before[i]! <= range.end)));
+  return index === -1 ? undefined : index;
+}
