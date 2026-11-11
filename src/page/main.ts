@@ -9,6 +9,7 @@ import { contractsReport, dependencyReview, effectsChangedRows, newEffects, unme
 import type { EffectRow, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
+import type { CameraState } from "./town-view.ts";
 import type { TownHandlers } from "./town-view.ts";
 import { townOf, withGhosts } from "../town.ts";
 import { callsOut } from "../town-calls.ts";
@@ -131,6 +132,7 @@ const handlers: TownHandlers = {
   },
   click(id, clicks) {
     if (clicks > 1) return;
+    endTour();
     cancelPending();
     const ticket = requested;
     pendingClick = setTimeout(() => {
@@ -611,6 +613,7 @@ async function narrateFunction(node: ModuleNode, fresh: boolean): Promise<void> 
 
 /** Selects `node`, showing its source and outlining `outline` on the picture. */
 async function select(node: ModuleNode, ticket: number, outline: NodeId = node.id, marked?: LineRange): Promise<void> {
+  endTour();
   if (node.id === selected) {
     markLines(marked);
     return;
@@ -639,6 +642,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
 
 /** An entry of the review panel: fly to its district, and select the file or code it names. */
 function pickEntry(entry: ReviewEntry): void {
+  endTour();
   if (entry.level === "district") {
     leaveInside();
     cancelPending();
@@ -656,6 +660,7 @@ function pickEntry(entry: ReviewEntry): void {
 
 /** A node by id, a ghost or a module removed from a surviving file included: fly to its file, select it. */
 function pickNode(id: NodeId, marked?: LineRange, also: readonly NodeId[] = []): void {
+  endTour();
   cancelPending();
   const node = nodes.get(id) ?? changed.get(id);
   if (node === undefined) return;
@@ -691,6 +696,7 @@ function placeOf(id: string): NodeId | undefined {
 
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
 function pickClaim(claim: ClaimRow): void {
+  endTour();
   if (claim.ids.length === 0) {
     // No places: nothing stays lit from the claim before.
     leaveInside();
@@ -705,6 +711,7 @@ function pickClaim(claim: ClaimRow): void {
 
 /** Outline the files of `ids` and fly to the district holding them all. */
 function pickPlaces(ids: readonly string[]): void {
+  endTour();
   leaveInside();
   cancelPending();
   closePanel();
@@ -718,6 +725,7 @@ function pickPlaces(ids: readonly string[]): void {
 
 /** What the reviewer had selected by hand before the tour: the open file or the outlined places, where the camera was, and the sidebar. */
 interface Manual {
+  readonly camera: CameraState;
   readonly selected: NodeId | undefined;
   readonly places: readonly NodeId[] | undefined;
   readonly focus: NodeId;
@@ -725,6 +733,19 @@ interface Manual {
   readonly review: ReviewSnapshot | undefined;
 }
 let manual: SavedSelection<Manual>;
+
+/** The reviewer picked something while the tour was open: the tour closes and that pick stands, with nothing to restore. */
+function endTour(): void {
+  if (manual === undefined) return;
+  manual = undefined;
+  walk?.end();
+}
+
+/** Clear the outline a claim, risk or stop put on the town. */
+function clearOutline(): void {
+  shownPlaces = undefined;
+  townView.highlight([]);
+}
 let reviewHandle: ReviewHandle | undefined;
 let risks: readonly RiskItem[] = [];
 
@@ -734,11 +755,15 @@ function restoreManual(saved: Manual): void {
   else if (saved.places !== undefined) pickPlaces(saved.places);
   else {
     closePanel();
-    townView.highlight([]);
-    focusOn(saved.focus, saved.alone ? [] : undefined);
+    clearOutline();
   }
   // pickPlaces and pickNode do not touch the sidebar, so it comes back from its own snapshot.
   if (saved.review !== undefined) reviewHandle?.restore(saved.review);
+  // The camera goes back last, as it was, however the picks above sent it.
+  focus = saved.focus;
+  alone = saved.alone;
+  showTrail();
+  townView.setCameraState(saved.camera);
 }
 
 /** A stop of the walkthrough: outline its nodes' files and fly to the district holding them all. Closing the tour clears the outline. */
@@ -749,20 +774,20 @@ function visitStop(stop: Stop | undefined): void {
     leaveInside();
     cancelPending();
     closePanel();
-    townView.highlight([]);
+    clearOutline();
     if (left.restore !== undefined) restoreManual(left.restore.value);
     return;
   }
-  manual = enterStop(manual, () => ({ selected, places: shownPlaces, focus, alone, review: reviewHandle?.snapshot() }));
+  manual = enterStop(manual, () => ({ camera: townView.cameraState(), selected, places: selected === undefined && townView.isDimming() ? shownPlaces : undefined, focus, alone, review: reviewHandle?.snapshot() }));
   leaveInside();
   cancelPending();
   closePanel();
   const places = [...new Set(stop.ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
-  const paths = stop.ids.flatMap((id) => {
+  const held = stop.ids.flatMap((id) => {
     const node = nodes.get(id) ?? changed.get(id);
-    return node === undefined ? [] : [node.path];
+    return node === undefined ? [] : [{ id, path: node.path, level: node.level }];
   });
-  const row = stopRow(stop.ids, paths, risks);
+  const row = stopRow(held, risks);
   reviewHandle?.selectRisk(row === undefined ? undefined : risks[row]);
   townView.highlight(places);
   const district = commonDistrict(tree, places);
@@ -778,7 +803,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     cancelPending();
     if (insideFile !== undefined) leaveInside();
-    else if (selected === undefined && townView.isDimming()) townView.highlight([]);
+    else if (selected === undefined && townView.isDimming()) clearOutline();
     else if (selected !== undefined) closePanel();
     else {
       const to = escapeStep(focus, alone, townRoot, (id) => zoomOut(tree, id));

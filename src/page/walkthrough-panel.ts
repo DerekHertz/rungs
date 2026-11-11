@@ -29,6 +29,8 @@ export interface WalkInput {
 export interface Walk {
   /** One stop forward or back. Forward starts a tour that is closed. */
   step(by: 1 | -1): void;
+  /** Close the tour without telling the host: the reviewer picked something else, and that pick stands. */
+  end(): void;
 }
 
 const where = (range: LineRange): string => (range.start === range.end ? `line ${range.start}` : `lines ${range.start}-${range.end}`);
@@ -272,5 +274,12 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
   next.addEventListener("click", () => go(index + 1));
   close.addEventListener("click", () => go(-1));
   draw();
-  return { step: (by) => go(Math.max(index + by, index === -1 ? -1 : 0)) };
+  return {
+    step: (by) => go(Math.max(index + by, index === -1 ? -1 : 0)),
+    end() {
+      if (index === -1) return;
+      index = -1;
+      draw();
+    },
+  };
 }

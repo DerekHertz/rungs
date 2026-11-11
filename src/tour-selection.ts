@@ -17,15 +17,23 @@ export interface RowKey {
   readonly path: string;
 }
 
+/** A node a stop holds: a file, or a block (class, function) inside one. */
+export interface StopNode {
+  readonly id: string;
+  readonly path: string;
+  readonly level: string;
+}
+
 /**
- * The row a stop selects: the first naming one of the stop's node ids, else the first about one of
- * its files. Undefined when none matches, and the sidebar then shows no selection.
+ * The row a stop selects: the first naming one of the stop's node ids, else, for a stop's file node
+ * only, the first about that file. A block never falls back to its file: another block's risk in
+ * the same file is not this stop's. Undefined when none matches, and the sidebar then shows nothing.
  */
-export function stopRow(stopIds: readonly string[], stopPaths: readonly string[], rows: readonly RowKey[]): number | undefined {
-  const ids = new Set(stopIds);
+export function stopRow(stop: readonly StopNode[], rows: readonly RowKey[]): number | undefined {
+  const ids = new Set(stop.map((node) => node.id));
   const byId = rows.findIndex((row) => row.ids.some((id) => ids.has(id)));
   if (byId !== -1) return byId;
-  const paths = new Set(stopPaths);
+  const paths = new Set(stop.filter((node) => node.level === "file").map((node) => node.path));
   const byFile = rows.findIndex((row) => paths.has(row.path));
   return byFile === -1 ? undefined : byFile;
 }

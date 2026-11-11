@@ -7,17 +7,24 @@ const rows = [
   { ids: ["fn:src/b.ts#beta"], path: "src/b.ts" },
 ];
 
+const fn = (id: string, path: string) => ({ id, path, level: "function" });
+const file = (path: string) => ({ id: `file:${path}`, path, level: "file" });
+
 test("a stop selects the row naming one of its node ids", () => {
-  expect(stopRow(["fn:src/b.ts#beta"], ["src/b.ts"], rows)).toBe(2);
+  expect(stopRow([fn("fn:src/b.ts#beta", "src/b.ts")], rows)).toBe(2);
 });
 
-test("with no id match, a stop selects the first row about one of its files", () => {
-  expect(stopRow(["fn:src/other.ts#x"], ["src/b.ts"], rows)).toBe(1);
+test("a stop at a file node with no id match selects the first row about that file", () => {
+  expect(stopRow([file("src/b.ts")], [{ ids: ["fn:src/b.ts#beta"], path: "src/b.ts" }])).toBe(0);
+});
+
+test("a stop at a block does not take another block's risk in the same file", () => {
+  expect(stopRow([fn("fn:src/a.ts#beta", "src/a.ts")], rows)).toBeUndefined();
 });
 
 test("a stop with no row for its ids or files selects nothing", () => {
-  expect(stopRow(["fn:src/c.ts#c"], ["src/c.ts"], rows)).toBeUndefined();
-  expect(stopRow([], [], rows)).toBeUndefined();
+  expect(stopRow([file("src/c.ts")], rows)).toBeUndefined();
+  expect(stopRow([], rows)).toBeUndefined();
 });
 
 test("the manual selection is saved at the first stop only, and restored once on close", () => {
