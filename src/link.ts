@@ -229,6 +229,55 @@ export function cacheDirectory(env: Record<string, string | undefined>, home: st
 /** Hashes exactly what the agent is sent, so any difference in the prompt is a different key. */
 const keyOf = (prompt: { system: string; user: string }): string => createHash("sha256").update(JSON.stringify([prompt.system, prompt.user])).digest("hex");
 
+/** One question for an agent: the exact prompt, the schema, and how to check the answer. */
+export interface Ask<T> {
+  readonly prompt: { readonly system: string; readonly user: string };
+  readonly schema: object;
+  readonly promptVersion: string;
+  /** Throws unless the answer has the schema's shape; returns what is kept of it. */
+  readonly check: (output: unknown) => T;
+  /** Whether a cache entry still has the shape `check` returns. */
+  readonly usable: (saved: T) => boolean;
+  readonly runner: AgentRunner;
+  readonly cacheDir: string;
+  /** Ask the agent again even when the cache holds an answer. */
+  readonly fresh: boolean;
+  readonly timeoutMs: number;
+}
+
+export type Asked<T> =
+  | ({ readonly status: "ok" } & T & { readonly model: string; readonly promptVersion: string; readonly cached: boolean })
+  | { readonly status: "failed"; readonly message: string };
+
+/**
+ * Asks an agent, reusing a cached answer for the same prompt and prompt version. The cache is
+ * one plain JSON file per prompt. A failure is returned, not thrown, and is never cached.
+ */
+export async function askCached<T extends object>(ask: Ask<T>): Promise<Asked<T>> {
+  const file = join(ask.cacheDir, `${keyOf(ask.prompt)}.json`);
+  if (!ask.fresh) {
+    try {
+      const saved = JSON.parse(await readFile(file, "utf8")) as T & { model: string; promptVersion: string };
+      if (saved.promptVersion === ask.promptVersion && ask.usable(saved)) return { status: "ok", ...saved, cached: true };
+    } catch {
+      // No usable cache entry: ask the agent.
+    }
+  }
+  try {
+    const { output, model } = await ask.runner.run({ system: ask.prompt.system, prompt: ask.prompt.user, schema: ask.schema, timeoutMs: ask.timeoutMs });
+    const answer = { ...ask.check(output), model, promptVersion: ask.promptVersion };
+    try {
+      await mkdir(ask.cacheDir, { recursive: true });
+      await writeFile(file, `${JSON.stringify(answer, null, 2)}\n`);
+    } catch {
+      // An unwritable cache costs a call next time, nothing more.
+    }
+    return { status: "ok", ...answer, cached: false };
+  } catch (error) {
+    return { status: "failed", message: oneLine((error as Error).message) };
+  }
+}
+
 export interface LinkRequest {
   readonly claims: readonly Claim[];
   readonly candidates: readonly Candidate[];
@@ -239,37 +288,19 @@ export interface LinkRequest {
   readonly timeoutMs: number;
 }
 
-/**
- * Links claims to changed modules through an agent, reusing a cached answer for the same prompt
- * version, claims and candidate ids. A failure is returned, not thrown, and is never cached.
- */
-export async function linkClaims(request: LinkRequest): Promise<LinkOutcome> {
+/** Links claims to changed modules through an agent, cached by the prompt: its version, the claims and the candidate lines. */
+export function linkClaims(request: LinkRequest): Promise<LinkOutcome> {
   const { claims, candidates, runner, cacheDir, relink, timeoutMs } = request;
-  const prompt = promptFor(claims, candidates);
-  const file = join(cacheDir, `${keyOf(prompt)}.json`);
   const known = new Map(candidates.map((candidate) => [candidate.id, candidate.files] as const));
-  if (!relink) {
-    try {
-      const saved = JSON.parse(await readFile(file, "utf8")) as Links;
-      if (saved.promptVersion === PROMPT_VERSION && Array.isArray(saved.byClaim) && saved.byClaim.length === claims.length) {
-        return { status: "ok", byClaim: saved.byClaim, dropped: saved.dropped, model: saved.model, promptVersion: saved.promptVersion, cached: true };
-      }
-    } catch {
-      // No usable cache entry: ask the agent.
-    }
-  }
-  try {
-    const { output, model } = await runner.run({ system: prompt.system, prompt: prompt.user, schema: SCHEMA, timeoutMs });
-    const checked = validate(output, claims.length, known);
-    const links: Links = { ...checked, model, promptVersion: PROMPT_VERSION, cached: false };
-    try {
-      await mkdir(cacheDir, { recursive: true });
-      await writeFile(file, `${JSON.stringify({ ...links, cached: undefined }, null, 2)}\n`);
-    } catch {
-      // An unwritable cache costs a call next time, nothing more.
-    }
-    return { status: "ok", ...links };
-  } catch (error) {
-    return { status: "failed", message: oneLine((error as Error).message) };
-  }
+  return askCached<Validated>({
+    prompt: promptFor(claims, candidates),
+    schema: SCHEMA,
+    promptVersion: PROMPT_VERSION,
+    check: (output) => validate(output, claims.length, known),
+    usable: (saved) => Array.isArray(saved.byClaim) && saved.byClaim.length === claims.length,
+    runner,
+    cacheDir,
+    fresh: relink,
+    timeoutMs,
+  });
 }

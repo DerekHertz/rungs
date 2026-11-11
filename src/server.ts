@@ -14,6 +14,7 @@ import { pseudocode } from "./pseudocode.ts";
 import { splitClaims } from "./claims.ts";
 import type { Claim } from "./claims.ts";
 import type { LinkOutcome } from "./link.ts";
+import type { TourOutcome } from "./walkthrough.ts";
 
 /** What the checkout is compared against: the merge base's tree and commit, and the ref the user wrote. */
 export interface Against extends Base {
@@ -50,7 +51,9 @@ interface Resource {
  * comparison; `description` is null in them when none was given. The description is split into
  * claims by rules, and `link`, when given, is asked once for the agent's links from each claim to
  * the modules it describes; they are served beside the claims as claimed facts, and a failure is
- * served as a failure with no links.
+ * served as a failure with no links. `GET /walkthrough.json` is the tour `walk` returns, asked once
+ * and at the same time as the links: claimed too, in its own resource, with no stops when it
+ * failed or was not asked for.
  */
 export async function serve(
   given: FileTree,
@@ -58,6 +61,7 @@ export async function serve(
   base?: Against,
   description?: string,
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
+  walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
@@ -82,7 +86,13 @@ export async function serve(
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
     const claims = splitClaims(description ?? "");
-    const outcome: LinkOutcome = link === undefined || claims.length === 0 ? { status: "off" } : await link(comparison, claims, graph);
+    const [outcome, tour] = await Promise.all([
+      link === undefined || claims.length === 0 ? ({ status: "off" } satisfies LinkOutcome) : link(comparison, claims, graph),
+      walk === undefined ? ({ status: "off" } satisfies TourOutcome) : walk(comparison, claims, graph),
+    ]);
+    const { stops, ...made } = tour.status === "ok" ? tour : { stops: [], ...tour };
+    const walkthrough = `${JSON.stringify({ tier: "claimed", walkthrough: made, stops }, null, 2)}\n`;
+    resources.set("/walkthrough.json", { contentType: "application/json; charset=utf-8", body: walkthrough });
     const { status, ...rest } = outcome;
     const how =
       outcome.status === "ok"
