@@ -195,7 +195,7 @@ function mentionRules(comparison: Comparison, description: string) {
     },
     /** A section is covered by its own heading or an enclosing one. */
     sectionCovered: (section: SectionChange): boolean =>
-      [...section.ancestors, section.name.replace(/ \(\d+\)$/, "")].some((heading) => headingAppears(description, heading)),
+      [...section.ancestorHeadings, section.heading].some((heading) => headingAppears(description, heading)),
   };
 }
 

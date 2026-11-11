@@ -96,6 +96,8 @@ export interface SectionNode {
   readonly path: string;
   /** The heading's text as written, without its hashes; "(2)" follows a repeat among siblings. For display only. */
   readonly name: string;
+  /** The heading's text as written, never with a repeat's "(2)": what a description is matched against. */
+  readonly heading: string;
   /** The enclosing section, or the file for a top-level one. */
   readonly parent: NodeId;
   /** 1 to 6: the number of hashes. */
@@ -116,6 +118,7 @@ export function canonicalSection(node: SectionNode): object {
     level: node.level,
     path: node.path,
     name: node.name,
+    heading: node.heading,
     parent: node.parent,
     headingLevel: node.headingLevel,
     qualifiedName: node.qualifiedName,

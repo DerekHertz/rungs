@@ -115,3 +115,33 @@ test("a section's changed lines never make a mentioned-by-path file unmentioned,
   expect(unmentionedSummary({ files: 1, sections: 3, calls: 0 })).toBe("1 file · 3 sections");
   expect(unmentionedSummary({ files: 0, sections: 0, calls: 0 })).toBe("nothing");
 });
+
+test("a fence inside a list item or a block quote hides the headings in it", () => {
+  const text = "# Public\n\n- ~~~\n  # Example\n  ~~~\n\n> ```\n> # Quoted\n> ```\n\n1. ```js\n   # Numbered\n   ```\n\n# Private\nold\n";
+  expect(markdownSections(text).map((heading) => heading.text)).toEqual(["Public", "Private"]);
+  expect(markdownSections("- item\n\n```\n# in\n```\n# After\n").map((heading) => heading.text)).toEqual(["After"]);
+});
+
+test("lines before the first heading, and files with no heading, are a section only the file path covers", () => {
+  const { comparison, graph } = compared({ "a.md": "intro\n# A\nx\n", "b.md": "plain\n" }, { "a.md": "intro 2\n# A\nx\n", "b.md": "plain 2\n" });
+  expect(comparison.sections.map((s) => [s.path, s.name, s.plus, s.minus])).toEqual([
+    ["a.md", "(before the first heading)", 1, 1],
+    ["b.md", "(before the first heading)", 1, 1],
+  ]);
+  expect(unmentioned(comparison, graph, "Edits the before the first heading text.").entries.map((entry) => entry.label)).toEqual(["a.md", "b.md"]);
+  expect(unmentioned(comparison, graph, "Edits a.md.").entries.map((entry) => entry.label)).toEqual(["b.md"]);
+});
+
+test("display suffixes never change what a heading covers", () => {
+  const release = compared({ "a.md": "# Release (2)\nx\n" }, { "a.md": "# Release (2)\ny\n" });
+  expect(unmentioned(release.comparison, release.graph, "Release").entries[0]!.children).toHaveLength(1);
+  expect(unmentioned(release.comparison, release.graph, "Release (2)").entries[0]!.children).toEqual([]);
+  const twin = compared({ "a.md": "# First\n# First\n## Child\nx\n" }, { "a.md": "# First\n# First\n## Child\ny\n" });
+  expect(unmentioned(twin.comparison, twin.graph, "First").entries[0]!.children).toEqual([]);
+});
+
+test("a diff too large to search never marks an unchanged section as changed", () => {
+  const run = (word: string): string => `${word}\n`.repeat(1100);
+  const { comparison } = compared({ "a.md": `# A\n${run("x")}${run("y")}# B\nsame\n` }, { "a.md": `# A\n${run("y")}${run("x")}# B\nsame\n` });
+  expect(comparison.sections.map((s) => [s.name, s.plus, s.minus])).toEqual([["A", 2200, 2200]]);
+});

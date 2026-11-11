@@ -139,6 +139,7 @@ function sectionNodes(path: string, text: string): SectionNode[] {
       level: "section",
       path,
       name: ordinal > 1 ? `${heading.text} (${ordinal})` : heading.text,
+      heading: heading.text,
       parent: parent?.id ?? nodeId("file", path, ""),
       headingLevel: heading.level,
       qualifiedName: name,

@@ -1,7 +1,7 @@
 import { diffText } from "./diff.ts";
 import { compareIds, nodeId } from "./graph.ts";
 import type { FileTree, Graph, LineRange, NodeId, SectionNode } from "./graph.ts";
-import { countLines } from "./lines.ts";
+import { countLines, splitLines } from "./lines.ts";
 
 export type SectionChangeKind = "added" | "removed" | "altered";
 
@@ -11,12 +11,16 @@ export interface SectionChange {
   readonly id: NodeId;
   /** The file's path in the head; in the base for a file the change removed. */
   readonly path: string;
-  /** The heading's text, "(2)" after a repeat among siblings. */
+  /** For display: the heading's text, "(2)" after a repeat among siblings. */
   readonly name: string;
+  /** The heading's text as written, what a description is matched against; "" for the lines before the first heading. */
+  readonly heading: string;
   readonly qualifiedName: string;
   readonly headingLevel: number;
-  /** The headings of the enclosing sections, outermost first. */
+  /** The display names of the enclosing sections, outermost first. */
   readonly ancestors: readonly string[];
+  /** Their headings as written. */
+  readonly ancestorHeadings: readonly string[];
   /** "added" when the head has the section and the base does not, "removed" the other way round. */
   readonly kind: SectionChangeKind;
   /** The section's lines in the head; in the base for a removed one. */
@@ -30,6 +34,17 @@ export interface SectionChange {
 export interface FilePair {
   readonly basePath: string | undefined;
   readonly headPath: string | undefined;
+}
+
+/** The name of the lines before a file's first heading, or all of a file with no heading. Never a qualified name a heading can have. */
+export const PREAMBLE = "(before the first heading)";
+
+/** The sections of one side of one file, the lines before the first heading standing as one of their own. */
+function sectionsOf(sections: readonly SectionNode[], path: string, text: string): SectionNode[] {
+  const end = (sections[0]?.range.start ?? countLines(text) + 1) - 1;
+  if (end < 1) return [...sections];
+  const preamble: SectionNode = { id: nodeId("section", path, PREAMBLE), level: "section", path, name: PREAMBLE, heading: "", parent: nodeId("file", path, ""), headingLevel: 0, qualifiedName: PREAMBLE, range: { start: 1, end } };
+  return [preamble, ...sections];
 }
 
 const byPath = (graph: Graph): Map<string, SectionNode[]> => {
@@ -52,9 +67,9 @@ function holding(sections: readonly SectionNode[], line: number): SectionNode | 
 /**
  * The sections whose lines changed in each Markdown file of `pairs`, by a line diff of the two
  * texts. Each added line counts in the head section that holds it, each removed line in the base
- * section that holds it; a section is the same on both sides when its qualified name is. A line
- * before a file's first heading is in no section. When the texts are too large to diff, every
- * base line counts as removed and every head line as added.
+ * section that holds it; a section is the same on both sides when its qualified name is. The
+ * lines before a file's first heading, or a file with no heading, are a section named PREAMBLE.
+ * When the texts are too large to diff, see the fallback below.
  */
 export function diffSections(base: Graph, head: Graph, pairs: readonly FilePair[], trees: { readonly base: FileTree; readonly head: FileTree }): SectionChange[] {
   const baseBy = byPath(base);
@@ -63,9 +78,8 @@ export function diffSections(base: Graph, head: Graph, pairs: readonly FilePair[
   for (const { basePath, headPath } of pairs) {
     const baseText = basePath === undefined ? "" : (trees.base.get(basePath) ?? "");
     const headText = headPath === undefined ? "" : (trees.head.get(headPath) ?? "");
-    const baseSections = basePath === undefined ? [] : (baseBy.get(basePath) ?? []);
-    const headSections = headPath === undefined ? [] : (headBy.get(headPath) ?? []);
-    if (baseSections.length === 0 && headSections.length === 0) continue;
+    const baseSections = basePath === undefined ? [] : sectionsOf(baseBy.get(basePath) ?? [], basePath, baseText);
+    const headSections = headPath === undefined ? [] : sectionsOf(headBy.get(headPath) ?? [], headPath, headText);
     const counts = new Map<string, { plus: number; minus: number }>();
     const count = (section: SectionNode | undefined, which: "plus" | "minus"): void => {
       if (section === undefined) return;
@@ -75,8 +89,22 @@ export function diffSections(base: Graph, head: Graph, pairs: readonly FilePair[
     };
     const ops = diffText(baseText, headText);
     if (ops === undefined) {
-      for (let line = 1; line <= countLines(baseText); line++) count(holding(baseSections, line), "minus");
-      for (let line = 1; line <= countLines(headText); line++) count(holding(headSections, line), "plus");
+      // Too large to diff: what the two sides share at their start and end is unchanged, and the
+      // middle between is credited to the sections it overlaps. A section whose own text is the
+      // same on both sides is never changed, whatever the middle overlaps.
+      const a = splitLines(baseText);
+      const b = splitLines(headText);
+      let top = 0;
+      while (top < a.length && top < b.length && a[top] === b[top]) top++;
+      let bottom = 0;
+      while (bottom < a.length - top && bottom < b.length - top && a[a.length - 1 - bottom] === b[b.length - 1 - bottom]) bottom++;
+      for (let line = top + 1; line <= a.length - bottom; line++) count(holding(baseSections, line), "minus");
+      for (let line = top + 1; line <= b.length - bottom; line++) count(holding(headSections, line), "plus");
+      const headBy = new Map(headSections.map((section) => [section.qualifiedName, section]));
+      for (const section of baseSections) {
+        const other = headBy.get(section.qualifiedName);
+        if (other !== undefined && a.slice(section.range.start - 1, section.range.end).join("\n") === b.slice(other.range.start - 1, other.range.end).join("\n")) counts.delete(section.qualifiedName);
+      }
     } else {
       for (const op of ops) {
         if (op.kind === "added") count(holding(headSections, op.head), "plus");
@@ -88,6 +116,11 @@ export function diffSections(base: Graph, head: Graph, pairs: readonly FilePair[
     const ancestorsOf = (section: SectionNode, within: ReadonlyMap<NodeId, SectionNode>): string[] => {
       const names: string[] = [];
       for (let parent = within.get(section.parent); parent !== undefined; parent = within.get(parent.parent)) names.unshift(parent.name);
+      return names;
+    };
+    const headingsOf = (section: SectionNode, within: ReadonlyMap<NodeId, SectionNode>): string[] => {
+      const names: string[] = [];
+      for (let parent = within.get(section.parent); parent !== undefined; parent = within.get(parent.parent)) names.unshift(parent.heading);
       return names;
     };
     const side = (sections: readonly SectionNode[]): Map<NodeId, SectionNode> => new Map(sections.map((section) => [section.id, section]));
@@ -102,9 +135,11 @@ export function diffSections(base: Graph, head: Graph, pairs: readonly FilePair[
         id: inHead === undefined ? nodeId("section", path, name) : inHead.id,
         path,
         name: section.name,
+        heading: section.heading,
         qualifiedName: name,
         headingLevel: section.headingLevel,
         ancestors: ancestorsOf(section, inHead === undefined ? baseIds : headIds),
+        ancestorHeadings: headingsOf(section, inHead === undefined ? baseIds : headIds),
         kind: inBase === undefined ? "added" : inHead === undefined ? "removed" : "altered",
         range: section.range,
         plus,
