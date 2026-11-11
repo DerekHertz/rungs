@@ -14,6 +14,11 @@ export function lineStarts(text: string): number[] {
   return starts;
 }
 
+/** A file is binary when a NUL turns up in its first 8000 characters, the test git uses. */
+export function isBinary(text: string): boolean {
+  return text.slice(0, 8000).includes("\0");
+}
+
 export function countLines(text: string): number {
   return lineStarts(text).length;
 }

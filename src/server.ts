@@ -11,7 +11,7 @@ import { canonicalEdge, isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { changeCounts, diffText, rowsInRange } from "./diff.ts";
 import type { LineOp } from "./diff.ts";
-import { sliceLines } from "./lines.ts";
+import { isBinary, sliceLines } from "./lines.ts";
 import { waysIn } from "./ways-in.ts";
 import { isStale } from "./narration.ts";
 import type { NarratedDoc, Narration } from "./narration.ts";
@@ -219,6 +219,7 @@ export async function serve(
     const from = ghost === undefined ? tree : baseTree;
     const text = node.level === "package" || node.level === "folder" ? undefined : from?.get(node.path);
     if (text === undefined) return undefined;
+    if (isBinary(text)) return "binary file";
     return isCodeNode(node) ? sliceLines(text, node.range) : text;
   }
 
@@ -232,7 +233,7 @@ export async function serve(
     if (node === undefined || baseTree === undefined) return undefined;
     if (node.level === "package" || node.level === "folder" || kindOf.get(node.id) === "moved") return undefined;
     const text = tree.get(node.path);
-    if (text === undefined) return undefined;
+    if (text === undefined || isBinary(text)) return undefined;
     if (!opsByPath.has(node.path)) {
       try {
         opsByPath.set(node.path, diffText(baseTree.get(node.path) ?? "", text));

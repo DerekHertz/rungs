@@ -287,4 +287,12 @@ test("callbacks inside a removed callback fold into the surviving function, not 
   expect(labels(none.entries[0]!.children)).toEqual(["setup"]);
   expect(holder.folded).toHaveLength(2);
   expect((none.entries[0] as { folded?: unknown[] }).folded).toBeUndefined();
+
+test("a binary file has no line count, and rows are not ordered by one", () => {
+  const png = "\u0089PNG\0\n\n\n\n\n\n\n\n";
+  const result = review({ "a.ts": fn("a") }, { "a.ts": fn("a"), "img/x.png": png, "y.ts": "one\n" }, "nothing");
+  const all = [...result.entries, ...result.linkedEntries];
+  const byLabel = new Map(all.flatMap((entry) => [entry, ...entry.children]).map((entry) => [entry.label, entry]));
+  expect(byLabel.get("img/x.png")?.lines).toBeNull();
+  expect(byLabel.get("y.ts")?.lines).toBe(1);
 });

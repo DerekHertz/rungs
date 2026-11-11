@@ -37,7 +37,8 @@ interface EntryBase {
   readonly id: NodeId;
   /** A path for a file or district, the qualified name for a class or function. */
   readonly label: string;
-  readonly lines: number;
+  /** Null for a binary file, which has bytes and no lines. */
+  readonly lines: number | null;
   readonly children: readonly ReviewEntry[];
 }
 
@@ -128,8 +129,8 @@ const pathsOf = (change: ModuleChange): string[] =>
 const baseName = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 const directoryOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf("/")));
 
-function sizeOf(node: ModuleNode): number {
-  return lineCount(node);
+function sizeOf(node: ModuleNode): number | null {
+  return node.level === "file" && node.lines === null ? null : lineCount(node);
 }
 
 function bySeverity(a: ReviewEntry, b: ReviewEntry): number {
@@ -137,7 +138,7 @@ function bySeverity(a: ReviewEntry, b: ReviewEntry): number {
     entry.level === "district"
       ? Math.min(...(["removed", "altered", "added", "moved"] as const).filter((kind) => entry.kinds[kind] > 0).map((kind) => URGENCY[kind]))
       : URGENCY[entry.change];
-  return rank(a) - rank(b) || b.lines - a.lines || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
+  return rank(a) - rank(b) || (b.lines ?? 0) - (a.lines ?? 0) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
 }
 
 /**
@@ -292,7 +293,7 @@ export function unmentioned(
         label: top,
         files: inside.length,
         kinds,
-        lines: inside.reduce((sum, entry) => sum + entry.lines, 0),
+        lines: inside.reduce((sum, entry) => sum + (entry.lines ?? 0), 0),
         children: inside,
       };
       districts.set(top, district);

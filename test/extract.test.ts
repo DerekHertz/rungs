@@ -431,3 +431,13 @@ test("extraction stays fast on a 300-file tree", () => {
   expect(graph.edges).toHaveLength(300 * 30);
   expect(seconds).toBeLessThan(4);
 });
+
+describe("a binary file", () => {
+  const graph = extract(new Map([["a.ts", "one\ntwo\n"], ["img/x.png", "\u0089PNG\r\n\u001a\n\0\0\0\nIHDR\n"]]));
+  test("has no line count and adds none to its folders", () => {
+    const file = graph.nodes.find((node) => node.level === "file" && node.path === "img/x.png");
+    expect(file).toMatchObject({ lines: null });
+    expect(graph.nodes.find((node) => node.path === "img" && node.level !== "file")).toMatchObject({ lines: 0 });
+    expect(graph.nodes.find((node) => node.path === "" && node.level !== "file")).toMatchObject({ lines: 2 });
+  });
+});

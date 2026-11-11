@@ -62,7 +62,7 @@ export function placesOf(comparison: Comparison, graph: Graph): Place[] {
   for (const change of files) {
     const file = change.node;
     if (file.level !== "file") continue;
-    const range = { start: 1, end: Math.max(1, file.lines) };
+    const range = { start: 1, end: Math.max(1, file.lines ?? 0) };
     const code = file.role === "tests" || file.role === "docs" ? [] : (codeBy.get(file.path) ?? []);
     out.push({ id: file.id, range, line: [`${change.kind} ${file.id} [${file.role ?? "no role"}] ${lines(range)}`, ...(effectsAt.get(file.id) ?? [])].join("\n") });
     for (const { change: inner, node } of [...code].sort((a, b) => a.node.range.start - b.node.range.start || byText(a.node.id, b.node.id))) {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { countLines, lineRangeOf, lineStarts, sliceLines, splitLines } from "../src/lines.ts";
+import { countLines, isBinary, lineRangeOf, lineStarts, sliceLines, splitLines } from "../src/lines.ts";
 
 const TEXTS = [
   "",
@@ -60,4 +60,14 @@ describe("lines", () => {
 test("splitLines gives as many lines as countLines, whatever the text ends with", () => {
   for (const text of TEXTS) expect(splitLines(text)).toHaveLength(countLines(text));
   expect(splitLines("a\r\nb\n")).toEqual(["a\r", "b"]);
+});
+
+describe("isBinary", () => {
+  test("a NUL byte in the first 8000 characters makes a file binary, as in git", () => {
+    expect(isBinary("PNG\0data")).toBe(true);
+    expect(isBinary("a\n".repeat(10))).toBe(false);
+    expect(isBinary("x".repeat(8000) + "\0")).toBe(false);
+    expect(isBinary("x".repeat(7999) + "\0")).toBe(true);
+    expect(isBinary("")).toBe(false);
+  });
 });
