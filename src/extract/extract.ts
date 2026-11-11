@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { compareEdges, compareIds, compareImports, compareResolutions, nodeId, qualifiedName, resourceId } from "../graph.ts";
-import type { CodeNode, Edge, ImportEdge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge } from "../graph.ts";
+import type { CodeNode, Edge, ImportEdge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge, TypeContract } from "../graph.ts";
 import { countLines, isBinary, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
 import { roleOf } from "./roles.ts";
@@ -30,11 +30,13 @@ export function extract(tree: FileTree): Graph {
   const resolutions: ResolutionEdge[] = [];
   const imports: ImportEdge[] = [];
   const analysed = new Set<string>();
+  const typesByPath = new Map<string, readonly TypeContract[]>();
   for (const [adapter, files] of filesByAdapter) {
     files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const outlines = adapter.analyse(files, tree);
     for (const file of files) {
       analysed.add(file.path);
+      typesByPath.set(file.path, outlines.get(file.path)?.types ?? []);
       const outline = outlines.get(file.path);
       const code = codeNodes(file.path, file.text, outline?.declarations ?? []);
       nodes.push(...code.nodes);
@@ -57,6 +59,7 @@ export function extract(tree: FileTree): Graph {
       analysis: analysed.has(path) ? "analysed" : "not analysed",
       role: roleOf(path, analysed.has(path)),
       digest: digestOf(text),
+      ...(analysed.has(path) ? { types: typesByPath.get(path) ?? [] } : {}),
     });
     for (let dir = path; dir !== ""; ) {
       dir = directoryOf(dir);

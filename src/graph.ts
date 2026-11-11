@@ -36,6 +36,13 @@ export interface ContainerNode extends NodeBase {
   readonly lines: number;
 }
 
+/** An interface or type alias a file exports, with its shape as written (layout and comments normalised away). */
+export interface TypeContract {
+  readonly name: string;
+  readonly kind: "interface" | "type";
+  readonly signature: string;
+}
+
 export interface FileNode extends NodeBase {
   readonly level: "file";
   readonly parent: NodeId;
@@ -46,6 +53,8 @@ export interface FileNode extends NodeBase {
   readonly role: Role | null;
   /** sha256 of the file's whole text as UTF-8, first 32 hex digits. Equal digests, equal text. */
   readonly digest: string;
+  /** The interfaces and type aliases the file exports, by name; absent for a file not analysed. */
+  readonly types?: readonly TypeContract[];
 }
 
 /**
@@ -288,7 +297,7 @@ export function canonicalNode(node: ModuleNode): object {
     case "folder":
       return { ...base, lines: node.lines };
     case "file":
-      return { ...base, lines: node.lines, analysis: node.analysis, role: node.role, digest: node.digest };
+      return { ...base, lines: node.lines, analysis: node.analysis, role: node.role, digest: node.digest, ...(node.types === undefined ? {} : { types: node.types.map((t) => ({ name: t.name, kind: t.kind, signature: t.signature })) }) };
     case "class":
     case "function":
       return {

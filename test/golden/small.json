@@ -121,7 +121,8 @@
       "lines": 1,
       "analysis": "analysed",
       "role": "source",
-      "digest": "5ec221ebfcc161f28af09eda2f8499e9"
+      "digest": "5ec221ebfcc161f28af09eda2f8499e9",
+      "types": []
     },
     {
       "id": "file:src/default.js",
@@ -132,7 +133,8 @@
       "lines": 9,
       "analysis": "analysed",
       "role": "source",
-      "digest": "6c914e9a0655bdc1ed04c9bdb612b51b"
+      "digest": "6c914e9a0655bdc1ed04c9bdb612b51b",
+      "types": []
     },
     {
       "id": "file:src/effects.cjs",
@@ -143,7 +145,8 @@
       "lines": 7,
       "analysis": "analysed",
       "role": "source",
-      "digest": "ac77050f3324e6546a80f5182d568844"
+      "digest": "ac77050f3324e6546a80f5182d568844",
+      "types": []
     },
     {
       "id": "file:src/effects.mjs",
@@ -154,7 +157,8 @@
       "lines": 42,
       "analysis": "analysed",
       "role": "source",
-      "digest": "5f37fb85de8baea81d217c3ed30f0dbd"
+      "digest": "5f37fb85de8baea81d217c3ed30f0dbd",
+      "types": []
     },
     {
       "id": "file:src/index.ts",
@@ -165,7 +169,8 @@
       "lines": 5,
       "analysis": "analysed",
       "role": "source",
-      "digest": "765ddbf1ab032a7769f07249dbed9e85"
+      "digest": "765ddbf1ab032a7769f07249dbed9e85",
+      "types": []
     },
     {
       "id": "file:src/legacy.js",
@@ -176,7 +181,8 @@
       "lines": 3,
       "analysis": "analysed",
       "role": "source",
-      "digest": "77542bd88a5777b8f7375f2b29a12dcc"
+      "digest": "77542bd88a5777b8f7375f2b29a12dcc",
+      "types": []
     },
     {
       "id": "file:src/shapes.ts",
@@ -187,7 +193,14 @@
       "lines": 76,
       "analysis": "analysed",
       "role": "source",
-      "digest": "11911883b8a118d33e71552719cd8cbc"
+      "digest": "11911883b8a118d33e71552719cd8cbc",
+      "types": [
+        {
+          "name": "Shape",
+          "kind": "interface",
+          "signature": "{ area(): number }"
+        }
+      ]
     },
     {
       "id": "file:src/util/empty.ts",
@@ -198,7 +211,8 @@
       "lines": 0,
       "analysis": "analysed",
       "role": "source",
-      "digest": "e3b0c44298fc1c149afbf4c8996fb924"
+      "digest": "e3b0c44298fc1c149afbf4c8996fb924",
+      "types": []
     },
     {
       "id": "file:src/util/math.ts",
@@ -209,7 +223,8 @@
       "lines": 3,
       "analysis": "analysed",
       "role": "source",
-      "digest": "445deb8dc986398848dfa385a0b10fbe"
+      "digest": "445deb8dc986398848dfa385a0b10fbe",
+      "types": []
     },
     {
       "id": "file:test/helpers.ts",
@@ -220,7 +235,8 @@
       "lines": 3,
       "analysis": "analysed",
       "role": "tests",
-      "digest": "a425de060a2c61d06b946b601ec50577"
+      "digest": "a425de060a2c61d06b946b601ec50577",
+      "types": []
     },
     {
       "id": "file:vitest.config.ts",
@@ -231,7 +247,8 @@
       "lines": 3,
       "analysis": "analysed",
       "role": "config",
-      "digest": "3ee4514493e0809c783075c5f9aa77ef"
+      "digest": "3ee4514493e0809c783075c5f9aa77ef",
+      "types": []
     },
     {
       "id": "folder:docs",

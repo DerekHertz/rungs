@@ -1,4 +1,5 @@
 import ts from "typescript";
+import type { TypeContract } from "../graph.ts";
 
 /**
  * What a file exports and how each export reads, for the JavaScript and TypeScript adapter. It
@@ -257,4 +258,50 @@ export function renderSignature(tokens: readonly string[]): string {
     out += token;
   });
   return out;
+}
+
+/** A member as written without the separator that ends it, so `;` against `,` is not a change. */
+function interfaceMember(member: ts.TypeElement, file: ts.SourceFile): string[] {
+  const tokens = tokensOf(member, file);
+  const last = tokens[tokens.length - 1];
+  return last === ";" || last === "," ? tokens.slice(0, -1) : tokens;
+}
+
+function typeSignature(node: ts.InterfaceDeclaration | ts.TypeAliasDeclaration, file: ts.SourceFile): string {
+  const out: string[] = [];
+  if (node.typeParameters !== undefined) out.push(...listOf(node.typeParameters, "<", ">", file));
+  if (ts.isTypeAliasDeclaration(node)) out.push("=", ...tokensOf(node.type, file));
+  else {
+    for (const clause of node.heritageClauses ?? []) out.push(...tokensOf(clause, file));
+    out.push("{");
+    node.members.forEach((member, index) => out.push(...(index === 0 ? [] : [";"]), ...interfaceMember(member, file)));
+    out.push("}");
+  }
+  // A separator before a closing brace is layout (`{ a: 1; }` reads as `{ a: 1 }`).
+  return renderSignature(out.filter((token, index) => !((token === ";" || token === ",") && out[index + 1] === "}")));
+}
+
+/**
+ * The top-level interfaces and type aliases a file exports, by `export` or by an `export { X }`
+ * or `export type { X }` clause, sorted by name. Declarations sharing a name (interface merging)
+ * read as one signature, joined in source order.
+ */
+export function exportedTypes(file: ts.SourceFile): TypeContract[] {
+  const found = new Map<string, { kind: TypeContract["kind"]; signatures: string[]; exported: boolean }>();
+  const listed = new Set<string>();
+  for (const statement of file.statements) {
+    if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+      const name = statement.name.text;
+      const entry = found.get(name) ?? { kind: ts.isInterfaceDeclaration(statement) ? "interface" : "type", signatures: [], exported: false };
+      entry.signatures.push(typeSignature(statement, file));
+      entry.exported ||= hasModifier(statement, ts.SyntaxKind.ExportKeyword);
+      found.set(name, entry);
+    } else if (ts.isExportDeclaration(statement) && statement.moduleSpecifier === undefined && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
+      for (const specifier of statement.exportClause.elements) listed.add((specifier.propertyName ?? specifier.name).text);
+    }
+  }
+  return [...found]
+    .filter(([name, entry]) => entry.exported || listed.has(name))
+    .map(([name, entry]): TypeContract => ({ name, kind: entry.kind, signature: entry.signatures.join(" ; ") }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }

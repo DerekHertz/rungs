@@ -3,7 +3,7 @@ import { callKey, changedEffects, diffEffects, effectLabel, effectSets, occurren
 import { diffImports } from "./imports.ts";
 import type { ImportChange } from "./imports.ts";
 import type { ChangedEffect, EffectChange } from "./effects.ts";
-import type { CodeNode, ContainerNode, EffectEdge, FileNode, Graph, ModuleNode, NodeId } from "./graph.ts";
+import type { CodeNode, ContainerNode, EffectEdge, FileNode, Graph, ModuleNode, NodeId, TypeContract } from "./graph.ts";
 
 export type ChangeKind = "added" | "altered" | "removed" | "moved";
 
@@ -180,6 +180,9 @@ export interface ContractMove {
   readonly before: string | null;
   /** The exported signature after; null when the node is gone or is no longer exported. */
   readonly after: string | null;
+  /** Only for an exported interface or type alias: its name and kind. Its `id` is then its file's,
+   *  and only "added", "removed" and "changed" occur. */
+  readonly type?: { readonly name: string; readonly kind: "interface" | "type" };
   /** The effects the node's set gained and lost, as labels; absent when its set did not change.
    *  "effects" moves are exactly the ones where only this moved. */
   readonly effects?: { readonly added: readonly string[]; readonly removed: readonly string[] };
@@ -250,7 +253,39 @@ export function contractsMoved(comparison: Comparison, base: Graph, head: Graph)
     const { effects } = effectsBetween(node.id, node.id);
     if (effects !== undefined) moves.push({ kind: "effects", id: node.id, before: before.signature, after: node.signature, effects });
   }
-  return moves.sort((a, b) => compareIds(a.id, b.id));
+  moves.push(...typeMoves(comparison, base, head));
+  return moves.sort((a, b) => compareIds(a.id, b.id) || (a.type?.name ?? "").localeCompare(b.type?.name ?? ""));
+}
+
+/** The exported interfaces and type aliases that appeared, went or changed shape, by file. A file that only moved pairs with itself. */
+function typeMoves(comparison: Comparison, base: Graph, head: Graph): ContractMove[] {
+  const headFiles = new Map<NodeId, FileNode>();
+  for (const node of head.nodes) if (node.level === "file") headFiles.set(node.id, node);
+  const movedTo = new Map<NodeId, NodeId>();
+  for (const change of comparison.changes) if (change.kind === "moved" && change.node.level === "file") movedTo.set(change.from.id, change.node.id);
+  const typesOf = (file: FileNode | undefined): Map<string, TypeContract> => new Map((file?.types ?? []).map((t) => [t.name, t]));
+  const moves: ContractMove[] = [];
+  const seen = new Set<NodeId>();
+  for (const node of base.nodes) {
+    if (node.level !== "file" || node.types === undefined) continue;
+    const counterpart = headFiles.get(movedTo.get(node.id) ?? node.id);
+    if (counterpart !== undefined) seen.add(counterpart.id);
+    const now = typesOf(counterpart);
+    const had = typesOf(node);
+    for (const was of had.values()) {
+      const after = now.get(was.name);
+      if (after === undefined) moves.push({ kind: "removed", id: node.id, type: { name: was.name, kind: was.kind }, before: was.signature, after: null });
+      else if (after.signature !== was.signature || after.kind !== was.kind) moves.push({ kind: "changed", id: counterpart!.id, type: { name: after.name, kind: after.kind }, before: was.signature, after: after.signature });
+    }
+    for (const after of now.values()) {
+      if (!had.has(after.name)) moves.push({ kind: "added", id: counterpart!.id, type: { name: after.name, kind: after.kind }, before: null, after: after.signature });
+    }
+  }
+  for (const file of headFiles.values()) {
+    if (seen.has(file.id)) continue;
+    for (const after of file.types ?? []) moves.push({ kind: "added", id: file.id, type: { name: after.name, kind: after.kind }, before: null, after: after.signature });
+  }
+  return moves;
 }
 
 /** Per-kind counts of changed files. */
