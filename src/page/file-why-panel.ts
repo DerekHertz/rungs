@@ -1,14 +1,24 @@
-import { calleesOf, callersOf, count, importersOf, whyLine } from "../defining.ts";
-import type { Block, FileWhy, Step } from "../defining.ts";
-import type { Graph, NodeId } from "../graph.ts";
+import { count, effectStepsOf, whyLine } from "../defining.ts";
+import type { Block, CallList, CallRef, FileWhy, Step } from "../defining.ts";
+import type { Graph, LineRange, NodeId } from "../graph.ts";
 
-/** What the panel needs from the page: the graph the steps are read from, and what a click does. */
+/** What a block's callers and callees are, as /calls serves them. */
+export interface Neighbours {
+  readonly callers: readonly CallRef[];
+  readonly callees: CallList;
+  /** The effects the block reaches, as /file-why shows them. */
+  readonly effects: readonly Step[];
+}
+
+/** What the panel needs from the page: the graph the effects are read from, what a click does, and the next step of a block's calls. */
 export interface WhyActions {
   readonly graph: Graph;
   /** A block was clicked: show its lines, opening what hides them. */
   readonly pickBlock: (block: Block) => void;
-  /** A file in a caller step was clicked: select it. */
-  readonly pickFile: (id: NodeId) => void;
+  /** A block or file in a call step was clicked: select it, banding `marked` in it when given. */
+  readonly pickNode: (id: NodeId, marked?: LineRange) => void;
+  /** The callers and callees of one block, asked for when a step is opened one step further. */
+  readonly neighbours: (id: NodeId) => Promise<Neighbours | undefined>;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = ""): HTMLElementTagNameMap[K] => {
@@ -18,59 +28,84 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, te
   return node;
 };
 
-function stepList(steps: readonly Step[], actions: WhyActions): HTMLElement {
-  const list = el("div", "why-steps");
-  for (const step of steps) {
-    const row = el("div", step.unresolved === true ? "why-step unresolved" : "why-step");
-    const label = el("span", "why-step-label", step.unresolved === true ? `${step.label}: unresolved` : step.label);
-    row.append(label);
-    if (step.open !== undefined) {
-      const id = step.open;
-      let below: HTMLElement | undefined;
-      const more = el("button", "why-toggle", "▸ imported by");
-      more.type = "button";
-      more.setAttribute("aria-expanded", "false");
-      more.addEventListener("click", () => {
-        if (below === undefined) {
-          const next = importersOf(actions.graph, id);
-          below = next.length === 0 ? el("div", "why-step unresolved", "nothing imports it") : stepList(next, actions);
-          below.classList.add("why-nested");
-          row.after(below);
-          more.textContent = "▾ imported by";
-          more.setAttribute("aria-expanded", "true");
-        } else {
-          below.hidden = !below.hidden;
-          more.textContent = `${below.hidden ? "▸" : "▾"} imported by`;
-          more.setAttribute("aria-expanded", `${!below.hidden}`);
-        }
+const lines = (range: LineRange): string => (range.start === range.end ? `L${range.start}` : `L${range.start}-${range.end}`);
+
+/** A toggle that shows `below` after the first click, and hides and shows it again after. */
+function toggling(title: string, make: () => Promise<HTMLElement> | HTMLElement, place: (below: HTMLElement) => void, button: HTMLButtonElement): void {
+  let below: HTMLElement | undefined;
+  let asking = false;
+  button.type = "button";
+  button.setAttribute("aria-expanded", "false");
+  button.addEventListener("click", () => {
+    if (below === undefined) {
+      if (asking) return;
+      asking = true;
+      void Promise.resolve(make()).then((made) => {
+        below = made;
+        place(made);
+        button.textContent = `▾ ${title}`;
+        button.setAttribute("aria-expanded", "true");
       });
-      const open = el("button", "why-toggle", "open");
-      open.type = "button";
-      open.addEventListener("click", () => actions.pickFile(id));
-      row.append(more, open);
+      return;
     }
-    list.append(row);
+    below.hidden = !below.hidden;
+    button.textContent = `${below.hidden ? "▸" : "▾"} ${title}`;
+    button.setAttribute("aria-expanded", `${!below.hidden}`);
+  });
+}
+
+/** One resolved block: its name, file and lines, clickable, and one step further in `direction` when it is a block. */
+function refRow(ref: CallRef, direction: "callers" | "callees", actions: WhyActions): HTMLElement {
+  const row = el("div", "why-step why-ref");
+  const name = el("button", "why-toggle why-ref-name", ref.level === "file" ? `${ref.path} ${ref.label}` : `${ref.level} ${ref.label}`);
+  name.type = "button";
+  name.addEventListener("click", () => actions.pickNode(ref.id, direction === "callers" ? ref.at[0] : undefined));
+  const where = ref.level === "file" ? [] : [`${ref.path} ${ref.range === null ? "" : lines(ref.range)}`.trim()];
+  const calls = ref.at.length === 0 ? [] : [`${ref.at.length === 1 ? "call" : `${ref.at.length} calls`} ${ref.at.map(lines).join(", ")}`];
+  row.append(name, el("span", "why-ref-at", [...where, ...calls].join(" · ")));
+  if (ref.level !== "file") {
+    const more = el("button", "why-toggle", `▸ ${direction}`);
+    toggling(
+      direction,
+      async () => {
+        const next = await actions.neighbours(ref.id);
+        const list = next === undefined ? el("div", "why-step unresolved", "not found") : direction === "callers" ? callersList(next.callers, actions) : calleesList(next.callees, next.effects, actions);
+        list.classList.add("why-nested");
+        return list;
+      },
+      (below) => row.after(below),
+      more,
+    );
+    row.append(more);
+  }
+  return row;
+}
+
+function callersList(refs: readonly CallRef[], actions: WhyActions): HTMLElement {
+  const list = el("div", "why-steps");
+  if (refs.length === 0) list.append(el("div", "why-step unresolved", "no caller found in this file or the files that import it"));
+  for (const ref of refs) list.append(refRow(ref, "callers", actions));
+  return list;
+}
+
+/** The resolved callees, then the effects the block reaches, then "unresolved: N" and each call that could not be resolved. */
+function calleesList(callees: CallList, effects: readonly Step[], actions: WhyActions): HTMLElement {
+  const list = el("div", "why-steps");
+  for (const ref of callees.resolved) list.append(refRow(ref, "callees", actions));
+  for (const effect of effects) list.append(el("div", effect.unresolved === true ? "why-step unresolved" : "why-step", effect.label));
+  if (callees.resolved.length === 0 && effects.length === 0 && callees.unresolved.length === 0) list.append(el("div", "why-step unresolved", "calls nothing"));
+  if (callees.unresolved.length > 0) {
+    list.append(el("div", "why-heading", `unresolved: ${callees.unresolved.length}`));
+    for (const call of callees.unresolved) list.append(el("div", "why-step unresolved", `${call.text} · ${lines(call.at)}`));
   }
   return list;
 }
 
-/** A collapsed "callers" or "callees" under a block; the steps are worked out when it first opens. */
-function neighbours(title: string, steps: () => Step[], actions: WhyActions): HTMLElement {
-  const wrap = el("div", "why-neighbours");
+/** A collapsed "callers" or "callees" under a block; it opens one step at a time. */
+function neighbourStep(title: string, make: () => HTMLElement, wrap: HTMLElement): void {
   const toggle = el("button", "why-toggle", `▸ ${title}`);
-  toggle.type = "button";
-  toggle.setAttribute("aria-expanded", "false");
-  let list: HTMLElement | undefined;
-  toggle.addEventListener("click", () => {
-    if (list === undefined) {
-      list = stepList(steps(), actions);
-      wrap.append(list);
-    } else list.hidden = !list.hidden;
-    toggle.textContent = `${list.hidden ? "▸" : "▾"} ${title}`;
-    toggle.setAttribute("aria-expanded", `${!list.hidden}`);
-  });
+  toggling(title, make, (below) => wrap.append(below), toggle);
   wrap.append(toggle);
-  return wrap;
 }
 
 function blockRow(block: Block, actions: WhyActions): HTMLElement {
@@ -82,7 +117,11 @@ function blockRow(block: Block, actions: WhyActions): HTMLElement {
   head.addEventListener("click", () => actions.pickBlock(block));
   row.append(head);
   if (block.folded.length > 0) row.append(el("div", "why-folded", `${count(block.folded.length, "unnamed callback")} folded under it`));
-  row.append(neighbours("files that import this file", () => callersOf(actions.graph, block.id), actions), neighbours("callees", () => calleesOf(actions.graph, block.id), actions));
+  const callers = el("div", "why-neighbours");
+  const callees = el("div", "why-neighbours");
+  neighbourStep("callers", () => callersList(block.callers ?? [], actions), callers);
+  neighbourStep("callees", () => calleesList(block.callees ?? { resolved: [], unresolved: [] }, effectStepsOf(actions.graph, block.id), actions), callees);
+  row.append(callers, callees);
   return row;
 }
 
@@ -98,7 +137,7 @@ export function renderFileWhy(pane: HTMLElement, found: FileWhy, actions: WhyAct
     for (const text of [...found.why.contracts, ...found.why.effects]) facts.append(el("div", "", text));
     pane.append(facts);
   }
-  pane.append(el("div", "why-heading", found.defining.length === 0 ? "Defining blocks: none (no changed block is exported, moved a contract or gained an effect)" : `Defining blocks (${found.defining.length})`));
+  pane.append(el("div", "why-heading", found.defining.length === 0 ? "Defining blocks: none (no changed block is exported, moved a contract, gained an effect or has the most callers)" : `Defining blocks (${found.defining.length})`));
   for (const block of found.defining) pane.append(blockRow(block, actions));
   if (found.other.length > 0) {
     pane.append(el("div", "why-heading", `Other changed blocks (${found.other.length})`));

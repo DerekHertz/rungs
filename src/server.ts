@@ -1,8 +1,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import type { ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { CallResolver } from "./calls.ts";
 import type { Base } from "./checkout.ts";
 import { compare, contractsMoved, serializeComparison } from "./compare.ts";
 import type { Comparison } from "./compare.ts";
@@ -22,7 +24,7 @@ import type { Asked, LinkOutcome } from "./link.ts";
 import { observedDocument, treeDigest } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
 import { testChanges } from "./test-changes.ts";
-import { fileWhy } from "./defining.ts";
+import { effectStepsOf, fileWhy } from "./defining.ts";
 import { risksOf } from "./risks.ts";
 import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
@@ -72,7 +74,10 @@ interface Resource {
  * 404 without a base, for folders, removed and moved modules, and when nothing there changed.
  * `GET /file-why?id=` is, for a file of the head, why it matters before its lines (derived: see src/defining.ts):
  * its contracts moved, the files resting on it, its new effects, the tests reaching it, and its defining
- * blocks first; 404 without a base and for anything but a file.
+ * blocks first; 404 without a base and for anything but a file. Each block carries its callers and
+ * callees as the TypeScript compiler resolves them (src/calls.ts), worked out on that first ask and kept.
+ * `GET /calls?id=` is the same for any one class or function of the head: `callers` and `callees`
+ * (resolved blocks with the lines of each call, and the unresolved calls); 404 for anything else.
  * The claims are the person's `description` as a claimed fact, kept apart from the graph and the
  * comparison; `description` is null in them when none was given. The description is split into
  * claims by rules, and `link`, when given, is asked once for the agent's links from each claim to
@@ -269,6 +274,15 @@ export async function serve(
     return lines === undefined ? undefined : `${JSON.stringify({ tier: "derived", id, lines }, null, 2)}\n`;
   }
 
+  /** The compiler or the resolver went wrong on this tree: say so, and keep the server up. */
+  const failed = (response: ServerResponse, error: unknown): void => {
+    if (!response.headersSent) response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    response.end(`the call edges could not be worked out: ${error instanceof Error ? error.message : String(error)}\n`);
+  };
+
+  // Call edges are worked out when a view asks (SPEC rule 4), for the head tree, and kept.
+  const calls = new CallResolver(tree, graph);
+
   const server = createServer((request, response) => {
     // A rebound DNS name reaches this server with a Host and Origin of its own choosing, so both
     // are checked against the address this server listens on, never against each other.
@@ -302,9 +316,23 @@ export async function serve(
       return;
     }
     if (url.pathname === "/file-why") {
-      const found = comparison === undefined || baseGraph === undefined ? undefined : fileWhy((url.searchParams.get("id") ?? "") as NodeId, comparison, baseGraph, graph, isTestFile);
-      if (found === undefined) response.writeHead(404).end();
-      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", ...found }, null, 2)}\n`);
+      try {
+        const found = comparison === undefined || baseGraph === undefined ? undefined : fileWhy((url.searchParams.get("id") ?? "") as NodeId, comparison, baseGraph, graph, isTestFile, calls);
+        if (found === undefined) response.writeHead(404).end();
+        else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", ...found }, null, 2)}\n`);
+      } catch (error) {
+        failed(response, error);
+      }
+      return;
+    }
+    if (url.pathname === "/calls") {
+      const id = (url.searchParams.get("id") ?? "") as NodeId;
+      try {
+        if (!calls.has(id)) response.writeHead(404).end();
+        else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", id, callers: calls.callersOf(id), callees: calls.calleesOf(id), effects: effectStepsOf(graph, id) }, null, 2)}\n`);
+      } catch (error) {
+        failed(response, error);
+      }
       return;
     }
     if (url.pathname === "/source") {
