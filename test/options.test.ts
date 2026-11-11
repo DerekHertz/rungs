@@ -19,6 +19,7 @@ test("a directory, a port and --no-open", () => {
     rewalk: false,
     narrate: false,
     renarrate: false,
+    tests: "off",
   });
 });
 
@@ -36,6 +37,7 @@ test("compare takes the base first and the folder after it", () => {
     rewalk: false,
     narrate: false,
     renarrate: false,
+    tests: "off",
   });
 });
 
