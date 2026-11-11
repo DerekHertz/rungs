@@ -87,6 +87,21 @@ test("a leading BOM does not shift ranges; a BOM-only file has no sections; CRLF
   ]);
 });
 
+test("a literal > in a setext heading's text stays, and container markers still go", () => {
+  expect(markdownSections("first\n    > second\n===\nold\n")).toEqual([{ text: "first > second", level: 1, start: 1, end: 4 }]);
+  expect(markdownSections("> first\n> *sec*\n> ===\n")).toEqual([{ text: "first *sec*", level: 1, start: 1, end: 3 }]);
+  expect(markdownSections("- first\n  second\n  ===\n")).toEqual([{ text: "first second", level: 1, start: 1, end: 3 }]);
+});
+
+test("only one leading BOM is dropped, as micromark drops it; a second is content", () => {
+  // Line 1 is a paragraph that starts with the second BOM, so it is no heading; B is on line 3.
+  expect(markdownSections("﻿﻿# A\nold\n# B\nsame\n")).toEqual([{ text: "B", level: 1, start: 3, end: 4 }]);
+  expect(markdownSections("﻿# A\nold\n# B\nsame\n")).toEqual([
+    { text: "A", level: 1, start: 1, end: 2 },
+    { text: "B", level: 1, start: 3, end: 4 },
+  ]);
+});
+
 test("empty and heading-free files have no sections", () => {
   expect(markdownSections("")).toEqual([]);
   expect(markdownSections("just words\n")).toEqual([]);

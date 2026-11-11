@@ -21,10 +21,15 @@ export interface Heading {
  */
 export function markdownSections(text: string): Heading[] {
   // micromark ends a line at a lone "\r" too, which lines.ts does not: a blank of the same length keeps every offset.
-  // micromark also drops a leading BOM before it counts offsets; lines.ts counts it, so its length goes back on below.
-  const bom = text.startsWith("﻿") ? 1 : 0;
-  const source = text.slice(bom).replace(/\r(?!\n)/g, " ");
+  const source = text.replace(/\r(?!\n)/g, " ");
   const events = postprocess(parse().document().write(preprocess()(source, undefined, true)));
+  // micromark drops one leading BOM before it counts offsets, and lines.ts counts it: that one goes back on below. A second is content.
+  const bom = text.startsWith("\uFEFF") ? 1 : 0;
+  const body = source.slice(bom);
+  // The markers micromark emits for a container or for indentation, which are not heading text.
+  const prefixes = new Set(["linePrefix", "blockQuotePrefix", "listItemIndent", "listItemPrefix"]);
+  const skipped: [number, number][] = [];
+  for (const [phase, token] of events) if (phase === "enter" && prefixes.has(token.type)) skipped.push([token.start.offset, token.end.offset]);
   const found: { text: string; level: number; offset: number }[] = [];
   let current: { text: string; level: number; offset: number } | undefined;
   for (const [phase, token, context] of events) {
@@ -38,11 +43,18 @@ export function markdownSections(text: string): Heading[] {
     // Only the opening run of hashes is the level; a closing run is not.
     if (token.type === "atxHeadingSequence") current.level ||= token.end.offset - token.start.offset;
     else if (token.type === "atxHeadingText") current.text = context.sliceSerialize(token).trim();
-    else if (token.type === "setextHeadingLineSequence") current.level = source[token.start.offset] === "=" ? 1 : 2;
+    else if (token.type === "setextHeadingLineSequence") current.level = body[token.start.offset] === "=" ? 1 : 2;
     else if (token.type === "setextHeadingText") {
-      // Continuation lines of a multi-line heading carry their container's markers: drop them.
-      const [first = "", ...rest] = context.sliceSerialize(token).split(/\r?\n/);
-      current.text = [first, ...rest.map((line) => line.replace(/^[ \t>]+/, ""))].map((line) => line.trim()).join(" ");
+      // The text as written, less the tokens micromark gives to prefixes: a literal ">" or indentation inside the text stays.
+      let raw = "";
+      let at = token.start.offset;
+      for (const [from, to] of skipped) {
+        if (to <= at || from >= token.end.offset) continue;
+        raw += body.slice(at, Math.max(from, at));
+        at = Math.max(at, to);
+      }
+      raw += body.slice(at, token.end.offset);
+      current.text = raw.split(/\r?\n/).map((line) => line.trim()).join(" ");
     } else if (token.type === "atxHeading" || token.type === "setextHeading") {
       found.push(current);
       current = undefined;
