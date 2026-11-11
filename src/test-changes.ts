@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import ts from "typescript";
 import type { FileTree } from "./graph.ts";
-import { isTestFile } from "./test-files.ts";
+import { isDiscovered, isTestFile } from "./test-files.ts";
 import type { Marker, TestChanges } from "./test-changes-types.ts";
 
 const OUTSIDE = "(outside any test)";
@@ -41,8 +41,6 @@ interface Parsed {
   readonly found: Map<string, Found[]>;
   /** The tests only, counted by name. */
   readonly tests: Map<string, number>;
-  /** The file imports node:assert/strict, so its `assert.equal` is strict. */
-  readonly strict: boolean;
 }
 
 const isLiteral = (node: ts.Node): boolean =>
@@ -118,16 +116,73 @@ function optionMarkers(call: ts.CallExpression): Marker[] {
   return found;
 }
 
-/** The assertion a call is, if it is one: assert(...), assert.x(...), strict.x(...), t.assert.x(...), or a matcher on expect(...). */
-function assertionOf(call: ts.CallExpression): Assertion | undefined {
+/** What a local name is bound to: node's assert module, or one of its functions. */
+type Binding = { readonly kind: "module"; readonly strict: boolean } | { readonly kind: "function"; readonly name: string; readonly strict: boolean };
+
+const ASSERT_MODULE = /^(?:node:)?assert(\/strict)?$/;
+
+const stringOf = (node: ts.Node | undefined): string | undefined => (node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined);
+
+/** The module `require("assert")` names, with `.strict` taken off, or undefined. */
+function requiredAssert(node: ts.Expression): { strict: boolean } | undefined {
+  if (ts.isPropertyAccessExpression(node) && node.name.text === "strict") {
+    const inner = requiredAssert(node.expression);
+    return inner === undefined ? undefined : { strict: true };
+  }
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "require") {
+    const match = ASSERT_MODULE.exec(stringOf(node.arguments[0]) ?? "");
+    return match === null ? undefined : { strict: match[1] !== undefined };
+  }
+  return undefined;
+}
+
+/** Records what the declaration binds, if it binds node's assert. Called in source order. */
+function bind(node: ts.Node, bindings: Map<string, Binding>): void {
+  if (ts.isImportDeclaration(node) && node.importClause !== undefined) {
+    const match = ASSERT_MODULE.exec(stringOf(node.moduleSpecifier) ?? "");
+    if (match === null) return;
+    const strict = match[1] !== undefined;
+    const { name, namedBindings } = node.importClause;
+    if (name !== undefined) bindings.set(name.text, { kind: "module", strict });
+    if (namedBindings !== undefined && ts.isNamespaceImport(namedBindings)) bindings.set(namedBindings.name.text, { kind: "module", strict });
+    if (namedBindings !== undefined && ts.isNamedImports(namedBindings)) {
+      for (const element of namedBindings.elements) {
+        const imported = (element.propertyName ?? element.name).text;
+        bindings.set(element.name.text, imported === "strict" ? { kind: "module", strict: true } : { kind: "function", name: imported, strict });
+      }
+    }
+  }
+  if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+    const init = node.initializer;
+    const required = requiredAssert(init);
+    const from = ts.isIdentifier(init) ? bindings.get(init.text) : ts.isPropertyAccessExpression(init) && init.name.text === "strict" && ts.isIdentifier(init.expression) && bindings.get(init.expression.text)?.kind === "module" ? { kind: "module" as const, strict: true } : undefined;
+    const source = required !== undefined ? { kind: "module" as const, strict: required.strict } : from;
+    if (source === undefined) return;
+    if (ts.isIdentifier(node.name)) bindings.set(node.name.text, source);
+    else if (ts.isObjectBindingPattern(node.name) && source.kind === "module") {
+      for (const element of node.name.elements) {
+        if (!ts.isIdentifier(element.name)) continue;
+        const imported = element.propertyName !== undefined && ts.isIdentifier(element.propertyName) ? element.propertyName.text : element.name.text;
+        bindings.set(element.name.text, imported === "strict" ? { kind: "module", strict: true } : { kind: "function", name: imported, strict: source.strict });
+      }
+    }
+  }
+}
+
+/** The assertion a call is, if it is one: assert(...), assert.x(...), t.assert.x(...), a bound assertion function, or a matcher on expect(...). */
+function assertionOf(call: ts.CallExpression, bindings: ReadonlyMap<string, Binding>): Assertion | undefined {
+  const constant = call.arguments.length > 0 && call.arguments.every(isLiteral);
   const chain = chainOf(call.expression);
   if (chain !== undefined) {
-    const [first, second] = chain;
-    const last = chain.at(-1) ?? "";
-    if (first === "assert" || first === "strict" || (first === "t" && second === "assert" && chain.length > 2)) {
-      const name = chain.length === 1 ? "assert" : last;
-      const plain = first === "assert" && second !== "strict";
-      return { name, constant: call.arguments.length > 0 && call.arguments.every(isLiteral), plain };
+    const [first = "", second] = chain;
+    const bound = bindings.get(first);
+    if (bound?.kind === "module") {
+      return { name: chain.length === 1 ? "assert" : (chain.at(-1) ?? ""), constant, plain: !bound.strict && second !== "strict" };
+    }
+    if (bound?.kind === "function" && chain.length === 1) return { name: bound.name === "default" ? "assert" : bound.name, constant, plain: !bound.strict };
+    // Not imported here: a global, a helper, or the test context's own.
+    if (bound === undefined && (first === "assert" || first === "strict" || (first === "t" && second === "assert" && chain.length > 2))) {
+      return { name: chain.length === 1 ? "assert" : (chain.at(-1) ?? ""), constant, plain: false };
     }
   }
   // expect(x).toBe(y), expect(x).not.toBe(y), expect(x).resolves.toEqual(y): the matcher is the assertion.
@@ -138,8 +193,7 @@ function assertionOf(call: ts.CallExpression): Assertion | undefined {
     subject = subject.expression;
   }
   if (names.length > 0 && ts.isCallExpression(subject) && ts.isIdentifier(subject.expression) && subject.expression.text === "expect") {
-    const matcher = names.at(-1) ?? "";
-    return { name: matcher, constant: subject.arguments.length > 0 && subject.arguments.every(isLiteral), plain: false };
+    return { name: names.at(-1) ?? "", constant: subject.arguments.length > 0 && subject.arguments.every(isLiteral), plain: false };
   }
   return undefined;
 }
@@ -154,33 +208,39 @@ function parse(text: string, path: string): Parsed {
     return made;
   };
   const outside = entry(OUTSIDE, "suite");
-  let strict = false;
-  const visit = (node: ts.Node, titles: readonly string[], current: Found): void => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && /^(?:node:)?assert\/strict$/.test(node.moduleSpecifier.text)) strict = true;
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "require" && node.arguments[0] !== undefined && ts.isStringLiteralLike(node.arguments[0]) && /^(?:node:)?assert\/strict$/.test(node.arguments[0].text)) strict = true;
+  const bindings = new Map<string, Binding>();
+  // The names the enclosing tests call their context, each with the test it belongs to.
+  const visit = (node: ts.Node, titles: readonly string[], current: Found, contexts: ReadonlyMap<string, Found>): void => {
+    bind(node, bindings);
     if (ts.isCallExpression(node)) {
-      const test = testCall(node, titles.length > 0);
+      // A parameter called `context` or `test` is the test's own, and `context.skip()` skips; it starts no suite.
+      const own = chainOf(node.expression);
+      const test = own?.length === 2 && contexts.has(own[0] ?? "") && (own[1] === "skip" || own[1] === "todo") ? undefined : testCall(node, titles.length > 0);
       if (test !== undefined) {
         const path = [...titles, titleOf(node)];
         const name = path.join(" > ");
         const made = entry(name, test.kind);
         for (const marker of [...test.markers, ...optionMarkers(node)]) made.markers.add(marker);
         if (test.kind === "test") tests.set(name, (tests.get(name) ?? 0) + 1);
-        for (const arg of node.arguments) visit(arg, path, made);
+        const callback = [...node.arguments].reverse().find((arg) => ts.isFunctionLike(arg));
+        const parameter = callback !== undefined && ts.isFunctionLike(callback) ? callback.parameters[0]?.name : undefined;
+        const inner = parameter !== undefined && ts.isIdentifier(parameter) ? new Map(contexts).set(parameter.text, made) : contexts;
+        for (const arg of node.arguments) visit(arg, path, made, inner);
         // The call that made the callee (each, skipIf) is not a test of its own.
-        if (ts.isCallExpression(node.expression)) ts.forEachChild(node.expression, (child) => visit(child, titles, current));
+        if (ts.isCallExpression(node.expression)) ts.forEachChild(node.expression, (child) => visit(child, titles, current, contexts));
         return;
       }
-      const assertion = assertionOf(node);
+      const assertion = assertionOf(node, bindings);
       if (assertion !== undefined) current.assertions.push(assertion);
       const chain = chainOf(node.expression);
+      const owner = chain?.length === 2 ? contexts.get(chain[0] ?? "") : undefined;
       const last = chain?.at(-1);
-      if (chain?.length === 2 && chain[0] === "t" && last !== undefined && (last === "skip" || last === "todo")) current.markers.add(last);
+      if (owner !== undefined && (last === "skip" || last === "todo")) owner.markers.add(last);
     }
-    ts.forEachChild(node, (child) => visit(child, titles, current));
+    ts.forEachChild(node, (child) => visit(child, titles, current, contexts));
   };
-  visit(source, [], outside);
-  return { found, tests, strict };
+  visit(source, [], outside, new Map());
+  return { found, tests };
 }
 
 interface Totals {
@@ -190,13 +250,13 @@ interface Totals {
 }
 
 /** Everything the same name holds, summed: two tests with one title are one test to compare. */
-function totalsOf(entries: readonly Found[] | undefined, strict: boolean): Totals {
+function totalsOf(entries: readonly Found[] | undefined): Totals {
   const totals = { count: 0, constant: 0, loose: 0 };
   for (const found of entries ?? []) {
     for (const assertion of found.assertions) {
       totals.count += 1;
       if (assertion.constant) totals.constant += 1;
-      if (LOOSE.has(assertion.name) || (assertion.plain && !strict && COERCING.has(assertion.name))) totals.loose += 1;
+      if (LOOSE.has(assertion.name) || (assertion.plain && COERCING.has(assertion.name))) totals.loose += 1;
     }
   }
   return totals;
@@ -221,10 +281,11 @@ const byFileThenName = (a: { file: string; name: string }, b: { file: string; na
  * file is only noticed when it is deleted.
  */
 export function testChanges(base: FileTree, head: FileTree): TestChanges {
-  // A deleted file is a move only when it pairs with one file the head added; each added file pairs once.
+  // A deleted file is a move only when it pairs with one file the head added at a path node --test
+  // still finds; each added file pairs once. A move out of the test run is a removal.
   const added = new Map<string, string[]>();
   for (const [path, text] of head) if (!base.has(path)) added.set(text, [...(added.get(text) ?? []), path]);
-  const deletedFiles: { path: string; tests: number }[] = [];
+  const deletedFiles: { path: string; tests: number; movedTo?: string }[] = [];
   const removedTests: { file: string; name: string }[] = [];
   const markers: { file: string; name: string; marker: Marker }[] = [];
   const weakened: { file: string; name: string; why: string }[] = [];
@@ -240,12 +301,14 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
     const reads = SOURCE.test(posix.basename(path));
     if (after === undefined) {
       if (before === undefined) continue;
-      const pair = added.get(before);
-      if (pair !== undefined && pair.length > 0) {
-        pair.pop();
+      const pair = added.get(before) ?? [];
+      const found = pair.findIndex(isDiscovered);
+      if (found >= 0) {
+        pair.splice(found, 1);
         continue;
       }
-      deletedFiles.push({ path, tests: reads ? [...parse(before, path).tests.values()].reduce((sum, n) => sum + n, 0) : 0 });
+      const tests = reads ? [...parse(before, path).tests.values()].reduce((sum, n) => sum + n, 0) : 0;
+      deletedFiles.push(pair[0] === undefined ? { path, tests } : { path, tests, movedTo: pair[0] });
       continue;
     }
     if (!reads || before === after) continue;
@@ -260,7 +323,7 @@ export function testChanges(base: FileTree, head: FileTree): TestChanges {
     if (was === undefined) continue;
     for (const [name, count] of was.tests) if ((now.tests.get(name) ?? 0) < count) removedTests.push({ file: path, name });
     for (const [name, entries] of was.found) {
-      const why = weakness(totalsOf(entries, was.strict), totalsOf(now.found.get(name), now.strict));
+      const why = weakness(totalsOf(entries), totalsOf(now.found.get(name)));
       if (why !== undefined && now.found.has(name)) weakened.push({ file: path, name, why });
     }
   }

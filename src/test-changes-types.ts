@@ -6,8 +6,11 @@
  * left to see without running anything. Every fact here is derived.
  */
 export interface TestChanges {
-  /** Test files of the base that the head does not have, under any name. */
-  readonly deletedFiles: readonly { readonly path: string; readonly tests: number }[];
+  /**
+   * Test files of the base that the head no longer runs: deleted, or moved to a path `node --test`
+   * does not find (`movedTo`).
+   */
+  readonly deletedFiles: readonly { readonly path: string; readonly tests: number; readonly movedTo?: string }[];
   /** Tests of a file the head still has whose name is gone, suites included in the name. */
   readonly removedTests: readonly { readonly file: string; readonly name: string }[];
   /** A skip, todo or only that the head has and the base did not, on the test or suite it marks. */
