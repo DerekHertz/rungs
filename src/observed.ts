@@ -16,6 +16,8 @@ export interface TestReport {
   readonly ms: number;
   /** A failure's message, as the runner gave it. */
   readonly message?: string;
+  /** The suite itself failed, in a hook or its setup, not one of its tests. */
+  readonly suite?: true;
 }
 
 /** One run of node --test as it came out: results the runner wrote, none, or results that cannot be told from forged ones. */
@@ -154,7 +156,7 @@ export default async function* reporter(source) {
       ms: data.details?.duration_ms ?? 0,
       ...(data.skip !== undefined && data.skip !== false ? { skip: true } : {}),
       ...(data.todo !== undefined && data.todo !== false ? { todo: true } : {}),
-      ...(type === "test:fail" ? { error: String(error?.cause?.message ?? error?.message ?? "") } : {}),
+      ...(type === "test:fail" ? { error: String(error?.cause?.message ?? error?.message ?? ""), failure: String(error?.failureType ?? "") } : {}),
     }) + "\\n";
   }
 }
@@ -479,6 +481,7 @@ interface NodeEvent {
   readonly skip?: boolean;
   readonly todo?: boolean;
   readonly error?: string;
+  readonly failure?: string;
 }
 
 function isNodeEvent(value: unknown): value is NodeEvent {
@@ -493,7 +496,8 @@ function isNodeEvent(value: unknown): value is NodeEvent {
     typeof event.kind === "string" &&
     typeof event.ms === "number" &&
     [event.skip, event.todo].every((flag) => flag === undefined || typeof flag === "boolean") &&
-    (event.error === undefined || typeof event.error === "string")
+    (event.error === undefined || typeof event.error === "string") &&
+    (event.failure === undefined || typeof event.failure === "string")
   );
 }
 
@@ -522,9 +526,11 @@ export function parseNodeEvents(text: string): TestReport[] {
     }
     const path = [event.name];
     waiting.push({ nesting: event.nesting, path });
-    if (event.kind === "suite") return;
+    // A suite that fails only because a test in it did is that test's failure; any other suite failure is its own.
+    if (event.kind === "suite" && (event.type === "test:pass" || event.failure === "subtestsFailed")) return;
+    const own = event.kind === "suite";
     const outcome: Outcome = event.skip || event.todo ? "skip" : event.type === "test:pass" ? "pass" : "fail";
-    const report = { file: event.file, path, outcome, ms: event.ms, ...(outcome === "fail" && event.error ? { message: event.error } : {}) };
+    const report = { file: event.file, path, outcome, ms: event.ms, ...(outcome === "fail" && event.error ? { message: event.error } : {}), ...(own ? { suite: true as const } : {}) };
     reports.push({ report, path });
   });
   return reports.map(({ report, path }) => ({ ...report, path: [...path] }));
@@ -565,6 +571,7 @@ function titlesOf(qualifiedName: string): string[] | undefined {
   return titles;
 }
 
+const SUITE_FAILED = "the suite failed outside its tests (a hook or setup)";
 const EDITED = "main's version of this file ran; this PR edited it";
 const DELETED = "main's test, run against this PR's code; this PR deleted the file";
 
@@ -614,7 +621,7 @@ export function observedDocument(run: TestRun, graph: Graph, tree: string): Obse
     const observed: ObservedTest = { name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}) };
     const ids = byFile.get(report.file)?.get(JSON.stringify(report.path)) ?? [];
     const [id] = ids;
-    const changed = deleted.has(report.file) ? DELETED : edited.has(report.file) ? EDITED : undefined;
+    const changed = report.suite ? SUITE_FAILED : deleted.has(report.file) ? DELETED : edited.has(report.file) ? EDITED : undefined;
     if (changed === undefined && ids.length === 1 && id !== undefined) (tests[id] ??= []).push(observed);
     else {
       const why =
