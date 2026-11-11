@@ -3,7 +3,7 @@ import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
 import type { Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 import { ROLLUP_OVER, effectChip, effectParts } from "./review.ts";
-import type { Stop } from "./tour.ts";
+import type { Stop, Tour } from "./tour.ts";
 
 // Page-safe: the walkthrough panel bundles this module, so nothing here may import node:*.
 
@@ -149,4 +149,23 @@ export function tourCoverage(stops: readonly Stop[], comparison: Comparison): { 
     }
   }
   return { covered: covered.size, changed: files.size };
+}
+
+/** How the tour was made, as /walkthrough.json says. */
+export type WalkNote =
+  | { readonly status: "off" }
+  | { readonly status: "ok"; readonly model: string; readonly promptVersion: string; readonly dropped: Tour["dropped"]; readonly cached: boolean }
+  | { readonly status: "failed"; readonly message: string };
+
+/** One line on how the tour was made, or why there is none. */
+export function walkSummary(note: WalkNote, stops: number): string {
+  if (note.status === "failed") return `No walkthrough: ${note.message}.`;
+  if (note.status === "off") return "No walkthrough; run with --walkthrough for an agent's tour of the change.";
+  const d = note.dropped;
+  return `${stops} ${stops === 1 ? "stop" : "stops"} by ${note.model}${note.cached ? ", cached" : ""} (prompt ${note.promptVersion}); dropped ${d.stops} stops, ${d.ids} unknown ids, ${d.claims} bad claim numbers and ${d.sentences} unanchored sentences, not shown.`;
+}
+
+/** One line on how much of the change the tour covers. */
+export function coverageLine(coverage: { readonly covered: number; readonly changed: number }): string {
+  return `The tour covers ${coverage.covered} of ${coverage.changed} changed ${coverage.changed === 1 ? "file" : "files"}.`;
 }

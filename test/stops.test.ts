@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { compare, contractsMoved, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
-import { NOT_RUN, stopFacts, tourCoverage } from "../src/stops.ts";
+import { NOT_RUN, coverageLine, stopFacts, tourCoverage, walkSummary } from "../src/stops.ts";
 import type { Stop } from "../src/tour.ts";
 
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
@@ -148,4 +148,19 @@ test("the tour covers the changed files its stops point into, and no others", ()
   const second = stop(["file:src/api.ts", "file:src/nowhere.ts"]);
   expect(tourCoverage([first, second], comparison)).toEqual({ covered: 2, changed: 4 });
   expect(tourCoverage([], comparison)).toEqual({ covered: 0, changed: 4 });
+});
+
+test("the walkthrough's one line says how the tour was made and what was dropped, or why there is none", () => {
+  const dropped = { stops: 1, ids: 2, claims: 0, sentences: 3 };
+  expect(walkSummary({ status: "ok", model: "m", promptVersion: "tour-v1", dropped, cached: false }, 12)).toBe(
+    "12 stops by m (prompt tour-v1); dropped 1 stops, 2 unknown ids, 0 bad claim numbers and 3 unanchored sentences, not shown.",
+  );
+  expect(walkSummary({ status: "ok", model: "m", promptVersion: "tour-v1", dropped, cached: true }, 1)).toMatch(/^1 stop by m, cached \(/);
+  expect(walkSummary({ status: "failed", message: "claude CLI not found (claude)" }, 0)).toBe("No walkthrough: claude CLI not found (claude).");
+  expect(walkSummary({ status: "off" }, 0)).toBe("No walkthrough; run with --walkthrough for an agent's tour of the change.");
+});
+
+test("the coverage line says how many changed files the tour covers, so a partial tour is not read as the whole change", () => {
+  expect(coverageLine({ covered: 51, changed: 144 })).toBe("The tour covers 51 of 144 changed files.");
+  expect(coverageLine({ covered: 1, changed: 1 })).toBe("The tour covers 1 of 1 changed file.");
 });

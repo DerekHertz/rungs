@@ -58,7 +58,8 @@ export interface ReviewInput {
   readonly pickNode: (id: NodeId) => void;
 }
 
-function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {
+/** A new element with a class and, when given, text; never markup. */
+export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {
   const made = document.createElement(tag);
   made.className = className;
   if (text !== undefined) made.textContent = text;
