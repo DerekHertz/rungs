@@ -19,7 +19,7 @@ export function testChangesBlock(changes: TestChanges): HTMLElement | null {
     item.append(element("span", "review-mark", "!"), text);
     list.append(item);
   };
-  for (const file of deletedFiles) row(file.path, "test file deleted", file.tests === 0 ? "no tests were read from it" : `${file.tests} ${file.tests === 1 ? "test" : "tests"} gone`);
+  for (const file of deletedFiles) row(file.path, file.movedTo === undefined ? "test file deleted" : `removed from the test run (now ${file.movedTo})`, file.tests === 0 ? "no tests were read from it" : `${file.tests} ${file.tests === 1 ? "test" : "tests"} no longer run`);
   for (const test of removedTests) row(test.name, test.file, "test removed by name");
   for (const marker of markers) row(marker.name, marker.file, `now ${MARKER_TEXT[marker.marker]}`);
   for (const test of weakened) row(test.name, test.file, `weakened: ${test.why}`);

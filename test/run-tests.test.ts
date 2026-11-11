@@ -419,3 +419,23 @@ test("a suite whose after hook throws is shown failing though every test in it p
     expect.objectContaining({ file: "test/a.test.mjs", name: "suite", outcome: "fail", why: "the suite failed outside its tests (a hook or setup)", message: expect.stringContaining("teardown broke") }),
   ]);
 });
+
+test("two tests with one name, one passing and one failing, are a real run and both are shown", async () => {
+  const files = new Map([
+    ["package.json", manifest],
+    ["test/a.test.mjs", `import { test } from "node:test";\ntest("same", () => {});\ntest("same", () => { throw new Error("second"); });\n`],
+  ]);
+  const run = await runTests(files, files, new Set(), bwrap, 60_000);
+  expect(run).toMatchObject({ status: "ran", exitCode: 1 });
+  expect(run.status === "ran" ? run.reports.map((report) => [report.path, report.outcome]) : run).toEqual([[["same"], "pass"], [["same"], "fail"]]);
+});
+
+test("a flag's value in the base script is not taken for a test file", async () => {
+  const files = new Map([
+    ["package.json", `{"type":"module","scripts":{"test":"node --test --test-timeout 5000 test/a.test.mjs test/b.test.mjs"}}\n`],
+    ["test/a.test.mjs", `import { test } from "node:test";\ntest("a", () => {});\n`],
+    ["test/b.test.mjs", `import { test } from "node:test";\ntest("b", () => {});\n`],
+  ]);
+  const run = await runTests(files, files, new Set(), bwrap, 60_000);
+  expect(run.status === "ran" ? run.reports.map((report) => [report.file, report.outcome]) : run).toEqual([["test/a.test.mjs", "pass"], ["test/b.test.mjs", "pass"]]);
+});
