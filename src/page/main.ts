@@ -114,7 +114,7 @@ const handlers: TownHandlers = {
     cancelPending();
     const ticket = requested;
     pendingClick = setTimeout(() => {
-      const node = id === undefined ? undefined : nodes.get(id);
+      const node = id === undefined ? undefined : (nodes.get(id) ?? ghostFiles.get(id));
       if (node === undefined) closePanel();
       else void select(node, ticket);
     }, DOUBLE_CLICK_MS);
@@ -176,7 +176,7 @@ function chooseResource(kind: ResourceKind | undefined): void {
 }
 
 function describe(id: NodeId): string[] | undefined {
-  const file = nodes.get(id);
+  const file = nodes.get(id) ?? ghostFiles.get(id);
   const lot = lots.get(id);
   if (file?.level !== "file" || lot === undefined) return undefined;
   return [
@@ -232,6 +232,7 @@ function showRests(file: ModuleNode): boolean {
 }
 
 function changeFacts(file: FileNode): string[] {
+  if (!nodes.has(file.id) && lots.get(file.id)?.movedTo != null) return [`moved away to ${lots.get(file.id)?.movedTo?.path}`];
   const entry = picture.overlay?.entry(file.id);
   if (entry === undefined) return picture.overlay === null ? [] : ["change: unchanged"];
   const facts = [`change: ${entry.kind}`];
@@ -559,7 +560,9 @@ function pickNode(id: NodeId, marked?: LineRange): void {
   if (!stay) leaveInside();
   const ticket = requested;
   if (stay) insideView.select(node.id);
-  else focusOn(place.parent);
+  else if (nodes.has(place.parent)) focusOn(place.parent);
+  // The folder a moved file left may be gone from the picture; its rubble still stands in the town.
+  else townView.flyTo(place.parent);
   void select(node, ticket, place.id, marked);
 }
 
