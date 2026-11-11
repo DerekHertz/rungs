@@ -216,3 +216,46 @@ test("the Unmentioned summary counts dependency changes", () => {
   expect(unmentionedSummary({ files: null, calls: 0, dependencies: 1 })).toBe("1 dependency change");
   expect(unmentionedSummary({ files: 0, calls: 0, dependencies: 0 })).toBe("nothing");
 });
+
+describe("a package.json whose only change is mentioned dependency changes is covered", () => {
+  const withTexts = (before: Record<string, string>, after: Record<string, string>): { comparison: Comparison; names: (text: string) => string[] } => {
+    const head = extract(treeOf(after));
+    const comparison = compare(extract(treeOf(before)), head, { base: treeOf(before), head: treeOf(after) });
+    return { comparison, names: (text) => unmentioned(comparison, head, text).entries.map((entry) => entry.label) };
+  };
+  const base = { name: "x", scripts: { test: "vitest" }, dependencies: { three: "1", other: "1" } };
+  const run = (next: object, lock = false) =>
+    withTexts(
+      { "package.json": manifest(base), ...(lock ? { "package-lock.json": lines(3) } : {}) },
+      { "package.json": manifest(next), ...(lock ? { "package-lock.json": lines(4) } : {}) },
+    );
+
+  test("covered when every dependency change is named, listed when one is not", () => {
+    const { names } = run({ ...base, dependencies: { other: "1" }, devDependencies: { vitest: "2" } }, true);
+    expect(names("Drops three, adds vitest.")).toEqual([]);
+    expect(names("Drops three.")).toEqual(["package.json"]);
+  });
+
+  test("formatting and key order are no change", () => {
+    const head = JSON.stringify({ dependencies: { other: "1" }, scripts: base.scripts, name: "x" });
+    const { comparison, names } = withTexts({ "package.json": manifest(base) }, { "package.json": head });
+    expect(comparison.dependencyOnlyManifests).toEqual(["package.json"]);
+    expect(names("Drops three.")).toEqual([]);
+  });
+
+  test("another change stays listed", () => {
+    const { names } = run({ ...base, dependencies: { other: "1" }, scripts: { test: "jest" } });
+    expect(names("Drops three.")).toEqual(["package.json"]);
+    expect(run({ ...base, dependencies: { other: "1" }, version: "2" }).names("Drops three.")).toEqual(["package.json"]);
+  });
+
+  test("a side that does not parse stays listed", () => {
+    const { names } = withTexts({ "package.json": manifest(base) }, { "package.json": "{ not json" });
+    expect(names("three")).toEqual(["package.json"]);
+  });
+
+  test("without file texts nothing is decided", () => {
+    const comparison = compareTrees({ "package.json": manifest(base) }, { "package.json": manifest({ ...base, dependencies: { other: "1" } }) });
+    expect(comparison.dependencyOnlyManifests).toEqual([]);
+  });
+});

@@ -1,6 +1,6 @@
 import { argTokens, canonicalEdge, canonicalImport, canonicalNode, compareIds, isCodeNode, nodeId } from "./graph.ts";
 import { callKey, changedEffects, diffEffects, effectLabel, effectSets, occurrences } from "./effects.ts";
-import { diffDependencies } from "./dependencies.ts";
+import { diffDependencies, onlyDependenciesChanged } from "./dependencies.ts";
 import type { DependencyChange } from "./dependencies.ts";
 import { diffImports } from "./imports.ts";
 import type { ImportChange } from "./imports.ts";
@@ -39,6 +39,8 @@ export interface Comparison {
   readonly sections: readonly SectionChange[];
   /** The dependencies package.json files added, removed or changed, sorted; see diffDependencies in src/dependencies.ts. */
   readonly dependencies: readonly DependencyChange[];
+  /** The changed package.json files (head paths) whose only change is inside the dependency lists; see onlyDependenciesChanged. Empty when `compare` was not given the file texts. */
+  readonly dependencyOnlyManifests: readonly string[];
 }
 
 export class ExtractorVersionMismatch extends Error {
@@ -183,7 +185,16 @@ export function compare(base: Graph, head: Graph, trees?: { readonly base: FileT
     else pairs.push({ basePath: change.kind === "moved" ? change.from.path : change.node.path, headPath: change.node.path });
   }
   const sections = trees === undefined ? [] : diffSections(base, head, pairs, trees);
-  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections, dependencies: diffDependencies(base, head, movedTo) };
+  const dependencyOnlyManifests: string[] = [];
+  if (trees !== undefined) {
+    for (const change of changes) {
+      if (change.node.level !== "file" || (change.kind !== "altered" && change.kind !== "moved") || change.node.path.split("/").pop() !== "package.json") continue;
+      const was = trees.base.get(change.kind === "moved" ? change.from.path : change.node.path);
+      const now = trees.head.get(change.node.path);
+      if (was !== undefined && now !== undefined && onlyDependenciesChanged(was, now)) dependencyOnlyManifests.push(change.node.path);
+    }
+  }
+  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections, dependencies: diffDependencies(base, head, movedTo), dependencyOnlyManifests };
 }
 
 export type ContractMoveKind = "changed" | "effects" | "added" | "removed" | "exposed" | "unexported" | "moved";

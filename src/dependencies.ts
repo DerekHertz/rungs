@@ -68,3 +68,35 @@ export function diffDependencies(base: Graph, head: Graph, movedTo: ReadonlyMap<
 
 /** One declaration as text, `^1.2.0 (devDependencies)`. */
 export const declarationText = (declaration: Declaration): string => `${declaration.range ?? "range not readable"} (${declaration.list})`;
+
+const isEqual = (a: unknown, b: unknown): boolean => {
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((one, index) => isEqual(one, b[index]));
+  if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((key) => key in b && isEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+  }
+  return a === b;
+};
+
+const withoutLists = (text: string): object | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/, ""));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+    const rest: Record<string, unknown> = { ...parsed };
+    for (const list of DEPENDENCY_LISTS) delete rest[list];
+    return rest;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Whether two package.json texts differ only inside the four dependency lists: both parse as JSON
+ * objects and are deeply equal once those lists are removed, so formatting and key order are no
+ * change. Either side unreadable means no.
+ */
+export function onlyDependenciesChanged(before: string, after: string): boolean {
+  const was = withoutLists(before);
+  const now = withoutLists(after);
+  return was !== undefined && now !== undefined && isEqual(was, now);
+}
