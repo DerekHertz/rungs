@@ -159,9 +159,18 @@ export interface Town {
   readonly unreached: number;
 }
 
-/** The harbour structure a kind of resource picks, by sheet name. */
+/** The harbour structure each kind of resource picks, by sheet name: written out, never derived from the kind's words. */
+const PIER_SPRITES: Readonly<Record<ResourceKind, string>> = {
+  process: "port-process",
+  network: "port-network",
+  queue: "port-queue",
+  "file system": "port-file-system",
+  timer: "port-timer",
+  "code loaded at run time": "port-dynamic-load",
+};
+
 export function pierSpriteName(kind: ResourceKind): string {
-  return `port-${kind.replaceAll(" ", "-")}`;
+  return PIER_SPRITES[kind];
 }
 
 /**
