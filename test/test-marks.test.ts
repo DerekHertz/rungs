@@ -159,3 +159,21 @@ describe("a block's count of marked test files", () => {
     expect(allBlocks(townOf(extract(after), SHEET, comparison)).every((block) => block.testsChanged === 0)).toBe(true);
   });
 });
+
+describe("duplicate names", () => {
+  const twice = 'import test from "node:test";\nimport assert from "node:assert/strict";\ntest("same", () => { assert.equal(f(), 1); });\ntest("same", () => { assert.equal(g(), 2); });\n';
+  const once = 'import test from "node:test";\nimport assert from "node:assert/strict";\ntest("same", () => { assert.equal(f(), 1); });\n';
+
+  test("removing one of two same-named tests marks the file but never the survivor's room", () => {
+    const changes = testChanges(treeOf({ "t.test.mjs": twice }), treeOf({ "t.test.mjs": once }), { places: true });
+    expect(changes.weakened.every((entry) => entry.callback === undefined)).toBe(true);
+    const marks = testMarks(changes);
+    expect(marks.files.get("t.test.mjs")).toBe("weakened");
+    expect(marks.tests.size).toBe(0);
+  });
+
+  test("adding a second same-named test under a weakened one marks no room either", () => {
+    const changes = testChanges(treeOf({ "t.test.mjs": once }), treeOf({ "t.test.mjs": `${once.replace("assert.equal(f(), 1)", "assert.ok(f())")}test("same", () => { assert.ok(1); });\n` }), { places: true });
+    expect(testMarks(changes).tests.size).toBe(0);
+  });
+});

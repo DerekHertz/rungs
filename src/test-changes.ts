@@ -342,9 +342,9 @@ export function testChanges(base: FileTree, head: FileTree, options: { readonly 
   const markers: { file: string; name: string; marker: Marker; callback?: CallbackLines }[] = [];
   const weakened: { file: string; name: string; why: string; callback?: CallbackLines }[] = [];
   const edited: string[] = [];
-  /** Where the head's one test of this name is, or nothing when two tests share it. */
-  const placeOf = (parsed: Parsed, name: string): { callback?: CallbackLines } => {
-    if (options.places !== true) return {};
+  /** Where the head's one test of this name is, or nothing when two tests share it in either tree. */
+  const placeOf = (parsed: Parsed, name: string, was?: Parsed, wasName = name): { callback?: CallbackLines } => {
+    if (options.places !== true || (was?.found.get(wasName)?.length ?? 1) !== 1) return {};
     const entries = parsed.found.get(name);
     const callback = entries?.length === 1 ? entries[0]?.callback : undefined;
     return callback === undefined ? {} : { callback };
@@ -387,19 +387,19 @@ export function testChanges(base: FileTree, head: FileTree, options: { readonly 
     for (const key of markersOf(now)) {
       if (seen.has(key)) continue;
       const [name, marker] = JSON.parse(key) as [string, Marker];
-      markers.push({ file: path, name, marker, ...placeOf(now, name) });
+      markers.push({ file: path, name, marker, ...placeOf(now, name, was) });
     }
     if (was === undefined) continue;
     for (const { from, to } of pairs) {
       renamed.push({ file: path, from, to });
       const why = weakness(totalsOf(was.found.get(from)), totalsOf(now.found.get(to)));
-      if (why !== undefined) weakened.push({ file: path, name: to, why: `renamed from "${from}"; ${why}`, ...placeOf(now, to) });
+      if (why !== undefined) weakened.push({ file: path, name: to, why: `renamed from "${from}"; ${why}`, ...placeOf(now, to, was, from) });
     }
     const renamedAway = new Set(pairs.map((pair) => pair.from));
     for (const [name, count] of was.tests) if ((now.tests.get(name) ?? 0) < count && !renamedAway.has(name)) removedTests.push({ file: path, name });
     for (const [name, entries] of was.found) {
       const why = weakness(totalsOf(entries), totalsOf(now.found.get(name)));
-      if (why !== undefined && now.found.has(name)) weakened.push({ file: path, name, why, ...placeOf(now, name) });
+      if (why !== undefined && now.found.has(name)) weakened.push({ file: path, name, why, ...placeOf(now, name, was) });
     }
   }
   return { deletedFiles, removedTests: removedTests.sort(byFileThenName), renamed: renamed.sort((a, b) => byFileThenName({ file: a.file, name: a.to }, { file: b.file, name: b.to })), markers: markers.sort((a, b) => byFileThenName(a, b) || (a.marker < b.marker ? -1 : 1)), weakened: weakened.sort(byFileThenName), ...(options.places === true ? { edited } : {}) };
