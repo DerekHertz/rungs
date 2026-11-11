@@ -14,6 +14,8 @@ export interface CodeParts {
 export interface Drawn {
   readonly rows: readonly Row[];
   readonly cells: readonly HTMLElement[];
+  /** The gutter's elements, one per row, in the same order. */
+  readonly gutters: readonly HTMLElement[];
 }
 
 /**
@@ -57,8 +59,11 @@ export function drawRows(parts: CodeParts, rows: readonly Row[]): Drawn {
   const gutter = document.createDocumentFragment();
   const code = document.createDocumentFragment();
   const cells: HTMLElement[] = [];
+  const gutters: HTMLElement[] = [];
   for (const row of rows) {
-    gutter.append(cell(row.kind, row.line === undefined ? GUTTER_MARK[row.kind] : `${row.line}`));
+    const number = cell(row.kind, row.line === undefined ? GUTTER_MARK[row.kind] : `${row.line}`);
+    gutters.push(number);
+    gutter.append(number);
     const text = cell(row.kind, row.text);
     if (row.noEol === true) {
       const note = document.createElement("span");
@@ -73,7 +78,83 @@ export function drawRows(parts: CodeParts, rows: readonly Row[]): Drawn {
   parts.code.replaceChildren(code);
   parts.body.scrollTop = parts.body.scrollLeft = 0;
   parts.mark.hidden = true;
-  return { rows, cells };
+  return { rows, cells, gutters };
+}
+
+/** A run of rows folded away behind one line; `open` shows them again. */
+export interface Fold {
+  readonly from: number;
+  readonly to: number;
+  readonly open: () => void;
+}
+
+/**
+ * Folds every run of rows outside `openRanges` (head line numbers) behind one line, "N lines
+ * collapsed", that a click opens. A removed row stays with the numbered row above it. Nothing is
+ * folded when no range is given: with nothing to prefer, every line stays. Returns the folds.
+ */
+export function collapseRows(drawn: Drawn, openRanges: readonly LineRange[]): Fold[] {
+  if (openRanges.length === 0) return [];
+  const numberedOpen = drawn.rows.map((row) => row.line !== undefined && openRanges.some((range) => row.line! >= range.start && row.line! <= range.end));
+  // A removed row has no line: it opens with the numbered row above or below it, so a replaced line stays whole.
+  const total = drawn.rows.length;
+  const aboveOpen: boolean[] = [];
+  let seen = false;
+  for (let index = 0; index < total; index++) {
+    if (drawn.rows[index]!.line !== undefined) seen = numberedOpen[index]!;
+    aboveOpen.push(seen);
+  }
+  const belowOpen: boolean[] = new Array<boolean>(total).fill(false);
+  seen = false;
+  for (let index = total - 1; index >= 0; index--) {
+    if (drawn.rows[index]!.line !== undefined) seen = numberedOpen[index]!;
+    belowOpen[index] = seen;
+  }
+  const kept = drawn.rows.map((row, index) => (row.line !== undefined ? numberedOpen[index]! : aboveOpen[index]! || belowOpen[index]!));
+  const folds: Fold[] = [];
+  for (let from = 0; from < kept.length; from++) {
+    if (kept[from]) continue;
+    let to = from;
+    while (to + 1 < kept.length && !kept[to + 1]) to++;
+    const hidden = [...drawn.cells.slice(from, to + 1), ...drawn.gutters.slice(from, to + 1)];
+    const count = to - from + 1;
+    const marker = (text: string): HTMLElement => {
+      const span = document.createElement("span");
+      span.className = "row fold";
+      span.textContent = text;
+      return span;
+    };
+    const codeMarker = marker(`▸ ${count} ${count === 1 ? "line" : "lines"} collapsed`);
+    const gutterMarker = marker("⋯");
+    codeMarker.setAttribute("role", "button");
+    codeMarker.tabIndex = 0;
+    for (const element of hidden) element.style.display = "none";
+    drawn.cells[from]!.before(codeMarker);
+    drawn.gutters[from]!.before(gutterMarker);
+    let opened = false;
+    const open = (): void => {
+      if (opened) return;
+      opened = true;
+      codeMarker.remove();
+      gutterMarker.remove();
+      for (const element of hidden) element.style.display = "";
+    };
+    codeMarker.addEventListener("click", open);
+    codeMarker.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") open();
+    });
+    folds.push({ from, to, open });
+    from = to;
+  }
+  return folds;
+}
+
+/** Opens the folds that hold a numbered row of `range`, so a mark on it has somewhere to land. */
+export function revealRange(drawn: Drawn, folds: readonly Fold[], range: LineRange): void {
+  drawn.rows.forEach((row, index) => {
+    if (row.line === undefined || row.line < range.start || row.line > range.end) return;
+    for (const fold of folds) if (index >= fold.from && index <= fold.to) fold.open();
+  });
 }
 
 /**

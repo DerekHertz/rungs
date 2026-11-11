@@ -22,6 +22,7 @@ import type { Asked, LinkOutcome } from "./link.ts";
 import { observedDocument, treeDigest } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
 import { testChanges } from "./test-changes.ts";
+import { fileWhy } from "./defining.ts";
 import { risksOf } from "./risks.ts";
 import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
@@ -69,6 +70,9 @@ interface Resource {
  * `GET /changes?id=` is what changed in the lines `/source` serves for that module, as rows of
  * added, removed and unchanged lines from a line diff of the base and head files (derived). It is
  * 404 without a base, for folders, removed and moved modules, and when nothing there changed.
+ * `GET /file-why?id=` is, for a file of the head, why it matters before its lines (derived: see src/defining.ts):
+ * its contracts moved, the files resting on it, its new effects, the tests reaching it, and its defining
+ * blocks first; 404 without a base and for anything but a file.
  * The claims are the person's `description` as a claimed fact, kept apart from the graph and the
  * comparison; `description` is null in them when none was given. The description is split into
  * claims by rules, and `link`, when given, is asked once for the agent's links from each claim to
@@ -295,6 +299,12 @@ export async function serve(
       const body = changesOf(url.searchParams.get("id"));
       if (body === undefined) response.writeHead(404).end();
       else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(body);
+      return;
+    }
+    if (url.pathname === "/file-why") {
+      const found = comparison === undefined || baseGraph === undefined ? undefined : fileWhy((url.searchParams.get("id") ?? "") as NodeId, comparison, baseGraph, graph, isTestFile);
+      if (found === undefined) response.writeHead(404).end();
+      else response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify({ tier: "derived", ...found }, null, 2)}\n`);
       return;
     }
     if (url.pathname === "/source") {
