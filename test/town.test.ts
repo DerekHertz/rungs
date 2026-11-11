@@ -156,7 +156,7 @@ describe("size steps", () => {
 describe("camera maths", () => {
   test("names by zoom: blocks far away, files close in", () => {
     expect(namesAt(0.1)).toBe("blocks");
-    expect(namesAt(0.3)).toBe("blocks");
+    expect(namesAt(0.6)).toBe("blocks");
     expect(namesAt(1)).toBe("files");
   });
 

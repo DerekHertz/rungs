@@ -31,7 +31,7 @@ export function project(X: number, Y: number, Z = 0): { x: number; y: number } {
 }
 
 /** Names appear by zoom: blocks alone while a lot is narrower than this many pixels on screen, files too from then on. */
-export const FILE_NAMES_FROM_LOT_PX = 120;
+export const FILE_NAMES_FROM_LOT_PX = 200;
 
 /** What is named at `zoom` (screen pixels per native sprite pixel): only blocks far away, files as well close in. */
 export function namesAt(zoom: number): "blocks" | "files" {
@@ -82,7 +82,7 @@ export interface Block {
   /** The top-level folder's id; the root's id for the files that sit in no folder. */
   readonly id: NodeId;
   readonly name: string;
-  /** Every package and folder in the block, itself first: the ids a camera can be flown to. */
+  /** Every package and folder in the block, itself first (none for the root's loose files): the ids a camera can be flown to. */
   readonly folders: readonly NodeId[];
   readonly files: number;
   readonly cols: number;
@@ -183,7 +183,7 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>): Town {
   const foldersByBlock = new Map<NodeId, NodeId[]>();
   for (const node of graph.nodes) {
     if (node.level !== "folder" && node.level !== "package") continue;
-    const top = node.id === root?.id ? node.id : topOf(node);
+    const top = node.id === root?.id ? undefined : topOf(node);
     if (top !== undefined) foldersByBlock.set(top, [...(foldersByBlock.get(top) ?? []), node.id]);
   }
 
@@ -229,7 +229,7 @@ export function townOf(graph: Graph, sprites: ReadonlySet<string>): Town {
     const at = places.get(block.id)!;
     const [X0, Y1] = ground(at.x, at.z);
     const [X1, Y0] = ground(at.x + block.w, at.z + block.d);
-    blocks.push({ id: block.id, name: block.name, folders: foldersByBlock.get(block.id) ?? [block.id], files: block.files.length, cols: block.cols, rows: block.rows, X0, X1, Y0, Y1 });
+    blocks.push({ id: block.id, name: block.name, folders: foldersByBlock.get(block.id) ?? [], files: block.files.length, cols: block.cols, rows: block.rows, X0, X1, Y0, Y1 });
     block.files.forEach((file, index) => {
       if (file.level !== "file") return;
       const [X, Y] = ground(at.x + PAD + (index % block.cols) * LOT + LOT / 2, at.z + PAD + Math.floor(index / block.cols) * LOT + LOT / 2);
