@@ -53,6 +53,11 @@ Each level is computed from the one below it. Only the graph is stored; the rest
   external resources (network, process, file system, queue, timer, and code loaded at run time).
   Code loaded at run time is a `require` or `import()` whose target is not a literal, or a
   `createRequire`.
+- **Sections:** a Markdown file has one section per heading, nested by heading level and pinned to
+  its lines. A section has a name and lines, and no edges.
+- **Dependencies** are what `package.json` declares in `dependencies`, `devDependencies`,
+  `peerDependencies` and `optionalDependencies`: each one's name, the range written and its list.
+  They are read from `package.json` only, never from a lockfile.
 - **Edges:** calls, imports, type references and effects, each pinned to file and line ranges.
 - **Effects** are found with a hand-maintained catalog of declarations, starting with the
   runtime's built-ins and versioned with the extractor.
@@ -122,6 +127,8 @@ altered, removed or moved. Moved means identical text under a new path, never a 
   construction fence and a sign with its counts ("tools · 93 new").
 - A removed file leaves rubble on its lot. A moved file leaves rubble with a sign naming its new
   path, and stands at its new place with no crane.
+- A dependency is added, removed or changed (its range or its list). The picture does not show
+  dependencies; the panel does.
 - Inside a file, a changed function's room has a different floor and cones, and an altered or
   new outside call has a ring and the name of its target. An outside call is named only in a file
   that already existed.
@@ -129,8 +136,13 @@ altered, removed or moved. Moved means identical text under a new path, never a 
 A panel answers the three questions, and each entry selects places on the picture. It shows one summary row per question, number first ("Claims: 10 of 13 linked", "Tests: 23 fail of 210"); one row is open at a time and takes the column's height. Each item is one line, with detail when selected. Explanations and run details sit under "About this run", except the tests' evidence caveat, which stays one hover or click from the Tests row:
 
 - **Claims:** the change's description, shown as claimed.
-- **Unmentioned:** changed modules and edges no claim covers, new effect edges first. A change
-  counts as mentioned when its path or name appears in the description, or an agent links it.
+- **Unmentioned:** changed modules, edges, dependencies and sections no claim covers, new effect
+  edges first, then dependency changes. A change counts as mentioned when its path or name appears
+  in the description; a dependency by its name, a section by its heading. A changed Markdown file
+  lists its changed sections, each with its added and removed lines. A lockfile's change is listed
+  under the dependency changes it follows, and on its own only when no dependency changed. A
+  change only an agent links stays in the count, as "linked by the agent only", so the row never
+  reads "nothing" on an agent's word. An agent's link to a folder covers none of its files.
 - **Contracts moved:** every change to an exported signature, type, case, effect set or linked
   property.
 
