@@ -2,18 +2,106 @@ import type { Comparison, ContractMove } from "./compare.ts";
 import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
 import type { Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
+import type { Outcome, ObservedDocument } from "./observed-types.ts";
 import { ROLLUP_OVER, effectChip, effectParts } from "./review.ts";
+import type { TestChanges } from "./test-changes-types.ts";
 import type { Stop, Tour } from "./tour.ts";
 
 // Page-safe: the walkthrough panel bundles this module, so nothing here may import node:*.
 
-/**
- * What was observed at a stop, the fourth column of the walkthrough. Nothing records a run yet,
- * so every stop is "not run"; recorded test results join this union.
- */
-export type Observed = { readonly status: "not run" };
+/** One recorded test result, as it is shown at a stop. */
+export interface StopTest {
+  readonly file: string;
+  readonly name: string;
+  readonly outcome: Outcome;
+  readonly message?: string;
+  /** Why the result is attached to the file and not to a test function, when it is. */
+  readonly why?: string;
+}
 
-export const NOT_RUN: Observed = { status: "not run" };
+/**
+ * What was observed at a stop, the fourth column of the walkthrough. "not run" until a run is
+ * recorded. A run that did not give results is its state and why. A run that did holds main's
+ * results of the tests attached to the stop's modules, the results of tests the PR wrote
+ * (claimed), and what the PR did to the stop's tests. With none of them, no test is attached.
+ */
+export type Observed =
+  | { readonly status: "not run"; readonly changes: readonly string[] }
+  | { readonly status: "refused" | "unsupported" | "failed" | "unreliable"; readonly why: string; readonly unsandboxed: boolean; readonly changes: readonly string[] }
+  | {
+      readonly status: "ran";
+      readonly unsandboxed: boolean;
+      readonly results: readonly StopTest[];
+      readonly written: readonly StopTest[];
+      /** The PR's own tests covering this stop gave no results: claimed, with why. */
+      readonly writtenProblem?: { readonly status: "failed" | "unreliable"; readonly why: string };
+      readonly changes: readonly string[];
+    };
+
+export const NOT_RUN: Observed = { status: "not run", changes: [] };
+
+const asResult = ({ file, name, outcome, message, why }: StopTest): StopTest => ({
+  file,
+  name,
+  outcome,
+  ...(message ? { message } : {}),
+  ...(why ? { why } : {}),
+});
+
+/**
+ * What a run recorded at one stop. A test attaches to a stop when its test function is a node of
+ * the stop, or inside one (a stop at a test file holds its functions); results no single test
+ * function matched attach by file. Nothing is inferred from what a test imports. Tests the PR
+ * wrote and what it did to the tests (`changes`, from /test-changes.json) attach by file.
+ */
+export function observedAt(stop: Stop, graph: Graph, comparison: Comparison, document: ObservedDocument | null, testChanges: TestChanges): Observed {
+  const nodes = new Map<NodeId, ModuleNode>(graph.nodes.map((node) => [node.id, node]));
+  for (const change of comparison.changes) if (!nodes.has(change.node.id)) nodes.set(change.node.id, change.node);
+  const at = new Set(stop.ids);
+  const here = (start: NodeId): boolean => {
+    for (let id: NodeId | null | undefined = start; id !== null && id !== undefined; id = nodes.get(id)?.parent) if (at.has(id)) return true;
+    return false;
+  };
+  const files = new Set<string>();
+  for (const id of stop.ids) {
+    const node = nodes.get(id);
+    if (node?.level === "file") files.add(node.path);
+  }
+
+  const changes: string[] = [];
+  for (const file of testChanges.deletedFiles) {
+    if (!files.has(file.path) && !(file.movedTo !== undefined && files.has(file.movedTo))) continue;
+    const count = `${file.tests} ${file.tests === 1 ? "test" : "tests"}`;
+    changes.push(file.movedTo === undefined ? `test file deleted: ${file.path} (${count})` : `test file moved: ${file.path} to ${file.movedTo} (${count})`);
+  }
+  for (const test of testChanges.removedTests) if (files.has(test.file)) changes.push(`test removed: ${test.name}`);
+  for (const test of testChanges.markers) if (files.has(test.file)) changes.push(`${test.name} marked ${test.marker}`);
+  for (const test of testChanges.weakened) if (files.has(test.file)) changes.push(`${test.name} weakened: ${test.why}`);
+
+  if (document === null) return { status: "not run", changes };
+  if (!("sandbox" in document)) return { status: document.status, why: document.why, unsandboxed: false, changes };
+  const unsandboxed = document.sandbox === "unsandboxed";
+  if (document.status !== "ran") return { status: document.status, why: document.why, unsandboxed, changes };
+
+  const results: StopTest[] = [];
+  for (const [id, tests] of Object.entries(document.tests)) {
+    if (!here(id as NodeId)) continue;
+    const file = nodes.get(id as NodeId)?.path ?? "";
+    for (const test of tests) results.push(asResult({ ...test, file }));
+  }
+  for (const test of document.unmatched) if (files.has(test.file)) results.push(asResult(test));
+  const run = document.written;
+  const written = run?.status === "ran" ? run.tests.filter((test) => files.has(test.file)).map(asResult) : [];
+  const covered = run !== null && run.status !== "ran" && run.files.some((file) => files.has(file));
+  return {
+    status: "ran",
+    unsandboxed,
+    results,
+    written,
+    ...(covered ? { writtenProblem: { status: run.status, why: run.why } } : {}),
+    changes,
+  };
+}
 
 /** An effect edge that appeared or went away at a stop. */
 export interface StopEffect {
