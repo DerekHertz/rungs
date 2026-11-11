@@ -188,12 +188,22 @@ test("identical-text moves from one folder to another are one entry, after the r
 });
 
 test("a move group is mentioned when the description names its new folder, its old folder or a folder above", () => {
-  for (const text of ["Moves to themes/town/sprites.", "Moves out of sprites.", "Moves the sheet to themes/town.", "Under themes."]) {
+  for (const text of ["Moves to themes/town/sprites.", "Moves out of sprites.", "Moves the sheet to themes/town.", "Under `themes/`.", "Move `sprites/` to `themes/town/sprites/`."]) {
     const result = review(moveBase, moveHead, text);
     expect(result.entries.map((entry) => entry.level)).toEqual(["file"]);
     expect(result.unmentionedFiles).toBe(1);
   }
   expect(review(moveBase, moveHead, "Moves to themes/town/sprites-old.").entries.map((entry) => entry.level)).toEqual(["file", "moves"]);
+});
+
+test("a bare ancestor word does not mention a move group, and a trailing slash never names a single file", () => {
+  expect(review(moveBase, moveHead, "Changes under themes.").entries.map((entry) => entry.level)).toEqual(["file", "moves"]);
+  expect(review(moveBase, moveHead, "Moves things into town.").entries.map((entry) => entry.level)).toEqual(["file", "moves"]);
+  const old = { "package.json": "{}\n", "old/a.md": "a\n", "old/b.md": "b\n" };
+  const moved = { "package.json": "{}\n", "new/a.md": "a\n", "new/b.md": "b\n" };
+  expect(review(old, moved, "Move `old/` to `new/`.").entries).toEqual([]);
+  expect(review(old, moved, "Move `new/`.").entries).toEqual([]);
+  expect(review(old, moved, "Move old/a.md.").entries.map((entry) => entry.label)).toEqual(["new/b.md"]);
 });
 
 test("a single move stays a file entry, and moves between different folders are separate groups", () => {
