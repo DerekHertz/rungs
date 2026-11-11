@@ -8,6 +8,25 @@ export interface EffectChange {
   readonly kind: "added" | "removed";
   /** As its own graph has it: the head edge for "added", the base edge for "removed". */
   readonly edge: EffectEdge;
+  /** How many calls before this one in its own graph are the same call (see callKey): which of identical twins it is. */
+  readonly nth: number;
+}
+
+/** What makes two calls the same call: owner, resource, operation, target and arguments. Lines are not part of it. */
+export const callKey = (edge: EffectEdge): string =>
+  `${edge.from}\0${edge.to}\0${edge.operation}\0${targetText(edge.target)}\0${argTokens(edge.args).join("\u0000")}`;
+
+/** For each edge of `edges`, how many edges before it are the same call (see callKey): the nth of identical twins. */
+export function occurrences(edges: readonly EffectEdge[]): Map<EffectEdge, number> {
+  const seen = new Map<string, number>();
+  const nth = new Map<EffectEdge, number>();
+  for (const edge of edges) {
+    const key = callKey(edge);
+    const count = seen.get(key) ?? 0;
+    nth.set(edge, count);
+    seen.set(key, count + 1);
+  }
+  return nth;
 }
 
 export const resourceKindOf = (edge: EffectEdge): ResourceKind => edge.to.slice("resource:".length) as ResourceKind;
@@ -38,6 +57,8 @@ export function diffEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<NodeI
   const heads = new Map<string, EffectEdge[]>();
   for (const edge of head.edges) heads.set(keyOf(edge, edge.from), [...(heads.get(keyOf(edge, edge.from)) ?? []), edge]);
   const changes: EffectChange[] = [];
+  const headNth = occurrences(head.edges);
+  const baseNth = occurrences(base.edges);
   for (const [key, edges] of heads) {
     // Calls with the same arguments pair first, as in changedEffects; the rest pair in source
     // order, and the surplus is added.
@@ -48,11 +69,11 @@ export function diffEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<NodeI
       if (same === -1) rest.push(edge);
       else bases.splice(same, 1);
     }
-    for (const edge of rest.slice(bases.length)) changes.push({ kind: "added", edge });
-    for (const edge of bases.slice(rest.length)) changes.push({ kind: "removed", edge });
+    for (const edge of rest.slice(bases.length)) changes.push({ kind: "added", edge, nth: headNth.get(edge)! });
+    for (const edge of bases.slice(rest.length)) changes.push({ kind: "removed", edge, nth: baseNth.get(edge)! });
   }
   for (const [key, edges] of before) {
-    if (!heads.has(key)) for (const edge of edges) changes.push({ kind: "removed", edge });
+    if (!heads.has(key)) for (const edge of edges) changes.push({ kind: "removed", edge, nth: baseNth.get(edge)! });
   }
   return changes.sort((a, b) => compareEdges(a.edge, b.edge) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
 }
@@ -74,6 +95,11 @@ export interface ChangedEffect {
   readonly count: number;
   /** Their lines in the head file, in source order. */
   readonly ranges: readonly LineRange[];
+  /**
+   * The effect calls among them, each as its arguments and which of its identical twins it is
+   * (see callKey), so two calls on one line are told apart. A resolution has none. Source order.
+   */
+  readonly calls: readonly { readonly tokens: readonly string[]; readonly nth: number }[];
 }
 
 /**
@@ -116,8 +142,12 @@ export function changedEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<No
     readonly args: readonly EffectArg[];
     readonly range: LineRange;
     readonly resolution: boolean;
+    /** Which of its identical twins the call is; for a head effect call only. */
+    readonly nth: number;
   }
-  const sitesOf = (graph: Graph, ownerOf: (id: NodeId) => NodeId): Site[] => [
+  const sitesOf = (graph: Graph, ownerOf: (id: NodeId) => NodeId): Site[] => {
+    const nth = occurrences(graph.edges);
+    return [
     ...graph.edges.map((edge): Site => ({
       owner: ownerOf(edge.from),
       key: `${ownerOf(edge.from)}\0${edge.to}\0${edge.operation}\0${targetText(edge.target)}`,
@@ -125,6 +155,7 @@ export function changedEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<No
       args: edge.args,
       range: edge.range,
       resolution: false,
+      nth: nth.get(edge)!,
     })),
     ...graph.resolutions.map((edge): Site => ({
       owner: ownerOf(edge.from),
@@ -133,17 +164,19 @@ export function changedEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<No
       args: edge.args,
       range: edge.range,
       resolution: true,
+      nth: 0,
     })),
-  ];
+    ];
+  };
   const before = new Map<string, Site[]>();
   const sequence = (site: Site): string => argTokens(site.args).join("\u0000");
   for (const site of sitesOf(base, (id) => movedTo.get(id) ?? id)) before.set(site.key, [...(before.get(site.key) ?? []), site]);
-  const groups = new Map<string, { owner: NodeId; label: string; added: string[]; removed: string[]; ranges: LineRange[] }>();
+  const groups = new Map<string, { owner: NodeId; label: string; added: string[]; removed: string[]; sites: { range: LineRange; call?: { tokens: string[]; nth: number } }[] }>();
   const report = (site: Site, added: string[], removed: string[]): void => {
     if (added.length === 0 && removed.length === 0) return;
     const id = `${site.owner}\0${site.label}\0${added.join("\0")}\0\u0001${removed.join("\0")}`;
-    const found = groups.get(id) ?? { owner: site.owner, label: site.label, added, removed, ranges: [] };
-    found.ranges.push(site.range);
+    const found = groups.get(id) ?? { owner: site.owner, label: site.label, added, removed, sites: [] };
+    found.sites.push({ range: site.range, ...(site.resolution ? {} : { call: { tokens: argTokens(site.args), nth: site.nth } }) });
     groups.set(id, found);
   };
   const now = new Map<string, Site[]>();
@@ -173,7 +206,10 @@ export function changedEffects(base: Graph, head: Graph, movedTo: ReadonlyMap<No
     if (!now.has(key)) for (const site of sites) if (site.resolution) report(site, [], argTokens(site.args));
   }
   return [...groups.values()]
-    .map((group) => ({ kind: "changed" as const, ...group, count: group.ranges.length, ranges: group.ranges.sort((a, b) => a.start - b.start) }))
+    .map(({ sites, ...group }) => {
+      const sorted = sites.sort((a, b) => a.range.start - b.range.start);
+      return { kind: "changed" as const, ...group, count: sorted.length, ranges: sorted.map((site) => site.range), calls: sorted.flatMap((site) => (site.call === undefined ? [] : [site.call])) };
+    })
     .sort((a, b) => (a.owner < b.owner ? -1 : a.owner > b.owner ? 1 : 0) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
 }
 

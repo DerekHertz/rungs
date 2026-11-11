@@ -52,3 +52,65 @@ describe("script commands", () => {
     expect(scripts("node --test p.js q.js", ["p.js", "q.js"])).toEqual(["p.js", "q.js"]);
   });
 });
+
+describe("round-2 edge cases (#126)", () => {
+  test("exports null exclusions and more specific keys override a pattern", () => {
+    const files = ["src/a.js", "src/private/secret.js", "src/special.js"];
+    expect(pathsOf({ exports: { "./*": "./src/*.js", "./private/*": null } }, files)).toEqual(["src/a.js", "src/special.js"]);
+    expect(pathsOf({ exports: { "./*": "./src/*.js", "./special": null } }, files)).toEqual(["src/a.js", "src/private/secret.js"]);
+    expect(pathsOf({ exports: { "./*": "./src/*.js", "./private/*": "./src/special.js" } }, files)).toEqual(["src/a.js", "src/special.js"]);
+    expect(pathsOf({ exports: { "./*": "./src/*.js", "./private/*": { import: null } } }, files)).toEqual(["src/a.js", "src/special.js"]);
+  });
+  test("every * in an exports target stands for the same text", () => {
+    expect(pathsOf({ exports: { "./*": "./src/*/*.js" } }, ["src/a/a.js", "src/a/b.js", "src/c/c.js"])).toEqual(["src/a/a.js", "src/c/c.js"]);
+  });
+  test("a runner's flags are told from its script, and what follows the script is its arguments", () => {
+    const files = ["app.js", "data.js", "setup.js"];
+    expect(scripts("node missing.js data.js", files)).toEqual([]);
+    expect(scripts("node app.js --test data.js", files)).toEqual(["app.js"]);
+    expect(scripts("node --require setup.js app.js", files)).toEqual(["app.js"]);
+    expect(scripts("node -r setup.js --import=data.js app.js", files)).toEqual(["app.js"]);
+    expect(scripts("node --test data.js app.js", files)).toEqual(["app.js", "data.js"]);
+    expect(scripts("node -e 'x' app.js", files)).toEqual([]);
+    expect(scripts("deno run app.js data.js", files)).toEqual(["app.js"]);
+  });
+  test("a cd in a pipeline or in the background moves nothing", () => {
+    const files = ["sub/app.js", "app.js"];
+    expect(scripts("cd sub | cat; node app.js", files)).toEqual(["app.js"]);
+    expect(scripts("cd sub & node app.js", files)).toEqual(["app.js"]);
+    expect(scripts("cat | cd sub; node app.js", files)).toEqual(["app.js"]);
+    expect(scripts("cd $X | cat; node app.js", files)).toEqual(["app.js"]);
+  });
+  test("trailing slashes name a folder", () => {
+    expect(scripts("cd sub/ && node app.js", ["sub/app.js", "app.js"])).toEqual(["sub/app.js"]);
+    expect(pathsOf({ main: "./lib/" }, ["lib/index.js"])).toEqual(["lib/index.js"]);
+    expect(pathsOf({ main: "./lib/" }, ["lib.js"])).toEqual([]);
+    expect(pathsOf({ bin: "./lib/" }, ["lib/index.js"])).toEqual([]);
+    expect(pathsOf({ main: "." }, ["index.js"])).toEqual(["index.js"]);
+  });
+  test("a comment ends the command line, a # inside a word does not start one", () => {
+    expect(scripts("echo ok # ; node unused.js", ["unused.js"])).toEqual([]);
+    expect(scripts("node a.js # note\nnode b.js", ["a.js", "b.js"])).toEqual(["a.js", "b.js"]);
+    expect(scripts("node a.js#x", ["a.js"])).toEqual([]);
+    expect(scripts("node 'a.js' \"#\"", ["a.js"])).toEqual(["a.js"]);
+  });
+  test("a runner tries only the extensions it tries", () => {
+    expect(scripts("node a", ["a.ts"])).toEqual([]);
+    expect(scripts("node a", ["a.js"])).toEqual(["a.js"]);
+    expect(scripts("node a", ["a/index.js"])).toEqual(["a/index.js"]);
+    expect(scripts("tsx a", ["a.ts"])).toEqual(["a.ts"]);
+    expect(scripts("tsx a", ["a.json"])).toEqual([]);
+    expect(scripts("deno run a", ["a.ts"])).toEqual([]);
+  });
+  test("a command word holding a / is a path from the working folder", () => {
+    expect(scripts("bin/tool.js --x", ["bin/tool.js"])).toEqual(["bin/tool.js"]);
+    expect(scripts("cd sub && bin/run.js", ["sub/bin/run.js"])).toEqual(["sub/bin/run.js"]);
+    expect(scripts("tool.js", ["tool.js"])).toEqual([]);
+    expect(scripts("/abs/tool.js", ["abs/tool.js"])).toEqual([]);
+  });
+  test("a backslash in double quotes escapes only a dollar, a backtick, a double quote and a backslash", () => {
+    expect(scripts(String.raw`node "dir\file.js"`, ["dirfile.js", String.raw`dir\file.js`])).toEqual([String.raw`dir\file.js`]);
+    expect(scripts(String.raw`node "a\\b.js"`, [String.raw`a\b.js`])).toEqual([String.raw`a\b.js`]);
+    expect(scripts(String.raw`node "a\"b.js"`, ['a"b.js'])).toEqual(['a"b.js']);
+  });
+});

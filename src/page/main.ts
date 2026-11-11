@@ -15,6 +15,7 @@ import { importanceOf, reachedFrom } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
 import { insideOf, marksOf } from "../town-inside.ts";
 import { createTownInsideView } from "./town-inside-view.ts";
+import { tooltipPosition } from "./tooltip.ts";
 import type { Lot, Town } from "../town.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
@@ -146,13 +147,16 @@ const insideView = createTownInsideView(
         insideView.select(id);
         void select(node, ticket, node.id, lines);
       },
-      hover(text) {
-        if (text === undefined) {
+      hover(text, at) {
+        if (text === undefined || at === undefined) {
           tooltip.style.display = "none";
           return;
         }
         tooltip.textContent = text;
         tooltip.style.display = "block";
+        const place = tooltipPosition(at, { width: tooltip.offsetWidth, height: tooltip.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
+        tooltip.style.left = `${place.left}px`;
+        tooltip.style.top = `${place.top}px`;
       },
     },
     sheet,
