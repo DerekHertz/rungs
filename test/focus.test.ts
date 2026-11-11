@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { flyTarget } from "../src/focus.ts";
+import { escapeStep, flyTarget } from "../src/focus.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { NodeId } from "../src/graph.ts";
 import { indexGraph } from "../src/zoom.ts";
@@ -32,5 +32,19 @@ describe("flyTarget", () => {
   test("goes nowhere when the district is already the focus", () => {
     expect(from("folder:src", "folder:src")).toBeUndefined();
     expect(from(tree.root, tree.root)).toBeUndefined();
+  });
+});
+
+describe("escapeStep", () => {
+  const parent = (): NodeId => id("folder:src");
+  const root = tree.root;
+
+  test("leaves a block framed alone for the folder focus names, even at the root", () => {
+    expect(escapeStep(root, true, root, parent)).toBe(root);
+  });
+
+  test("zooms out one folder, and stops at the root", () => {
+    expect(escapeStep(id("folder:src/util"), false, root, parent)).toBe("folder:src");
+    expect(escapeStep(root, false, root, parent)).toBeUndefined();
   });
 });
