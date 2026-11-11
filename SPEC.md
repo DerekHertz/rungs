@@ -82,7 +82,9 @@ sea is everything outside it. The camera looks from one fixed isometric angle; i
 and never changes the layout.
 
 - **Blocks.** Each top-level folder is a block of lots with its name, and a folder inside it is a
-  smaller block within that block.
+  smaller block within that block. Every file has a lot of the same size, and a block's lots are
+  a grid in path order. Blocks are packed in rows, largest first. A file's line count does not
+  show in its lot.
 - **Buildings.** Each file is a building on its lot. Its kind is the file's role: a workshop for
   source, a lab for tests, a library for docs, a shed for config and build, a warehouse for
   generated files, and a hut for a file with no role. Its size is its count of classes and
