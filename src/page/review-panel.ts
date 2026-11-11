@@ -80,6 +80,13 @@ export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className
   return made;
 }
 
+function contextList(context: readonly { readonly text: string }[]): HTMLElement {
+  const more = element("details", "review-context");
+  more.append(element("summary", "review-summary", `${context.length} context ${context.length === 1 ? "line" : "lines"} not shown`));
+  for (const line of context) more.append(element("p", "review-source", line.text));
+  return more;
+}
+
 export function section(title: string, tag: string): [HTMLElement, HTMLElement] {
   const wrap = element("section", "review-section");
   const head = element("h2", "review-title", title);
@@ -95,6 +102,9 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   const [claims, claimsBody] = section("Claims", "claimed");
   if (input.description === null) {
     claimsBody.append(element("p", "review-empty", "No description was given."));
+  } else if (input.claims.length === 0 && input.context.length > 0) {
+    claimsBody.append(element("p", "review-empty", `No claims; ${input.context.length} context ${input.context.length === 1 ? "line" : "lines"} not shown`));
+    claimsBody.append(contextList(input.context));
   } else if (input.claims.length === 0) {
     claimsBody.append(element("pre", "review-claim", input.description));
   } else {
@@ -121,12 +131,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
       list.append(item);
     }
     claimsBody.append(list);
-    if (input.context.length > 0) {
-      const more = element("details", "review-context");
-      more.append(element("summary", "review-summary", `${input.context.length} context ${input.context.length === 1 ? "line" : "lines"} not shown`));
-      for (const line of input.context) more.append(element("p", "review-source", line.text));
-      claimsBody.append(more);
-    }
+    if (input.context.length > 0) claimsBody.append(contextList(input.context));
   }
 
   const [unmentioned, unmentionedBody] = section("Unmentioned", "derived");

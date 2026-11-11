@@ -92,6 +92,13 @@ test("an invalid restatement falls back to the original text: too long, empty, m
   expect(out.dropped.restatements).toBe(3);
   const badMerge = check([say(0, "Accepts alpha", [], 99), say(1, "context"), say(2, "Fine")]);
   expect(badMerge.shown[0]).toMatchObject({ text: "Speeds up alpha.", restated: false });
+  const invalidMerges = check([say(0, "Speeds up alpha"), say(1, "", [], 0), say(2, Array(21).fill("w").join(" "), [], 0)]);
+  expect(invalidMerges.shown.map((row) => [row.text, row.restated, row.sources])).toEqual([
+    ["Speeds up alpha", true, [0]],
+    ["Found by the security review.", false, [1]],
+    ["Alpha now runs faster.", false, [2]],
+  ]);
+  expect(invalidMerges.dropped.restatements).toBe(2);
   const missing = check([say(1, "Found it")]);
   expect(missing.shown.map((row) => row.restated)).toEqual([false, true, false]);
   const chain = check([say(0, "A one", [], 1), say(1, "B two", [], 2), say(2, "C three")]);

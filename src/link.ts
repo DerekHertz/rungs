@@ -167,7 +167,7 @@ export function validate(output: unknown, claims: readonly Claim[], known: Reado
   // A claim merges into another only when that one has a usable restatement and is not merged itself; no chains.
   const into = (i: number): number | undefined => {
     const target = mergeOf[i]!;
-    if (target < 0 || target === i || target >= claimCount || isContext(i) || !usable(target) || mergeOf[target]! >= 0) return undefined;
+    if (target < 0 || target === i || target >= claimCount || !usable(i) || !usable(target) || mergeOf[target]! >= 0) return undefined;
     return target;
   };
   const shown: { text: string; restated: boolean; sources: number[]; ids: NodeId[] }[] = [];
