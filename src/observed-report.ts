@@ -48,6 +48,8 @@ const fileId = (path: string) => `file:${path}` as NodeId;
 /** What the panel and the picture show of one test run, beside the comparison it ran for. */
 export function observedReport(document: RanDocument, graph: Graph, comparison: Comparison): ObservedReport {
   const paths = new Map(graph.nodes.map((node) => [node.id, node.path]));
+  // The old path of a moved file (and its functions) is a place of the picture (rubble) that only the base had: its tests ran there.
+  for (const change of comparison.changes) if (change.kind === "moved") paths.set(change.from.id, change.from.path);
   const counts = new Map<string, { pass: number; fail: number; skip: number }>();
   const tally = (path: string, outcome: keyof Counts) => {
     const count = counts.get(path) ?? { pass: 0, fail: 0, skip: 0 };

@@ -557,7 +557,14 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     const zoom = Math.min(max, Math.max(min, next.zoom));
     return { zoom, cx: Math.min(bounds.right, Math.max(bounds.left, next.cx)), cy: Math.min(bounds.bottom, Math.max(bounds.top, next.cy)) };
   }
+  /** The pointer's hover belongs to the picture it was over: when the camera moves, it is dropped until the pointer moves again. */
+  function dropHover(): void {
+    if (hovered === undefined) return;
+    hovered = undefined;
+    handlers.hover(undefined, { x: 0, y: 0 });
+  }
   function flyTo(to: Camera): void {
+    dropHover();
     touched = true;
     flight = { from: camera, to: clamp(to), start: performance.now() };
     dirty = true;
@@ -582,8 +589,8 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   const pressed = new Map<number, { x: number; y: number }>();
   let pressedAt = { x: 0, y: 0 };
   let travelled = 0;
-  /** The file a thing stands for. The rubble a moved file left stands for the file at its new path. */
-  const idOf = (thing: Pick | undefined): NodeId | undefined => (thing?.kind === "lot" ? (thing.lot.movedTo?.id ?? thing.lot.id) : undefined);
+  /** The file a thing stands for. The rubble a moved file left stands for the file at its new path, unless a failing test is reported on the old path. */
+  const idOf = (thing: Pick | undefined): NodeId | undefined => (thing?.kind === "lot" ? (failing.has(thing.lot.id) ? thing.lot.id : (thing.lot.movedTo?.id ?? thing.lot.id)) : undefined);
   function hover(clientX: number, clientY: number): void {
     const thing = thingAt(clientX, clientY);
     if (thing !== hovered) {
@@ -612,6 +619,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     travelled = Math.max(travelled, Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y));
     if (pressed.size === 1 && travelled >= CLICK_SLOP) {
       touched = true;
+      dropHover();
       camera = clamp({ ...camera, cx: camera.cx - ((event.clientX - last.x) * dpr) / camera.zoom, cy: camera.cy - ((event.clientY - last.y) * dpr) / camera.zoom });
       dirty = true;
     }
@@ -633,6 +641,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     (event) => {
       event.preventDefault();
       touched = true;
+      dropHover();
       const rectOf = canvas.getBoundingClientRect();
       const px = (event.clientX - rectOf.left) * dpr;
       const py = (event.clientY - rectOf.top) * dpr;

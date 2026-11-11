@@ -96,6 +96,9 @@ export class ImportResolver {
       const path = this.real(found.resolvedFileName);
       if (this.tree.has(path)) return { file: path };
     }
+    // moduleSuffixes make TypeScript reject a code file it would otherwise find; that answer stands.
+    const rejected = settings.options.moduleSuffixes !== undefined && CODE_EXTENSION.test(clean);
+    if ((relative || specifier.startsWith("/")) && rejected) return { unresolved: true };
     if (relative || specifier.startsWith("/")) {
       // Not code TypeScript resolves (a stylesheet, an image): the file is still the target.
       const path = posix.normalize(clean.startsWith("/") ? clean.slice(1) : posix.join(posix.dirname(from), clean));
@@ -142,8 +145,8 @@ export class ImportResolver {
         undefined,
         `${ROOT}/${config}`,
       );
-      const { baseUrl, paths, pathsBasePath } = content.options;
-      options = { ...this.base, baseUrl, paths, pathsBasePath };
+      const { baseUrl, paths, pathsBasePath, moduleSuffixes, customConditions } = content.options;
+      options = { ...this.base, baseUrl, paths, pathsBasePath, moduleSuffixes, customConditions };
       patterns = Object.keys(paths ?? {});
       if (baseUrl !== undefined && baseUrl !== ROOT && !baseUrl.startsWith(`${ROOT}/`)) blind = `${config} sets a baseUrl outside the tree`;
     }
@@ -178,6 +181,8 @@ export class ImportResolver {
 }
 
 // Not a path any tree has: a file named so would need a NUL in it.
+const CODE_EXTENSION = /\.(?:[cm]?[jt]sx?|json)$/;
+
 const OUTSIDE = "\0outside";
 
 const leaves = (path: string): boolean => {
@@ -219,6 +224,17 @@ function exportIsTypeOnly(node: ts.ExportDeclaration): boolean {
   return node.exportClause !== undefined && ts.isNamedExports(node.exportClause) && allTypeNamed(node.exportClause.elements);
 }
 
+/** `with { "resolution-mode": "require" | "import" }`: TypeScript honours it on type-only imports and exports. */
+function explicitMode(attributes: ts.ImportAttributes | undefined): ResolutionMode | undefined {
+  for (const attribute of attributes?.elements ?? []) {
+    const name = attribute.name.text;
+    if (name !== "resolution-mode" || !ts.isStringLiteralLike(attribute.value)) continue;
+    if (attribute.value.text === "require") return "cjs";
+    if (attribute.value.text === "import") return "esm";
+  }
+  return undefined;
+}
+
 /**
  * Every static `import`, `export ... from`, `import x = require()`, and `require` or `import()`
  * whose argument is a string literal. `require` counts only when it is the global one: any
@@ -227,20 +243,27 @@ function exportIsTypeOnly(node: ts.ExportDeclaration): boolean {
  */
 export function importSites(file: ts.SourceFile, checker: ts.TypeChecker, resolver: ImportResolver, path: string): ImportSite[] {
   const sites: ImportSite[] = [];
-  const add = (node: ts.Node, spec: ts.Node | undefined, syntax: ImportSyntax, mode: ResolutionMode, typeOnly: boolean): void => {
+  const add = (
+    node: ts.Node,
+    spec: ts.Node | undefined,
+    syntax: ImportSyntax,
+    mode: ResolutionMode,
+    typeOnly: boolean,
+    attributes?: ts.ImportAttributes,
+  ): void => {
     if (spec === undefined || !ts.isStringLiteralLike(spec)) return;
     sites.push({
       specifier: spec.text,
       syntax,
       typeOnly,
-      target: resolver.resolve(spec.text, path, mode),
+      target: resolver.resolve(spec.text, path, typeOnly ? (explicitMode(attributes) ?? mode) : mode),
       start: node.getStart(file),
       end: node.end,
     });
   };
   const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node)) add(node, node.moduleSpecifier, "import", "esm", importIsTypeOnly(node));
-    else if (ts.isExportDeclaration(node)) add(node, node.moduleSpecifier, "export from", "esm", exportIsTypeOnly(node));
+    if (ts.isImportDeclaration(node)) add(node, node.moduleSpecifier, "import", "esm", importIsTypeOnly(node), node.attributes);
+    else if (ts.isExportDeclaration(node)) add(node, node.moduleSpecifier, "export from", "esm", exportIsTypeOnly(node), node.attributes);
     else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
       add(node, node.moduleReference.expression, "import", "cjs", node.isTypeOnly);
     } else if (ts.isCallExpression(node) && node.arguments.length > 0) {
