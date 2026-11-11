@@ -20,7 +20,7 @@ click through to the source lines that produced it.
 The test case is pull request #18 of the previous project: 14,370 added lines of plain
 JavaScript.
 
-Left for after the MVP: property nodes, the house and map themes, lazily resolved edges, and links between effect sites.
+Left for after the MVP: property nodes, lazily resolved edges, and links between effect sites.
 
 ## The rungs
 
@@ -32,7 +32,7 @@ Each rung is computed from the one below it. Only the graph is stored; the rest 
 | Graph | Source, by the extractor | Nothing directly. Every rung above is a view of it |
 | Pseudocode | One function's control structure, through a fixed template | An outline of the function, each line linked to its source lines, rendered when the function is opened |
 | Logic | The graph | Each module's interface; each function's case form (`guard ⇒ outcome`); properties written in the repo |
-| Picture | The graph, drawn as a city (see The picture) and a theme | The whole system first, then package, folder, file, class, function |
+| Picture | The graph, assembled as a town from a sprite sheet (see The picture) | The whole repo first, then folder, file, function |
 
 ## Rules
 
@@ -50,10 +50,14 @@ Each rung is computed from the one below it. Only the graph is stored; the rest 
 ## The graph
 
 - **Nodes:** modules at five nested levels (package, folder, file, class, function), plus
-  external resources (network, process, file system, queue, timer).
+  external resources (network, process, file system, queue, timer, and code loaded at run time).
+  Code loaded at run time is a `require` or `import()` whose target is not a literal, or a
+  `createRequire`.
 - **Edges:** calls, imports, type references and effects, each pinned to file and line ranges.
 - **Effects** are found with a hand-maintained catalog of declarations, starting with the
   runtime's built-ins and versioned with the extractor.
+- **An altered effect** is one whose call kept its owner, resource and target but whose own
+  text changed: its arguments. A change around the call never alters it.
 - **Links between effect sites** exist only when both ends resolve to the same symbol, literal
   or file.
 - **Identity** is (level, path, qualified name). A moved module is paired only when its body is
@@ -65,26 +69,51 @@ Each rung is computed from the one below it. Only the graph is stored; the rest 
 - **Role** of a file is one of source, tests, config and build, docs or generated, from a fixed,
   versioned table of path conventions. A file the table doesn't recognise has no role and is
   drawn neutral, never guessed.
+- **Ways in** are only what the repo declares: the files `package.json` names in `main`, `bin`,
+  `exports` and its scripts, and test files.
+- **Importance** of a module is what stops working if it stops: everything that rests on it
+  through import edges, directly or indirectly. The number is always shown with the list behind
+  it. A module nothing reaches is shown as "nothing reaches it", never called dead.
 
 ## The picture
 
-The picture is a city. Its ground plan is a squarified treemap of the graph: packages and folders
-are districts, files are buildings on their lots. The camera is orthographic. It pans, zooms and
-turns around the vertical axis, with its tilt held between a low and a steep angle, and it never
-changes the layout. Colour means one thing, a file's role. Height means one fact, the number of
-classes and functions in a file, on a square-root scale between the repository's smallest and
-largest, with a visible minimum. Names float above the city and are never hidden by buildings,
-and buildings in front of the one you point at fade.
+The picture is a town on an island, in isometric pixel art at dusk. The town is the repo, and the
+sea is everything outside it. The camera looks from one fixed isometric angle; it pans and zooms,
+and never changes the layout.
 
-- Double-clicking a building enters it: the file becomes its own city, with its classes and
-  functions as buildings on a ground plan rooted at that file. Esc or the trail leaves it.
+- **Blocks.** Each top-level folder is a block of lots with its name, and a folder inside it is a
+  smaller block within that block.
+- **Buildings.** Each file is a building on its lot. Its kind is the file's role: a workshop for
+  source, a lab for tests, a library for docs, a shed for config and build, a warehouse for
+  generated files, and a hut for a file with no role. Its size is its count of classes and
+  functions, in a few steps on a square-root scale between the repository's smallest and largest.
+- **Harbour.** Each kind of outside resource the code reaches is one structure in the harbour,
+  and a kind nothing reaches has none.
+- **Names by zoom.** From far away only blocks are named, in large type. Closer in, the files the
+  change touched are named. Names are never hidden by buildings.
+- **Inside a file.** Double-clicking a building opens it with its walls down. Each function is a
+  room, an exported function's room has a door to the outside, and each outside call is an object
+  in its room, its kind shown by the object. Esc or the trail leaves it.
+
+Anything shown can be clicked through to the source lines that produced it.
 
 ## Review
 
 A comparison between two trees is an overlay on the picture, switched on by default for a pull
 request.
 
-**Comparison.** Under `rungs compare <base>`, brightness means changed: unchanged files are dimmed and changed files keep full colour, so colour still means role. A changed file is one of four kinds: added (white roof), altered, removed (a see-through ghost where it stood), or moved (grey roof). Moved means identical text under a new path, never a guess.
+**Comparison.** Under `rungs compare <base>`, a changed file is one of four kinds: added,
+altered, removed or moved. Moved means identical text under a new path, never a guess.
+
+- An altered file is under scaffolding with a crane beside it, and is named.
+- An added file stands on bare earth, with no crane and no name, so a large new area does not
+  bury the altered files.
+- A block where most files are added has a construction fence and a sign with its counts
+  ("tools · 93 new").
+- A removed file is [OPEN]. A moved file is [OPEN].
+- Inside a file, a changed function's room has a different floor and cones, and an altered or
+  new outside call has a ring and the name of its target. An outside call is named only in a file
+  that already existed.
 
 A panel answers the three questions, and each entry selects places on the picture. It shows one summary row per question, number first ("Claims: 10 of 13 linked", "Tests: 23 fail of 210"); one row is open at a time and takes the column's height. Each item is one line, with detail when selected. Explanations and run details sit under "About this run", except the tests' evidence caveat, which stays one hover or click from the Tests row:
 
@@ -150,11 +179,13 @@ time only for functions in "contracts moved".
 | Seam | Interface | First adapter | Next |
 |---|---|---|---|
 | Language | Files of one language in, nodes and edges out | JavaScript and TypeScript, using the TypeScript compiler | Undecided |
-| Theme | "What does this fact look like at this zoom, in this state" | City | Circuit board, house, map |
+| Theme | "What does this fact look like at this zoom, in this state" | Town | Circuit board |
 
-A theme is data: a table from graph concepts to sprites, plus a sprite sheet. All themes share
-one layout, so switching theme moves nothing. The pixel-art look is a render mode of the city,
-not a separate theme.
+A theme is data: a table from graph concepts to sprites, plus a sprite sheet. Each sprite is
+chosen by one fact, and nothing is drawn without one. The sheet is made once, offline, by a script
+kept in the repo, and the sheet itself is kept in the repo too. A picture is assembled from graph
+facts and sprites only, with no model and no 3D at that step. All themes share one layout, so
+switching theme moves nothing.
 
 ## Cache
 
