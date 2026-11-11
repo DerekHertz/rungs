@@ -1,6 +1,6 @@
-import { isCodeNode, targetText } from "./graph.ts";
+import { argTokens, isCodeNode, targetText } from "./graph.ts";
 import type { CodeNode, EffectEdge, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
-import { resourceKindOf } from "./effects.ts";
+import { effectLabel, resourceKindOf } from "./effects.ts";
 import type { Comparison, Overlay } from "./compare.ts";
 import { AXIS } from "./town.ts";
 
@@ -63,12 +63,19 @@ export function marksOf(comparison: Comparison, overlay: Overlay, fileId: NodeId
   for (const change of comparison.changes) {
     if (change.node.level === "function" && change.node.path === path && (change.kind === "altered" || change.kind === "added")) changed.add(change.node.id);
   }
-  const byOwner = new Map<NodeId, LineRange[]>();
-  for (const change of comparison.changedEffects) byOwner.set(change.owner, [...(byOwner.get(change.owner) ?? []), ...change.ranges]);
+  // A call is the one a change reports when its owner, its label (resource, operation, target), its lines
+  // and the arguments the change added all match; two calls on one line differ in at least their label or arguments.
+  const same = (edge: EffectEdge): boolean =>
+    comparison.changedEffects.some((change) => {
+      if (change.owner !== edge.from || change.label !== effectLabel(edge)) return false;
+      if (!change.ranges.some((range) => range.start === edge.range.start && range.end === edge.range.end)) return false;
+      const tokens = argTokens(edge.args);
+      return change.added.every((token) => tokens.includes(token));
+    });
   return {
     existed: overlay.entry(fileId)?.kind !== "added",
     changed,
-    altered: (edge) => overlay.freshEdge(edge) || (byOwner.get(edge.from) ?? []).some((range) => range.start === edge.range.start && range.end === edge.range.end),
+    altered: (edge) => overlay.freshEdge(edge) || same(edge),
   };
 }
 
@@ -132,10 +139,9 @@ function byCodeUnits(a: string, b: string): number {
 }
 
 /**
- * The inside of the file `fileId`. Rooms are the file's functions, and its classes' methods, in
- * source order, plus one "top level" room when a call is made outside any function. A function
- * written inside another has no room of its own: its calls are in its parent's room, where the
- * source puts them. Rooms fill rows left to right in source order, and a row starts when the
+ * The inside of the file `fileId`. Rooms are all of the file's functions (methods and functions
+ * written inside others included) in source order, plus one "top level" room when a call is made
+ * outside any function. Each call is in the room of the innermost function holding it. Rooms fill rows left to right in source order, and a row starts when the
  * next room would pass a width set by the file's total area; doors open onto the street between
  * rows. A room's side steps with its function's line count and grows only until its objects fit.
  */
@@ -147,8 +153,9 @@ export function insideOf(graph: Graph, fileId: NodeId, sprites: ReadonlySet<stri
     .filter((node): node is CodeNode => isCodeNode(node) && node.path === file.path)
     .sort((a, b) => a.range.start - b.range.start || a.range.end - b.range.end || byCodeUnits(a.id, b.id));
 
-  /** A function with a room of its own: written directly in the file or in a class. */
-  const hasRoom = (node: ModuleNode): node is CodeNode => node.level === "function" && (node.parent === file.id || nodes.get(node.parent)?.level === "class");
+  /** Every function has a room of its own, a method or a function written inside another included. */
+  const hasRoom = (node: ModuleNode): node is CodeNode => node.level === "function";
+  /** A call is in the room of the innermost function that holds it; one made in a class body or at the top is the top level's. */
   const roomOf = (id: NodeId): NodeId => {
     for (let at = nodes.get(id); at !== undefined; at = nodes.get(at.parent as NodeId)) {
       if (hasRoom(at)) return at.id;

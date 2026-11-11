@@ -112,11 +112,12 @@ describe("insideOf", () => {
     expect(insideOf(graph, FILE, SHEET)!.rooms.some((room) => room.topLevel)).toBe(false);
   });
 
-  test("puts a closure's call in the room of the function holding it", () => {
-    const nested = extract(treeOf({ "a.js": `function outer() {\n  setTimeout(() => { setTimeout(() => {}, 2); }, 1);\n}\n` }));
+  test("gives a nested function a room of its own, with the calls it makes, ordered by source position", () => {
+    const nested = extract(treeOf({ "a.js": `function outer() {\n  setTimeout(() => {}, 1);\n  function inner() {\n    fetch("/inner");\n  }\n}\n` }));
     const inside = insideOf(nested, FILE, SHEET)!;
-    expect(inside.rooms.map((room) => room.name)).toEqual(["outer"]);
-    expect(inside.rooms[0]!.objects).toHaveLength(2);
+    expect(inside.rooms.map((room) => room.name)).toEqual(["outer", 'outer."setTimeout() callback"', "outer.inner"]);
+    expect(inside.rooms[0]!.objects.map((object) => object.sprite)).toEqual(["object-timer"]);
+    expect(inside.rooms[2]!.objects.map((object) => [object.sprite, object.target])).toEqual([["object-network", '"/inner"']]);
   });
 
   test("draws nothing for a kind the sheet has no object for, and says so", () => {
@@ -178,6 +179,14 @@ class Box { open() { return fs.readFileSync("y"); } }
     expect(write.name).toBe("z");
     expect(room("load").objects[0]!.altered).toBe(false);
     expect(room("load").objects[0]!.name).toBeNull();
+  });
+
+  test("rings only the call that changed when two calls share a line", () => {
+    const one = extract(treeOf({ "a.js": `function f() { fetch("/a", { method: "GET" }); fetch("/b"); }\n` }));
+    const two = extract(treeOf({ "a.js": `function f() { fetch("/a", { method: "POST" }); fetch("/b"); }\n` }));
+    const change = compare(one, two);
+    const there = insideOf(two, FILE, SHEET, marksOf(change, pictureOf(two, change).overlay!, FILE, "a.js"))!;
+    expect(there.rooms[0]!.objects.map((object) => [object.target, object.altered])).toEqual([['"/a"', true], ['"/b"', false]]);
   });
 
   test("rings but never names a call in a file that did not exist", () => {

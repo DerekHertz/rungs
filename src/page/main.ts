@@ -4,7 +4,7 @@ import { pictureOf, tallyText } from "../compare.ts";
 import type { Comparison, ContractMove } from "../compare.ts";
 import { flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
-import type { FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
+import type { Edge, FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
 import { contractsReport, effectsChangedRows, newEffects, unmentioned, unmentionedIds } from "../review.ts";
 import type { EffectRow, ReviewEntry } from "../review.ts";
@@ -59,6 +59,8 @@ const comparison = comparisonResponse.ok
 /** Narration is on offer only when the server was started with --narrate. */
 const narrating = (await fetch("/narrate.json")).ok;
 const picture = pictureOf(graph, comparison);
+/** The base's outside calls in removed files: the picture's graph restores the removed nodes but keeps only the head's edges. */
+const ghostEdges: readonly Edge[] = comparison === null ? [] : (await (await fetch("/ghost-edges.json")).json() as { edges: Edge[] }).edges;
 const observedResponse = await fetch("/observed.json");
 const observed = observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null;
 const observedRun = observed?.status === "ran" && comparison !== null ? observedReport(observed, picture.graph, comparison) : null;
@@ -263,7 +265,7 @@ function openInside(fileId: NodeId): void {
   const file = nodes.get(fileId);
   if (insideView === undefined || sheet === undefined || file?.level !== "file") return;
   const marks = comparison === null || picture.overlay === null ? null : marksOf(comparison, picture.overlay, file.id, file.path);
-  const inside = insideOf(picture.graph, file.id, new Set(Object.keys(sheet.sizes)), marks);
+  const inside = insideOf(ghostEdges.length === 0 ? picture.graph : { ...picture.graph, edges: [...picture.graph.edges, ...ghostEdges] }, file.id, new Set(Object.keys(sheet.sizes)), marks);
   if (inside === undefined) return;
   closePanel();
   tooltip.style.display = "none";
@@ -488,6 +490,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
 /** An entry of the review panel: fly to its district, and select the file or code it names. */
 function pickEntry(entry: ReviewEntry): void {
   if (entry.level === "district") {
+    leaveInside();
     cancelPending();
     closePanel();
     focusOn(entry.id);
@@ -499,12 +502,16 @@ function pickEntry(entry: ReviewEntry): void {
 /** A node by id, a ghost or a module removed from a surviving file included: fly to its file, select it. */
 function pickNode(id: NodeId, marked?: LineRange): void {
   cancelPending();
-  const ticket = requested;
   const node = nodes.get(id) ?? changed.get(id);
   if (node === undefined) return;
   const place = nodes.get(node.level === "file" ? node.id : (`file:${node.path}` as NodeId));
   if (place === undefined || place.parent === null) return;
-  focusOn(place.parent);
+  // A node in the file that is open stays inside and selects its room; one anywhere else leaves first.
+  const stay = insideFile === place.id;
+  if (!stay) leaveInside();
+  const ticket = requested;
+  if (stay) insideView?.select(node.id);
+  else focusOn(place.parent);
   void select(node, ticket, place.id, marked);
 }
 
@@ -518,6 +525,7 @@ function placeOf(id: string): NodeId | undefined {
 
 /** A claim of the review panel: outline the modules the agent linked to it, and fly to the district holding them all. */
 function pickClaim(claim: ClaimRow): void {
+  leaveInside();
   cancelPending();
   closePanel();
   const places = [...new Set(claim.ids.map(placeOf).filter((place): place is NodeId => place !== undefined))];
@@ -529,6 +537,7 @@ function pickClaim(claim: ClaimRow): void {
 
 /** A stop of the walkthrough: outline its nodes' files and fly to the district holding them all. Closing the tour clears the outline. */
 function visitStop(stop: Stop | undefined): void {
+  leaveInside();
   cancelPending();
   closePanel();
   const places = [...new Set((stop?.ids ?? []).map(placeOf).filter((place): place is NodeId => place !== undefined))];

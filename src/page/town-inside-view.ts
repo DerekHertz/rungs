@@ -42,7 +42,7 @@ type Piece =
   | { readonly kind: "object"; readonly sprite: string; readonly X: number; readonly Y: number; readonly room: NodeId; readonly object: RoomObject };
 
 /** What a click can land on: an object, or a room by its name. */
-type Target = { readonly kind: "object"; readonly piece: Piece & { readonly kind: "object" } } | { readonly kind: "room"; readonly room: Room };
+type Target = { readonly kind: "object"; readonly piece: Piece & { readonly kind: "object" } } | { readonly kind: "room"; readonly room: Room; /** The sprite drawn, when a wall, cone or floor tile stands for its room. */ readonly sprite?: string };
 
 interface Camera {
   zoom: number;
@@ -187,7 +187,10 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
     if (inside === undefined) return;
     const g = inside.ground;
     diamond(g.X0, g.Y0, g.X1, g.Y1, COLOUR.ground, COLOUR.edge, Math.max(2, Math.round(3 * camera.zoom)));
-    for (const tile of inside.floors) drawSprite(tile.sprite, tile.X, tile.Y);
+    for (const tile of inside.floors) {
+      const room = roomsById.get(tile.room);
+      drawSprite(tile.sprite, tile.X, tile.Y, room === undefined ? undefined : { kind: "room", room, sprite: tile.sprite });
+    }
     for (const piece of pieces) {
       if (piece.kind === "object" && piece.object.altered) {
         const at = groundScreen(piece.X, piece.Y);
@@ -197,7 +200,9 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
         ctx.strokeStyle = EFFECT_COLOR;
         ctx.stroke();
       }
-      drawSprite(piece.sprite, piece.X, piece.Y, piece.kind === "object" ? { kind: "object", piece } : undefined);
+      const room = roomsById.get(piece.room);
+      // Everything drawn is a target in draw order, so a wall hides what stands behind it: it selects its room.
+      drawSprite(piece.sprite, piece.X, piece.Y, piece.kind === "object" ? { kind: "object", piece } : room === undefined ? undefined : { kind: "room", room, sprite: piece.sprite });
     }
     const chosen = selected === undefined ? undefined : roomsById.get(selected);
     if (chosen !== undefined) diamond(chosen.X0 - 0.5, chosen.Y0 - 0.5, chosen.X0 + chosen.side - 0.5, chosen.Y0 + chosen.side - 0.5, undefined, COLOUR.select, Math.max(2, Math.round(2.5 * dpr)));
@@ -241,9 +246,10 @@ export function createTownInsideView(host: HTMLElement, callbacks: InsideCallbac
       draw();
     }
     const found = pickAt(plaques, placements, px, py, (target, column, row) => {
-      if (target.kind !== "object") return false;
-      const mask = maskOf(target.piece.sprite);
-      const size = sheet.sizes[target.piece.sprite];
+      const sprite = target.kind === "object" ? target.piece.sprite : target.sprite;
+      if (sprite === undefined) return false;
+      const mask = maskOf(sprite);
+      const size = sheet.sizes[sprite];
       return mask !== undefined && size !== undefined && mask[(row * size.w + column) * 4 + 3]! > 8;
     });
     if (found !== undefined) return found;
