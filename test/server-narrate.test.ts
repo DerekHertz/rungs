@@ -1,3 +1,4 @@
+import { request as httpRequest } from "node:http";
 import { afterAll, expect, test } from "vitest";
 import type { FileTree } from "../src/graph.ts";
 import { serve } from "../src/server.ts";
@@ -55,7 +56,7 @@ afterAll(async () => {
 });
 
 const post = (server: { url: string }, id: string, query = "", init: RequestInit = {}) =>
-  fetch(new URL(`narration?id=${encodeURIComponent(id)}${query}`, server.url), { method: "POST", ...init });
+  fetch(new URL(`narration?id=${encodeURIComponent(id)}${query}`, server.url), { method: "POST", headers: { origin: new URL(server.url).origin }, ...init });
 const idOf = (name: string): string => `function:src/a.ts#${name}`;
 
 test("without a narrator there is no narration on offer: the list and the endpoint are 404", async () => {
@@ -121,15 +122,47 @@ test("only a function of the head is narrated: not a file, a removed function or
   expect(calls.map((call) => call.id)).not.toContain(idOf("gone"));
 });
 
-test("a GET is refused and a POST from another origin spends no call", async () => {
+const withHeaders = (server: { url: string }, path: string, headers: Record<string, string>, method = "POST"): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const target = new URL(path, server.url);
+    const request = httpRequest({ host: "127.0.0.1", port: target.port, path: target.pathname + target.search, method, headers }, (response) => {
+      response.resume();
+      resolve(response.statusCode ?? 0);
+    });
+    request.on("error", reject);
+    request.end();
+  });
+
+test("a GET is refused, and a POST costs a call only from the server's own origin and host", async () => {
   const { narrator, calls } = fake();
   const server = await start(narrator);
-  await post(server, idOf("same"));
-  const before = calls.length;
-  expect((await fetch(new URL(`narration?id=${encodeURIComponent(idOf("quiet"))}`, server.url))).status).toBe(405);
-  expect((await post(server, idOf("quiet"), "", { headers: { origin: "http://evil.example" } })).status).toBe(403);
-  expect(calls).toHaveLength(before);
-  expect((await post(server, idOf("quiet"), "", { headers: { origin: new URL(server.url).origin } })).status).toBe(200);
+  const port = new URL(server.url).port;
+  const path = `narration?id=${encodeURIComponent(idOf("quiet"))}`;
+  expect((await fetch(new URL(path, server.url))).status).toBe(405);
+  const own = `http://127.0.0.1:${port}`;
+  const refused: [string, Record<string, string>][] = [
+    ["a foreign origin", { host: `127.0.0.1:${port}`, origin: "http://evil.example" }],
+    ["no origin", { host: `127.0.0.1:${port}` }],
+    ["a rebound host and the origin that matches it", { host: `evil.example:${port}`, origin: `http://evil.example:${port}` }],
+    ["a rebound host with our origin", { host: `evil.example:${port}`, origin: own }],
+    ["our host and a rebound origin", { host: `127.0.0.1:${port}`, origin: `http://evil.example:${port}` }],
+    ["a wrong port", { host: "127.0.0.1:1", origin: "http://127.0.0.1:1" }],
+    ["our origin with a path-like suffix", { host: `127.0.0.1:${port}`, origin: `${own}.evil.example` }],
+  ];
+  for (const [why, headers] of refused) expect(await withHeaders(server, `${path}&fresh=1`, headers), why).toBe(403);
+  expect(calls.filter((call) => call.id === idOf("quiet"))).toHaveLength(0);
+  for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]) {
+    expect(await withHeaders(server, path, { host, origin: `http://${host}` }), host).toBe(200);
+  }
+});
+
+test("every route refuses a request whose Host is not the server's own, so a rebound page reads nothing", async () => {
+  const server = await start(fake().narrator);
+  const port = new URL(server.url).port;
+  for (const route of ["graph.json", "source?id=file:src/a.ts", "pseudocode?id=function:src/a.ts%23moved", "comparison.json", "narrate.json"]) {
+    expect(await withHeaders(server, route, { host: `evil.example:${port}` }, "GET"), route).toBe(403);
+    expect(await withHeaders(server, route, { host: `127.0.0.1:${port}` }, "GET"), route).toBe(200);
+  }
 });
 
 test("a failure is served as a failure and tried again on the next request", async () => {

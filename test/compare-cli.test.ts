@@ -275,7 +275,7 @@ test("--narrate narrates contract-moved functions ahead of time and on request, 
     const url = await first.url;
     const list = (await (await fetch(new URL("narrate.json", url))).json()) as { ahead: string[] };
     expect(list.ahead).toContain("function:src/added.ts#added");
-    const body = (await (await fetch(new URL(`narration?id=${id}`, url), { method: "POST" })).json()) as Record<string, unknown>;
+    const body = (await (await fetch(new URL(`narration?id=${id}`, url), { method: "POST", headers: { origin: new URL(url).origin } })).json()) as Record<string, unknown>;
     expect(body).toMatchObject({ tier: "claimed", status: "ok", stale: false, model: "stub-model", dropped: { sentences: 1 }, cached: false });
     expect(body.sentences).toEqual([{ text: "Gives back four.", from: 0, to: 0, range: { start: 1, end: 1 } }]);
     expect(first.stderr()).toMatch(/narrated function:src\/added\.ts#added in 1 sentences by stub-model \(dropped 1 unanchored sentences\)/);
@@ -284,7 +284,8 @@ test("--narrate narrates contract-moved functions ahead of time and on request, 
   }
   const second = startLinked(dir, { PATH: bareBin(), XDG_CACHE_HOME: cache }, ["--narrate"]);
   try {
-    const body = (await (await fetch(new URL(`narration?id=${id}`, await second.url), { method: "POST" })).json()) as { cached: boolean };
+    const url = await second.url;
+    const body = (await (await fetch(new URL(`narration?id=${id}`, url), { method: "POST", headers: { origin: new URL(url).origin } })).json()) as { cached: boolean };
     expect(body.cached).toBe(true);
   } finally {
     second.child.kill();

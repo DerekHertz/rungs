@@ -20,7 +20,7 @@ import type { TourOutcome } from "./walkthrough.ts";
 import type { NarrateRequest } from "./narrate.ts";
 
 /** Writes a function's narration; the seam the command line fills with the agent and tests fake. */
-export type Narrator = (request: Pick<NarrateRequest, "node" | "outline" | "effects" | "renarrate">) => Promise<Asked<Narration>>;
+export type Narrator = (request: Pick<NarrateRequest, "node" | "outline" | "renarrate">) => Promise<Asked<Narration>>;
 
 /** The most contract-moved functions narrated ahead of time: each is a model call. The rest wait for a request. */
 export const AHEAD_LIMIT = 30;
@@ -74,7 +74,7 @@ interface Resource {
  * functions of "contracts moved" being narrated ahead of time, in the background after the server
  * is up, and `POST /narration?id=` answers with one function's narration as a claimed fact,
  * `stale` when the function's digest is no longer the narrated one (`&fresh=1` writes it again).
- * It is a POST because it spends a model call, and one from another origin is refused. The agent
+ * It is a POST because it spends a model call; every request must name the server's own address as Host, and this one also as Origin, or it is refused with 403. The agent
  * is shown the function's structure only (see narrationPrompt). Without `narrator` both are 404.
  */
 export async function serve(
@@ -151,8 +151,7 @@ export async function serve(
     const known = fresh ? undefined : narrations.get(id);
     if (known !== undefined) return known;
     const outline = pseudocode(graph, tree, id) ?? [];
-    const effects = graph.edges.filter((edge) => edge.from === id);
-    const asked = (renarrate: boolean): Promise<Asked<Narration>> => narrator({ node, outline, effects, renarrate });
+    const asked = (renarrate: boolean): Promise<Asked<Narration>> => narrator({ node, outline, renarrate });
     const made = (async (): Promise<Narrated> => {
       let outcome = await asked(fresh);
       // Ahead of time a stale cache entry is written again: nobody asked to see the old one.
@@ -196,11 +195,18 @@ export async function serve(
   }
 
   const server = createServer((request, response) => {
+    // A rebound DNS name reaches this server with a Host and Origin of its own choosing, so both
+    // are checked against the address this server listens on, never against each other.
+    const hosts = ownHosts((server.address() as AddressInfo).port);
+    if (!hosts.has(request.headers.host ?? "")) {
+      response.writeHead(403).end();
+      return;
+    }
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname === "/narration") {
       if (narrator === undefined) response.writeHead(404).end();
       else if (request.method !== "POST") response.writeHead(405, { allow: "POST" }).end();
-      else if (request.headers.origin !== undefined && request.headers.origin !== `http://${request.headers.host}`) response.writeHead(403).end();
+      else if (!hosts.has(request.headers.origin?.replace(/^http:\/\//, "") ?? "") || !request.headers.origin?.startsWith("http://")) response.writeHead(403).end();
       else {
         const asked = narrationOf((url.searchParams.get("id") ?? "") as NodeId, url.searchParams.get("fresh") === "1");
         if (asked === undefined) response.writeHead(404).end();
@@ -239,6 +245,11 @@ export async function serve(
     close: () =>
       new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
   };
+}
+
+/** The hosts a request to this server may name: its own address, by number or as localhost. */
+function ownHosts(port: number): ReadonlySet<string> {
+  return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 }
 
 async function bundlePage(): Promise<string> {
