@@ -399,13 +399,14 @@ test("a removed test and an added one that are not paired stay two rows", () => 
   expect(rows.every((child) => child.level !== "function" || child.renamedFrom === undefined)).toBe(true);
 });
 
-test("a suite with the same title as a renamed test is not paired with it", () => {
+test("a suite with the same title as a renamed test stays its own row; the test still pairs by its kind", () => {
   const body = (title: string): string => `import { it, suite, expect } from "vitest";\nit("${title}", () => {\n  expect(a).toBe(1);\n${title === "old" ? "  expect(b).toBe(2);\n" : ""}});\n${title === "old" ? 'suite("old", () => {\n  setup();\n});\n' : ""}`;
   const entry = reviewTests({ "t.test.ts": body("old") }, { "t.test.ts": body("new") }, "").entries[0]!;
-  expect(entry.children.map((child) => child.label)).toContain('suite("old")');
-  // The name is shared by a suite and a test in the base, so testChanges gives no place for it: nothing is paired.
-  expect(entry.children.some((child) => child.level === "function" && child.renamedFrom !== undefined)).toBe(false);
-  expect(entry.children.map((child) => child.label)).toContain('it("old")');
+  const suiteRow = entry.children.find((child) => child.label === 'suite("old")');
+  expect(suiteRow?.level === "function" && [suiteRow.change, suiteRow.renamedFrom]).toEqual(["removed", undefined]);
+  const row = entry.children.find((child) => child.label === 'it("new")');
+  expect(row?.level === "function" && [row.renamedFrom, row.weakened]).toEqual(['it("old")', true]);
+  expect(entry.children.map((child) => child.label)).not.toContain('it("old")');
 });
 
 test.each(["xit", "fit", "xtest", "specify"])("a test written with %s keeps its renamed row", (callee) => {

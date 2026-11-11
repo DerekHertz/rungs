@@ -2,7 +2,8 @@ import { posix } from "node:path";
 import ts from "typescript";
 import type { FileTree } from "./graph.ts";
 import { isDiscovered, isTestFile } from "./test-files.ts";
-import type { CallbackLines, Marker, TestChanges } from "./test-changes-types.ts";
+import { lineRangeOf, lineStarts } from "./lines.ts";
+import type { CallbackLines, Marker, TestCallback, TestChanges } from "./test-changes-types.ts";
 
 const OUTSIDE = "(outside any test)";
 const SOURCE = /\.[cm]?[jt]sx?$/;
@@ -32,23 +33,39 @@ const COERCING = new Set(["equal", "deepEqual", "notEqual", "notDeepEqual"]);
 
 interface Found {
   readonly kind: "test" | "suite";
+  /** The describe path and title joined with " > ": for showing only, never a key. */
+  readonly display: string;
   readonly assertions: Assertion[];
   readonly markers: Set<Marker>;
   /** The callback's lines, when the call has one. */
   readonly callback?: CallbackLines;
 }
 
+/** A test or suite is told apart by its kind, its describe path as an array, and its own title. */
+const keyOf = (kind: "test" | "suite", titles: readonly string[]): string => JSON.stringify([kind, titles.slice(0, -1), titles.at(-1)]);
+const OUTSIDE_KEY = JSON.stringify(["outside"]);
+
+interface Place {
+  readonly parent: string;
+  readonly ordinal: number;
+  readonly body: string | undefined;
+  /** The describe path and the title, as an array. */
+  readonly titles: readonly string[];
+}
+
 interface Parsed {
-  /** Every test and suite by its titles joined with " > "; one that appears twice is one entry with both. */
+  /** Every test and suite by its key; one that appears twice is one entry with both. */
   readonly found: Map<string, Found[]>;
-  /** The tests only, counted by name. */
+  /** The tests only, counted by key. */
   readonly tests: Map<string, number>;
   /**
-   * Each test's first appearance by name, with where it sits: its describe path (an array of titles, as
+   * Each test's first appearance by key, with where it sits: its describe path (an array of titles, as
    * JSON), its place among every test of that path (duplicates included), and its callback's body text,
    * or undefined when that is not known: a callback passed by reference, or a body with no statements.
    */
-  readonly places: Map<string, { readonly parent: string; readonly ordinal: number; readonly body: string | undefined }>;
+  readonly places: Map<string, Place>;
+  /** Every test and suite call that has a callback, with the call spelled out. */
+  readonly callbacks: TestCallback[];
 }
 
 const isLiteral = (node: ts.Node): boolean =>
@@ -206,18 +223,28 @@ function assertionOf(call: ts.CallExpression, bindings: ReadonlyMap<string, Bind
   return undefined;
 }
 
+/** The call as a label: `test.each("title")` for `test.each(rows)("title", fn)`, `it.skip("title")` for `it.skip("title", fn)`. */
+function callLabel(call: ts.CallExpression): string {
+  const callee = ts.isCallExpression(call.expression) ? call.expression.expression : call.expression;
+  const first = call.arguments[0];
+  const title = first === undefined ? "" : ts.isStringLiteralLike(first) ? JSON.stringify(first.text) : `<${first.getText()}>`;
+  return `${chainOf(callee)?.join(".") ?? callee.getText()}(${title})`;
+}
+
 function parse(text: string, path: string): Parsed {
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, path.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const starts = lineStarts(text);
   const found = new Map<string, Found[]>();
   const tests = new Map<string, number>();
-  const places = new Map<string, { parent: string; ordinal: number; body: string | undefined }>();
+  const places = new Map<string, Place>();
+  const callbacks: TestCallback[] = [];
   const siblings = new Map<string, number>();
-  const entry = (name: string, kind: "test" | "suite"): Found => {
-    const made: Found = { kind, assertions: [], markers: new Set() };
-    found.set(name, [...(found.get(name) ?? []), made]);
+  const entry = (key: string, display: string, kind: "test" | "suite"): Found => {
+    const made: Found = { kind, display, assertions: [], markers: new Set() };
+    found.set(key, [...(found.get(key) ?? []), made]);
     return made;
   };
-  const outside = entry(OUTSIDE, "suite");
+  const outside = entry(OUTSIDE_KEY, OUTSIDE, "suite");
   const bindings = new Map<string, Binding>();
   // The names the enclosing tests call their context, each with the test it belongs to.
   const visit = (node: ts.Node, titles: readonly string[], current: Found, contexts: ReadonlyMap<string, Found>): void => {
@@ -228,25 +255,24 @@ function parse(text: string, path: string): Parsed {
       const test = own?.length === 2 && contexts.has(own[0] ?? "") && (own[1] === "skip" || own[1] === "todo") ? undefined : testCall(node, titles.length > 0);
       if (test !== undefined) {
         const path = [...titles, titleOf(node)];
-        const name = path.join(" > ");
-        const callbackArg = [...node.arguments].reverse().find((arg) => ts.isFunctionLike(arg));
-        const made = entry(name, test.kind);
-        if (callbackArg !== undefined) {
-          (made as { callback?: CallbackLines }).callback = {
-            start: source.getLineAndCharacterOfPosition(callbackArg.getStart()).line + 1,
-            end: source.getLineAndCharacterOfPosition(callbackArg.getEnd()).line + 1,
-          };
+        const key = keyOf(test.kind, path);
+        const callback = [...node.arguments].reverse().find((arg) => ts.isFunctionLike(arg));
+        const made = entry(key, path.join(" > "), test.kind);
+        if (callback !== undefined) {
+          // The file's lines as lines.ts counts them: ts's own line numbers also end a line at U+2028 and U+2029.
+          const lines = lineRangeOf(starts, callback.getStart(), callback.getEnd());
+          (made as { callback?: CallbackLines }).callback = lines;
+          callbacks.push({ ...lines, label: callLabel(node) });
         }
         for (const marker of [...test.markers, ...optionMarkers(node)]) made.markers.add(marker);
-        if (test.kind === "test") tests.set(name, (tests.get(name) ?? 0) + 1);
-        const callback = [...node.arguments].reverse().find((arg) => ts.isFunctionLike(arg));
+        if (test.kind === "test") tests.set(key, (tests.get(key) ?? 0) + 1);
         if (test.kind === "test") {
           const parent = JSON.stringify(titles);
           const ordinal = siblings.get(parent) ?? 0;
           siblings.set(parent, ordinal + 1);
           const inside = callback !== undefined && ts.isFunctionLike(callback) ? callback.body : undefined;
           const known = inside !== undefined && !(ts.isBlock(inside) && inside.statements.length === 0);
-          if (!places.has(name)) places.set(name, { parent, ordinal, body: known ? inside.getText() : undefined });
+          if (!places.has(key)) places.set(key, { parent, ordinal, body: known ? inside.getText() : undefined, titles: path });
         }
         const parameter = callback !== undefined && ts.isFunctionLike(callback) ? callback.parameters[0]?.name : undefined;
         const inner = parameter !== undefined && ts.isIdentifier(parameter) ? new Map(contexts).set(parameter.text, made) : contexts;
@@ -265,7 +291,7 @@ function parse(text: string, path: string): Parsed {
     ts.forEachChild(node, (child) => visit(child, titles, current, contexts));
   };
   visit(source, [], outside, new Map());
-  return { found, tests, places };
+  return { found, tests, places, callbacks };
 }
 
 interface Totals {
@@ -305,11 +331,11 @@ function weakness(before: Totals, after: Totals): string | undefined {
 function renames(was: Parsed, now: Parsed): { from: string; to: string }[] {
   const lost = new Map<string, string[]>();
   const gained = new Map<string, string[]>();
-  const group = (map: Map<string, string[]>, parent: string, name: string, times: number): void => {
-    for (let n = 0; n < times; n += 1) map.set(parent, [...(map.get(parent) ?? []), name]);
+  const group = (map: Map<string, string[]>, parent: string, key: string, times: number): void => {
+    for (let n = 0; n < times; n += 1) map.set(parent, [...(map.get(parent) ?? []), key]);
   };
-  for (const [name, place] of was.places) group(lost, place.parent, name, Math.max(0, (was.tests.get(name) ?? 0) - (now.tests.get(name) ?? 0)));
-  for (const [name, place] of now.places) group(gained, place.parent, name, Math.max(0, (now.tests.get(name) ?? 0) - (was.tests.get(name) ?? 0)));
+  for (const [key, place] of was.places) group(lost, place.parent, key, Math.max(0, (was.tests.get(key) ?? 0) - (now.tests.get(key) ?? 0)));
+  for (const [key, place] of now.places) group(gained, place.parent, key, Math.max(0, (now.tests.get(key) ?? 0) - (was.tests.get(key) ?? 0)));
   const pairs: { from: string; to: string }[] = [];
   for (const [parent, [from, ...more]] of lost) {
     const [to, ...others] = gained.get(parent) ?? [];
@@ -326,11 +352,13 @@ function renames(was: Parsed, now: Parsed): { from: string; to: string }[] {
 const byFileThenName = (a: { file: string; name: string }, b: { file: string; name: string }): number =>
   a.file < b.file ? -1 : a.file > b.file ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 
+const displayOf = (parsed: Parsed, key: string): string => parsed.found.get(key)?.[0]?.display ?? key;
+
 /**
- * Compares the test files of two trees. The changes are found by name, so a test gone from its name counts as
+ * Compares the test files of two trees. The changes are found by key (kind, describe path, title), so a test gone from its key counts as
  * removed unless `renames` pairs it with the one test added beside it: the rules lean toward saying too much, because a quiet miss is the
  * failure that matters. Only JavaScript and TypeScript files are read for tests; any other test
- * file is only noticed when it is deleted.
+ * file is only noticed when it is deleted. The " > " names in the result are for showing; nothing is matched by them.
  */
 export function testChanges(base: FileTree, head: FileTree, options: { readonly places?: boolean } = {}): TestChanges {
   // A deleted file is a move only when it pairs with one file the head added at a path node --test
@@ -342,24 +370,29 @@ export function testChanges(base: FileTree, head: FileTree, options: { readonly 
   const markers: { file: string; name: string; marker: Marker; callback?: CallbackLines }[] = [];
   const weakened: { file: string; name: string; why: string; callback?: CallbackLines }[] = [];
   const edited: string[] = [];
-  /** Where the head's one test of this name is, or nothing when two tests share it in either tree. */
-  const placeOf = (parsed: Parsed, name: string, was?: Parsed, wasName = name): { callback?: CallbackLines } => {
-    if (options.places !== true || (was?.found.get(wasName)?.length ?? 1) !== 1) return {};
-    const entries = parsed.found.get(name);
+  const callbacks: { file: string; base: TestCallback[]; head: TestCallback[] }[] = [];
+  /** Where the head's one test of this key is, or nothing when two tests share it in either tree. */
+  const placeOf = (parsed: Parsed, key: string, was?: Parsed, wasKey = key): { callback?: CallbackLines } => {
+    if (options.places !== true || (was?.found.get(wasKey)?.length ?? 1) !== 1) return {};
+    const entries = parsed.found.get(key);
     const callback = entries?.length === 1 ? entries[0]?.callback : undefined;
     return callback === undefined ? {} : { callback };
   };
-  const renamed: { file: string; from: string; to: string; fromCallback?: CallbackLines; callback?: CallbackLines }[] = [];
-  const markersOf = (parsed: Parsed): Set<string> => {
-    const set = new Set<string>();
-    for (const [name, entries] of parsed.found) for (const found of entries) for (const marker of found.markers) set.add(JSON.stringify([name, marker]));
-    return set;
+  const renamed: TestChanges["renamed"][number][] = [];
+  const markersOf = (parsed: Parsed): Map<string, { name: string; marker: Marker }> => {
+    const map = new Map<string, { name: string; marker: Marker }>();
+    for (const [key, entries] of parsed.found) for (const found of entries) for (const marker of found.markers) map.set(JSON.stringify([key, marker]), { name: found.display, marker });
+    return map;
   };
   for (const path of [...new Set([...base.keys(), ...head.keys()])].sort()) {
-    if (!isTestFile(path)) continue;
     const before = base.get(path);
     const after = head.get(path);
     const reads = SOURCE.test(posix.basename(path));
+    // The real test callbacks of any changed source file, test file or not: a callback is a test by its call, not by its file's name.
+    if (options.places === true && reads && before !== after) {
+      callbacks.push({ file: path, base: before === undefined ? [] : parse(before, path).callbacks, head: after === undefined ? [] : parse(after, path).callbacks });
+    }
+    if (!isTestFile(path)) continue;
     if (after === undefined) {
       if (before === undefined) continue;
       const pair = added.get(before) ?? [];
@@ -377,31 +410,47 @@ export function testChanges(base: FileTree, head: FileTree, options: { readonly 
     const now = parse(after, path);
     const was = before === undefined ? undefined : parse(before, path);
     const pairs = was === undefined ? [] : renames(was, now);
-    const seen = was === undefined ? new Set<string>() : markersOf(was);
-    // A renamed test keeps the markers its old name had.
+    const seen = new Set<string>(was === undefined ? [] : markersOf(was).keys());
+    // A renamed test keeps the markers its old key had.
     for (const key of [...seen]) {
-      const [name, marker] = JSON.parse(key) as [string, Marker];
-      const pair = pairs.find((candidate) => candidate.from === name);
+      const [id, marker] = JSON.parse(key) as [string, Marker];
+      const pair = pairs.find((candidate) => candidate.from === id);
       if (pair !== undefined) seen.add(JSON.stringify([pair.to, marker]));
     }
-    for (const key of markersOf(now)) {
+    for (const [key, { name, marker }] of markersOf(now)) {
       if (seen.has(key)) continue;
-      const [name, marker] = JSON.parse(key) as [string, Marker];
-      markers.push({ file: path, name, marker, ...placeOf(now, name, was) });
+      const [id] = JSON.parse(key) as [string, Marker];
+      markers.push({ file: path, name, marker, ...placeOf(now, id, was) });
     }
     if (was === undefined) continue;
     for (const { from, to } of pairs) {
       const fromCallback = was.found.get(from)?.length === 1 ? was.found.get(from)?.[0]?.callback : undefined;
-      renamed.push({ file: path, from, to, ...(options.places === true && fromCallback !== undefined ? { fromCallback } : {}), ...placeOf(now, to, was, from) });
       const why = weakness(totalsOf(was.found.get(from)), totalsOf(now.found.get(to)));
-      if (why !== undefined) weakened.push({ file: path, name: to, why: `renamed from "${from}"; ${why}`, ...placeOf(now, to, was, from) });
+      const fromName = displayOf(was, from);
+      const toName = displayOf(now, to);
+      renamed.push({
+        file: path,
+        from: fromName,
+        to: toName,
+        ...(options.places === true && fromCallback !== undefined ? { fromCallback } : {}),
+        ...placeOf(now, to, was, from),
+        ...(options.places === true ? { fromTitles: was.places.get(from)?.titles ?? [], toTitles: now.places.get(to)?.titles ?? [], ...(why === undefined ? {} : { weakened: true as const }) } : {}),
+      });
+      if (why !== undefined) weakened.push({ file: path, name: toName, why: `renamed from "${fromName}"; ${why}`, ...placeOf(now, to, was, from) });
     }
     const renamedAway = new Set(pairs.map((pair) => pair.from));
-    for (const [name, count] of was.tests) if ((now.tests.get(name) ?? 0) < count && !renamedAway.has(name)) removedTests.push({ file: path, name });
-    for (const [name, entries] of was.found) {
-      const why = weakness(totalsOf(entries), totalsOf(now.found.get(name)));
-      if (why !== undefined && now.found.has(name)) weakened.push({ file: path, name, why, ...placeOf(now, name, was) });
+    for (const [key, count] of was.tests) if ((now.tests.get(key) ?? 0) < count && !renamedAway.has(key)) removedTests.push({ file: path, name: displayOf(was, key) });
+    for (const [key, entries] of was.found) {
+      const why = weakness(totalsOf(entries), totalsOf(now.found.get(key)));
+      if (why !== undefined && now.found.has(key)) weakened.push({ file: path, name: displayOf(now, key), why, ...placeOf(now, key, was) });
     }
   }
-  return { deletedFiles, removedTests: removedTests.sort(byFileThenName), renamed: renamed.sort((a, b) => byFileThenName({ file: a.file, name: a.to }, { file: b.file, name: b.to })), markers: markers.sort((a, b) => byFileThenName(a, b) || (a.marker < b.marker ? -1 : 1)), weakened: weakened.sort(byFileThenName), ...(options.places === true ? { edited } : {}) };
+  return {
+    deletedFiles,
+    removedTests: removedTests.sort(byFileThenName),
+    renamed: renamed.sort((a, b) => byFileThenName({ file: a.file, name: a.to }, { file: b.file, name: b.to })),
+    markers: markers.sort((a, b) => byFileThenName(a, b) || (a.marker < b.marker ? -1 : 1)),
+    weakened: weakened.sort(byFileThenName),
+    ...(options.places === true ? { edited, callbacks } : {}),
+  };
 }

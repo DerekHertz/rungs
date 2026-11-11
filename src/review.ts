@@ -6,7 +6,7 @@ import { typeChange } from "./type-change.ts";
 import type { ChangedEffect } from "./effects.ts";
 import type { SectionChange } from "./sections.ts";
 import type { ChangeKind, Comparison, ContractMove, ContractMoveKind, ModuleChange, Tally } from "./compare.ts";
-import type { TestChanges } from "./test-changes-types.ts";
+import type { CallbackLines, TestCallback, TestChanges } from "./test-changes-types.ts";
 
 /** Most urgent first: a removed or altered module changed what already stood, a moved one is the same text. */
 const URGENCY: Record<ChangeKind, number> = { removed: 0, altered: 1, added: 2, moved: 3 };
@@ -253,7 +253,7 @@ export function unmentioned(
   graph: Graph,
   description: string,
   linked: ReadonlySet<NodeId> = new Set(),
-  tests: { readonly renamed: TestChanges["renamed"]; readonly weakened: TestChanges["weakened"] } = { renamed: [], weakened: [] },
+  tests: { readonly renamed: TestChanges["renamed"]; readonly weakened: TestChanges["weakened"]; readonly callbacks?: TestChanges["callbacks"] } = { renamed: [], weakened: [] },
 ): Unmentioned {
   const fileChanges = comparison.changes.filter((change) => change.node.level === "file");
   const { pathMentioned, fileMentioned, nameCovered, sectionCovered } = mentionRules(comparison, description);
@@ -306,11 +306,38 @@ export function unmentioned(
   const changeOf = new Map<NodeId, ModuleChange>(comparison.changes.map((change) => [change.node.id, change]));
   // Removed nodes are not in the picture graph; their parents are the base graph's, read from the change itself.
   const nodeOf = new Map<NodeId, ModuleNode>([...comparison.changes.map((change): [NodeId, ModuleNode] => [change.node.id, change.node]), ...graph.nodes.map((node): [NodeId, ModuleNode] => [node.id, node])]);
-  /** The nearest enclosing change that is not itself anonymous, or undefined when only the file holds it. */
+  // Which callbacks are tests is read from the source (testChanges' `callbacks`), because the extractor names a callback by the
+  // last name of its callee: `stream.skip("data", fn)` reads like `it.skip("x", fn)`, and `test.each(rows)("x", fn)` has no name at all.
+  // A file with no list keeps the names' reading.
+  const listed = new Map((tests.callbacks ?? []).map((entry) => [entry.file, entry]));
+  const callName = /^([\w$]+)\((.*)\) callback$/su;
+  const MODIFIER_CALLEE = new Set(["skip", "only", "todo", "concurrent", "sequential", "fails", "failing"]);
+  /** The test or suite call whose callback this change is, by the callback's lines: the node's own name must fit the call too. */
+  const testCallOf = (change: ModuleChange): TestCallback | undefined => {
+    const node = change.node;
+    if (!isCodeNode(node) || node.level !== "function") return undefined;
+    const lists = listed.get(node.path);
+    if (lists === undefined) return undefined;
+    const text = segmentsOf(node.qualifiedName).at(-1)!.text;
+    const callee = callName.exec(text)?.[1];
+    return (change.kind === "removed" ? lists.base : lists.head).find(
+      (call) => call.start === node.range.start && call.end === node.range.end && (text === "<function>" || (callee !== undefined && call.label.slice(0, call.label.indexOf("(")).split(".").at(-1) === callee)),
+    );
+  };
+  /** A function with no name a reviewer could tell apart, or a callback of an ordinary method that only borrows a test runner's modifier name. */
+  const unnamed = (change: ModuleChange): boolean => {
+    const node = change.node;
+    if (testCallOf(change) !== undefined) return false;
+    if (isAnonymous(node)) return true;
+    if (!isCodeNode(node) || node.level !== "function" || !listed.has(node.path)) return false;
+    const callee = callName.exec(segmentsOf(node.qualifiedName).at(-1)!.text)?.[1];
+    return callee !== undefined && MODIFIER_CALLEE.has(callee);
+  };
+  /** The nearest enclosing change that is not itself unnamed, or undefined when only the file holds it. A class holds the callbacks of its fields. */
   const holderOf = (node: ModuleNode): ModuleChange | undefined => {
     for (let up = isCodeNode(node) ? nodeOf.get(node.parent) : undefined; up !== undefined && isCodeNode(up); up = nodeOf.get(up.parent)) {
       const held = changeOf.get(up.id);
-      if (held !== undefined && !isAnonymous(held.node)) return held;
+      if (held !== undefined && !unnamed(held)) return held;
     }
     return undefined;
   };
@@ -325,14 +352,35 @@ export function unmentioned(
     );
     return hits.length === 1 ? hits[0] : undefined;
   };
-  const renamedFrom = new Map<NodeId, { readonly was: ModuleChange; readonly weakened: boolean }>();
+  // A rename whose body is identical is reported as one `moved` function: the old node is its `from`.
+  const movedCallback = (file: string, was: CallbackLines | undefined, now: CallbackLines | undefined): (ModuleChange & { readonly kind: "moved" }) | undefined => {
+    if (was === undefined || now === undefined) return undefined;
+    const hits = comparison.changes.filter(
+      (change): change is ModuleChange & { readonly kind: "moved" } =>
+        change.kind === "moved" && change.node.level === "function" && change.node.path === file && change.from.path === file && isCodeNode(change.node) && isCodeNode(change.from) &&
+        change.node.range.start === now.start && change.node.range.end === now.end && change.from.range.start === was.start && change.from.range.end === was.end,
+    );
+    return hits.length === 1 ? hits[0] : undefined;
+  };
+  interface Rename {
+    readonly was: ModuleNode;
+    readonly weakened: boolean;
+    /** What a description may say to cover the row: either test's title and displayed name. */
+    readonly names: readonly string[];
+  }
+  const renamedFrom = new Map<NodeId, Rename>();
   const renamedAway = new Set<NodeId>();
-  for (const { file, to, fromCallback, callback } of tests.renamed) {
+  for (const { file, from, to, fromTitles, toTitles, fromCallback, callback, weakened } of tests.renamed) {
+    const names = [from, to, fromTitles?.at(-1) ?? "", toTitles?.at(-1) ?? ""];
     const was = callbackChange("removed", file, fromCallback);
     const now = callbackChange("added", file, callback);
-    if (was === undefined || now === undefined) continue;
-    renamedFrom.set(now.node.id, { was, weakened: tests.weakened.some((test) => test.file === file && test.name === to) });
-    renamedAway.add(was.node.id);
+    if (was !== undefined && now !== undefined) {
+      renamedFrom.set(now.node.id, { was: was.node, weakened: weakened === true, names });
+      renamedAway.add(was.node.id);
+      continue;
+    }
+    const moved = movedCallback(file, fromCallback, callback);
+    if (moved !== undefined) renamedFrom.set(moved.node.id, { was: moved.from, weakened: weakened === true, names });
   }
 
   const folds = new Map<NodeId, NodeId[]>();
@@ -344,8 +392,8 @@ export function unmentioned(
     if (nameCovered(node.qualifiedName)) continue;
     if (renamedAway.has(node.id)) continue;
     const renamed = renamedFrom.get(node.id);
-    if (renamed !== undefined && isCodeNode(renamed.was.node) && (nameCovered(renamed.was.node.qualifiedName) || pathsOf(renamed.was).some(pathMentioned))) continue;
-    if (!isAnonymous(node) || renamedFrom.has(node.id)) {
+    if (renamed !== undefined && isCodeNode(renamed.was) && (nameCovered(renamed.was.qualifiedName) || pathMentioned(renamed.was.path) || renamed.names.some((name) => appears(description, "name", name)))) continue;
+    if (!unnamed(change) || renamedFrom.has(node.id)) {
       codeChanges.push(change);
       continue;
     }
@@ -353,6 +401,15 @@ export function unmentioned(
     if (holder === undefined) fileFolds.set(node.path, [...(fileFolds.get(node.path) ?? []), node.id]);
     else folds.set(holder.node.id, [...(folds.get(holder.node.id) ?? []), node.id]);
   }
+
+  /** A test call the extractor leaves unnamed (`test.each(rows)("title", fn)`) is labelled by the call, read from the source. */
+  const eachLabel = (change: ModuleChange): string | undefined => {
+    const call = testCallOf(change);
+    const node = change.node;
+    if (call === undefined || !isCodeNode(node)) return undefined;
+    const last = segmentsOf(node.qualifiedName).at(-1)!;
+    return last.text === "<function>" ? `${call.label}${last.ordinal > 1 ? `@${last.ordinal}` : ""}` : undefined;
+  };
 
   const codeBy = new Map<string, ReviewEntry[]>();
   for (const change of codeChanges) {
@@ -362,12 +419,12 @@ export function unmentioned(
     const entry: ReviewEntry = {
       id: node.id,
       level: node.level,
-      label: renamed === undefined ? labelOf(node) : testLabelOf(node),
-      change: renamed === undefined ? change.kind : "altered",
+      label: renamed !== undefined ? testLabelOf(node) : eachLabel(change) ?? labelOf(node),
+      change: renamed === undefined || change.kind === "moved" ? change.kind : "altered",
       lines: sizeOf(node),
       children: [],
       ...(folded === undefined ? {} : { folded }),
-      ...(renamed === undefined || !isCodeNode(renamed.was.node) ? {} : { renamedFrom: testLabelOf(renamed.was.node), ...(renamed.weakened ? { weakened: true as const } : {}) }),
+      ...(renamed === undefined || !isCodeNode(renamed.was) ? {} : { renamedFrom: testLabelOf(renamed.was), ...(renamed.weakened ? { weakened: true as const } : {}) }),
     };
     codeBy.set(node.path, [...(codeBy.get(node.path) ?? []), entry]);
   }
