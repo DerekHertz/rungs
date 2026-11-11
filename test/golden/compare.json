@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "14",
+  "extractorVersion": "15",
   "changes": [
     {
       "kind": "added",
@@ -68,7 +68,8 @@
         "lines": 1,
         "analysis": "analysed",
         "role": "source",
-        "digest": "0893980a663b379edffaf703d1197006"
+        "digest": "0893980a663b379edffaf703d1197006",
+        "types": []
       }
     },
     {
@@ -82,7 +83,8 @@
         "lines": 3,
         "analysis": "analysed",
         "role": "source",
-        "digest": "77542bd88a5777b8f7375f2b29a12dcc"
+        "digest": "77542bd88a5777b8f7375f2b29a12dcc",
+        "types": []
       },
       "from": {
         "id": "file:src/legacy.js",
@@ -93,7 +95,8 @@
         "lines": 3,
         "analysis": "analysed",
         "role": "source",
-        "digest": "77542bd88a5777b8f7375f2b29a12dcc"
+        "digest": "77542bd88a5777b8f7375f2b29a12dcc",
+        "types": []
       }
     },
     {
@@ -107,7 +110,8 @@
         "lines": 46,
         "analysis": "analysed",
         "role": "source",
-        "digest": "b02cf2a42a9ace766f67744c0c84c174"
+        "digest": "b02cf2a42a9ace766f67744c0c84c174",
+        "types": []
       },
       "before": {
         "id": "file:src/effects.mjs",
@@ -118,7 +122,8 @@
         "lines": 42,
         "analysis": "analysed",
         "role": "source",
-        "digest": "5f37fb85de8baea81d217c3ed30f0dbd"
+        "digest": "5f37fb85de8baea81d217c3ed30f0dbd",
+        "types": []
       }
     },
     {
@@ -132,7 +137,8 @@
         "lines": 5,
         "analysis": "analysed",
         "role": "source",
-        "digest": "765ddbf1ab032a7769f07249dbed9e85"
+        "digest": "765ddbf1ab032a7769f07249dbed9e85",
+        "types": []
       }
     },
     {
@@ -146,7 +152,8 @@
         "lines": 5,
         "analysis": "analysed",
         "role": "source",
-        "digest": "6f652db94f32367fa4e6d5e16d1465dd"
+        "digest": "6f652db94f32367fa4e6d5e16d1465dd",
+        "types": []
       }
     },
     {
@@ -160,7 +167,14 @@
         "lines": 77,
         "analysis": "analysed",
         "role": "source",
-        "digest": "0217521da9b5c718272737a2ad2d1ddd"
+        "digest": "0217521da9b5c718272737a2ad2d1ddd",
+        "types": [
+          {
+            "name": "Shape",
+            "kind": "interface",
+            "signature": "{ area(): number }"
+          }
+        ]
       },
       "before": {
         "id": "file:src/shapes.ts",
@@ -171,7 +185,14 @@
         "lines": 76,
         "analysis": "analysed",
         "role": "source",
-        "digest": "11911883b8a118d33e71552719cd8cbc"
+        "digest": "11911883b8a118d33e71552719cd8cbc",
+        "types": [
+          {
+            "name": "Shape",
+            "kind": "interface",
+            "signature": "{ area(): number }"
+          }
+        ]
       }
     },
     {
@@ -185,7 +206,8 @@
         "lines": 6,
         "analysis": "analysed",
         "role": "source",
-        "digest": "96c1ed6f64836ddd1aea30071e209b73"
+        "digest": "96c1ed6f64836ddd1aea30071e209b73",
+        "types": []
       }
     },
     {
@@ -199,7 +221,8 @@
         "lines": 6,
         "analysis": "analysed",
         "role": "source",
-        "digest": "6b611906b3ab1a7c9605575f10331aef"
+        "digest": "6b611906b3ab1a7c9605575f10331aef",
+        "types": []
       },
       "before": {
         "id": "file:src/util/math.ts",
@@ -210,7 +233,8 @@
         "lines": 3,
         "analysis": "analysed",
         "role": "source",
-        "digest": "445deb8dc986398848dfa385a0b10fbe"
+        "digest": "445deb8dc986398848dfa385a0b10fbe",
+        "types": []
       }
     },
     {
@@ -238,7 +262,8 @@
         "lines": 3,
         "analysis": "analysed",
         "role": "tests",
-        "digest": "a425de060a2c61d06b946b601ec50577"
+        "digest": "a425de060a2c61d06b946b601ec50577",
+        "types": []
       }
     },
     {

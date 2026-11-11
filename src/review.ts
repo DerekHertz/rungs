@@ -409,7 +409,7 @@ export interface ContractRow {
   readonly label: string;
   /** Where it stands now; where it stood for a removed one. */
   readonly path: string;
-  readonly level: CodeLevel;
+  readonly level: CodeLevel | "interface" | "type" | "re-export";
   /** No claim covers the change to this node. */
   readonly unmentioned: boolean;
 }
@@ -469,6 +469,11 @@ export function contractsReport(
   const rows: ContractRow[] = [];
   for (const move of moves) {
     const node = nodeOf.get(move.id);
+    if (move.type !== undefined) {
+      counts[move.kind] += 1;
+      rows.push({ kind: "row", move, id: move.id, label: move.type.name, path: node?.path ?? move.id.replace(/^file:/, ""), level: move.type.kind, unmentioned: unmentionedSet.has(move.id) });
+      continue;
+    }
     if (node === undefined || !isCodeNode(node)) continue;
     counts[move.kind] += 1;
     rows.push({ kind: "row", move, id: move.id, label: node.qualifiedName, path: node.path, level: node.level, unmentioned: unmentionedSet.has(move.id) });

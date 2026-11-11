@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { CodeLevel, EffectArg, EffectTarget, FileTree, ImportSyntax, ResourceKind } from "../graph.ts";
+import type { CodeLevel, TypeContract, EffectArg, EffectTarget, FileTree, ImportSyntax, ResourceKind } from "../graph.ts";
 import { javaScriptAndTypeScript } from "./javascript.ts";
 
 export interface SourceFile {
@@ -68,6 +68,8 @@ export interface ImportSite {
 
 export interface FileOutline {
   readonly declarations: readonly Declaration[];
+  /** The interfaces and type aliases the file exports. */
+  readonly types: readonly TypeContract[];
   readonly effects: readonly EffectSite[];
   readonly resolutions: readonly ResolutionSite[];
   readonly imports: readonly ImportSite[];

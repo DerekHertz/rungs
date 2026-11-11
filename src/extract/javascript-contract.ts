@@ -1,4 +1,5 @@
 import ts from "typescript";
+import type { TypeContract } from "../graph.ts";
 
 /**
  * What a file exports and how each export reads, for the JavaScript and TypeScript adapter. It
@@ -115,6 +116,10 @@ export function exportedNodes(file: ts.SourceFile): ReadonlySet<ts.Node> {
 
 function leaves(node: ts.Node, file: ts.SourceFile, out: string[]): void {
   if (ts.isJSDoc(node)) return;
+  if (ts.isTypeLiteralNode(node)) {
+    out.push(...membersOf(node.members, file));
+    return;
+  }
   const children = node.getChildren(file);
   if (children.length === 0) {
     const text = node.getText(file);
@@ -257,4 +262,90 @@ export function renderSignature(tokens: readonly string[]): string {
     out += token;
   });
   return out;
+}
+
+/**
+ * The members of a type literal or interface as tokens, one `;` between them whatever the source
+ * used (`;`, `,` or a line break), so layout never shows.
+ */
+function membersOf(members: readonly ts.TypeElement[], file: ts.SourceFile): string[] {
+  const out = ["{"];
+  members.forEach((member, index) => {
+    if (index > 0) out.push(";");
+    const tokens = tokensOf(member, file);
+    const last = tokens[tokens.length - 1];
+    out.push(...(last === ";" || last === "," ? tokens.slice(0, -1) : tokens));
+  });
+  out.push("}");
+  return out;
+}
+
+/** What an exported name stands for in a file: an interface or type alias, or a re-export of another file's. */
+interface Local {
+  readonly kind: "interface" | "type";
+  readonly declarations: (ts.InterfaceDeclaration | ts.TypeAliasDeclaration)[];
+}
+
+/** Declarations sharing a name (interface merging) read as one member list. */
+function typeSignature(local: Local, file: ts.SourceFile): string {
+  const [first] = local.declarations;
+  const out: string[] = [];
+  if (first?.typeParameters !== undefined) out.push(...listOf(first.typeParameters, "<", ">", file));
+  if (first !== undefined && ts.isTypeAliasDeclaration(first)) out.push("=", ...tokensOf(first.type, file));
+  else {
+    const interfaces = local.declarations.filter(ts.isInterfaceDeclaration);
+    for (const declaration of interfaces) for (const clause of declaration.heritageClauses ?? []) out.push(...tokensOf(clause, file));
+    out.push(...membersOf(interfaces.flatMap((declaration) => [...declaration.members]), file));
+  }
+  return renderSignature(out);
+}
+
+const nameText = (name: ts.Node): string => (ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : name.getText());
+
+function scan(statements: readonly ts.Statement[], file: ts.SourceFile, prefix: string, ambient: boolean, found: Map<string, TypeContract>, implicit = false): void {
+  const locals = new Map<string, Local>();
+  const names = new Map<string, string>();
+  const exportedAs = (statement: ts.Statement, local: string): void => {
+    if (hasModifier(statement, ts.SyntaxKind.DefaultKeyword)) names.set("default", local);
+    else if (implicit || hasModifier(statement, ts.SyntaxKind.ExportKeyword)) names.set(local, local);
+  };
+  for (const statement of statements) {
+    if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+      const name = statement.name.text;
+      const local = locals.get(name) ?? { kind: ts.isInterfaceDeclaration(statement) ? "interface" : "type", declarations: [] };
+      local.declarations.push(statement);
+      locals.set(name, local);
+      if (hasModifier(statement, ts.SyntaxKind.ExportKeyword) || implicit) exportedAs(statement, name);
+    } else if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name) && statement.body !== undefined) {
+      if (!implicit && !hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+      const inside = ambient || hasModifier(statement, ts.SyntaxKind.DeclareKeyword);
+      scan(ts.isModuleBlock(statement.body) ? statement.body.statements : [statement.body as ts.Statement], file, `${prefix}${statement.name.text}.`, inside, found, inside || !ts.isModuleBlock(statement.body));
+    } else if (ts.isExportAssignment(statement) && ts.isIdentifier(statement.expression)) {
+      names.set(statement.isExportEquals === true ? "export=" : "default", statement.expression.text);
+    } else if (ts.isExportDeclaration(statement)) {
+      const clause = statement.exportClause;
+      const from = statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : undefined;
+      if (from === undefined) {
+        if (clause !== undefined && ts.isNamedExports(clause)) for (const element of clause.elements) names.set(nameText(element.name), nameText(element.propertyName ?? element.name));
+      } else if (clause === undefined) found.set(`${prefix}* from "${from}"`, { name: `${prefix}* from "${from}"`, kind: "re-export", signature: "*" });
+      else if (ts.isNamespaceExport(clause)) found.set(prefix + nameText(clause.name), { name: prefix + nameText(clause.name), kind: "re-export", signature: `* from "${from}"` });
+      else for (const element of clause.elements) found.set(prefix + nameText(element.name), { name: prefix + nameText(element.name), kind: "re-export", signature: `${nameText(element.propertyName ?? element.name)} from "${from}"` });
+    }
+  }
+  for (const [exported, localName] of names) {
+    const local = locals.get(localName);
+    if (local !== undefined) found.set(prefix + exported, { name: prefix + exported, kind: local.kind, signature: typeSignature(local, file) });
+  }
+}
+
+/**
+ * The interfaces and type aliases a file exports, keyed by the name an importer uses ("default"
+ * for a default export), sorted by name: `export` declarations, `export default X`, `export { X as Y }`,
+ * the members of exported or ambient namespaces (named `Namespace.Name`), and re-exports from
+ * another file, which read as `Name from "./file"` since their shape is not resolved here.
+ */
+export function exportedTypes(file: ts.SourceFile): TypeContract[] {
+  const found = new Map<string, TypeContract>();
+  scan(file.statements, file, "", file.isDeclarationFile, found);
+  return [...found.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
