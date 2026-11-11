@@ -10,11 +10,21 @@ import { extract } from "./extract/extract.ts";
 import { isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { sliceLines } from "./lines.ts";
+import { isStale } from "./narration.ts";
+import type { Narration } from "./narration.ts";
 import { pseudocode } from "./pseudocode.ts";
 import { splitClaims } from "./claims.ts";
 import type { Claim } from "./claims.ts";
-import type { LinkOutcome } from "./link.ts";
+import type { Asked, LinkOutcome } from "./link.ts";
 import type { TourOutcome } from "./walkthrough.ts";
+import type { NarrateRequest } from "./narrate.ts";
+
+/** Writes a function's narration; the seam the command line fills with the agent and tests fake. */
+export type Narrator = (request: Pick<NarrateRequest, "node" | "outline" | "renarrate">) => Promise<Asked<Narration>>;
+
+/** The most contract-moved functions narrated ahead of time: each is a model call. The rest wait for a request. */
+export const AHEAD_LIMIT = 30;
+const AHEAD_PARALLEL = 3;
 
 /** What the checkout is compared against: the merge base's tree and commit, and the ref the user wrote. */
 export interface Against extends Base {
@@ -27,6 +37,11 @@ export interface RunningServer {
   readonly comparison: Comparison | undefined;
   close(): Promise<void>;
 }
+
+/** What `POST /narration` answers: a claimed fact, with the digest it was written for and whether the function has changed since. */
+type Narrated =
+  | ({ readonly tier: "claimed"; readonly id: NodeId; readonly status: "ok"; readonly narrated: string; readonly stale: boolean } & Omit<Narration, "digest"> & { readonly model: string; readonly promptVersion: string; readonly cached: boolean })
+  | { readonly tier: "claimed"; readonly id: NodeId; readonly status: "failed"; readonly message: string };
 
 interface Resource {
   readonly contentType: string;
@@ -54,6 +69,13 @@ interface Resource {
  * served as a failure with no links. `GET /walkthrough.json` is the tour `walk` returns, asked once
  * and at the same time as the links: claimed too, in its own resource, with no stops when it
  * failed or was not asked for.
+ *
+ * Given `narrator` (and so `base`), narration is on offer: `GET /narrate.json` lists the
+ * functions of "contracts moved" being narrated ahead of time, in the background after the server
+ * is up, and `POST /narration?id=` answers with one function's narration as a claimed fact,
+ * `stale` when the function's digest is no longer the narrated one (`&fresh=1` writes it again).
+ * It is a POST because it spends a model call; every request must name the server's own address as Host, and this one also as Origin, or it is refused with 403. The agent
+ * is shown the function's structure only (see narrationPrompt). Without `narrator` both are 404.
  */
 export async function serve(
   given: FileTree,
@@ -62,6 +84,7 @@ export async function serve(
   description?: string,
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
   walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
+  narrator?: Narrator,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
@@ -109,6 +132,49 @@ export async function serve(
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
   }
 
+  const narrations = new Map<NodeId, Promise<Narrated>>();
+  const aheadIds: NodeId[] = [];
+  if (narrator !== undefined && comparison !== undefined && baseGraph !== undefined) {
+    const all = [...new Set(contractsMoved(comparison, baseGraph, graph).filter((move) => move.kind !== "removed").map((move) => move.id))].filter((id) => {
+      const node = nodes.get(id);
+      return node !== undefined && isCodeNode(node) && node.level === "function";
+    });
+    aheadIds.push(...all.slice(0, AHEAD_LIMIT));
+    const skipped = all.length - aheadIds.length;
+    const body = `${JSON.stringify({ tier: "claimed", ahead: aheadIds, skipped }, null, 2)}\n`;
+    resources.set("/narrate.json", { contentType: "application/json; charset=utf-8", body });
+  }
+
+  function narrationOf(id: NodeId, fresh: boolean, refresh = false): Promise<Narrated> | undefined {
+    const node = nodes.get(id);
+    if (narrator === undefined || node === undefined || !isCodeNode(node) || node.level !== "function") return undefined;
+    const known = fresh ? undefined : narrations.get(id);
+    if (known !== undefined) return known;
+    const outline = pseudocode(graph, tree, id) ?? [];
+    const asked = (renarrate: boolean): Promise<Asked<Narration>> => narrator({ node, outline, renarrate });
+    const made = (async (): Promise<Narrated> => {
+      let outcome = await asked(fresh);
+      // Ahead of time a stale cache entry is written again: nobody asked to see the old one.
+      if (refresh && outcome.status === "ok" && isStale(outcome, node)) outcome = await asked(true);
+      if (outcome.status === "failed") return { tier: "claimed", id, ...outcome };
+      const { status, digest, ...rest } = outcome;
+      return { tier: "claimed", id, status, narrated: digest, stale: isStale(outcome, node), ...rest };
+    })();
+    narrations.set(id, made);
+    // A failure is not kept, so asking again tries again.
+    void made.then((doc) => {
+      if (doc.status === "failed" && narrations.get(id) === made) narrations.delete(id);
+    });
+    return made;
+  }
+
+  const queue = [...aheadIds];
+  for (let worker = 0; worker < AHEAD_PARALLEL; worker++) {
+    void (async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) await narrationOf(id, false, true);
+    })();
+  }
+
   function sourceOf(id: string | null): string | undefined {
     const ghost = id === null ? undefined : removed.get(id as NodeId);
     const node = ghost ?? (id === null ? undefined : nodes.get(id as NodeId));
@@ -129,7 +195,25 @@ export async function serve(
   }
 
   const server = createServer((request, response) => {
+    // A rebound DNS name reaches this server with a Host and Origin of its own choosing, so both
+    // are checked against the address this server listens on, never against each other.
+    const hosts = ownHosts((server.address() as AddressInfo).port);
+    if (!hosts.has(request.headers.host ?? "")) {
+      response.writeHead(403).end();
+      return;
+    }
     const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname === "/narration") {
+      if (narrator === undefined) response.writeHead(404).end();
+      else if (request.method !== "POST") response.writeHead(405, { allow: "POST" }).end();
+      else if (!hosts.has(request.headers.origin?.replace(/^http:\/\//, "") ?? "") || !request.headers.origin?.startsWith("http://")) response.writeHead(403).end();
+      else {
+        const asked = narrationOf((url.searchParams.get("id") ?? "") as NodeId, url.searchParams.get("fresh") === "1");
+        if (asked === undefined) response.writeHead(404).end();
+        else void asked.then((doc) => response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify(doc, null, 2)}\n`));
+      }
+      return;
+    }
     if (url.pathname === "/pseudocode") {
       const body = pseudocodeOf(url.searchParams.get("id"));
       if (body === undefined) response.writeHead(404).end();
@@ -161,6 +245,11 @@ export async function serve(
     close: () =>
       new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
   };
+}
+
+/** The hosts a request to this server may name: its own address, by number or as localhost. */
+function ownHosts(port: number): ReadonlySet<string> {
+  return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 }
 
 async function bundlePage(): Promise<string> {
