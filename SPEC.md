@@ -94,6 +94,8 @@ and never changes the layout.
   lists the files that rest on it.
 - **Gates.** A file the repo declares as a way in has a gate at the front of its lot. Test files
   are ways in too, but the lab already says so, and they get no gate.
+- **Paths.** A footpath runs from the road to each building's door. A file no way in reaches
+  through imports has no path, which shows "nothing reaches it" and never calls it dead.
 - **Harbour.** Each kind of outside resource the code reaches is one structure in the harbour,
   and a kind nothing reaches has none.
 - **Names by zoom.** From far away only blocks are named, in large type. Closer in, the files the
