@@ -1,7 +1,7 @@
 import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "../observed-types.ts";
 import { ROLLUP_OVER, signatureDiff } from "../review.ts";
 import type { LineRange, NodeId } from "../graph.ts";
-import { coverageLine, walkSummary } from "../stops.ts";
+import { walkStatus } from "../stops.ts";
 import type { Observed, StopEffect, StopFacts, StopTest, WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 import { changeNote, drawRows, markRows } from "./code-rows.ts";
@@ -52,9 +52,7 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
   const next = element("button", "walk-button");
   const close = element("button", "walk-button", "Close");
   for (const button of [back, next, close]) button.type = "button";
-  const coverage = element("span", "walk-coverage", input.note.status === "ok" ? coverageLine(input.coverage) : "");
-  coverage.title = "Changed files outside the tour stay on the picture and in the review panel.";
-  bar.append(title, status, coverage, back, next, close);
+  bar.append(title, status, back, next, close);
   const body = element("div", "walk-body");
   host.replaceChildren(bar, body);
 
@@ -110,7 +108,7 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
     next.hidden = stops.length === 0;
     next.disabled = stop !== undefined && index >= stops.length - 1;
     next.textContent = stop === undefined ? "Start (→)" : "Next (→)";
-    status.textContent = stop === undefined ? walkSummary(input.note, stops.length) : `Stop ${index + 1} of ${stops.length}: ${stop.title}`;
+    status.textContent = stop === undefined ? walkStatus(input.note, stops.length) : `Stop ${index + 1} of ${stops.length}: ${stop.title}`;
     if (stop === undefined) return;
     const found = input.facts(stop);
     shown = undefined;

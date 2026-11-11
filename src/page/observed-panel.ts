@@ -1,6 +1,7 @@
 import type { NodeId } from "../graph.ts";
 import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "../observed-types.ts";
 import type { Counts, ObservedDocument, UnmatchedTest } from "../observed-types.ts";
+import { failingHeading } from "../arrival.ts";
 import { unreliableText } from "../observed-report.ts";
 import type { FailingTest, FileResults, ObservedReport, WrittenReport } from "../observed-report.ts";
 import { element } from "./review-panel.ts";
@@ -55,8 +56,7 @@ export function observedBody(observed: ObservedInput, pickNode: (id: NodeId) => 
   }
   if (report === null) return out;
 
-  out.push(element("h3", "review-subtitle", `Failing (${report.failing.length})`));
-  if (report.failing.length === 0) out.push(element("p", "review-empty", "No test failed."));
+  out.push(element("h3", "review-subtitle", failingHeading(report.failing.length)));
   out.push(list(report.failing.map((test) => failingRow(test, pickNode))));
 
   out.push(element("h3", "review-subtitle", `Test files this PR changed, with main's results (${report.files.length})`));
@@ -125,10 +125,11 @@ function fileRow(file: FileResults, report: ObservedReport, pickNode: (id: NodeI
   const item = element("li", "review-row");
   const pick = pickButton(() => pickNode(file.id));
   pick.title = file.path;
+  pick.classList.add("observed-file");
   const state = file.counts.fail > 0 ? "fail" : file.counts.pass + file.counts.skip === 0 ? "none" : "pass";
   pick.append(
     element("span", `review-mark observed-${state}`, state === "fail" ? "✗" : state === "pass" ? "✓" : "·"),
-    element("span", "review-label rv-ellipsis", file.path),
+    element("span", "review-label", file.path),
     ...(report.deleted.includes(file.path) ? [element("span", "review-flag", "deleted by this PR")] : report.edited.includes(file.path) ? [element("span", "review-flag", "edited by this PR")] : []),
     element("span", "review-size", countsText(file.counts)),
   );
@@ -140,16 +141,20 @@ function failingRow(test: FailingTest, pickNode: (id: NodeId) => void): HTMLElem
   const item = element("li", "review-row");
   const detail = element("div", "rv-detail contract-text");
   detail.hidden = true;
-  detail.append(element("span", "contract-where", test.why === undefined ? test.file : `${test.file} · ${test.why}`));
+  if (test.why !== undefined) detail.append(element("span", "contract-where", test.why));
   if (test.message !== undefined) detail.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
   const pick = pickButton(() => {
     for (const other of item.parentElement?.querySelectorAll<HTMLElement>(".rv-detail") ?? []) other.hidden = true;
     detail.hidden = false;
     pickNode(test.id);
   });
+  // The whole name wraps in the row, so reading it needs neither hover nor touch; the title repeats it with the message.
   pick.title = test.message === undefined ? `${test.name} (${test.file})` : `${test.name} (${test.file}): ${test.message}`;
-  pick.append(element("span", "review-mark observed-fail", "✗"), element("span", "review-label rv-ellipsis", test.name));
-  item.append(pick, detail);
+  const text = element("span", "contract-text");
+  text.append(element("span", "review-label", test.name), element("span", "contract-where", test.file));
+  pick.append(element("span", "review-mark observed-fail", "✗"), text);
+  item.append(pick);
+  if (detail.childElementCount > 0) item.append(detail);
   return item;
 }
 

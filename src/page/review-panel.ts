@@ -79,6 +79,14 @@ export interface ReviewInput {
   readonly risks: readonly RiskItem[] | null;
   /** The user picked a risk; the host selects its places. */
   readonly pickRisk: (item: RiskItem) => void;
+  /** How the tour was made, for "About this run"; absent when there is no tour to describe. */
+  readonly walkAbout?: string;
+}
+
+/** What the host can ask of the panel after it is drawn. */
+export interface ReviewHandle {
+  /** Opens the Tests row; false when the panel has no such row. */
+  openTests(): boolean;
 }
 
 /** A new element with a class and, when given, text; never markup. */
@@ -131,7 +139,7 @@ function linkNote(link: LinkNote): string {
  * Fills `host` with one summary row per question: Claims, Unmentioned, Contracts moved and Tests.
  * One opens at a time and takes the column's height. Everything user-supplied goes in as text.
  */
-export function renderReview(host: HTMLElement, input: ReviewInput): void {
+export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandle {
   let active: { pick: HTMLElement; detail?: HTMLElement } | undefined;
   const choose = (pick: HTMLElement, detail?: HTMLElement): void => {
     if (active !== undefined) {
@@ -710,6 +718,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   });
   const notes: [string, string][] = [
     ["Claims", linkNote(input.link)],
+    ...(input.walkAbout === undefined ? [] : ([["Walkthrough", input.walkAbout]] as [string, string][])),
     ["Unmentioned", "A change counts as mentioned when its path or name appears in the description (a dependency by its name); a Markdown section when its heading, or an enclosing heading, appears as a whole phrase, ignoring case. One only an agent links to the module or its file stays in the count as linked by the agent only; an agent's link to a folder covers none of its files. A lockfile change is listed under the dependency changes it follows. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
     ...(input.observed === null ? [] : observedAbout(input.observed))
   ];
@@ -717,4 +726,13 @@ export function renderReview(host: HTMLElement, input: ReviewInput): void {
   about.append(aboutBody, aboutButton);
 
   host.replaceChildren(...sections, about);
+  return {
+    openTests() {
+      const row = bodies.get("tests");
+      if (row === undefined) return false;
+      setOpen("tests");
+      row.section.scrollIntoView({ block: "nearest" });
+      return true;
+    },
+  };
 }

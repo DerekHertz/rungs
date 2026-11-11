@@ -29,11 +29,13 @@ import type { TestChanges } from "../test-changes-types.ts";
 import type { RiskItem } from "../risks.ts";
 import { NO_TEST_MARKS, testMarks } from "../test-marks.ts";
 import type { TestMark } from "../test-marks.ts";
+import { comparedLine, failingEntry, walkEntry } from "../arrival.ts";
+import { renderArrival } from "./arrival-panel.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote } from "./review-panel.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
 import type { Walk } from "./walkthrough-panel.ts";
-import { observedAt, stopFacts, tourCoverage } from "../stops.ts";
+import { observedAt, stopFacts, tourCoverage, coverageLine, walkSummary } from "../stops.ts";
 import type { WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 import type { NarratedDoc } from "../narration.ts";
@@ -747,7 +749,10 @@ if (comparison !== null && testChanges !== null) {
   review.hidden = false;
   const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked, testChanges);
   const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
-  renderReview(review, {
+  const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
+  const coverage = tourCoverage(tour.stops, comparison);
+  const handle = renderReview(review, {
+    walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
     description: claims.description,
     claims: claims.claims,
     context: claims.context,
@@ -766,13 +771,13 @@ if (comparison !== null && testChanges !== null) {
     pickRisk: (risk: RiskItem) => pickPlaces(risk.ids),
   });
 
-  const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
+  const run = (await (await fetch("/run.json")).json()) as { repo: string | null };
   const host = document.querySelector<HTMLElement>("#walk")!;
   host.hidden = false;
   walk = renderWalkthrough(host, {
     note: tour.walkthrough,
     stops: tour.stops,
-    coverage: tourCoverage(tour.stops, comparison),
+    coverage,
     claims: claims.sentences,
     facts: (stop) => stopFacts(stop, comparison, picture.graph, moves),
     observed: (stop) => observedAt(stop, picture.graph, comparison, observed, testChanges),
@@ -787,5 +792,16 @@ if (comparison !== null && testChanges !== null) {
     },
     visit: visitStop,
   });
+  // The opening view: what is compared, and the failures and the tour one click away.
+  const failing = observedRun?.failing.length ?? 0;
+  review.prepend(
+    renderArrival({
+      compared: comparedLine(run.repo, comparison.against),
+      tests: failingEntry(observed === null ? "absent" : observed.status, failing),
+      tour: walkEntry(tour.walkthrough, tour.stops.length, coverage),
+      openTests: () => void handle.openTests(),
+      startTour: () => walk?.step(1),
+    }),
+  );
 }
 showTown();

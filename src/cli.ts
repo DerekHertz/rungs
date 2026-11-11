@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { text } from "node:stream/consumers";
 import { homedir } from "node:os";
+import { basename, resolve } from "node:path";
 import { readBase, readCheckout, readExecutables } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
 import { parseOptions, USAGE } from "./options.ts";
@@ -85,7 +86,7 @@ if (typeof options === "string") {
 try {
   const tree = await readCheckout(options.dir);
   if (options.base === undefined) {
-    const server = await serve(tree, options.port);
+    const server = await serve(tree, options.port, undefined, undefined, undefined, undefined, undefined, undefined, basename(resolve(options.dir)));
     console.log(`Systems to Streets is showing ${tree.size} files from ${options.dir} at ${server.url}`);
     if (options.open) openBrowser(server.url);
   } else {
@@ -159,7 +160,7 @@ try {
           return outcome;
         }
       : undefined;
-    const server = await serve(tree, options.port, against, description, link, walk, narrator, tests);
+    const server = await serve(tree, options.port, against, description, link, walk, narrator, tests, basename(resolve(options.dir)));
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;
