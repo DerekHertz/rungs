@@ -227,7 +227,11 @@ function showTownLegend(town: Town): void {
     town.piers.length === 0 && town.unpictured.length === 0
       ? "harbour: no outside resource is reached"
       : `harbour: ${town.piers.map((pier) => pier.kind).join(", ")}${town.unpictured.length > 0 ? ` (no sprite yet for ${town.unpictured.join(", ")})` : ""}`;
-  legend.replaceChildren(kinds, size, harbour);
+  const against = document.createElement("div");
+  if (comparison !== null) {
+    against.textContent = `against ${comparison.against.ref} at ${comparison.against.commit.slice(0, 7)}: scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
+  }
+  legend.replaceChildren(kinds, size, harbour, ...(comparison === null ? [] : [against]));
 }
 
 function showCity(root: NodeId): void {
@@ -241,7 +245,7 @@ function showCity(root: NodeId): void {
   const city = cityOf(picture, root);
   buildings = new Map(city.buildings.map((building) => [building.id, building]));
   if (townView !== undefined && sheet !== undefined) {
-    const town = townOf(graph, new Set(Object.keys(sheet.sizes)));
+    const town = townOf(graph, new Set(Object.keys(sheet.sizes)), comparison);
     townView.show(town);
     showTownLegend(town);
   } else {

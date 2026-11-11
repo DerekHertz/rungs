@@ -1,5 +1,5 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
-import { AXIS, LOT, namesAt, project } from "../town.ts";
+import { AXIS, blockLabel, CRANE_AT, LOT, MOVED_SIGN_AT, namesAt, project } from "../town.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
 import type { CityHandlers } from "./city-view.ts";
 import { EFFECT_COLOR } from "./palette.ts";
@@ -57,15 +57,22 @@ export interface TownView {
 
 const COLOUR = {
   sea: "#12304a", seaLight: "#1d4a6e", sand: "#5d6072", sandDark: "#3d4050", grass: "#2f5240",
-  pad: "#3b674c", kerb: "#7d8494", wood: "#7a5a3a", woodDark: "#5a4028", quay: "#6b7080",
-  name: "#f2f4f7", pill: "rgba(5,7,10,0.86)", pillEdge: "#39424e", pierEdge: "#7d8494", select: "#ffffff", hover: "#9aa6b5",
+  pad: "#3b674c", earth: "#6b5236", kerb: "#7d8494", wood: "#7a5a3a", woodDark: "#5a4028", quay: "#6b7080",
+  name: "#f2f4f7", mark: "#ff8a2a", pill: "rgba(5,7,10,0.86)", pillEdge: "#39424e", pierEdge: "#7d8494", select: "#ffffff", hover: "#9aa6b5",
 };
+/** Screen pixels a metre of height rises in the sheet (see project). */
+const RISE_UNIT = 48 * Math.cos(Math.PI / 6);
 const ZOOM = { fitFill: 0.92, min: 0.5, max: 1.5 };
 const CLICK_SLOP = 4;
 const FLIGHT_MS = 260;
 
+/** Which sprite of a lot this is: the building (or rubble), or a mark standing on it. */
+type Part = "building" | "scaffold" | "crane" | "moved-sign";
+
 type Thing =
-  | { readonly kind: "lot"; readonly lot: Lot; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number }
+  | { readonly kind: "lot"; readonly lot: Lot; readonly part: Part; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number }
+  /** A fence post or a block's sign: a fact about the block, not clickable. */
+  | { readonly kind: "mark"; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number }
   | { readonly kind: "pier"; readonly pier: Pier; readonly sprite: string; readonly X: number; readonly Y: number; readonly key: number };
 
 interface Camera {
@@ -218,7 +225,9 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   }
   /** The colour a thing is outlined in: selected or highlighted, or pointed at. */
   function outlineOf(thing: Thing): string | undefined {
+    if (thing.kind === "mark") return undefined;
     if (thing.kind === "pier") return thing.pier.kind === chosen ? COLOUR.select : thing === hovered ? COLOUR.hover : undefined;
+    if (thing.part !== "building") return undefined;
     if (thing.lot.id === selected) return COLOUR.select;
     if (highlighted.has(thing.lot.id)) return chosen === undefined ? COLOUR.select : EFFECT_COLOR;
     return thing === hovered ? COLOUR.hover : undefined;
@@ -244,6 +253,31 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     ctx.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1);
     ctx.fillStyle = COLOUR.name;
     ctx.fillText(shown, Math.round(x), Math.round(y + 1));
+  }
+
+  /** The new path of a moved file, written on the face of its sign's board and skewed to lie on it. */
+  function boardText(path: string, X: number, Y: number): void {
+    const BOARD = { w: 118, h: 44 };
+    const k = camera.zoom / 100;
+    // The board's face is on the -Y side of the post, 0.93 m up; the text's unit is a hundredth of a metre.
+    const middle = groundScreen(X, Y - 0.085, 0.93);
+    const slash = path.lastIndexOf("/");
+    const lines = slash < 0 ? [path] : [path.slice(0, slash + 1), path.slice(slash + 1)];
+    const size = lines.length === 1 ? 26 : 19;
+    ctx.save();
+    ctx.setTransform(AXIS * k, (AXIS / 2) * k, 0, RISE_UNIT * k, middle.x, middle.y);
+    ctx.font = `600 ${size}px ui-monospace, Menlo, Consolas, monospace`;
+    ctx.fillStyle = "#2b1d10";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const lineHeight = Math.min(size * 1.15, BOARD.h / lines.length);
+    lines.forEach((line, index) => {
+      let shown = line;
+      // The end of a path is what tells files apart, so a long one loses its start.
+      while (shown.length > 2 && ctx.measureText(shown).width > BOARD.w) shown = `\u2026${shown.slice(2)}`;
+      ctx.fillText(shown, 0, (index - (lines.length - 1) / 2) * lineHeight);
+    });
+    ctx.restore();
   }
 
   function draw(): void {
@@ -276,7 +310,15 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
       polygon(rect(block.X0, block.Y0, block.X1, block.Y1), COLOUR.pad);
     }
 
-    for (const thing of things) drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing));
+    // Bare earth under a new file's building.
+    for (const lot of town.lots) {
+      if (lot.change === "added") polygon(rect(lot.X - LOT / 2 + 0.25, lot.Y - LOT / 2 + 0.25, lot.X + LOT / 2 - 0.25, lot.Y + LOT / 2 - 0.25), COLOUR.earth);
+    }
+
+    for (const thing of things) {
+      drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing));
+      if (thing.kind === "lot" && thing.part === "moved-sign" && thing.lot.movedTo !== null) boardText(thing.lot.movedTo.path, thing.X, thing.Y);
+    }
 
     // Names go on top of everything, so a building never hides one. Far away only blocks are named, in
     // large type; close in the files are named too.
@@ -291,13 +333,19 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     const files = namesAt(camera.zoom) === "files";
     for (const block of town.blocks) {
       const middle = groundScreen((block.X0 + block.X1) / 2, files ? block.Y1 + 0.9 : (block.Y0 + block.Y1) / 2, files ? 0 : 7);
-      pill(files ? block.name : `${block.name} · ${block.files}`, middle.x, middle.y, Math.round((files ? 15 : 20) * dpr), COLOUR.pillEdge, Infinity, true);
+      pill(blockLabel(block, town.comparing, !files), middle.x, middle.y, Math.round((files ? 15 : 20) * dpr), block.fence === null ? COLOUR.pillEdge : COLOUR.mark, Infinity, true);
+      if (files && block.fence !== null) {
+        const sign = groundScreen(block.fence.sign.X, block.fence.sign.Y, 3.7);
+        pill(block.fence.text, sign.x, sign.y, Math.round(17 * dpr), COLOUR.mark, Infinity, true);
+      }
     }
     if (files) {
       for (const lot of town.lots) {
-        const at = groundScreen(lot.X, lot.Y, 0);
+        if (!lot.named) continue;
+        // An altered file's name stands over its crane, where the change shows above the roofs.
+        const at = lot.crane ? groundScreen(lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, 8.9) : groundScreen(lot.X, lot.Y, 0);
         if (at.x < -200 || at.y < -100 || at.x > canvas.width + 200 || at.y > canvas.height + 200) continue;
-        pill(lot.name, at.x, at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.5);
+        pill(lot.name, at.x, lot.crane ? at.y : at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), lot.change === "altered" ? COLOUR.mark : COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.9);
       }
     }
   }
@@ -309,6 +357,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     const py = (clientY - rectOf.top) * dpr;
     for (let i = things.length - 1; i >= 0; i--) {
       const thing = things[i]!;
+      if (thing.kind === "mark") continue;
       const size = sheet.sizes[thing.sprite];
       const mask = maskOf(thing.sprite);
       if (size === undefined || mask === undefined) continue;
@@ -322,7 +371,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     const ground = groundUnder(px, py);
     for (let i = things.length - 1; i >= 0; i--) {
       const thing = things[i]!;
-      if (thing.kind === "lot" && Math.abs(ground.X - thing.X) <= LOT / 2 && Math.abs(ground.Y - thing.Y) <= LOT / 2) return thing;
+      if (thing.kind === "lot" && thing.part === "building" && Math.abs(ground.X - thing.X) <= LOT / 2 && Math.abs(ground.Y - thing.Y) <= LOT / 2) return thing;
     }
     return undefined;
   }
@@ -369,13 +418,15 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   const pressed = new Map<number, { x: number; y: number }>();
   let pressedAt = { x: 0, y: 0 };
   let travelled = 0;
+  /** The file a thing stands for. The rubble a moved file left stands for the file at its new path. */
+  const idOf = (thing: Thing | undefined): NodeId | undefined => (thing?.kind === "lot" ? (thing.lot.movedTo?.id ?? thing.lot.id) : undefined);
   function hover(clientX: number, clientY: number): void {
     const thing = thingAt(clientX, clientY);
     if (thing !== hovered) {
       hovered = thing;
       dirty = true;
     }
-    handlers.hover(thing?.kind === "lot" ? thing.lot.id : undefined, { x: clientX, y: clientY });
+    handlers.hover(idOf(thing), { x: clientX, y: clientY });
   }
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   canvas.addEventListener("pointerdown", (event) => {
@@ -437,7 +488,7 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
     if (travelled >= CLICK_SLOP) return;
     const thing = thingAt(event.clientX, event.clientY);
     if (thing?.kind === "pier") handlers.resource(thing.pier.kind);
-    else handlers.click(thing?.kind === "lot" ? thing.lot.id : undefined, event.detail);
+    else handlers.click(idOf(thing), event.detail);
   });
   canvas.addEventListener("dblclick", (event) => {
     if (travelled >= CLICK_SLOP) return;
@@ -466,8 +517,24 @@ export function createTownView(host: HTMLElement, handlers: CityHandlers, sheet:
   return {
     show(next) {
       town = next;
+      const marks = (lot: Lot): Thing[] => {
+        const mark = (part: Part, sprite: string, X: number, Y: number, bias: number): Thing => ({ kind: "lot", lot, part, sprite, X, Y, key: X - Y + bias });
+        return [
+          mark("building", lot.sprite, lot.X, lot.Y, 0),
+          ...(lot.overlay === null ? [] : [mark("scaffold", lot.overlay, lot.X, lot.Y, 0.01)]),
+          ...(lot.crane ? [mark("crane", "crane", lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, -0.2)] : []),
+          ...(lot.movedTo === null ? [] : [mark("moved-sign", "sign-moved", lot.X + MOVED_SIGN_AT.X, lot.Y + MOVED_SIGN_AT.Y, 0)]),
+        ];
+      };
+      const fences = (block: Block): Thing[] =>
+        block.fence === null
+          ? []
+          : [...block.fence.posts.map((post) => ({ sprite: post.sprite, X: post.X, Y: post.Y })), { sprite: "sign", X: block.fence.sign.X, Y: block.fence.sign.Y }].map(
+              (mark): Thing => ({ kind: "mark", ...mark, key: mark.X - mark.Y }),
+            );
       things = [
-        ...next.lots.map((lot): Thing => ({ kind: "lot", lot, sprite: lot.sprite, X: lot.X, Y: lot.Y, key: lot.X - lot.Y })),
+        ...next.lots.flatMap(marks),
+        ...next.blocks.flatMap(fences),
         ...next.piers.map((pier): Thing => ({ kind: "pier", pier, sprite: pier.sprite, X: pier.X, Y: pier.Y, key: pier.X - pier.Y })),
       ]
         .map((thing, index) => ({ thing, index }))
