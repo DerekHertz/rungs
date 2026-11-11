@@ -70,6 +70,8 @@ const tree = indexGraph(picture.graph);
 const townRoot = tree.root;
 /** The folder the camera frames; the layout never follows it. */
 let focus = townRoot;
+/** A block framed on its own because it has no folder in the picture's graph to focus (rubble only): the camera is there, `focus` is not. */
+let alone: NodeId | undefined;
 let lots = new Map<NodeId, Lot>();
 let selected: NodeId | undefined;
 let requested = 0;
@@ -127,11 +129,14 @@ const handlers: TownHandlers = {
     if (hit?.kind === "building" || hit?.kind === "resource") return;
     // A block only a moved file's old path stands in has no node in the picture's graph to focus: frame it alone.
     if (hit?.kind === "district" && !nodes.has(hit.id)) {
+      alone = hit.id;
       townView.flyTo(hit.id);
       return;
     }
     const to = hit === undefined ? zoomOut(tree, focus) : flyTarget(focus, hit.id);
+    // From a block framed alone, leaving always moves the camera, even back to the folder `focus` already names.
     if (to !== undefined) focusOn(to);
+    else if (alone !== undefined) focusOn(focus, []);
   },
 };
 const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles);
@@ -297,6 +302,7 @@ function showTown(): void {
   legend.hidden = false;
   cancelPending();
   focus = townRoot;
+  alone = undefined;
   selected = undefined;
   chosenKind = undefined;
   panel.hidden = true;
@@ -308,18 +314,28 @@ function showTown(): void {
   showTrail();
 }
 
-/** Flies to a folder's block; the town itself stays as it is. */
-function focusOn(id: NodeId): void {
-  if (id === focus) return;
+/**
+ * Flies to a folder's block; the town itself stays as it is. `standing` names files whose rubble may stand
+ * elsewhere than their folder (a yard): the camera then frames where their lots are, and `id` stays the trail's folder.
+ */
+function focusOn(id: NodeId, standing?: readonly NodeId[]): void {
+  const wasAlone = alone !== undefined;
+  alone = undefined;
+  if (id === focus && !wasAlone && standing === undefined) return;
   focus = id;
   showTrail();
-  townView.flyTo(id);
+  if (standing !== undefined && standing.length > 0) townView.frame(standing);
+  else townView.flyTo(id);
 }
+
+/** The files among these whose lot is rubble: only those can stand somewhere other than their folder. */
+const rubbleAmong = (ids: readonly NodeId[]): readonly NodeId[] | undefined => (ids.some((id) => ghostIds.has(id)) ? ids : undefined);
 
 function resetView(): void {
   leaveInside();
   cancelPending();
   focus = townRoot;
+  alone = undefined;
   showTrail();
   townView.reset();
 }
@@ -518,7 +534,7 @@ function pickNode(id: NodeId, marked?: LineRange): void {
   if (!stay) leaveInside();
   const ticket = requested;
   if (stay) insideView.select(node.id);
-  else focusOn(place.parent);
+  else focusOn(place.parent, rubbleAmong([place.id]));
   void select(node, ticket, place.id, marked);
 }
 
@@ -539,7 +555,7 @@ function pickClaim(claim: ClaimRow): void {
   chosenKind = undefined;
   townView.highlight(places);
   const district = commonDistrict(tree, places);
-  if (district !== undefined) focusOn(district);
+  if (district !== undefined) focusOn(district, rubbleAmong(places));
 }
 
 /** A stop of the walkthrough: outline its nodes' files and fly to the district holding them all. Closing the tour clears the outline. */
@@ -550,7 +566,7 @@ function visitStop(stop: Stop | undefined): void {
   const places = [...new Set((stop?.ids ?? []).map(placeOf).filter((place): place is NodeId => place !== undefined))];
   townView.highlight(places);
   const district = commonDistrict(tree, places);
-  if (district !== undefined) focusOn(district);
+  if (district !== undefined) focusOn(district, rubbleAmong(places));
 }
 
 let walk: Walk | undefined;
@@ -563,6 +579,7 @@ window.addEventListener("keydown", (event) => {
     cancelPending();
     if (insideFile !== undefined) leaveInside();
     else if (selected !== undefined) closePanel();
+    else if (alone !== undefined) focusOn(focus, []);
     else if (focus !== townRoot) focusOn(zoomOut(tree, focus));
   } else if (event.key === "r" || event.key === "R") resetView();
   else if (event.key === "ArrowRight") walk?.step(1);

@@ -1,5 +1,5 @@
 import type { NodeId, ResourceKind } from "../graph.ts";
-import { allBlocks, AXIS, blockAtGround, blockLabel, blockNamedAt, CRANE_AT, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt, namesAt, project } from "../town.ts";
+import { allBlocks, AXIS, blockAtGround, blockFor, blockLabel, blockNamedAt, CRANE_AT, GATE_FRONT, LOT, MOVED_SIGN_AT, footpathAt, namesAt, project, standingBlock, zoomLimits } from "../town.ts";
 import { pickAt } from "../town-pick.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
@@ -72,6 +72,8 @@ export interface TownView {
   highlight(ids: readonly NodeId[], chosen?: ResourceKind | readonly ResourceKind[]): void;
   /** Frames the block holding this folder. */
   flyTo(id: NodeId): void;
+  /** Frames the block these files' lots stand in (a removed file's rubble may stand in a yard); the whole town when they share none. */
+  frame(files: readonly NodeId[]): void;
   reset(): void;
 }
 
@@ -82,7 +84,7 @@ const COLOUR = {
 };
 /** Screen pixels a metre of height rises in the sheet (see project). */
 const RISE_UNIT = 48 * Math.cos(Math.PI / 6);
-const ZOOM = { fitFill: 0.92, min: 0.5, max: 1.5 };
+const FIT_FILL = 0.92;
 /** Where the pennant of a file with a failing test stands, from the lot's middle (the crane is on the other side). */
 const FLAG_AT = { X: 1.75, Y: 1.75 } as const;
 const CLICK_SLOP = 4;
@@ -173,13 +175,10 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   function fitCamera(): Camera {
     const width = bounds.right - bounds.left;
     const height = bounds.bottom - bounds.top;
-    const zoom = Math.min((canvas.width * ZOOM.fitFill) / width, (canvas.height * ZOOM.fitFill) / height);
+    const zoom = Math.min((canvas.width * FIT_FILL) / width, (canvas.height * FIT_FILL) / height);
     return { zoom, cx: (bounds.left + bounds.right) / 2, cy: (bounds.top + bounds.bottom) / 2 };
   }
-  const limits = (): { min: number; max: number } => {
-    const fit = fitCamera().zoom;
-    return { min: Math.min(fit, ZOOM.max) * ZOOM.min, max: Math.max(ZOOM.max, fit) };
-  };
+  const limits = (): { min: number; max: number } => zoomLimits(fitCamera().zoom, dpr);
 
   function resize(): void {
     dpr = window.devicePixelRatio || 1;
@@ -385,11 +384,11 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       lowest = y;
       pill(pier.kind, at.x, y, Math.round(13 * dpr), COLOUR.pierEdge, Infinity, false, owner);
     }
-    const files = namesAt(camera.zoom) === "files";
+    const files = namesAt(camera.zoom / dpr) === "files";
     // Changed blocks are named first, then the rest from the largest, so a crowded picture loses the quietest names.
     const touched = (block: Block): boolean => block.changes.added + block.changes.altered + block.changes.removed + block.changes.moved > 0;
     const named = allBlocks(town)
-      .filter((block) => block.id === focused || blockNamedAt(camera.zoom, block.depth))
+      .filter((block) => block.id === focused || blockNamedAt(camera.zoom / dpr, block.depth))
       .sort((a, b) => Number(b.id === focused) - Number(a.id === focused) || Number(touched(b)) - Number(touched(a)) || a.depth - b.depth);
     for (const block of named) {
       const text = blockLabel(block, town.comparing, !files);
@@ -598,6 +597,12 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     return { zoom, cx: (left + right) / 2, cy: (top + bottom) / 2 };
   }
 
+  function frameOn(block: Block | undefined): void {
+    focused = block?.id;
+    if (block === undefined) flyTo(fitCamera());
+    else flyTo(frameBlock(block));
+  }
+
   return {
     show(next) {
       town = next;
@@ -662,10 +667,10 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     flyTo(id) {
       // The smallest block holding the folder: a nested block's own pad when it is one.
       // The root frames the whole town: its synthetic block of loose files shares its id.
-      const block = town === undefined || id === town.root ? undefined : allBlocks(town).filter((candidate) => candidate.id === id || candidate.folders.includes(id)).sort((a, b) => b.depth - a.depth)[0];
-      focused = block?.id;
-      if (block === undefined) flyTo(fitCamera());
-      else flyTo(frameBlock(block));
+      frameOn(town === undefined ? undefined : blockFor(town, id));
+    },
+    frame(files) {
+      frameOn(town === undefined ? undefined : standingBlock(town, files));
     },
     reset() {
       touched = false;

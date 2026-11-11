@@ -559,7 +559,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
       entry.laid = { ...entry.laid, d: grown.z1 - grown.z0, strip: { files, cols, z: entry.laid.d - PAD + gap } };
     } else {
       const tree = entry.laid.tree;
-      overflow.push({ id: `${tree.id}~rubble` as NodeId, name: tree.name, parent: null, depth: 0, heads: [], gone: files, kids: [], headTotal: 0, goneTotal: files.length, rubbleOf: tree.id });
+      overflow.push({ id: yardId(tree.id), name: tree.name, parent: null, depth: 0, heads: [], gone: files, kids: [], headTotal: 0, goneTotal: files.length, rubbleOf: tree.id });
     }
   });
   const yardLaid = [...yardTrees, ...overflow].map((tree) => lay(tree, true));
@@ -722,4 +722,44 @@ export function blockAtGround(town: Pick<Town, "blocks" | "nested">, X: number, 
 /** Every block, top-level first and each nested one after the block it is in. */
 export function allBlocks(town: Pick<Town, "blocks" | "nested">): Block[] {
   return [...town.blocks, ...town.nested];
+}
+
+/**
+ * The id of the yard of rubble that would not fit at the foot of a top-level block. The prefix is no
+ * graph id's, so a real folder of any name (`a~rubble` included) can never share it.
+ */
+export const yardId = (block: NodeId): NodeId => `yard:${block}` as NodeId;
+
+/** The smallest block that is, or holds, this folder; none for the root, whose camera frames the whole town. */
+export function blockFor(town: Pick<Town, "blocks" | "nested" | "root">, id: NodeId): Block | undefined {
+  if (id === town.root) return undefined;
+  return allBlocks(town)
+    .filter((candidate) => candidate.id === id || candidate.folders.includes(id))
+    .sort((a, b) => b.depth - a.depth)[0];
+}
+
+/**
+ * Where these files' lots actually stand: the smallest block holding them all. A removed file's rubble may
+ * stand in a yard rather than the folder it left, so navigation frames this, never the file's old parent.
+ * Undefined when no listed file has a lot, or when they share no block (the whole town frames them).
+ */
+export function standingBlock(town: Pick<Town, "blocks" | "nested" | "lots">, ids: readonly NodeId[]): Block | undefined {
+  const all = allBlocks(town);
+  const byId = new Map(all.map((block) => [block.id, block]));
+  const chains = ids.flatMap((id) => {
+    const lot = town.lots.find((candidate) => candidate.id === id);
+    if (lot === undefined) return [];
+    const chain: Block[] = [];
+    for (let block = byId.get(lot.folder); block !== undefined; block = block.parent === null ? undefined : byId.get(block.parent)) chain.push(block);
+    return [chain];
+  });
+  if (chains.length === 0) return undefined;
+  return chains[0]!.find((block) => chains.every((chain) => chain.includes(block)));
+}
+
+/** What the camera may zoom to, in device pixels per sprite pixel: the same magnification on any display, `dpr` times the pixels. */
+export const ZOOM = { min: 0.5, max: 1.5 } as const;
+export function zoomLimits(fit: number, dpr: number): { min: number; max: number } {
+  const top = ZOOM.max * dpr;
+  return { min: Math.min(fit, top) * ZOOM.min, max: Math.max(top, fit) };
 }
