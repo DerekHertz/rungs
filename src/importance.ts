@@ -85,7 +85,7 @@ export function exportRadiusOf(graph: Graph): ExportRadius {
   const { backward } = fileEdges(graph);
   const into = new Map<NodeId, ImportEdge[]>();
   for (const edge of graph.imports) {
-    if (!("file" in edge.target) || edge.target.file === edge.from) continue;
+    if (!("file" in edge.target) || (edge.target.file === edge.from && edge.reexports === undefined)) continue;
     into.set(edge.target.file, [...(into.get(edge.target.file) ?? []), edge]);
   }
   return (file, of) => {
