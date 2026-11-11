@@ -9,9 +9,9 @@ import type { Comparison } from "./compare.ts";
 import { extract } from "./extract/extract.ts";
 import { isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
-import { changeCounts, diffLines, rowsInRange } from "./diff.ts";
+import { changeCounts, diffText, rowsInRange } from "./diff.ts";
 import type { LineOp } from "./diff.ts";
-import { sliceLines, splitLines } from "./lines.ts";
+import { sliceLines } from "./lines.ts";
 import { isStale } from "./narration.ts";
 import type { NarratedDoc, Narration } from "./narration.ts";
 import { pseudocode } from "./pseudocode.ts";
@@ -137,11 +137,16 @@ export async function serve(
     const document = {
       tier: "claimed",
       description: description ?? null,
-      claims: claims.map((claim, index) => ({ ...claim, ids: outcome.status === "ok" ? (outcome.byClaim[index] ?? []) : [] })),
+      claims:
+        outcome.status === "ok"
+          ? outcome.shown.map((row, index) => ({ index, text: row.text, restated: row.restated, sources: row.sources.map((source) => claims[source]!), ids: row.ids }))
+          : claims.map((claim, index) => ({ index, text: claim.text, restated: false, sources: [claim], ids: [] })),
+      sentences: claims,
+      context: outcome.status === "ok" ? outcome.context.map((source) => claims[source]!) : [],
       link: how,
     };
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
-    const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison, baseGraph, graph) }, null, 2)}\n`;
+    const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison, baseGraph, graph), effectsChanged: comparison.changedEffects }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
     const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(baseTree ?? new Map(), tree) }, null, 2)}\n`;
     resources.set("/test-changes.json", { contentType: "application/json; charset=utf-8", body: testsChanged });
@@ -205,7 +210,8 @@ export async function serve(
     return isCodeNode(node) ? sliceLines(text, node.range) : text;
   }
 
-  const opsByPath = new Map<string, LineOp[]>();
+  const opsByPath = new Map<string, LineOp[] | undefined>();
+  const baseNodes = new Map<NodeId, ModuleNode>((baseGraph?.nodes ?? []).map((node) => [node.id, node]));
   const kindOf = new Map<NodeId, string>((comparison?.changes ?? []).map((change) => [change.node.id, change.kind]));
 
   /** What changed in the lines `sourceOf` serves: undefined without a base, and when nothing there changed. */
@@ -215,12 +221,12 @@ export async function serve(
     if (node.level === "package" || node.level === "folder" || kindOf.get(node.id) === "moved") return undefined;
     const text = tree.get(node.path);
     if (text === undefined) return undefined;
-    let ops = opsByPath.get(node.path);
-    if (ops === undefined) {
-      ops = diffLines(splitLines(baseTree.get(node.path) ?? ""), splitLines(text));
-      opsByPath.set(node.path, ops);
-    }
-    const rows = rowsInRange(ops, isCodeNode(node) ? node.range : undefined);
+    if (!opsByPath.has(node.path)) opsByPath.set(node.path, diffText(baseTree.get(node.path) ?? "", text));
+    const ops = opsByPath.get(node.path);
+    if (ops === undefined) return `${JSON.stringify({ tier: "derived", id, tooLarge: true, added: 0, removed: 0, rows: [] }, null, 2)}\n`;
+    const before = baseNodes.get(node.id);
+    const baseRange = !isCodeNode(node) ? undefined : before !== undefined && isCodeNode(before) ? before.range : null;
+    const rows = rowsInRange(ops, isCodeNode(node) ? node.range : undefined, baseRange);
     const counts = changeCounts(rows);
     if (counts.added + counts.removed === 0) return undefined;
     return `${JSON.stringify({ tier: "derived", id, ...counts, rows }, null, 2)}\n`;

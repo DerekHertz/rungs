@@ -1,12 +1,11 @@
 import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "../observed-types.ts";
 import { ROLLUP_OVER, signatureDiff } from "../review.ts";
-import type { Row } from "../diff.ts";
 import type { LineRange, NodeId } from "../graph.ts";
 import { coverageLine, walkSummary } from "../stops.ts";
 import type { Observed, StopEffect, StopFacts, StopTest, WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 import { changeNote, drawRows, markRows } from "./code-rows.ts";
-import type { Drawn } from "./code-rows.ts";
+import type { Drawn, Loaded } from "./code-rows.ts";
 import { element } from "./review-panel.ts";
 
 export interface WalkInput {
@@ -22,7 +21,7 @@ export interface WalkInput {
   /** A node's name. */
   readonly describe: (id: NodeId) => { readonly label: string };
   /** The node's source lines as rows, changed ones marked, or undefined when it has none. */
-  readonly rows: (id: NodeId) => Promise<readonly Row[] | undefined>;
+  readonly rows: (id: NodeId) => Promise<Loaded | undefined>;
   /** The reviewer came to a stop, or closed the tour; the host flies the picture to its nodes. */
   readonly visit: (stop: Stop | undefined) => void;
 }
@@ -90,12 +89,12 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
   async function show(id: NodeId, range: LineRange | undefined): Promise<void> {
     const mine = ++ticket;
     if (shown !== id) {
-      const rows = await input.rows(id);
+      const loaded = await input.rows(id);
       if (mine !== ticket) return;
       shown = id;
-      drawn = drawRows(parts, rows ?? []);
-      if (rows === undefined) text.textContent = "No source lines are served for this node.";
-      const note = rows === undefined ? undefined : changeNote(rows);
+      drawn = drawRows(parts, loaded?.rows ?? []);
+      if (loaded === undefined) text.textContent = "No source lines are served for this node.";
+      const note = loaded === undefined ? undefined : changeNote(loaded.rows, loaded.tooLarge);
       changes.textContent = note ?? "";
       changes.hidden = note === undefined;
       for (const tab of tabs.children) tab.classList.toggle("active", (tab as HTMLElement).dataset.id === id);

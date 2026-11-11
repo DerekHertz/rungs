@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { compareEdges, compareIds, nodeId, qualifiedName, resourceId } from "../graph.ts";
-import type { CodeNode, Edge, FileTree, Graph, ModuleNode, NodeId } from "../graph.ts";
+import { compareEdges, compareIds, compareResolutions, nodeId, qualifiedName, resourceId } from "../graph.ts";
+import type { CodeNode, Edge, FileTree, Graph, ModuleNode, NodeId, ResolutionEdge } from "../graph.ts";
 import { countLines, lineRangeOf, lineStarts } from "../lines.ts";
 import { adapterFor } from "./adapters.ts";
 import { roleOf } from "./roles.ts";
-import type { Declaration, EffectSite, LanguageAdapter, SourceFile } from "./adapters.ts";
+import type { Declaration, EffectSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "9";
+export const EXTRACTOR_VERSION = "10";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -27,6 +27,7 @@ export function extract(tree: FileTree): Graph {
   }
   const nodes: ModuleNode[] = [];
   const edges: Edge[] = [];
+  const resolutions: ResolutionEdge[] = [];
   const analysed = new Set<string>();
   for (const [adapter, files] of filesByAdapter) {
     files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -37,6 +38,7 @@ export function extract(tree: FileTree): Graph {
       const code = codeNodes(file.path, file.text, outline?.declarations ?? []);
       nodes.push(...code.nodes);
       edges.push(...effectEdges(file.path, file.text, outline?.effects ?? [], code.spans));
+      resolutions.push(...resolutionEdges(file.path, file.text, outline?.resolutions ?? [], code.spans));
     }
   }
 
@@ -71,7 +73,8 @@ export function extract(tree: FileTree): Graph {
   }
   nodes.sort((a, b) => compareIds(a.id, b.id));
   edges.sort(compareEdges);
-  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges };
+  resolutions.sort(compareResolutions);
+  return { extractorVersion: EXTRACTOR_VERSION, nodes, edges, resolutions };
 }
 
 // The only place code identity is decided: ordinals among siblings with the same text in source
@@ -121,21 +124,36 @@ interface CodeNodes {
 
 // An effect belongs to the innermost class or function whose text contains the whole call, and
 // to the file when none does: module top level, which runs when the file is imported.
+const ownerOf = (path: string, site: { start: number; end: number }, spans: readonly Span[]): NodeId => {
+  let owner: Span | undefined;
+  for (const span of spans) {
+    if (span.start <= site.start && site.end <= span.end && (owner === undefined || span.depth > owner.depth)) {
+      owner = span;
+    }
+  }
+  return owner?.id ?? nodeId("file", path, "");
+};
+
+function resolutionEdges(path: string, text: string, sites: readonly ResolutionSite[], spans: readonly Span[]): ResolutionEdge[] {
+  const starts = lineStarts(text);
+  return sites.map((site) => ({
+    from: ownerOf(path, site, spans),
+    operation: site.operation,
+    args: site.args,
+    range: lineRangeOf(starts, site.start, site.end),
+  }));
+}
+
 function effectEdges(path: string, text: string, sites: readonly EffectSite[], spans: readonly Span[]): Edge[] {
   const starts = lineStarts(text);
   return sites.map((site) => {
-    let owner: Span | undefined;
-    for (const span of spans) {
-      if (span.start <= site.start && site.end <= span.end && (owner === undefined || span.depth > owner.depth)) {
-        owner = span;
-      }
-    }
     return {
       kind: "effect",
-      from: owner?.id ?? nodeId("file", path, ""),
+      from: ownerOf(path, site, spans),
       to: resourceId(site.resource),
       operation: site.operation,
       target: site.target,
+      args: site.args,
       range: lineRangeOf(starts, site.start, site.end),
     };
   });

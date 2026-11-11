@@ -5,6 +5,8 @@ import { serve } from "../src/server.ts";
 const base: FileTree = new Map([
   ["package.json", "{}\n"],
   ["src/a.ts", "export function one() {\n  return 1;\n}\n\nexport function two() {\n  git(a);\n  return 2;\n}\n"],
+  ["src/fold.ts", "export function f() {\n  x();\n}\nexport function g() {\n  y();\n}\n"],
+  ["src/eol.ts", "export const k = 1;\n"],
   ["src/same.ts", "export const k = 1;\n"],
   ["src/old.ts", "export function oldOne() {\n  return 10;\n}\n"],
   ["src/gone.ts", "export const g = 1;\n"],
@@ -12,6 +14,8 @@ const base: FileTree = new Map([
 const head: FileTree = new Map([
   ["package.json", "{}\n"],
   ["src/a.ts", "export function one() {\n  return 1;\n}\n\nexport function two() {\n  git(a, SAFE);\n  return 2;\n}\n"],
+  ["src/fold.ts", "export function f() { x(); }\nexport function g() { y(); }\n"],
+  ["src/eol.ts", "export const k = 1;"],
   ["src/same.ts", "export const k = 1;\n"],
   ["src/moved.ts", "export function oldOne() {\n  return 10;\n}\n"],
   ["src/new.ts", "export const fresh = () => 3;\n"],
@@ -66,4 +70,15 @@ test("unchanged, moved, removed, folder and unknown modules have none; neither d
   }
   expect((await changes(plain, "function:src/a.ts#two")).status).toBe(404);
   expect((await fetch(new URL("changes", comparing.url))).status).toBe(404);
+});
+
+test("removed lines are the function's own, from the base's ranges, not by position in the head", async () => {
+  const rows = async (id: string) => ((await (await changes(comparing, id)).json()) as { rows: { kind: string; text: string }[] }).rows.map((r) => `${r.kind[0]}:${r.text}`);
+  expect(await rows("function:src/fold.ts#f")).toEqual(["r:export function f() {", "r:  x();", "r:}", "a:export function f() { x(); }"]);
+  expect(await rows("function:src/fold.ts#g")).toEqual(["r:export function g() {", "r:  y();", "r:}", "a:export function g() { y(); }"]);
+});
+
+test("losing the final newline is a change", async () => {
+  const body = (await (await changes(comparing, "file:src/eol.ts")).json()) as { added: number; removed: number };
+  expect([body.added, body.removed]).toEqual([1, 1]);
 });
