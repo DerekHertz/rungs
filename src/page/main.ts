@@ -174,6 +174,8 @@ function showLegend(city: City): void {
         ? "orange flag: a test in the file failed when the tests ran (observed, one run)"
         : observed.status === "failed"
           ? `tests: the run failed (${observed.why})`
+          : observed.status === "unreliable"
+            ? `tests: results unreliable, none shown (${observed.why})`
           : `tests not run: ${observed.why}`;
     tests.append(flag, said);
     parts.push(tests);

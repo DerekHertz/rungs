@@ -5,7 +5,7 @@ import type { FileTree } from "../src/graph.ts";
 import { observedDocument } from "../src/observed.ts";
 import type { TestReport } from "../src/observed.ts";
 import type { ObservedDocument } from "../src/observed-types.ts";
-import { observedReport } from "../src/observed-report.ts";
+import { observedReport, unreliableText } from "../src/observed-report.ts";
 
 const base: FileTree = new Map([
   ["src/sum.js", "export const sum = (a, b) => a + b;\n"],
@@ -50,4 +50,21 @@ test("every failing test is listed, attached or not, and its file is marked on t
     { id: "file:test/old.test.mjs", file: "test/old.test.mjs", name: "made at run time", why: "no test function in the file has this name" },
   ]);
   expect(report.failingFiles).toEqual(new Set(["file:test/sum.test.mjs", "file:test/kept.test.mjs", "file:test/old.test.mjs"]));
+});
+
+test("an unreliable run is said plainly: why, that no result is shown, and never a count of passes", () => {
+  const document: ObservedDocument = {
+    tier: "observed",
+    tree: "t",
+    status: "unreliable",
+    why: "the runner exited 1 but no failure was recorded",
+    runner: "node",
+    sandbox: "bwrap",
+    seconds: 1.5,
+    exitCode: 1,
+  };
+  expect(unreliableText(document)).toBe(
+    "Results unreliable: the runner exited 1 but no failure was recorded. The node --test run (exit 1, 1.5s) is not shown, because its results cannot be told from ones the tests wrote themselves.",
+  );
+  expect(unreliableText(document)).not.toMatch(/pass/);
 });

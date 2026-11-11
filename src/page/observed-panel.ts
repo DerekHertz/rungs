@@ -1,5 +1,6 @@
 import type { NodeId } from "../graph.ts";
 import type { Counts, ObservedDocument, UnmatchedTest } from "../observed-types.ts";
+import { unreliableText } from "../observed-report.ts";
 import type { FailingTest, FileResults, ObservedReport } from "../observed-report.ts";
 import { element, section } from "./review-panel.ts";
 
@@ -18,13 +19,17 @@ const countsText = (counts: Counts): string =>
 export function observedSection(observed: ObservedInput, pickNode: (id: NodeId) => void): HTMLElement {
   const [wrap, body] = section("Observed", "observed");
   const { document, report } = observed;
-  if (document.status !== "ran" && document.status !== "failed") {
+  if (document.status !== "ran" && document.status !== "failed" && document.status !== "unreliable") {
     body.append(element("p", "review-warning", `Tests not run: ${document.why}.`));
     return wrap;
   }
   const runner = document.runner === "node" ? "node --test" : "vitest";
   if (document.sandbox === "unsandboxed") {
     body.append(element("p", "review-warning", "Run WITHOUT a sandbox: the change's code could reach this machine and the network."));
+  }
+  if (document.status === "unreliable") {
+    body.append(element("p", "review-warning", unreliableText(document)));
+    return wrap;
   }
   if (document.status !== "ran") {
     body.append(element("p", "review-warning", `The ${runner} run failed after ${document.seconds}s: ${document.why}.`));

@@ -69,3 +69,9 @@ export function observedReport(document: RanDocument, graph: Graph, comparison: 
   const failingFiles = new Set(failing.map((test) => fileId(test.file)).filter((id) => paths.has(id)));
   return { files, failing, failingFiles };
 }
+
+/** What the page says of a run whose results contradict the runner or each other. */
+export function unreliableText(document: Extract<ObservedDocument, { status: "unreliable" }>): string {
+  const runner = document.runner === "node" ? "node --test" : "vitest";
+  return `Results unreliable: ${document.why}. The ${runner} run (exit ${document.exitCode}, ${document.seconds}s) is not shown, because its results cannot be told from ones the tests wrote themselves.`;
+}
