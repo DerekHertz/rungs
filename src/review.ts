@@ -467,13 +467,18 @@ export function newEffects(
   return { none: block(none), byAgent: block(byAgent) };
 }
 
-/** A contract row's chip for one effect label: the resource and the literal it names, else the API's name. */
-export function effectChip(label: string): string {
+/** The parts of an effect label: its resource, the API's own name, and the literal it names if it names one. */
+export function effectParts(label: string): { resource: ResourceKind | undefined; name: string; literal: string | undefined } {
   const resource = RESOURCE_ORDER.find((kind) => label.startsWith(`${kind} `));
   const rest = resource === undefined ? label : label.slice(resource.length + 1);
   const at = rest.search(/ ("|\(target unknown\))/);
   const operation = at === -1 ? rest : rest.slice(0, at);
   const literal = at !== -1 && rest[at + 1] === '"' ? rest.slice(at + 2, -1) : undefined;
-  const name = operation.slice(operation.lastIndexOf(" ") + 1);
+  return { resource, name: operation.slice(operation.lastIndexOf(" ") + 1), literal };
+}
+
+/** A contract row's chip for one effect label: the resource and the literal it names, else the API's name. */
+export function effectChip(label: string): string {
+  const { resource, name, literal } = effectParts(label);
   return `${resource ?? ""} ${literal ?? name}`.trim();
 }
