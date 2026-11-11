@@ -26,3 +26,11 @@ test("a pure move lists no unchanged block", () => {
   const result = found({ "package.json": "{}\n", "src/old.ts": text }, { "package.json": "{}\n", "src/new.ts": text }, "src/new.ts");
   expect(result.other).toEqual([]);
 });
+
+test("the files-resting line says 'rests' for one and 'rest' for many", () => {
+  const base = { "package.json": "{}\n", "src/f.ts": "export function f() {\n  return 1;\n}\n", "src/a.ts": 'import { f } from "./f.ts";\nexport const a = f;\n', "src/b.ts": 'import { f } from "./f.ts";\nexport const b = f;\n' };
+  const head = { ...base, "src/f.ts": "export function f() {\n  return 2;\n}\n" };
+  expect(whyLine(found(base, head, "src/f.ts"))).toContain("2 files rest on it");
+  const one = { ...base, "src/b.ts": "export const b = 1;\n" };
+  expect(whyLine(found(one, { ...one, "src/f.ts": head["src/f.ts"] }, "src/f.ts"))).toContain("1 file rests on it");
+});

@@ -1,4 +1,4 @@
-import { count, effectStepsOf, whyLine } from "../defining.ts";
+import { count, effectStepsOf, restsOnIt, whyLine } from "../defining.ts";
 import type { Block, CallList, CallRef, FileWhy, Step } from "../defining.ts";
 import type { Graph, LineRange, NodeId } from "../graph.ts";
 
@@ -113,6 +113,7 @@ function blockRow(block: Block, actions: WhyActions): HTMLElement {
   const head = el("div", "why-block-head");
   head.append(el("span", "why-block-name", `${block.level} ${block.label}`));
   if (block.reasons.length > 0) head.append(el("span", "why-block-reasons", block.reasons.join(" · ")));
+  if (block.rests !== undefined) head.append(el("span", "why-block-rests", restsOnIt(block.rests.length)));
   head.append(el("span", "why-block-at", `L${block.range.start}-${block.range.end}`));
   head.addEventListener("click", () => actions.pickBlock(block));
   row.append(head);
@@ -122,6 +123,20 @@ function blockRow(block: Block, actions: WhyActions): HTMLElement {
   neighbourStep("callers", () => callersList(block.callers ?? [], actions), callers);
   neighbourStep("callees", () => calleesList(block.callees ?? { resolved: [], unresolved: [] }, effectStepsOf(actions.graph, block.id), actions), callees);
   row.append(callers, callees);
+  if (block.rests !== undefined && block.rests.length > 0) {
+    const rests = el("div", "why-neighbours");
+    const paths = block.rests;
+    neighbourStep(
+      "files that rest on it",
+      () => {
+        const list = el("div", "why-steps");
+        for (const path of paths) list.append(el("div", "why-step", path));
+        return list;
+      },
+      rests,
+    );
+    row.append(rests);
+  }
   return row;
 }
 

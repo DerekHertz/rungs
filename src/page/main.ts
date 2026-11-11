@@ -24,6 +24,7 @@ import { changeNote, collapseRows, drawRows, loadRows, markRows, revealRange } f
 import type { CodeParts, Drawn, Fold, Loaded } from "./code-rows.ts";
 import { renderFileWhy } from "./file-why-panel.ts";
 import type { Neighbours } from "./file-why-panel.ts";
+import { restsOnIt } from "../defining.ts";
 import type { FileWhy } from "../defining.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import type { RiskItem } from "../risks.ts";
@@ -233,7 +234,7 @@ function townFacts(file: FileNode): string[] {
   const above = (importance.get(file.id) ?? []).map((id) => nodes.get(id)?.path ?? id);
   const way = waysIn.find((entry) => entry.id === file.id);
   return [
-    above.length === 0 ? "importance: nothing rests on it" : `importance: ${above.length} files rest on it`,
+    above.length === 0 ? "importance: nothing rests on it" : `importance: ${restsOnIt(above.length)}`,
     ...above.slice(0, TOOLTIP_FILES).map((path) => `  ${path}`),
     ...(above.length > TOOLTIP_FILES ? [`  and ${above.length - TOOLTIP_FILES} more: click the building for the full list`] : []),
     ...(way === undefined ? [] : [`way in: ${way.reasons.join(", ")}`]),
