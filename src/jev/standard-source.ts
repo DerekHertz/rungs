@@ -6,6 +6,7 @@ import { isBinary, sliceLines } from "../lines.ts";
 import { cap } from "../prompt-safe.ts";
 import type { Rule, Standards } from "../standards.ts";
 import type { StandardsDocument } from "../standards-marks.ts";
+import { withTier } from "../tier-table.ts";
 import { safeClip, withholdSecrets } from "./claim-source.ts";
 import { MAX_HUNK_LINES, MAX_RULE_CHARS, STANDARD_THRESHOLDS, standardGate } from "./standard-gate.ts";
 import type { HunkFacts, RuleFacts, StandardInput } from "./standard-gate.ts";
@@ -228,7 +229,9 @@ export function standardItems(subject: JudgeSubject): { readonly items: Item<Sta
           skipped.push({ status: "not judged", key, about, reason: `over the cap of ${MAX_PAIRS} rule and hunk pairs asked per comparison; this pair was not asked` });
           continue;
         }
-        items.push({ key, about, input: { rule: facts, hunk: { path: safePath(path), label, ...hunk } } });
+        // The hunk's tier comes from its file and its lines: how far the change reaches, and what harm a mistake there could cause.
+        const pick = subject.tiers({ ids: nodes, hunk: { head: hunk.head, base: hunk.base } });
+        items.push({ key, about, input: { rule: facts, hunk: { path: safePath(path), label, ...hunk } }, thresholds: withTier(STANDARD_THRESHOLDS, pick), pick });
       }
     }
   }

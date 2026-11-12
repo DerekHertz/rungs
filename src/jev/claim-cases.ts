@@ -2,6 +2,7 @@ import { contractsMoved } from "../compare.ts";
 import { readableComparison } from "../readable.ts";
 import { collectStandards } from "../standards.ts";
 import type { FileTree, NodeId } from "../graph.ts";
+import { unknownTier } from "../tier-table.ts";
 import type { ClaimInput } from "./claim-gate.ts";
 import { claimItems, ownersOf } from "./claim-source.ts";
 import type { JudgeSubject } from "./subject.ts";
@@ -29,6 +30,8 @@ export function claimInputFor(baseTree: FileTree, headTree: FileTree, claim: str
     head: ownersOf(graph),
     base: ownersOf(baseGraph),
     standards: collectStandards({ graph: baseGraph, tree: baseTree }, headTree),
+    // A bench case is judged at the gate's own thresholds: the input is all it takes from the item, and the tier is never read.
+    tiers: unknownTier,
   };
   const item = claimItems(subject)[0];
   return item?.input ?? { claim, places: [], omittedPlaces: 0 };

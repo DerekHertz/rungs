@@ -23,6 +23,8 @@ import type { FileTree } from "./graph.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
 import { readVocabulary, reportLines, setUp, vocabularyNotice } from "./setup.ts";
+import { tieringOf } from "./tier-facts.ts";
+import { DEFAULT_TIERS } from "./tier-table.ts";
 import { clientFor } from "./jev/client.ts";
 import { judgedSource } from "./jev/source.ts";
 import type { Claim } from "./claims.ts";
@@ -202,10 +204,12 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
         return outcome;
       }
     : undefined;
-  const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cache });
-  if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
-  // What setup stored, read for the file card: nothing stored is said as nothing, never as an empty vocabulary.
+  // What setup stored, read once: for the file card, and for the tier of each judged item (its complexity and its stored stakes).
+  // Nothing stored is said as nothing, never as an empty vocabulary.
   const vocabulary = await readVocabulary(options.dir, cache);
+  const tiering = options.judge ? await tieringOf(vocabulary, options.tiers ?? DEFAULT_TIERS) : undefined;
+  const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cache, ...(tiering === undefined ? {} : { tiering }) });
+  if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
   const inputs: SnapshotInputs = [against, description, link, walk, narrator, observed, from?.repo ?? basename(resolve(options.dir)), judged, vocabulary];
   return { tree, base, inputs };
 }

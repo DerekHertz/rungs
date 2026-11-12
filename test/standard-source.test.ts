@@ -14,7 +14,7 @@ import type { JudgeSubject } from "../src/jev/subject.ts";
 import { judgedSource } from "../src/jev/source.ts";
 import { judgedDocument } from "../src/jev/store.ts";
 import { collectStandards } from "../src/standards.ts";
-import { fakeClient } from "./jev-fixtures.ts";
+import { fakeClient, testTiers } from "./jev-fixtures.ts";
 import type { JevClient } from "../src/jev/client.ts";
 
 const scratch: string[] = [];
@@ -153,6 +153,7 @@ function subjectOf(trees: { base: FileTree; head: FileTree } = { base: baseTree,
     head: ownersOf(graph),
     base: ownersOf(baseGraph),
     standards: collectStandards({ graph: baseGraph, tree: trees.base }, trees.head),
+    tiers: testTiers,
   };
 }
 

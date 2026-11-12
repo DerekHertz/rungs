@@ -691,6 +691,13 @@
         background: #3a4658;
         color: #d6deea;
       }
+      .judged-tier {
+        opacity: 0.85;
+        font-variant-numeric: tabular-nums;
+      }
+      .judged-tier::before {
+        content: "\00b7\00a0";
+      }
       .review-judged.settled {
         background: #1f6f5a;
         color: #e8fff6;

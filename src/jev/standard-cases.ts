@@ -2,6 +2,7 @@ import { contractsMoved } from "../compare.ts";
 import { readableComparison } from "../readable.ts";
 import type { FileTree } from "../graph.ts";
 import { collectStandards } from "../standards.ts";
+import { unknownTier } from "../tier-table.ts";
 import { ownersOf } from "./claim-source.ts";
 import type { StandardInput } from "./standard-gate.ts";
 import { standardItems } from "./standard-source.ts";
@@ -34,6 +35,8 @@ export function standardInputFor(baseTree: FileTree, headTree: FileTree, pick: S
     head: ownersOf(graph),
     base: ownersOf(baseGraph),
     standards: collectStandards({ graph: baseGraph, tree: baseTree }, headTree),
+    // A bench case is judged at the gate's own thresholds: the input is all it takes from the item, and the tier is never read.
+    tiers: unknownTier,
   };
   const found = standardItems(subject).items.filter((item) => item.input.rule.path === (pick.rulePath ?? "AGENTS.md") && item.input.rule.heading === pick.heading && (pick.file === undefined || item.input.hunk.path === pick.file));
   if (found.length !== 1) throw new Error(`${found.length} hunks match rule "${pick.heading}"${pick.file === undefined ? "" : ` in ${pick.file}`}; need exactly one`);
