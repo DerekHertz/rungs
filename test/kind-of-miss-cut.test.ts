@@ -16,6 +16,7 @@ import { judgeItems } from "../src/jev/store.ts";
 import type { Item } from "../src/jev/store.ts";
 import type { Gate } from "../src/jev/gate.ts";
 import type { JudgeSubject } from "../src/jev/subject.ts";
+import { folds } from "../src/judged-fold.ts";
 import { kindOfRecord } from "../src/kind-of-miss.ts";
 import { collectStandards } from "../src/standards.ts";
 import { tierLevel } from "../src/tier-table.ts";
@@ -239,4 +240,62 @@ test("the store records the cut from the input, also for a record read back, and
   expect(now.cached).toBe(true);
   expect(now.record.cut).toEqual(was.record.cut);
   expect(now.record.cut?.length).toBeGreaterThan(0);
+});
+
+/* A settle is a claim of absence (nothing contradicts it, nothing breaches the rule): over cut evidence it cannot be made. */
+
+const settles = { shown: yes(1), contradicted: yes(0) };
+const longRule = `# Rules\n${"Be careful. ".repeat(900)}\n`;
+const manyLines = (): [string, string] => ["src/a.ts", lines(100, (n) => `export const n${n} = ${n};`)];
+
+test("verdict: a claim with more changed lines than were shown, answered shown and not contradicted, is undecided, never settled", async () => {
+  const item = await claimOf([manyLines()], ["file:src/a.ts"]);
+  const record = await recordOf(claimGate, { ...item, thresholds: CLAIM_THRESHOLDS }, settles);
+  expect(record.cut?.length).toBeGreaterThan(0);
+  expect(record.verdict).toBe("undecided");
+  expect(kindOfRecord(record)?.kind).toBe("unknown");
+  const tiered = await recordOf(claimGate, { ...item, thresholds: { ...CLAIM_THRESHOLDS, tier: tierLevel(95) } }, settles);
+  expect(tiered.verdict).toBe("undecided");
+});
+
+test("verdict: a rule cut to its first characters, answered no breach and none before, is undecided, never settled", async () => {
+  const { base, head } = withRules([["src/a.ts", "export const a = 1;\n"]], longRule);
+  const item = standardItems(subjectOf(base, head)).items[0]!;
+  const record = await recordOf(standardGate, { ...item, thresholds: STANDARD_THRESHOLDS }, { breaks: yes(0), before: yes(0) });
+  expect(record.cut?.join(" ")).toMatch(/characters of the rule were cut/);
+  expect(record.verdict).toBe("undecided");
+  expect(kindOfRecord(record)?.kind).toBe("unknown");
+});
+
+test("verdict: whole evidence still settles, and a breach or a contradiction seen over cut evidence still flags", async () => {
+  const whole = await claimOf([["src/a.ts", "export const a = 1;\n"]], ["file:src/a.ts"]);
+  expect((await recordOf(claimGate, { ...whole, thresholds: CLAIM_THRESHOLDS }, settles)).verdict).toBe("settled");
+  const cut = await claimOf([manyLines()], ["file:src/a.ts"]);
+  expect((await recordOf(claimGate, { ...cut, thresholds: CLAIM_THRESHOLDS }, { shown: yes(0.1), contradicted: yes(0.95) })).verdict).toBe("flagged");
+  const { base, head } = withRules([["src/a.ts", "export const a = 1;\n"]], longRule);
+  const rule = standardItems(subjectOf(base, head)).items[0]!;
+  expect((await recordOf(standardGate, { ...rule, thresholds: STANDARD_THRESHOLDS }, { breaks: yes(0.9), before: yes(0) })).verdict).toBe("flagged");
+});
+
+test("verdict: a settled record already on file over cut evidence is decided again when read back, with no new call, and page, fold and kind agree", async () => {
+  const dir = tmp();
+  const item = await claimOf([manyLines()], ["file:src/a.ts"]);
+  const client = clientAnswering(settles);
+  const request = { gate: claimGate, items: [{ ...item, thresholds: CLAIM_THRESHOLDS }], thresholds: CLAIM_THRESHOLDS, client, base: "b", head: "h", cacheDir: dir };
+  await judgeItems(request);
+  const file = join(dir, "judged", readdirSync(join(dir, "judged"))[0]!);
+  const saved = JSON.parse(readFileSync(file, "utf8")) as { records: Record<string, unknown>[] };
+  for (const record of saved.records) {
+    record.verdict = "settled";
+    delete record.cut;
+  }
+  writeFileSync(file, JSON.stringify(saved));
+  const again = await judgeItems(request);
+  expect(client.calls).toBe(1);
+  const outcome = again.outcomes[0]!;
+  if (outcome.status !== "judged") throw new Error("not judged");
+  expect(outcome.cached).toBe(true);
+  expect(outcome.record.verdict).toBe("undecided");
+  expect(kindOfRecord(outcome.record)?.kind).toBe("unknown");
+  expect(folds({ kind: "judged", verdict: outcome.record.verdict, record: outcome.record }, true)).toBe(false);
 });

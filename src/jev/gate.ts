@@ -44,6 +44,21 @@ export function requestFor<Input>(gate: Gate<Input>, input: Input): JevRequest {
   return { state: gate.state(input), questions: gate.questionsFor?.(input) ?? gate.questions };
 }
 
+/**
+ * THE verdict of one input: what the gate decides from the answers and the thresholds, except that a settle is withheld when
+ * the evidence was cut. "Settled" says nothing contradicts the claim or breaks the rule: a claim of absence, and over evidence
+ * that was clipped, left out or not available it cannot be made, so it is undecided. A flag stands: a breach or a contradiction
+ * that was seen is seen however much else was cut. A gate with no `cut` is one whose settle is not a claim of absence over its
+ * evidence (membership: "belongs" is a presence) or that reads its cuts itself (stakes: `complete`, see src/stakes.ts), so its
+ * verdict is `decide`'s. Every caller that turns answers into a verdict (a fresh answer, a record read back from the store, the
+ * bench) calls this and never `decide` alone.
+ */
+export function verdictOf<Input>(gate: Gate<Input>, input: Input, answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds): Verdict {
+  const decided = gate.decide(answers, thresholds);
+  if (decided !== "settled") return decided;
+  return (gate.cut?.(input) ?? []).length === 0 ? "settled" : "undecided";
+}
+
 /** The "yes" probability of a yes/no answer; undefined when the answer is missing or another type. */
 export function yesOf(answers: Readonly<Record<string, JevAnswer>>, name: string): number | undefined {
   const answer = answers[name];

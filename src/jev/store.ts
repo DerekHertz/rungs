@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { judge } from "./client.ts";
 import type { JevClient } from "./client.ts";
-import { requestFor } from "./gate.ts";
+import { requestFor, verdictOf } from "./gate.ts";
 import type { JudgeSubject } from "./subject.ts";
 import type { Gate, Thresholds } from "./gate.ts";
 import type { TierPick } from "../tier-table.ts";
@@ -120,11 +120,10 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
   items.forEach((item, index) => {
     const known = saved.get(item.key);
     if (known !== undefined && JSON.stringify(known.shown) === JSON.stringify(requestFor(gate, item.input))) {
-      // The same request has the same answers. A verdict is a function of the answers and the thresholds, so a changed tier or
-      // threshold is decided again here, from the answers on file, with no call.
-      const own = item.thresholds ?? thresholds;
-      const same = JSON.stringify(known.thresholds) === JSON.stringify(own) && JSON.stringify(known.pick) === JSON.stringify(item.pick);
-      outcomes[index] = { status: "judged", record: withCut(gate, item.input, same ? known : recordOf(known, own, item.pick, gate.decide(known.answers, own))), cached: true };
+      // The same request has the same answers. A verdict is a function of the answers, the thresholds and what the evidence left
+      // out, so it is decided again here from what is on file, with no call: a changed tier or threshold, or a settle written
+      // before cut evidence was withheld, never carries over.
+      outcomes[index] = { status: "judged", record: withCut(gate, item.input, recordOf(known, item.thresholds ?? thresholds, item.pick, verdictOf(gate, item.input, known.answers, item.thresholds ?? thresholds))), cached: true };
     } else asked.push(index);
   });
   events?.plan(identity, outcomes.filter((outcome) => outcome !== undefined), asked.map((index) => ({ key: items[index]!.key, about: items[index]!.about })));
@@ -151,7 +150,7 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
         shown,
         answers: judged.answers,
         thresholds: item.thresholds ?? thresholds,
-        verdict: gate.decide(judged.answers, item.thresholds ?? thresholds),
+        verdict: verdictOf(gate, item.input, judged.answers, item.thresholds ?? thresholds),
         ...(item.pick === undefined ? {} : { pick: item.pick }),
         model: judged.model,
         inputTokens: judged.usage.inputTokens,
