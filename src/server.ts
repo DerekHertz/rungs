@@ -35,6 +35,8 @@ import { gateRates } from "./jev/results.ts";
 import { beginJudging } from "./jev/live.ts";
 import type { Judging } from "./jev/live.ts";
 import { ownersOf } from "./jev/claim-source.ts";
+import { standardsBody } from "./jev/standard-source.ts";
+import { collectStandards } from "./standards.ts";
 import type { JudgeSubject } from "./jev/subject.ts";
 import type { JudgedSource } from "./jev/store.ts";
 import type { NarrateRequest } from "./narrate.ts";
@@ -232,6 +234,8 @@ export async function createSnapshot(
     };
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
     const moves = contractsMoved(comparison, baseGraph, graph);
+    // The written rules come from the base, whole (a file withheld as unread stays in the tree, so its rules read as unknown, never as none).
+    const standards = collectStandards({ graph: baseGraph, tree: baseTree ?? new Map() }, tree);
     // The judged tier reads the claims as /claims.json lists them: its records name a claim by that number.
     judgeSubject = {
       comparison,
@@ -241,7 +245,9 @@ export async function createSnapshot(
       headTree: tree,
       head: ownersOf(graph),
       base: ownersOf(baseGraph),
+      standards,
     };
+    resources.set("/standards.json", { contentType: "application/json; charset=utf-8", body: standardsBody(standards) });
     const contracts = `${JSON.stringify({ tier: "derived", moves, effectsChanged: comparison.changedEffects }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
     const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(readable?.baseTree ?? new Map(), readable?.headTree ?? tree, { places: true }) }, null, 2)}\n`;

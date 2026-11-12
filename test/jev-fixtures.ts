@@ -71,6 +71,7 @@ export const emptySubject: JudgeSubject = {
   headTree: new Map(),
   head: new Map(),
   base: new Map(),
+  standards: { tableVersion: 1, status: "none", rules: [], unread: [] },
 };
 
 /** /judged.json once the run is done: the server answers at once, so a test polls past the pending phase. */

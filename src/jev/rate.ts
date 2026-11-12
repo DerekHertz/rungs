@@ -80,8 +80,12 @@ const plural = (count: number, one: string, many: string = `${one}s`): string =>
 const pct = (part: number, whole: number): string => (whole === 0 ? "n/a" : `${Math.round((part / whole) * 100)}%`);
 
 /** The gate named as a person says it. */
-const NAMES: Readonly<Record<string, string>> = { claim: "Claim gate" };
+const NAMES: Readonly<Record<string, string>> = { claim: "Claim gate", standard: "Standard gate" };
 export const gateName = (gate: string): string => NAMES[gate] ?? `Gate ${gate}`;
+
+/** What a settled mark of each gate would be evidence of, in the words of the line that says it is not. */
+const HOLDS: Readonly<Record<string, string>> = { claim: "the claim holds", standard: "the change keeps the rule" };
+const holds = (gate: string): string => HOLDS[gate] ?? "the change is sound";
 
 /**
  * One honest line for the page. Adopted: the rate and the bar it met. Not adopted: the rate, which
@@ -92,12 +96,15 @@ export function rateText(rate: GateRate): string {
   const limit = rate.bar.find((row) => row.measure === "wrongPassRate");
   const head = `${gateName(rate.gate)}: ${wrong}${limit === undefined ? "" : `, bar at most ${Math.round(limit.max * 100)}%`}`;
   if (rate.adopted) return `${head}: adopted. Measured on ${rate.counts.cases} labelled cases (${rate.run}).`;
-  const missed = rate.bar.filter((row) => !row.met && row.measure !== "wrongPassRate").map((row) => BAR_WORDS[row.measure] ?? row.measure);
+  const missed = rate.bar.filter((row) => !row.met && row.measure !== "wrongPassRate").map((row) => barWord(rate.gate, row.measure));
   if (rate.wrongPasses > 0 && limit !== undefined && !limit.met) missed.unshift("wrong passes");
   if (rate.steeringPassed > 0) missed.push(`${plural(rate.steeringPassed, "steering case")} settled`);
   const why = [...missed, ...rate.blockers.filter((blocker) => !blocker.includes("steering cases passed"))];
-  return `${head}: not adopted${why.length === 0 ? "" : ` (${why.join("; ")})`}. The gate stays off: its marks are shown for inspection, and a settled mark is not evidence that the claim holds. Measured on ${rate.counts.cases} labelled cases (${rate.run}).`;
+  return `${head}: not adopted${why.length === 0 ? "" : ` (${why.join("; ")})`}. The gate stays off: its marks are shown for inspection, and a settled mark is not evidence that ${holds(rate.gate)}. Measured on ${rate.counts.cases} labelled cases (${rate.run}).`;
 }
+
+/** A bar line in words; the claim gate's cases are claims, the standard gate's are hunks. */
+const barWord = (gate: string, measure: string): string => (BAR_WORDS[measure] ?? measure).replace("good claims", gate === "claim" ? "good claims" : "good cases");
 
 const BAR_WORDS: Readonly<Record<string, string>> = {
   wrongPassRate: "wrong passes",
@@ -110,6 +117,9 @@ const BAR_WORDS: Readonly<Record<string, string>> = {
 
 /** What a gate with no committed result says. */
 export const NOT_MEASURED = "Rate of wrong passes: not measured yet. The gate is not adopted, so a settled mark is not evidence that the claim holds.";
+
+/** The same for any gate: the claim gate's words are NOT_MEASURED. */
+export const notMeasured = (gate: string): string => `Rate of wrong passes: not measured yet. The gate is not adopted, so a settled mark is not evidence that ${holds(gate)}.`;
 
 /** The rates a document carries, by gate id; empty when the document is missing or not one. */
 export function ratesOf(document: unknown): ReadonlyMap<string, GateRate> {

@@ -1,6 +1,7 @@
 import { treeDigest } from "../observed.ts";
 import type { FileTree } from "../graph.ts";
 import { claimRunner } from "./claim-source.ts";
+import { standardRunner } from "./standard-source.ts";
 import type { JudgeSubject } from "./subject.ts";
 import { clientFor } from "./client.ts";
 import type { JevClient } from "./client.ts";
@@ -23,10 +24,10 @@ export interface GateContext {
 
 /**
  * A gate's runner turns a comparison into the items its gate judges and runs `judgeItems` over
- * them. Each gate adds its runner here; the claim gate is first.
+ * them. Each gate adds its runner here; the claim gate is first, then the standard gate.
  */
 export type GateRunner = (context: GateContext) => Promise<JudgedRun>;
-export const GATE_RUNNERS: readonly GateRunner[] = [claimRunner];
+export const GATE_RUNNERS: readonly GateRunner[] = [claimRunner, standardRunner];
 
 export interface SourceRequest {
   readonly judge: boolean;

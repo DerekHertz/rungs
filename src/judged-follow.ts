@@ -4,6 +4,8 @@ import type { JudgedMark } from "./judged-marks.ts";
 import { CLAIM_GATE_ID } from "./jev/claim-gate.ts";
 import { rateText } from "./jev/rate.ts";
 import type { GateRate } from "./jev/rate.ts";
+import { standardsView } from "./standards-marks.ts";
+import type { StandardsDocument, StandardsView } from "./standards-marks.ts";
 
 /**
  * What the Claims row needs to draw judged marks. `marks` is null when there is no judged
@@ -24,6 +26,8 @@ export interface JudgedView {
 export interface JudgedUpdate {
   readonly judged: JudgedView | null;
   readonly judgedSummary: string;
+  /** The Standards row's view; absent when there is no /standards.json (no comparison), so there is no row. */
+  readonly standards?: StandardsView;
 }
 
 /** How long the page waits between reads of a pending /judged.json: from a second, easing out to five. */
@@ -34,15 +38,18 @@ export const POLL_GIVE_UP = 5;
 export type Claim = { readonly index: number; readonly ids: readonly string[] };
 
 /** The view and summary for one document, with the gates' committed rates: a settled mark of a gate that is not adopted says so, however it arrived. */
-export const updateOf = (document: JudgedDocument | null, claims: readonly Claim[], linked: boolean, rates: ReadonlyMap<string, GateRate>): JudgedUpdate => {
+export const updateOf = (document: JudgedDocument | null, claims: readonly Claim[], linked: boolean, rates: ReadonlyMap<string, GateRate>, standards: StandardsDocument | null = null): JudgedUpdate => {
   const marks = claimMarks(document, claims, linked);
   const summary = judgedSummary(document, marks);
-  if (marks === null) return { judged: null, judgedSummary: summary };
+  const view = standardsView(standards, document, rates);
+  const rows = view === null ? {} : { standards: view };
+  if (marks === null) return { judged: null, judgedSummary: summary, ...rows };
   const adopted = (gate: string): boolean => rates.get(gate)?.adopted === true;
   const settled = [...marks.values()].some((mark) => mark.kind === "judged" && mark.verdict === "settled");
   return {
     judged: { marks, rate: (gate) => { const rate = rates.get(gate); return rate === undefined ? undefined : rateText(rate); }, adopted },
     judgedSummary: settled && !adopted(CLAIM_GATE_ID) ? `${summary} (claim gate not adopted)` : summary,
+    ...rows,
   };
 };
 

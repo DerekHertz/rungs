@@ -10,7 +10,7 @@ import { effectChip, sectionCount, signatureDiff } from "../review.ts";
 import { MEMBER_CAP, memberTally } from "../type-change.ts";
 import { qualifyUnread, claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
 import type { ContractRow, ContractsReport, DependencyReview, DependencyRow, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
-import type { NodeId } from "../graph.ts";
+import type { LineRange, NodeId } from "../graph.ts";
 import { observedBody } from "./observed-panel.ts";
 import { observedAbout, observedNote } from "../observed-text.ts";
 import type { ObservedInput } from "./observed-panel.ts";
@@ -22,6 +22,8 @@ import { CLAIM_GATE_ID } from "../jev/claim-gate.ts";
 import { judgedDetail, markButton } from "./judged-panel.ts";
 import type { JudgedUpdate, JudgedView } from "./judged-panel.ts";
 import type { JudgedMark } from "../judged-marks.ts";
+import type { StandardLine, StandardsView } from "../standards-marks.ts";
+import { lineText, standardDetail, standardsIntro } from "./standards-panel.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   changed: "~",
@@ -80,7 +82,7 @@ export interface ReviewInput {
   /** The user picked a call; the host selects its module and marks the call's lines. */
   readonly pickEffect: (row: EffectRow) => void;
   /** The user picked a contract row or a file rollup; the host selects and flies to the node or file. */
-  readonly pickNode: (id: NodeId) => void;
+  readonly pickNode: (id: NodeId, marked?: LineRange) => void;
   /** Null when the tests were not asked to run. */
   readonly observed: ObservedInput | null;
   /** What the change did to the tests, derived from the two trees. */
@@ -95,6 +97,8 @@ export interface ReviewInput {
   readonly judged?: JudgedView | null;
   /** What the Claims row's summary adds for the judged marks, counted number first; empty adds nothing. */
   readonly judgedSummary?: string;
+  /** The Standards row: the base's written rules and the standard gate's lines; absent without a comparison, and then there is no row. */
+  readonly standards?: StandardsView | null;
   /** The files a syntax error stopped the extractor reading; empty when every file read. */
   readonly unread: readonly UnreadFile[];
 }
@@ -127,7 +131,7 @@ export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className
   return made;
 }
 
-type RowId = "unread" | "risks" | "claims" | "unmentioned" | "contracts" | "tests";
+type RowId = "unread" | "risks" | "claims" | "unmentioned" | "contracts" | "standards" | "tests";
 
 const STORE_KEY = "streets.review.open";
 
@@ -191,6 +195,7 @@ function linkNote(link: LinkNote): string {
  */
 export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandle {
   let judgedView = input.judged ?? null;
+  let standardsNow = input.standards ?? null;
   const markSlots = new Map<number, (mark: JudgedMark) => void>();
   const summaries = new Map<RowId, HTMLElement>();
   let active: { pick: HTMLElement; detail?: HTMLElement } | undefined;
@@ -691,6 +696,56 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     }
   }
 
+  // Standards
+
+  /** One hunk against one rule: its line (a pick that selects the hunk's file and marks its lines) and the mark beside it, which opens the check. */
+  function standardRow(line: StandardLine, view: StandardsView): HTMLElement {
+    const item = element("li", "review-row");
+    const detail = standardDetail(line, view);
+    detail.hidden = true;
+    const text = lineText(line);
+    const pick = picker("review-pick review-claim-row", detail, () => {
+      const node = line.nodes[0];
+      if (node !== undefined) input.pickNode(node, line.hunk?.head ?? undefined);
+    });
+    pick.title = text;
+    pick.append(element("span", "rv-one review-claim", text));
+    const mark = markButton(
+      line.mark,
+      () => {
+        pick.click();
+        const check = detail.querySelector("details");
+        if (check !== null) check.open = true;
+      },
+      view.adopted,
+    );
+    const wrap = element("div", "claim-line");
+    wrap.append(pick, mark);
+    item.append(wrap, detail);
+    return item;
+  }
+
+  function fillStandards(body: HTMLElement): void {
+    const view = standardsNow;
+    if (view === null) return;
+    body.append(...standardsIntro(view));
+    const verdict = (name: string) => (line: StandardLine): boolean => line.mark.kind === "judged" && line.mark.verdict === name;
+    const groups: [string, StandardLine[]][] = [
+      ["Flagged", view.lines.filter(verdict("flagged"))],
+      ["Undecided", view.lines.filter(verdict("undecided"))],
+      ["Not judged", view.lines.filter((line) => line.mark.kind === "not judged")],
+      ["Judging…", view.lines.filter((line) => line.mark.kind === "pending")],
+    ];
+    for (const [name, found] of groups) if (found.length > 0) body.append(element("h3", "review-subtitle", `${name} (${found.length})`), list(...found.map((line) => standardRow(line, view))));
+    // A settled item folds to one line and stays in its count; it is never left out.
+    const settled = view.lines.filter(verdict("settled"));
+    if (settled.length > 0) {
+      const folded = element("details", "review-context");
+      folded.append(element("summary", "review-summary", `Settled (${settled.length})`), list(...settled.map((line) => standardRow(line, view))));
+      body.append(folded);
+    }
+  }
+
   // Tests
 
   function fillTests(body: HTMLElement): void {
@@ -739,6 +794,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       summary: qualifyUnread(input.contracts === null ? "none" : contractsSummary(input.contracts.counts, input.contracts.effectsChanged.length), input.unread.length),
       fill: fillContracts,
     },
+    ...(standardsNow === null ? [] : [{ id: "standards" as const, name: "Standards", tag: "judged", summary: standardsNow.summary, fill: fillStandards }]),
     ...(tested
       ? [
           {
@@ -884,6 +940,19 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       if (span !== undefined) {
         span.textContent = text;
         span.title = text;
+      }
+      if (update.standards !== undefined && standardsNow !== null) {
+        standardsNow = update.standards;
+        const standardsSpan = summaries.get("standards");
+        if (standardsSpan !== undefined) {
+          standardsSpan.textContent = standardsNow.summary;
+          standardsSpan.title = standardsNow.summary;
+        }
+        const row = bodies.get("standards");
+        if (row?.filled === true) {
+          row.body.replaceChildren();
+          row.fill(row.body);
+        }
       }
     },
     setObserved(next) {

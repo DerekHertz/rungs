@@ -13,6 +13,7 @@ import { judgedSource } from "../src/jev/source.ts";
 import type { JudgedRecord } from "../src/jev/store.ts";
 import type { JudgeSubject } from "../src/jev/subject.ts";
 import { serve } from "../src/server.ts";
+import { collectStandards } from "../src/standards.ts";
 import { fakeClient, finishedJudged } from "./jev-fixtures.ts";
 import { createJevClient } from "../src/jev/client.ts";
 import type { JevAnswer, JevResponse } from "../src/jev/client.ts";
@@ -61,7 +62,7 @@ function subjectOf(claims: JudgeSubject["claims"], trees: { base: FileTree; head
   const baseGraph = extract(trees.base);
   const graph = extract(trees.head);
   const comparison = compare(baseGraph, graph, { base: trees.base, head: trees.head });
-  return { comparison, contracts: contractsMoved(comparison, baseGraph, graph), claims, baseTree: trees.base, headTree: trees.head, head: ownersOf(graph), base: ownersOf(baseGraph) };
+  return { comparison, contracts: contractsMoved(comparison, baseGraph, graph), claims, baseTree: trees.base, headTree: trees.head, head: ownersOf(graph), base: ownersOf(baseGraph), standards: collectStandards({ graph: baseGraph, tree: trees.base }, trees.head) };
 }
 
 test("the state holds the claim, each linked place's derived facts and its changed lines, and unlinked claims are not judged", () => {

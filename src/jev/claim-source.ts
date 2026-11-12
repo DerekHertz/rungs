@@ -47,7 +47,7 @@ const BARE_URL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>()[\]{},;]+/gi;
 
 const clip = (text: string): string => (text.length > MAX_LINE_CHARS ? `${text.slice(0, MAX_LINE_CHARS)}...` : text);
 /** A line of source text (a signature, a contract, a changed line) as the gate is sent it. */
-const safeClip = (text: string): string => clip(withholdSecrets(text));
+export const safeClip = (text: string): string => clip(withholdSecrets(text));
 
 /** What one linked file is shown as: derived facts from the comparison, and its changed lines from a line diff of the two trees. */
 function placeOf(id: NodeId, subject: JudgeSubject): PlaceFacts | undefined {
