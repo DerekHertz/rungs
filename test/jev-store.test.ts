@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
 import type { NodeId } from "../src/graph.ts";
+import { createJevClient } from "../src/jev/client.ts";
 import { judgedSource } from "../src/jev/source.ts";
 import type { GateRunner } from "../src/jev/source.ts";
 import { judgeItems, judgedDocument, setKey } from "../src/jev/store.ts";
@@ -125,4 +126,17 @@ test("on, the document runs each gate and lists the checks that were not judged"
   expect(document.sets).toHaveLength(1);
   expect(document.notJudged).toEqual([{ gate: "toy", key: "nodes:a", about: { nodes: ["function:src/a.ts#add"] }, reason: "the classifier failed" }]);
   expect(document.usd).toBeGreaterThan(0);
+});
+
+test("the key never reaches the served JSON, even when the service echoes it", async () => {
+  const key = "synthetic-review-key";
+  const client = createJevClient({
+    key,
+    fetch: async () => ({ ok: false, status: 401, json: async () => ({ detail: { message: `Invalid API key: ${key}` } }) }),
+  });
+  const runner: GateRunner = (context) => judgeItems({ gate: toyGate, items, thresholds: toyThresholds, client: context.client, base: context.base, head: context.head, cacheDir: context.cacheDir });
+  const source = judgedSource({ judge: true, env: {}, baseTree: new Map([["a", "1"]]), headTree: new Map([["a", "2"]]), cacheDir: temp(), client, runners: [runner] });
+  const text = JSON.stringify(await judgedDocument(source));
+  expect(text).not.toContain(key);
+  expect(text).toContain("Jev 401: Invalid API key: [redacted]");
 });

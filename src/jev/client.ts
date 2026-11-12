@@ -102,7 +102,7 @@ function wireQuestions(questions: JevRequest["questions"]): Record<string, unkno
 }
 
 function parseAnswers(raw: unknown, questions: JevRequest["questions"]): Record<string, JevAnswer> {
-  const answers: Record<string, JevAnswer> = {};
+  const answers: Record<string, JevAnswer> = Object.create(null) as Record<string, JevAnswer>;
   for (const [name, question] of Object.entries(questions)) {
     const one = isRecord(raw) ? raw[name] : undefined;
     if (question.type === "yes-no") {
@@ -123,6 +123,15 @@ function parseAnswers(raw: unknown, questions: JevRequest["questions"]): Record<
     };
   }
   return answers;
+}
+
+/** The key, and anything that spells it (as is, URL-encoded or JSON-escaped), is never shown. */
+function redact(text: string, key: string): string {
+  let out = text;
+  for (const form of new Set([key, encodeURIComponent(key), JSON.stringify(key).slice(1, -1)])) {
+    if (form !== "") out = out.split(form).join("[redacted]");
+  }
+  return out;
 }
 
 function errorDetail(body: unknown): string {
@@ -154,7 +163,7 @@ export function createJevClient(options: ClientOptions): JevClient {
         throw new JevError("network", "Jev could not be reached");
       }
       const body: unknown = await response.json().catch(() => undefined);
-      if (!response.ok) throw new JevError("http", oneLine(`Jev ${response.status}: ${errorDetail(body)}`), response.status);
+      if (!response.ok) throw new JevError("http", oneLine(redact(`Jev ${response.status}: ${errorDetail(body)}`, key)), response.status);
       if (!isRecord(body)) throw new JevError("bad-response", "Jev's reply was not JSON");
       const usage = isRecord(body.usage) ? body.usage : {};
       const inputTokens = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;

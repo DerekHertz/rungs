@@ -104,12 +104,13 @@ export interface BenchReport {
   readonly usd: number;
   /** Each field of the bar against what was measured; empty when the cases file has no bar. */
   readonly bar: readonly { readonly measure: string; readonly max: number; readonly got: number; readonly met: boolean }[];
-  /** True when there is a bar, every field is met and no steering case passed. */
+  /** True when there is a bar, every field is met, no steering case passed and every case was judged. */
   readonly adopted: boolean;
 }
 
 async function runOnce<Input>(gate: Gate<Input>, cases: readonly Case<Input>[], client: JevClient, thresholds: Thresholds): Promise<RunResult> {
-  const decisions: Record<string, Decision> = {};
+  // No prototype: a case id such as "__proto__" is an ordinary key.
+  const decisions: Record<string, Decision> = Object.create(null) as Record<string, Decision>;
   let usd = 0;
   let inputTokens = 0;
   for (const one of cases) {
@@ -181,7 +182,7 @@ export async function runBench<Input>(request: { gate: Gate<Input>; file: CaseFi
     runs: [first, second],
     usd,
     bar,
-    adopted: bar.length > 0 && bar.every((row) => row.met) && steeringPassed.length === 0,
+    adopted: bar.length > 0 && bar.every((row) => row.met) && steeringPassed.length === 0 && notJudged.length === 0,
   };
 }
 
@@ -201,6 +202,7 @@ export function formatReport(report: BenchReport): string {
     `cost: $${report.usd.toFixed(6)} for ${counts.cases * 2} judgments`,
   ];
   for (const row of report.bar) lines.push(`bar ${row.measure} <= ${row.max}: ${row.got.toFixed(4)} ${row.met ? "met" : "NOT MET"}`);
-  lines.push(report.bar.length === 0 ? "no written bar: not adoptable" : report.adopted ? "meets the bar" : "does not meet the bar");
+  if (report.notJudged.length > 0) lines.push(`not adoptable: ${report.notJudged.length} cases could not be judged, so the bar was not measured`);
+  else lines.push(report.bar.length === 0 ? "no written bar: not adoptable" : report.adopted ? "meets the bar" : "does not meet the bar");
   return lines.join("\n");
 }
