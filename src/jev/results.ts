@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { claimGate, CLAIM_THRESHOLDS } from "./claim-gate.ts";
 import { MEMBERSHIP_THRESHOLDS, membershipGate } from "./membership-gate.ts";
+import { STAKES_THRESHOLDS, stakesGate } from "./stakes-gate.ts";
 import { standardGate, STANDARD_THRESHOLDS } from "./standard-gate.ts";
 import type { Gate, Thresholds } from "./gate.ts";
 import { rateOf } from "./rate.ts";
@@ -16,6 +17,7 @@ export const BENCH_GATES: Readonly<Record<string, { readonly gate: Gate<unknown>
   claim: { gate: claimGate, thresholds: CLAIM_THRESHOLDS },
   standard: { gate: standardGate, thresholds: STANDARD_THRESHOLDS },
   membership: { gate: membershipGate, thresholds: MEMBERSHIP_THRESHOLDS },
+  stakes: { gate: stakesGate, thresholds: STAKES_THRESHOLDS },
 };
 
 /** The folder of gates, `gates/` at the repository root. */

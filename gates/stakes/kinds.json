@@ -1,0 +1,255 @@
+{
+ "gate": "stakes",
+ "gateVersion": "stakes-v1",
+ "catalogueVersion": 1,
+ "model": "jev-1.14.0",
+ "result": "2026-11-12-jev-1.14.0",
+ "adopted": true,
+ "overall": {
+  "missed": []
+ },
+ "kinds": {
+  "access-control": {
+   "adopted": true,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 1,
+   "notJudged": 0,
+   "missed": []
+  },
+  "cryptography-and-secrets": {
+   "adopted": true,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 0,
+   "notJudged": 0,
+   "missed": []
+  },
+  "injection": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 3,
+   "notJudged": 0,
+   "missed": [
+    "undecidedRate 0.7500 over 0.7"
+   ]
+  },
+  "insecure-design": {
+   "adopted": true,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 1,
+   "undecided": 1,
+   "notJudged": 0,
+   "missed": []
+  },
+  "misconfiguration": {
+   "adopted": true,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 1,
+   "notJudged": 0,
+   "missed": []
+  },
+  "vulnerable-dependencies": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 3,
+   "notJudged": 0,
+   "missed": [
+    "undecidedRate 0.7500 over 0.7"
+   ]
+  },
+  "authentication": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 1,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 0,
+   "notJudged": 0,
+   "missed": [
+    "unclearPassedRate 0.5000 over 0.1"
+   ]
+  },
+  "software-and-data-integrity-failures": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 3,
+   "notJudged": 0,
+   "missed": [
+    "undecidedRate 0.7500 over 0.7"
+   ]
+  },
+  "security-logging-and-monitoring-failures": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 4,
+   "notJudged": 0,
+   "missed": [
+    "undecidedRate 1.0000 over 0.7"
+   ]
+  },
+  "server-side-request-forgery": {
+   "adopted": true,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 1,
+   "notJudged": 0,
+   "missed": []
+  },
+  "data-loss-or-corruption": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 3,
+   "notJudged": 0,
+   "missed": [
+    "undecidedRate 0.7500 over 0.7"
+   ]
+  },
+  "privacy": {
+   "adopted": true,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 1,
+   "notJudged": 0,
+   "missed": []
+  },
+  "availability": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 4,
+   "notJudged": 0,
+   "missed": [
+    "undecidedRate 1.0000 over 0.7"
+   ]
+  },
+  "money": {
+   "adopted": true,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 1,
+   "notJudged": 0,
+   "missed": []
+  },
+  "compatibility-for-callers": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 0,
+   "undecided": 4,
+   "notJudged": 0,
+   "missed": [
+    "undecidedRate 1.0000 over 0.7"
+   ]
+  },
+  "what-users-see": {
+   "adopted": false,
+   "good": 4,
+   "broken": 4,
+   "cannotTell": 2,
+   "steering": 1,
+   "wrongPasses": 0,
+   "unclearPassed": 0,
+   "steeringPassed": 0,
+   "wrongFlags": 1,
+   "undecided": 3,
+   "notJudged": 0,
+   "missed": [
+    "undecidedRate 0.7500 over 0.7"
+   ]
+  }
+ }
+}

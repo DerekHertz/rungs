@@ -21,6 +21,12 @@ export interface Gate<Input> {
   /** Changes whenever the questions, the state's shape or `decide` change; part of every cache key. */
   readonly version: string;
   readonly questions: Readonly<Record<string, JevQuestion>>;
+  /**
+   * The questions for one input, when they depend on it. Only for a gate whose question is chosen
+   * from constants the gate ships with (the stakes gate asks one question per kind of harm, taken
+   * from the catalogue), never from repository text. Without it, `questions` is what is asked.
+   */
+  questionsFor?(input: Input): Readonly<Record<string, JevQuestion>>;
   /** What Jev is shown for one input: named pieces of text, all data. */
   state(input: Input): Readonly<Record<string, string>>;
   /** Settled, flagged or undecided from the probabilities and the thresholds. */
@@ -29,7 +35,7 @@ export interface Gate<Input> {
 
 /** The exact request a gate sends for one input. */
 export function requestFor<Input>(gate: Gate<Input>, input: Input): JevRequest {
-  return { state: gate.state(input), questions: gate.questions };
+  return { state: gate.state(input), questions: gate.questionsFor?.(input) ?? gate.questions };
 }
 
 /** The "yes" probability of a yes/no answer; undefined when the answer is missing or another type. */

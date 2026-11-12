@@ -237,10 +237,10 @@ export function termFacts(term: Term, tree: FileTree): TermFacts {
 }
 
 /** A unit as the gate is shown it: its path, signature, the comment above it and the first lines of its code. */
-export function unitFacts(unit: Unit, tree: FileTree): UnitFacts {
+export function unitFacts(unit: Unit, tree: FileTree, maxLines: number = MAX_CODE_LINES): UnitFacts {
   const lines = splitLines(tree.get(unit.path) ?? "");
   const body = lines.slice(unit.range.start - 1, unit.range.end);
-  const code = body.slice(0, MAX_CODE_LINES).map(safeClip);
+  const code = body.slice(0, maxLines).map(safeClip);
   return {
     kind: unit.level,
     name: looksSecret(unit.name) ? WITHHELD : promptName(unit.name),
