@@ -1,4 +1,4 @@
-import { fileCard, omittedText, percent, shownPath } from "../file-card.ts";
+import { certificationLine, fileCard, markOf, omittedText, shownPath } from "../file-card.ts";
 import type { CardLine, DocTerm, Stakes, VocabularyDoc } from "../file-card.ts";
 import type { FileWhy } from "../defining.ts";
 import type { LineRange, NodeId } from "../graph.ts";
@@ -59,6 +59,10 @@ function pointer(text: string, id: NodeId | undefined, why: string, open: () => 
 function termDetail(term: DocTerm, doc: VocabularyDoc, actions: CardActions): HTMLElement {
   const detail = el("div", "card-term-detail");
   detail.append(el("div", "card-heading", `${term.name}: ${term.summary.kind}, ${term.summary.why}`));
+  // What a person did to the term (human tier), and whether anyone certified the vocabulary it is in.
+  const done = [term.confirmed === undefined ? "" : `confirmed by ${term.confirmed.by} at ${term.confirmed.at}`, term.renamedFrom === undefined ? "" : `renamed from ${term.renamedFrom}`, term.mergedFrom === undefined ? "" : `merged in: ${term.mergedFrom.join(", ")}`].filter((part) => part !== "");
+  if (done.length > 0) detail.append(el("div", "card-note", done.join("; ")));
+  if (doc.certification !== undefined) detail.append(el("div", "card-note", `vocabulary ${certificationLine(doc.certification)}`));
   detail.append(el("div", "card-heading", "Written in the repository (derived)"));
   if (term.pins.length === 0) detail.append(el("div", "card-pin", "nowhere the store kept"));
   for (const pin of term.pins) {
@@ -66,13 +70,14 @@ function termDetail(term: DocTerm, doc: VocabularyDoc, actions: CardActions): HT
     const reason = pin.why ?? "a folder: it has no lines";
     detail.append(pointer(where, pin.id, reason, () => actions.pickNode(pin.id!, pin.range ?? undefined)));
   }
-  detail.append(el("div", "card-heading", "Members (judged, belongs to the term)"));
-  if (!doc.judged) detail.append(el("div", "card-pin", "not judged (run streets setup --judge)"));
+  detail.append(el("div", "card-heading", "Members (judged, or corrected by a person)"));
+  if (!doc.judged && term.members.length === 0) detail.append(el("div", "card-pin", "not judged (run streets setup --judge)"));
   else if (term.members.length === 0) detail.append(el("div", "card-pin", term.summary.kind === "no members" ? `no members: ${term.summary.why}` : `none known: ${term.summary.why}`));
   for (const member of term.members) {
-    const text = `${percent(member.probability)} ${member.level} ${member.name === null ? "withheld" : member.name} in ${shownPath(member.path)}${member.state === "stale" ? ` · stale: ${member.why ?? "out of date"}` : ""}`;
+    const text = `${markOf(member)} ${member.level} ${member.name === null ? "withheld" : member.name} in ${shownPath(member.path)}${member.state === "stale" ? ` · stale: ${member.why ?? "out of date"}` : ""}`;
     detail.append(pointer(text, member.id, "not in this tree", () => actions.pickNode(member.id!)));
   }
+  if (term.correctedAway !== undefined) detail.append(el("div", "card-pin", `${term.correctedAway} judged ${term.correctedAway === 1 ? "member" : "members"} corrected by a person to not a member`));
   if (term.membersOmitted !== undefined) detail.append(el("div", "card-pin", omittedText(term.membersOmitted)));
   if (doc.built !== undefined) detail.append(el("div", "card-note", `built from ${doc.built.ref} at ${doc.built.commit.slice(0, 7)}`));
   return detail;

@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { readRef } from "./checkout.ts";
+import { certificationOf, certificationText, describeCorrection, effectOf, noLongerApply, problemWithCertification, problemWithCorrections } from "./corrections.ts";
+import type { Certification, Correction, Inapplicable } from "./corrections.ts";
 import type { RefBase } from "./checkout.ts";
 import { EXTRACTOR_VERSION, digestOf, extract } from "./extract/extract.ts";
 import type { FileTree } from "./graph.ts";
@@ -34,8 +36,10 @@ const execFileAsync = promisify(execFile);
  * function, class or constant is mapped to the terms code picked for it (the membership gate), the
  * judged records are stored beside the vocabulary (a separate tier, see memberships.ts) and
  * coverage is measured. Without `--judge`, stored memberships are only brought up to date: a
- * mapping whose function changed is marked stale. Whatever later steps add to the stored file
- * (certification) is kept when setup rewrites it.
+ * mapping whose function changed is marked stale. A person's corrections and certification
+ * (src/corrections.ts) and whatever later steps add to the stored file are kept when setup
+ * rewrites it. A stored file that cannot be read is copied aside before it is replaced, so
+ * corrections in it are never lost without a word.
  */
 
 /** The shape of the stored file. Raise it when a field's meaning changes. */
@@ -64,6 +68,10 @@ export interface StoredVocabulary {
   readonly memberships?: StoredMemberships;
   /** Judged: whether a mistake in each term's code could cause each kind of harm. Absent until `streets setup --judge` has run. */
   readonly stakes?: StoredStakes;
+  /** A person's corrections, in the order made (human tier): they win over every judged answer and are kept by every later setup. Absent until one is made. */
+  readonly corrections?: readonly Correction[];
+  /** Who certified the vocabulary and what they were shown (see certificationOf). Absent until someone certifies. */
+  readonly certification?: Certification;
 }
 
 export type SetupWork = "first setup" | "unchanged" | "rebuilt" | "rules changed" | "replaced unreadable";
@@ -85,6 +93,10 @@ export interface SetupResult {
   readonly judging?: JudgingNote;
   /** What this run's stakes judging did; absent when it did not judge. */
   readonly judgingStakes?: StakesNote;
+  /** Where the stored file that could not be read was copied before it was replaced; set only for "replaced unreadable". */
+  readonly backup?: string;
+  /** The corrections kept, and the ones that have nothing to apply to in the base just read; absent when there are none. */
+  readonly corrections?: { readonly kept: number; readonly noLongerApply: readonly Inapplicable[] };
 }
 
 /** What a test may swap to see that no work was done. */
@@ -150,6 +162,24 @@ async function defaultRef(dir: string): Promise<string> {
 
 const fileFor = (cacheDir: string, key: string): string => join(cacheDir, "vocabulary", `${key}.json`);
 
+/** The file the repository in `dir` keeps its vocabulary in, whatever its checkout or worktree. */
+export async function storeFile(dir: string, cacheDir: string): Promise<string> {
+  return fileFor(cacheDir, (await repoIdentity(dir)).key);
+}
+
+/** Writes the stored vocabulary whole or not at all: another run, or a reader, never sees half of one. */
+export async function writeStored(file: string, stored: unknown): Promise<void> {
+  await mkdir(dirname(file), { recursive: true });
+  const scratch = `${file}.${process.pid}.tmp`;
+  try {
+    await writeFile(scratch, `${JSON.stringify(stored, null, 2)}\n`);
+    await rename(scratch, file);
+  } catch (error) {
+    await rm(scratch, { force: true });
+    throw new Error(`cannot store the vocabulary in ${file}: ${(error as Error).message}`, { cause: error });
+  }
+}
+
 export { storedPath };
 
 /** A ref as it is stored and printed: itself, or a stand-in when a part of it is shaped like a secret. */
@@ -182,6 +212,8 @@ function problemWith(whole: Record<string, unknown>): string | undefined {
     ["vocabulary", isRecord(whole.vocabulary)],
     ["memberships", whole.memberships === undefined || problemWithMemberships(whole.memberships) === undefined],
     ["stakes", whole.stakes === undefined || problemWithStakes(whole.stakes) === undefined],
+    ["corrections", whole.corrections === undefined || problemWithCorrections(whole.corrections) === undefined],
+    ["certification", problemWithCertification(whole.certification) === undefined],
   ];
   const failed = checks.find(([, ok]) => !ok);
   if (failed !== undefined) return failed[0];
@@ -211,12 +243,12 @@ function problemWith(whole: Record<string, unknown>): string | undefined {
   return vocabulary.find(([, ok]) => !ok)?.[0];
 }
 
-type Previous =
+export type Previous =
   | { readonly kind: "missing" }
   | { readonly kind: "unreadable"; readonly why: string }
   | { readonly kind: "ok"; readonly stored: StoredVocabulary; /** Everything in the file, including fields a later step added. */ readonly whole: Record<string, unknown> };
 
-async function readStored(file: string): Promise<Previous> {
+export async function readStored(file: string): Promise<Previous> {
   let text: string;
   try {
     text = await readFile(file, "utf8");
@@ -383,6 +415,9 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
       }
     }
   }
+  // Corrections are kept as they are; the ones with nothing to apply to in this base are reported, never dropped.
+  const kept = previous.kind === "ok" ? previous.stored.corrections : undefined;
+  const correctionsKept = kept === undefined || kept.length === 0 ? undefined : { kept: kept.length, noLongerApply: noLongerApply(effectOf(vocabulary.terms, kept), kept, new Set(unitsOf(graph, base.tree).map((unit) => unit.key))) };
   const stored: StoredVocabulary = {
     ...(previous.kind === "ok" ? previous.whole : {}),
     format: FORMAT,
@@ -401,16 +436,15 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
   if (work === "unchanged" && previous.kind === "ok" && JSON.stringify([stored.memberships, stored.stakes, stored.coverage]) === JSON.stringify([previous.stored.memberships, previous.stored.stakes, previous.stored.coverage])) {
     return { work, file, ref, stored: previous.stored, previousCommit: previous.stored.base.commit, ...(judging === undefined ? {} : { judging }), ...(judgingStakes === undefined ? {} : { judgingStakes }) };
   }
-  await mkdir(dirname(file), { recursive: true });
-  // A whole file or none: another run, or a reader, never sees half of one.
-  const scratch = `${file}.${process.pid}.tmp`;
-  try {
-    await writeFile(scratch, `${JSON.stringify(stored, null, 2)}\n`);
-    await rename(scratch, file);
-  } catch (error) {
-    await rm(scratch, { force: true });
-    throw new Error(`cannot store the vocabulary in ${file}: ${(error as Error).message}`, { cause: error });
+  // A stored file that could not be read may hold a person's corrections: it is copied aside first, and a copy that fails stops the run before anything is replaced.
+  let backup: string | undefined;
+  if (previous.kind === "unreadable") {
+    backup = `${file}.unreadable-${new Date().toISOString().replace(/[-:.]/g, "")}`;
+    await copyFile(file, backup).catch((error: unknown) => {
+      throw new Error(`the stored vocabulary could not be read (${previous.why}) and could not be copied aside (${(error as Error).message}), so it was not replaced: ${file}`, { cause: error });
+    });
   }
+  await writeStored(file, stored);
   return {
     work,
     file,
@@ -420,6 +454,8 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     ...(previous.kind === "ok" ? { previousCommit: previous.stored.base.commit, ...(work === "rebuilt" ? { files: countChanges(before, files) } : {}) } : {}),
     ...(judging === undefined ? {} : { judging }),
     ...(judgingStakes === undefined ? {} : { judgingStakes }),
+    ...(backup === undefined ? {} : { backup }),
+    ...(correctionsKept === undefined ? {} : { corrections: correctionsKept }),
   };
 }
 
@@ -458,6 +494,8 @@ export function reportLines(result: SetupResult): string[] {
       break;
     case "replaced unreadable":
       lines.push(`  the stored vocabulary could not be read (${result.why}), so it was built again from nothing`);
+      // Corrections in the old file are not carried over: the copy is where they are.
+      if (result.backup !== undefined) lines.push(`  the old file was copied to ${result.backup} before it was replaced: any corrections in it are there, not in the new one`);
       break;
   }
   lines.push(`  stored: ${result.file}`);
@@ -478,6 +516,13 @@ export function reportLines(result: SetupResult): string[] {
   if (stored.pathsWithheld > 0) lines.push(`  paths withheld: ${stored.pathsWithheld} (a part of the path is shaped like a secret, so the path is not stored)`);
   lines.push(...membershipLines(stored.memberships, stored.coverage, vocabulary.terms, result.judging, vocabulary.notAnalysed + vocabulary.unread.length, codeFilesUnread(vocabulary)));
   lines.push(...stakesLines(stored.stakes, vocabulary.terms, result.judgingStakes, stored.memberships !== undefined));
+  const corrections = stored.corrections ?? [];
+  if (corrections.length > 0) {
+    const gone = result.corrections?.noLongerApply ?? [];
+    lines.push(`  corrections: ${plural(corrections.length, "correction")} kept${result.corrections === undefined ? "" : `, ${gone.length} no longer apply`}`);
+    for (const one of gone) lines.push(`    no longer applies: ${describeCorrection(one.correction)} (${one.why})`);
+  }
+  lines.push(`  vocabulary: ${certificationText(certificationOf(vocabulary.terms, corrections, stored.certification))}`);
   return lines;
 }
 

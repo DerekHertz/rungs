@@ -25,6 +25,7 @@ import { walkthrough } from "./walkthrough.ts";
 import { readVocabulary, reportLines, setUp, vocabularyNotice } from "./setup.ts";
 import { tieringOf } from "./tier-facts.ts";
 import { DEFAULT_TIERS } from "./tier-table.ts";
+import { vocabularyCommand } from "./vocabulary-command.ts";
 import { clientFor } from "./jev/client.ts";
 import { judgedSource } from "./jev/source.ts";
 import type { Claim } from "./claims.ts";
@@ -98,6 +99,19 @@ function openBrowser(url: string): void {
   spawn(command, args, { stdio: "ignore", detached: true })
     .on("error", () => {})
     .unref();
+}
+
+if (process.argv[2] === "vocabulary") {
+  // Corrections and certification are a stored file's business: no page is served and no model is called.
+  try {
+    const result = await vocabularyCommand(process.argv.slice(3), { cacheDir: cacheDirectory(process.env, homedir()) });
+    for (const line of result.out) console.log(line);
+    for (const line of result.err) console.error(result.code === 1 ? `streets: ${line}` : line);
+    process.exit(result.code);
+  } catch (error) {
+    console.error(`streets: ${(error as Error).message}`);
+    process.exit(1);
+  }
 }
 
 const parsed = parseOptions(process.argv.slice(2));
