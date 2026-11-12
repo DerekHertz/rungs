@@ -1,5 +1,7 @@
 /** The observed tier as /observed.json serves it; free of node so the page can read it too. */
 
+import type { Leftover } from "./leftover.ts";
+
 export type Outcome = "pass" | "fail" | "skip";
 /** Only node's own runner: any other is a dependency the change installs, and the change picks it. */
 export type Runner = "node";
@@ -8,6 +10,11 @@ export type Runner = "node";
 export const EVIDENCE_LINE = "Evidence against mistakes, not against a hostile author: the PR's code runs inside each test.";
 /** The label on every result of a run that had no sandbox. */
 export const UNSANDBOXED_LINE = "ran without a sandbox: as trustworthy as the PR's author";
+/**
+ * Said beside UNSANDBOXED_LINE. In the sandbox the tree is read-only to the tests; without one it
+ * is writable, and nothing keeps one test from changing what another reads.
+ */
+export const UNSANDBOXED_SHARED_LINE = "Without a sandbox one test can rewrite the code and test files another test reads, so a result may be another test's doing";
 
 /** What the runner gave of a failure beyond its message; each part only when the run produced it. */
 export interface FailureDetail {
@@ -140,6 +147,7 @@ export type ObservedDocument = { readonly tier: "observed"; readonly tree: strin
       readonly sandbox: "bwrap" | "unsandboxed";
       readonly seconds: number;
       readonly output: string;
+      readonly leftover?: Leftover;
     }
   | {
       /** The run's results contradict the runner or each other: none is served, only why. */
@@ -149,6 +157,7 @@ export type ObservedDocument = { readonly tier: "observed"; readonly tree: strin
       readonly sandbox: "bwrap" | "unsandboxed";
       readonly seconds: number;
       readonly exitCode: number;
+      readonly leftover?: Leftover;
     }
   | {
       readonly status: "ran";
@@ -164,6 +173,12 @@ export type ObservedDocument = { readonly tier: "observed"; readonly tree: strin
       readonly deleted: readonly string[];
       readonly edited: readonly string[];
       readonly written: WrittenDocument | null;
+      /**
+       * What the runs (the PR's, the written tests', the control run) left running, found after each
+       * step. Present only for a run without a sandbox, the only one that can leave anything; a
+       * check that could not run says so in `notChecked`, never as an empty list.
+       */
+      readonly leftover?: Leftover;
     }
 );
 

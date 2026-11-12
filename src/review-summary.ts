@@ -233,6 +233,10 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
     } else if (observed.status === "unreliable") run = "results unreliable";
     else if (observed.status === "failed") run = "run failed";
     else run = "not run";
+    // A process that may still be running, or leftovers nobody looked for, is said on the row itself.
+    const leftover = observed.status === "ran" || observed.status === "failed" || observed.status === "unreliable" ? observed.leftover : undefined;
+    if (leftover !== undefined && (leftover.strays.some((stray) => !stray.killed) || leftover.held || leftover.more > 0)) run = `${run} · a process left running`;
+    else if (leftover?.notChecked !== undefined) run = `${run} · leftovers not checked`;
   }
   return [run, changes].filter((part) => part !== "").join(" · ");
 }

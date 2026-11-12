@@ -113,6 +113,19 @@ test("commas inside generics do not split parameters", () => {
   expect(signatureChange("f(a: Map<string, number>)", "f(a: Map<string, number>, b: number)").text).toBe("+ b: number");
 });
 
+test("the tests row says when a process was left running or the leftovers were not checked, and nothing of a killed or absent one", () => {
+  const ran = { tier: "observed", tree: "t", status: "ran", sandbox: "unsandboxed", counts: { pass: 5, fail: 0, skip: 0 }, control: { status: "failed", why: "x" } } as const;
+  const none = { strays: [], more: 0, held: false };
+  const withLeftover = (leftover: object, status = "ran") => ({ ...ran, status, leftover }) as never;
+  expect(testsSummary(ran as never, 0)).toBe("5 pass");
+  expect(testsSummary(withLeftover(none), 0)).toBe("5 pass");
+  expect(testsSummary(withLeftover({ ...none, strays: [{ pid: 1, name: "node", killed: true }] }), 0)).toBe("5 pass");
+  expect(testsSummary(withLeftover({ ...none, strays: [{ pid: 1, name: "node", killed: false }] }), 0)).toBe("5 pass · a process left running");
+  expect(testsSummary(withLeftover({ ...none, held: true }), 0)).toBe("5 pass · a process left running");
+  expect(testsSummary(withLeftover({ ...none, notChecked: "no /proc" }), 0)).toBe("5 pass · leftovers not checked");
+  expect(testsSummary(withLeftover({ ...none, strays: [{ pid: 1, name: "node", killed: false }] }, "failed"), 0)).toBe("run failed · a process left running");
+});
+
 test("no description means unmentioned is not checked, never nothing", () => {
   expect(unmentionedSummary({ files: null, calls: 0 })).toBe("not checked, no description");
   expect(unmentionedSummary({ files: 0, calls: 0 })).toBe("nothing");

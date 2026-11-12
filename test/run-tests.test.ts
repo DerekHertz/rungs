@@ -11,6 +11,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import { testChanges } from "../src/test-changes.ts";
 import { installArgv, observedDocument, runTests } from "../src/observed.ts";
+import { observedNote } from "../src/observed-text.ts";
 import { detectSandbox, runIsolated } from "../src/sandbox.ts";
 import type { Isolation } from "../src/sandbox.ts";
 
@@ -476,4 +477,90 @@ test("a flag's value in the base script is not taken for a test file", async () 
   ]);
   const run = await runTests(files, files, new Set(), bwrap, 60_000);
   expect(run.status === "ran" ? run.reports.map((report) => [report.file, report.outcome]) : run).toEqual([["test/a.test.mjs", "pass"], ["test/b.test.mjs", "pass"]]);
+});
+
+// One base test file that rewrites what another file reads must not change the other's result: the first file's test runs before the second's.
+const SHARED = {
+  "the code under test": ["src/math.mjs", `export const add = (a, b) => a + b;\n`],
+  "an assertion helper": ["src/check.mjs", `export const equal = () => {};\n`],
+  "a package in node_modules": ["node_modules/dep/index.mjs", `export const one = () => 1;\n`],
+} as const;
+
+function sharedTree(attack: string): Map<string, string> {
+  return new Map([
+    ["package.json", `{"type":"module","scripts":{"test":"node --test --test-concurrency=1 test/a.test.mjs test/b.test.mjs"}}\n`],
+    ["src/math.mjs", `export const add = (a, b) => a - b;\n`],
+    ["src/check.mjs", `export const equal = (x, y) => { if (x !== y) throw new Error("not equal"); };\n`],
+    ["node_modules/dep/index.mjs", `export const one = () => 2;\n`],
+    ["test/a.test.mjs", `import { test } from "node:test";\nimport { writeFileSync } from "node:fs";\ntest("rewrites what the next file reads", () => { try { ${attack} } catch {} });\n`],
+    [
+      "test/b.test.mjs",
+      `import { test } from "node:test";
+import { add } from "../src/math.mjs";
+import { equal } from "../src/check.mjs";
+import { one } from "../node_modules/dep/index.mjs";
+test("adds", () => equal(add(1, 2), 3));
+test("dep", () => equal(one(), 1));
+`,
+    ],
+  ]);
+}
+
+const fileTwo = (reports: readonly { file: string; path: readonly string[]; outcome: string }[]) => reports.filter((report) => report.file === "test/b.test.mjs").map((report) => [report.path[0], report.outcome]);
+
+for (const [name, [path, text]] of Object.entries(SHARED)) {
+  test(`in the sandbox, a test in one file cannot rewrite ${name} for the next file, in the head run or the control run`, async () => {
+    const tree = sharedTree(`writeFileSync(${JSON.stringify(path)}, ${JSON.stringify(text)});`);
+    const run = await runTests(tree, tree, new Set(), bwrap, 60_000);
+    expect(run).toMatchObject({ status: "ran", control: { status: "ran" } });
+    if (run.status !== "ran" || run.control?.status !== "ran") return;
+    // Main's code is as broken as the head's here, so file two fails in both runs, unless the first file's test forged it.
+    expect(fileTwo(run.reports)).toEqual([["adds", "fail"], ["dep", "fail"]]);
+    expect(fileTwo(run.control.reports)).toEqual([["adds", "fail"], ["dep", "fail"]]);
+  });
+}
+
+test("unsandboxed, the same rewrite changes the next file's result, so the run is labelled as weaker and not as protected", async () => {
+  const tree = sharedTree(`writeFileSync("src/math.mjs", ${JSON.stringify(SHARED["the code under test"][1])});`);
+  const run = await runTests(tree, tree, new Set(), { kind: "unsandboxed" }, 60_000);
+  expect(run).toMatchObject({ status: "ran", isolation: "unsandboxed" });
+  if (run.status !== "ran") return;
+  expect(fileTwo(run.reports)).toEqual([["adds", "pass"], ["dep", "fail"]]);
+  const doc = document(run, tree);
+  expect(doc).toMatchObject({ sandbox: "unsandboxed" });
+  expect(observedNote(doc)).toContain("one test can rewrite the code and test files another test reads");
+});
+
+async function gone(pid: number): Promise<boolean> {
+  for (let tries = 0; tries < 40; tries += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+test("an unsandboxed run's document says nothing was left behind, from a check that ran; a sandboxed one says nothing of leftovers", async () => {
+  const unsandboxed = await runTests(baseTree, baseTree, new Set(), { kind: "unsandboxed" }, 60_000);
+  expect(document(unsandboxed, baseTree)).toMatchObject({ status: "ran", sandbox: "unsandboxed", leftover: { strays: [], more: 0, held: false } });
+  const sandboxed = await runTests(baseTree, baseTree, new Set(), bwrap, 60_000);
+  expect(document(sandboxed, baseTree)).not.toHaveProperty("leftover");
+});
+
+test("a process a test leaves behind in an unsandboxed run is killed, and the document names it", async () => {
+  const files = new Map([
+    ["package.json", manifest],
+    ["test/a.test.mjs", `import { test } from "node:test";\nimport { spawn } from "node:child_process";\ntest("leaves one", () => { spawn("sleep", ["1000"], { detached: true, stdio: "ignore" }).unref(); });\n`],
+  ]);
+  const run = await runTests(files, files, new Set(), { kind: "unsandboxed" }, 60_000);
+  const doc = document(run, files);
+  const strays = doc.status === "ran" ? (doc.leftover?.strays ?? []) : [];
+  expect(strays.length).toBeGreaterThan(0);
+  for (const stray of strays) {
+    expect(stray).toMatchObject({ name: "sleep", killed: true });
+    expect(await gone(stray.pid)).toBe(true);
+  }
 });
