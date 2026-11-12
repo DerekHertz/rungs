@@ -123,6 +123,10 @@ test("the tests row says when a process was left running or the leftovers were n
   expect(testsSummary(withLeftover({ ...none, strays: [{ pid: 1, name: "node", killed: false }] }), 0)).toBe("5 pass · a process left running");
   expect(testsSummary(withLeftover({ ...none, held: true }), 0)).toBe("5 pass · a process left running");
   expect(testsSummary(withLeftover({ ...none, notChecked: "no /proc" }), 0)).toBe("5 pass · leftovers not checked");
+  // 21 killed processes: the list is cut at 20, and the cut name was killed too.
+  expect(testsSummary(withLeftover({ strays: Array.from({ length: 20 }, (_, pid) => ({ pid, name: "sleep", killed: true })), more: 1, moreAlive: 0, held: false }), 0)).toBe("5 pass");
+  expect(testsSummary(withLeftover({ ...none, more: 1, moreAlive: 1 }), 0)).toBe("5 pass · a process left running");
+  expect(testsSummary(withLeftover({ ...none, more: 1 }), 0)).toBe("5 pass · a process left running");
   expect(testsSummary(withLeftover({ ...none, strays: [{ pid: 1, name: "node", killed: false }] }, "failed"), 0)).toBe("run failed · a process left running");
 });
 

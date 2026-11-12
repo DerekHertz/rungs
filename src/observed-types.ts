@@ -42,6 +42,16 @@ export function bounded(text: string, limit: number = FAILURE_LIMIT): string {
  */
 export type Verdict = "regression" | "environment" | "fixed" | "passes" | "skipped" | "head only" | "base only" | "unclear";
 
+/**
+ * Why a failure of main's control run says nothing about the PR's: the run's tree is read-only, so
+ * a main test that writes into it fails there with a read-only file system error it never had on
+ * main. The PR's failure is then neither environment nor fixed, only not compared.
+ */
+export const READ_ONLY_REASON = "main's run met a read-only file system error, which the read-only tree causes: not compared with main";
+
+/** A verdict as the lists say it: its own reason when it has one, else the word for it. */
+export const verdictText = (verdict: Verdict, why?: string): string => why ?? VERDICT_WORD[verdict];
+
 export type VerdictCounts = Readonly<Record<Verdict, number>>;
 
 /**
@@ -81,6 +91,8 @@ export interface ObservedTest {
   readonly detail?: FailureDetail;
   /** Against the control run; absent when there is no control run, so no test is called a regression without one. */
   readonly verdict?: Verdict;
+  /** Why the verdict is `unclear`, when it is for a reason the word does not say. */
+  readonly verdictWhy?: string;
 }
 
 /** A test only main's code ran, which the PR's code did not report. */

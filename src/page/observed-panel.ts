@@ -1,5 +1,5 @@
 import type { NodeId } from "../graph.ts";
-import { UNSANDBOXED_LINE, UNSANDBOXED_SHARED_LINE, VERDICT_WORD, runningText } from "../observed-types.ts";
+import { UNSANDBOXED_LINE, UNSANDBOXED_SHARED_LINE, VERDICT_WORD, runningText, verdictText } from "../observed-types.ts";
 import type { ControlDocument, Counts, ObservedDocument, UnmatchedTest } from "../observed-types.ts";
 import { failingHeading } from "../arrival.ts";
 import { fileMark, rowOutcome, unreliableText } from "../observed-report.ts";
@@ -170,7 +170,7 @@ function failingRow(test: FailingTest, pickNode: (id: NodeId) => void, dim = fal
   const item = element("li", dim ? "review-row observed-dim" : "review-row");
   const detail = element("div", "rv-detail contract-text");
   detail.hidden = true;
-  if (test.verdict !== undefined) detail.append(element("span", "contract-where", VERDICT_WORD[test.verdict]));
+  if (test.verdict !== undefined) detail.append(element("span", "contract-where", verdictText(test.verdict, test.verdictWhy)));
   if (test.why !== undefined) detail.append(element("span", "contract-where", test.why));
   if (test.message !== undefined) detail.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
   const pick = pickButton(() => {
@@ -183,7 +183,7 @@ function failingRow(test: FailingTest, pickNode: (id: NodeId) => void, dim = fal
   const text = element("span", "contract-text");
   text.append(element("span", "review-label", test.name), element("span", "contract-where", test.file));
   // A row of the other results says what it is and why, without a click.
-  if (dim && test.verdict !== undefined) text.append(element("span", "contract-where", VERDICT_WORD[test.verdict]));
+  if (dim && test.verdict !== undefined) text.append(element("span", "contract-where", verdictText(test.verdict, test.verdictWhy)));
   if (dim && test.message !== undefined) text.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
   pick.append(outcomeMark(rowOutcome(test)), text);
   item.append(pick);

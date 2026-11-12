@@ -1,4 +1,5 @@
 import type { ContractMoveKind } from "./compare.ts";
+import { leftoverRunning } from "./leftover.ts";
 import { runningText, verdictParts } from "./observed-types.ts";
 import type { ObservedDocument } from "./observed-types.ts";
 import { signatureDiff } from "./review.ts";
@@ -235,7 +236,7 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
     else run = "not run";
     // A process that may still be running, or leftovers nobody looked for, is said on the row itself.
     const leftover = observed.status === "ran" || observed.status === "failed" || observed.status === "unreliable" ? observed.leftover : undefined;
-    if (leftover !== undefined && (leftover.strays.some((stray) => !stray.killed) || leftover.held || leftover.more > 0)) run = `${run} · a process left running`;
+    if (leftover !== undefined && leftoverRunning(leftover)) run = `${run} · a process left running`;
     else if (leftover?.notChecked !== undefined) run = `${run} · leftovers not checked`;
   }
   return [run, changes].filter((part) => part !== "").join(" · ");

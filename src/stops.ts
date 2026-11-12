@@ -20,6 +20,7 @@ export interface StopTest {
   readonly why?: string;
   /** Against the control run: only a regression is the PR's doing. Absent when there is no control run. */
   readonly verdict?: Verdict;
+  readonly verdictWhy?: string;
 }
 
 /**
@@ -47,13 +48,14 @@ export type Observed =
 
 export const NOT_RUN: Observed = { status: "not run", changes: [] };
 
-const asResult = ({ file, name, outcome, message, why, verdict }: StopTest): StopTest => ({
+const asResult = ({ file, name, outcome, message, why, verdict, verdictWhy }: StopTest): StopTest => ({
   file,
   name,
   outcome,
   ...(message ? { message } : {}),
   ...(why ? { why } : {}),
   ...(verdict ? { verdict } : {}),
+  ...(verdictWhy ? { verdictWhy } : {}),
 });
 
 /**

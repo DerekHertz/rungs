@@ -138,3 +138,40 @@ test("tests only main has are listed as base only and counted as neither a pass 
   expect(document.control).toMatchObject({ status: "ran", counts: { regression: 0, "base only": 2, passes: 1 } });
   expect(document.control.status === "ran" && document.control.baseOnly.map((test) => test.name)).toEqual(["broke", "env"]);
 });
+
+// The control run's tree is read-only like the head run's, which can make a main test fail that never failed on main before. Such a failure says nothing about the PR's.
+const EROFS = "EROFS: read-only file system, open 'result.txt'";
+const READ_ONLY_REASON = "main's run met a read-only file system error, which the read-only tree causes: not compared with main";
+
+test("a main failure that is a read-only file system error does not make the PR's failure environment, or its pass fixed: both are unclear, with the reason", () => {
+  const { verdicts, reasons, counts } = classify([at(["a"], "fail", "10 !== 11"), at(["b"], "pass"), at(["c"], "fail", "boom")], [at(["a"], "fail", EROFS), at(["b"], "fail", EROFS), at(["c"], "fail", "boom")]);
+  expect(verdicts).toEqual(["unclear", "unclear", "environment"]);
+  expect(reasons).toEqual([READ_ONLY_REASON, READ_ONLY_REASON, undefined]);
+  expect(counts).toMatchObject({ regression: 0, environment: 1, fixed: 0, unclear: 2 });
+});
+
+test("a read-only file system error is found wherever the main failure carries it: the message in any case, the assertion's values, its code", () => {
+  const head = [at(["a"], "fail", "x")];
+  const base = (report: Partial<TestReport>): TestReport[] => [{ ...at(["a"], "fail", "could not save"), ...report }];
+  expect(classify(head, base({ message: "ENOENT then erofs: Read-Only File System" })).verdicts).toEqual(["unclear"]);
+  expect(classify(head, base({ detail: { actual: "{ code: 'EROFS' }", expected: "undefined" } })).verdicts).toEqual(["unclear"]);
+  expect(classify(head, base({ detail: { expected: "'read-only file system'" } })).verdicts).toEqual(["unclear"]);
+  expect(classify(head, base({})).verdicts).toEqual(["environment"]);
+});
+
+test("a main run whose output names a read-only file system makes none of its failures an environment verdict", () => {
+  const { verdicts, reasons } = classify([at(["a"], "fail", "x"), at(["b"], "fail", "y")], [at(["a"], "fail", "could not save"), at(["b"], "fail", "y")], READ_ONLY_REASON);
+  expect(verdicts).toEqual(["unclear", "unclear"]);
+  expect(reasons).toEqual([READ_ONLY_REASON, READ_ONLY_REASON]);
+  // Main's passes are still passes: only a failure on main is in doubt.
+  expect(classify([at(["a"], "fail", "x")], [at(["a"], "pass")], READ_ONLY_REASON).verdicts).toEqual(["regression"]);
+});
+
+test("the document carries the reason beside the verdict, and the report lists the failure as not held against the PR but not exonerated", () => {
+  const document = fileDocument([at(["broke"], "fail", "10 !== 11")], [at(["broke"], "fail", EROFS)]);
+  const [test] = Object.values(document.tests).flat();
+  expect(test).toMatchObject({ verdict: "unclear", verdictWhy: READ_ONLY_REASON });
+  const report = observedReport(document, graph, added);
+  expect(report.failing).toEqual([]);
+  expect(report.others).toEqual([expect.objectContaining({ name: "broke", verdict: "unclear", verdictWhy: READ_ONLY_REASON })]);
+});

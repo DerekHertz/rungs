@@ -564,3 +564,36 @@ test("a process a test leaves behind in an unsandboxed run is killed, and the do
     expect(await gone(stray.pid)).toBe(true);
   }
 });
+
+// A base test that writes into the tree passed on main before the tree was read-only; the control run now fails it with EROFS. That is not main's own failure, so it cannot excuse the PR's.
+const WRITES = (body: string) =>
+  new Map([
+    ["package.json", manifest],
+    ["src/math.mjs", MATH],
+    ["test/math.test.mjs", `import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { writeFileSync } from "node:fs";\nimport { add } from "../src/math.mjs";\ntest("adds", () => {\n  assert.equal(add(1, 2), 3);\n  ${body}\n});\n`],
+  ]);
+
+for (const [name, body] of Object.entries({
+  "its error surfaces as it is": `writeFileSync("result.txt", "ok");`,
+  "the test catches it and fails with a message of its own": `try { writeFileSync("result.txt", "ok"); } catch (error) { console.log("saving failed:", error.code); throw new Error("could not save the result"); }`,
+})) {
+  test(`a control failure that is only the read-only tree is unclear, never environment, and the page does not clear the PR: ${name}`, async () => {
+    const base = WRITES(body);
+    const head = new Map(base);
+    head.set("src/math.mjs", `export const add = (a, b) => a - b;\n`);
+    const run = await runTests(base, head, new Set(), bwrap, 60_000);
+    expect(run).toMatchObject({ status: "ran", reports: [{ outcome: "fail" }], control: { status: "ran", reports: [{ outcome: "fail" }] } });
+    const doc = document(run, head);
+    expect(doc).toMatchObject({ status: "ran", control: { status: "ran", counts: { regression: 0, environment: 0, unclear: 1 } } });
+    const [test] = doc.status === "ran" ? Object.values(doc.tests).flat() : [];
+    expect(test).toMatchObject({ name: "adds", outcome: "fail", verdict: "unclear", verdictWhy: expect.stringContaining("read-only file system") });
+  });
+}
+
+test("a control failure that has nothing to do with the read-only tree is still environment", async () => {
+  const base = WRITES(`throw new Error("no browser in the sandbox");`);
+  const head = new Map(base);
+  head.set("src/math.mjs", `export const add = (a, b) => a - b;\n`);
+  const doc = document(await runTests(base, head, new Set(), bwrap, 60_000), head);
+  expect(doc).toMatchObject({ status: "ran", control: { status: "ran", counts: { regression: 0, environment: 1, unclear: 0 } } });
+});

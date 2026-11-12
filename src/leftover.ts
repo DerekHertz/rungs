@@ -18,6 +18,12 @@ export interface Leftover {
   readonly strays: readonly Stray[];
   /** Processes found that `strays` does not list, because its length is capped. */
   readonly more: number;
+  /**
+   * Of those `more`, how many were not killed. Set whenever `more` is above 0, and a cut list lists
+   * the processes that were not killed first, so a name left out never hides a survivor. Absent
+   * with `more` above 0 means it is not known, which is taken as "may be running".
+   */
+  readonly moreAlive?: number;
   /** The step's output stayed open after it ended, and no process could be found to kill: one may still be running. */
   readonly held: boolean;
   /** Why the check could not run. Then nothing is known of what was left behind, and "none" is never said. */
@@ -37,15 +43,24 @@ export function mergeLeftovers(steps: readonly (Leftover | undefined)[]): Leftov
   if (present.length === 0) return undefined;
   const found = new Map<number, Stray>();
   let more = 0;
+  // Names already cut from an earlier merge, with how many of them were not killed (unknown counts as all).
+  let moreAlive = 0;
   for (const step of present) {
     more += step.more;
+    moreAlive += step.more > 0 ? (step.moreAlive ?? step.more) : 0;
     for (const stray of step.strays) found.set(stray.pid, stray);
   }
-  const all = [...found.values()];
+  let all = [...found.values()];
+  // A cut list keeps the processes that were not killed: the ones a reviewer must see.
+  if (all.length > STRAY_LIMIT) all = [...all.filter((stray) => !stray.killed), ...all.filter((stray) => stray.killed)];
+  const cut = all.slice(STRAY_LIMIT);
+  more += cut.length;
+  moreAlive += cut.filter((stray) => !stray.killed).length;
   const reasons = [...new Set(present.flatMap((step) => (step.notChecked === undefined ? [] : [step.notChecked])))];
   return {
     strays: all.slice(0, STRAY_LIMIT),
-    more: more + Math.max(0, all.length - STRAY_LIMIT),
+    more,
+    ...(more > 0 ? { moreAlive } : {}),
     held: present.some((step) => step.held),
     ...(reasons.length === 0 ? {} : { notChecked: reasons.join("; ") }),
   };
@@ -64,14 +79,19 @@ export function leftoverText(leftover: Leftover): string {
   const parts = [
     ...(killed.length > 0 ? [`left behind: ${named(killed)} killed`] : []),
     ...(alive.length > 0 ? [`left behind: ${named(alive)} not killable, still running on this machine`] : []),
-    ...(leftover.more > 0 ? [`${leftover.more} more left behind, not listed`] : []),
+    ...(leftover.more > 0 ? [`${leftover.more} more left behind, not listed (${leftover.moreAlive === undefined ? "not known whether killed" : leftover.moreAlive === 0 ? "all killed" : `${leftover.moreAlive} not killable, still running`})`] : []),
     ...(leftover.held ? ["a process the step started kept its output open and could not be found, so it may still be running"] : []),
     ...(leftover.notChecked === undefined ? [] : [`leftovers not checked (${leftover.notChecked})`]),
   ];
   return parts.length === 0 ? "no process left behind" : parts.join("; ");
 }
 
+/** Whether something may still be running: a process that was not killed, one not listed that may not have been, or output held open by one that could not be found. */
+export function leftoverRunning(leftover: Leftover): boolean {
+  return leftover.strays.some((stray) => !stray.killed) || (leftover.more > 0 && (leftover.moreAlive ?? leftover.more) > 0) || leftover.held;
+}
+
 /** Whether a reviewer must see this: something may still be running, or the check did not run. A killed process is only worth saying. */
 export function leftoverWarns(leftover: Leftover): boolean {
-  return leftover.strays.some((stray) => !stray.killed) || leftover.more > 0 || leftover.held || leftover.notChecked !== undefined;
+  return leftoverRunning(leftover) || leftover.notChecked !== undefined;
 }
