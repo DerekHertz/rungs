@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
-import { importanceOf, plinthUnknownOf } from "../src/importance.ts";
+import { importanceOf, plinthUnknownOf, unreadMayImport } from "../src/importance.ts";
 import { plinthText } from "../src/page/legend-text.ts";
 import { townOf } from "../src/town.ts";
 import { waysIn } from "../src/ways-in.ts";
@@ -45,6 +45,22 @@ describe("which plinths are drawn as at least this tall", () => {
     const marked = plinthUnknownOf(graph, new Map([[lib, [broken]]]));
     expect(marked.has(lib)).toBe(false);
     expect(marked.get(idOf(graph, "entry.ts"))).toEqual([broken]);
+  });
+});
+
+describe("the hover's unknown count", () => {
+  const graph = extract(tree({ "entry.ts": 'import "./a.ts";\n', "a.ts": "export const a = (;\n", "b.ts": 'import "./a.ts";\nexport const b = (;\n', "README.md": "# hi\n" }));
+  const rests = importanceOf(graph);
+  const count = (path: string): number => unreadMayImport(graph, idOf(graph, path), rests.get(idOf(graph, path)) ?? []);
+
+  test("an unread file counts the other unread files that may import it, never itself", () => {
+    expect(count("a.ts")).toBe(1);
+    expect(count("b.ts")).toBe(1);
+  });
+
+  test("a read file counts every unread file not already resting on it, and a file no adapter reads counts none", () => {
+    expect(count("entry.ts")).toBe(2);
+    expect(count("README.md")).toBe(0);
   });
 });
 

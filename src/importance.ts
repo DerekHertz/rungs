@@ -100,6 +100,12 @@ export function unknownRestOf(graph: Graph, file: NodeId, known: Iterable<NodeId
   return graph.nodes.flatMap((node) => (node.level === "file" && node.analysis === "not fully read" && !counted.has(node.id) && !paths.has(node.path) ? [node.id] : []));
 }
 
+/** How many unread files may import `file` beyond the `known` ones, as the hover says "plus unknown via N": every code file has it, unread ones included; a file no adapter reads has none. */
+export function unreadMayImport(graph: Graph, file: NodeId, known: Iterable<NodeId>): number {
+  const node = graph.nodes.find((entry) => entry.id === file);
+  return node === undefined || node.level !== "file" || node.analysis === "not analysed" ? 0 : unknownRestOf(graph, file, known).length;
+}
+
 /**
  * The files whose plinth could be taller than the known edges make it, each with the unread files
  * that may import it (`unknownRestOf`, given the `rests` already counted). Only a file that was

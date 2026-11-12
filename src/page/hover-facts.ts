@@ -2,7 +2,7 @@ import { tallyText } from "../compare.ts";
 import type { Picture } from "../compare.ts";
 import type { FileNode, ModuleNode, NodeId } from "../graph.ts";
 import type { Lot } from "../town.ts";
-import { unknownRestOf } from "../importance.ts";
+import { unreadMayImport } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
 import { restsOnIt } from "../defining.ts";
 import type { observedReport } from "../observed-report.ts";
@@ -67,8 +67,7 @@ export function hoverFacts({ nodes, ghostFiles, lots, picture, importance, waysI
     const above = ids.map((id) => nodes.get(id)?.path ?? id);
     const way = waysIn.find((entry) => entry.id === file.id);
     // A file that could not be read may import this one: "nothing rests on it" is only said when there is none.
-    // The same count as the plinth's dashed outline: only a file that was read is said to have unknown dependents.
-    const unknown = file.analysis === "analysed" ? unknownRestOf(picture.graph, file.id, ids).length : 0;
+    const unknown = unreadMayImport(picture.graph, file.id, ids);
     return [
       above.length === 0 && unknown === 0 ? "importance: nothing rests on it" : `importance: ${restsOnIt(above.length, unknown)}`,
       ...(lots().get(file.id)?.plinthAtLeast ? ["plinth: drawn as at least this tall (dashed outline); how much taller is unknown"] : []),
