@@ -6,6 +6,8 @@ import type { JevClient } from "./client.ts";
 import { requestFor } from "./gate.ts";
 import type { JudgeSubject } from "./subject.ts";
 import type { Gate, Thresholds } from "./gate.ts";
+import type { TierPick } from "../tier-table.ts";
+import type { Tiering } from "../tier-facts.ts";
 import type { About, JudgedDocument, JudgedRecord, JudgedSet } from "./judged-types.ts";
 
 export type { About, JudgedDocument, JudgedRecord, JudgedSet } from "./judged-types.ts";
@@ -15,6 +17,10 @@ export interface Item<Input> {
   readonly key: string;
   readonly about: About;
   readonly input: Input;
+  /** The thresholds this item is decided by, when they are its own (the gate's, plus the item's tier); the request's otherwise. */
+  readonly thresholds?: Thresholds;
+  /** The tier the item was picked, recorded with its answer. */
+  readonly pick?: TierPick;
 }
 
 export type ItemOutcome =
@@ -62,6 +68,13 @@ export interface JudgedRun {
 
 const PARALLEL = 4;
 
+/** A record on file with the thresholds, tier and verdict of this comparison's item: the answers are its own. */
+function recordOf(known: JudgedRecord, thresholds: Thresholds, pick: TierPick | undefined, verdict: JudgedRecord["verdict"]): JudgedRecord {
+  const { pick: was, ...rest } = known;
+  void was;
+  return { ...rest, thresholds, verdict, ...(pick === undefined ? {} : { pick }) };
+}
+
 /** A comparison, a question's version and a model make one key; the trees are named by digest. */
 export function setKey(base: string, head: string, question: { id: string; version: string }, model: string): string {
   return createHash("sha256").update(JSON.stringify([base, head, question.id, question.version, model])).digest("hex");
@@ -98,8 +111,12 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
   const asked: number[] = [];
   items.forEach((item, index) => {
     const known = saved.get(item.key);
-    if (known !== undefined && JSON.stringify(known.shown) === JSON.stringify(requestFor(gate, item.input)) && JSON.stringify(known.thresholds) === JSON.stringify(thresholds)) {
-      outcomes[index] = { status: "judged", record: known, cached: true };
+    if (known !== undefined && JSON.stringify(known.shown) === JSON.stringify(requestFor(gate, item.input))) {
+      // The same request has the same answers. A verdict is a function of the answers and the thresholds, so a changed tier or
+      // threshold is decided again here, from the answers on file, with no call.
+      const own = item.thresholds ?? thresholds;
+      const same = JSON.stringify(known.thresholds) === JSON.stringify(own) && JSON.stringify(known.pick) === JSON.stringify(item.pick);
+      outcomes[index] = { status: "judged", record: same ? known : recordOf(known, own, item.pick, gate.decide(known.answers, own)), cached: true };
     } else asked.push(index);
   });
   events?.plan(identity, outcomes.filter((outcome) => outcome !== undefined), asked.map((index) => ({ key: items[index]!.key, about: items[index]!.about })));
@@ -125,8 +142,9 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
         question,
         shown,
         answers: judged.answers,
-        thresholds,
-        verdict: gate.decide(judged.answers, thresholds),
+        thresholds: item.thresholds ?? thresholds,
+        verdict: gate.decide(judged.answers, item.thresholds ?? thresholds),
+        ...(item.pick === undefined ? {} : { pick: item.pick }),
         model: judged.model,
         inputTokens: judged.usage.inputTokens,
         usd: judged.usage.usd,
@@ -154,6 +172,8 @@ export interface JudgedSource {
   readonly status: "on" | "off";
   /** Why judging is off. */
   readonly reason?: string;
+  /** The reviewer's tier table and the stored vocabulary the tiers are picked from; the default table and no vocabulary when left out. */
+  readonly tiering?: Tiering;
   /** How many gates will each call `events.plan` once (default one). */
   readonly gates?: number;
   load(subject: JudgeSubject, events?: JudgingEvents): Promise<readonly JudgedRun[]>;

@@ -5,6 +5,7 @@ import type { JudgedDocument } from "../jev/judged-types.ts";
 import type { StandardsDocument } from "../standards-marks.ts";
 import { costText, markWord, percent } from "../judged-marks.ts";
 import { followJudging, updateOf } from "../judged-follow.ts";
+import { markTier, markTierWhy } from "../judged-fold.ts";
 import type { Claim, JudgedUpdate, JudgedView } from "../judged-follow.ts";
 
 export type { JudgedUpdate, JudgedView } from "../judged-follow.ts";
@@ -28,8 +29,10 @@ export function markButton(mark: JudgedMark, onClick: () => void, adopted: boole
   button.type = "button";
   const glyph = element("span", "", untrusted ? "\u25cb" : GLYPH[word]);
   glyph.setAttribute("aria-hidden", "true");
-  button.append(glyph, element("span", "", untrusted ? UNADOPTED_WORD : word));
-  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but its gate has not met its bar and stays off, so this is not evidence" : ""}; click to see what it was shown` : mark.kind === "pending" ? "Jev is still checking this" : mark.reason;
+  const tier = markTier(mark);
+  // The tier the item was picked sits on the mark, so a settled line reads "settled 99.9%" and the reason is one hover or click away.
+  button.append(glyph, element("span", "", untrusted ? UNADOPTED_WORD : word), ...(tier === "" ? [] : [element("span", "judged-tier", tier)]));
+  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but its gate has not met its bar and stays off, so this is not evidence" : ""}${tier === "" ? "" : `; ${markTierWhy(mark)}`}; click to see what it was shown` : mark.kind === "pending" ? "Jev is still checking this" : mark.reason;
   button.setAttribute("aria-label", mark.kind === "judged" ? `Judged ${word}${untrusted ? " by a gate that is not adopted" : ""}: show the check` : mark.kind === "pending" ? "Judging: Jev is still checking this" : `Not judged: ${mark.reason}`);
   button.addEventListener("click", onClick);
   return button;
@@ -55,6 +58,7 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
     else line.append(element("strong", "", `${label} no answer`));
     body.append(line);
   }
+  if (record.pick !== undefined) body.append(element("p", "judged-line judged-tier-why", `${markTierWhy(mark)} (tier rule ${record.pick.rule}). The tier is how sure a check must be to settle this item; it is picked from the item's derived complexity and its stored stakes.`));
   body.append(element("p", "judged-line", describeGateThresholds(record.question.id, record.thresholds)));
   const unreadable = Object.values(record.answers).some((answer) => answer.type === "unreadable");
   const why = explainVerdict(record.question.id, record.answers, record.thresholds, record.verdict);

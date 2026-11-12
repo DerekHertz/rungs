@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { expect, test } from "vitest";
-import { parseOptions } from "../src/options.ts";
+import { USAGE, parseOptions } from "../src/options.ts";
 
 test("a bare invocation plots the current folder", () => {
   expect(parseOptions([])).toEqual({ dir: resolve("."), port: 0, open: true, base: undefined, description: undefined, link: false, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false, judge: false, tests: "off" });
@@ -126,4 +126,18 @@ test("--judge turns judged checks on, and needs compare or setup", () => {
   expect(parseOptions(["compare", "main", "--judge"])).toMatchObject({ judge: true });
   expect(parseOptions(["compare", "main"])).toMatchObject({ judge: false });
   expect(parseOptions(["--judge"])).toMatch(/--judge needs compare or setup/);
+});
+
+test("--tiers sets the tier table: three descending numbers in (0, 100), strictest first; left out, the options carry none", () => {
+  expect(parseOptions(["compare", "main", "--judge", "--tiers", "99.99,99.5,90"])).toMatchObject({ tiers: [99.99, 99.5, 90] });
+  expect(parseOptions(["compare", "main", "--judge", "--tiers", "99.9, 99, 95"])).toMatchObject({ tiers: [99.9, 99, 95] });
+  // The table is read only by judged checks: a --tiers that nothing reads is refused, not ignored.
+  expect(parseOptions(["compare", "main", "--tiers", "99.9,99,95"])).toMatch(/--tiers needs --judge/);
+  expect(parseOptions(["compare", "main"])).not.toHaveProperty("tiers");
+  for (const bad of ["99.9,99", "99.9,99,95,90", "95,99,99.9", "99,99,95", "100,99,95", "99.9,99,0", "99.9,99,-1", "a,b,c", "", "99.9,,95", "1e2,99,95"]) {
+    expect(parseOptions(["compare", "main", "--judge", "--tiers", bad]), bad).toMatch(/invalid --tiers/);
+  }
+  expect(parseOptions(["--tiers", "99.9,99,95"])).toMatch(/--tiers needs compare/);
+  expect(parseOptions(["setup", "--tiers", "99.9,99,95"])).toMatch(/--tiers needs compare/);
+  expect(USAGE).toMatch(/--tiers/);
 });

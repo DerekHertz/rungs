@@ -3,6 +3,7 @@ import type { FileTree } from "../graph.ts";
 import { claimRunner } from "./claim-source.ts";
 import { standardRunner } from "./standard-source.ts";
 import type { JudgeSubject } from "./subject.ts";
+import type { Tiering } from "../tier-facts.ts";
 import { clientFor } from "./client.ts";
 import type { JevClient } from "./client.ts";
 import type { JudgedRun, JudgedSource, JudgingEvents } from "./store.ts";
@@ -38,6 +39,8 @@ export interface SourceRequest {
   /** Tests inject a fake; the command line leaves it out and gets the real client. */
   readonly client?: JevClient;
   readonly runners?: readonly GateRunner[];
+  /** The reviewer's tier table and the stored vocabulary the tiers are picked from (see tieringOf). */
+  readonly tiering?: Tiering;
 }
 
 /**
@@ -45,7 +48,7 @@ export interface SourceRequest {
  * runs each gate once, in the background after the server listens, and the store answers every later load.
  */
 export function judgedSource(request: SourceRequest): JudgedSource {
-  const { judge, env, baseTree, headTree, cacheDir, runners = GATE_RUNNERS } = request;
+  const { judge, env, baseTree, headTree, cacheDir, runners = GATE_RUNNERS, tiering } = request;
   if (!judge) return { status: "off", reason: "judging is off: pass --judge to send source text to TypeSafe", load: () => Promise.resolve([]) };
   const key = env.TYPESAFE_API_KEY;
   if (request.client === undefined && (key === undefined || key === "")) {
@@ -53,5 +56,5 @@ export function judgedSource(request: SourceRequest): JudgedSource {
   }
   const client = request.client ?? clientFor(true, env);
   const digests = { base: treeDigest(baseTree), head: treeDigest(headTree) };
-  return { status: "on", gates: runners.length, load: (subject, events) => Promise.all(runners.map((runner) => runner({ client, cacheDir, ...digests, baseTree, headTree, subject, ...(events === undefined ? {} : { events }) }))) };
+  return { status: "on", gates: runners.length, ...(tiering === undefined ? {} : { tiering }), load: (subject, events) => Promise.all(runners.map((runner) => runner({ client, cacheDir, ...digests, baseTree, headTree, subject, ...(events === undefined ? {} : { events }) }))) };
 }

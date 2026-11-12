@@ -1,6 +1,7 @@
 import type { LineRange, NodeId } from "../graph.ts";
 import type { JevAnswer, JevRequest } from "./client.ts";
 import type { Thresholds, Verdict } from "./gate.ts";
+import type { TierPick } from "../tier-table.ts";
 
 /** The shape of what /judged.json serves, with no node imports, so the page can read it. */
 
@@ -29,8 +30,11 @@ export interface JudgedRecord {
   /** The exact request Jev was sent: the state it was shown and the questions it was asked. */
   readonly shown: JevRequest;
   readonly answers: Readonly<Record<string, JevAnswer>>;
+  /** The gate's thresholds, with the item's tier as a fraction in `tier` (0.999) when it had one: what a settle had to clear. */
   readonly thresholds: Thresholds;
   readonly verdict: Verdict;
+  /** The tier the item got from the reviewer's table, and why. Absent on a record written before tiers. Judged and derived facts, never a mark of its own: the verdict above is the only judged part. */
+  readonly pick?: TierPick;
   /** The model version that answered. */
   readonly model: string;
   /** Null when the service did not report a valid count: the cost is unknown, not zero. */

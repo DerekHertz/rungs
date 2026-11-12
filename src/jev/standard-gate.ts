@@ -2,6 +2,7 @@ import type { LineRange } from "../graph.ts";
 import { yesOf, UNREADABLE } from "./gate.ts";
 import type { Gate, Thresholds, Verdict } from "./gate.ts";
 import type { JevAnswer } from "./client.ts";
+import { clearsTier, tierPercent } from "../tier-table.ts";
 
 /**
  * The standard gate: does one changed hunk break one written rule. The rule is a section of a
@@ -72,9 +73,12 @@ export const MAX_STATE_CHARS = 40_000;
 /**
  * The fixed starting thresholds. The reviewer's tier table (a later issue) replaces them. Recorded
  * with every record, so a changed constant makes a new record.
- *   settled: breaks <= `clear` AND the base question was answered and is under `already`
+ *   settled: breaks <= `clear` AND the base question was answered and is under `already` AND, when the
+ *            record carries a `tier` (the item's tier from the reviewer's table, as a fraction: 0.999),
+ *            1 - P(wrong) >= tier, where P(wrong) = breaks: settling is wrong when the lines break the rule
  *   flagged: breaks >= `flag`, unless the base already broke the rule (before >= `already`)
- *   undecided: anything else, including a violation the base already had
+ *   undecided: anything else, including a violation the base already had and a settle that passes the
+ *              limits above and not the tier
  */
 export const STANDARD_THRESHOLDS: Thresholds = { clear: 0.1, flag: 0.5, already: 0.5 };
 
@@ -84,7 +88,8 @@ export const STANDARD_QUESTION_LABELS: Readonly<Record<string, string>> = { brea
 /** Says the rule in words, from the thresholds a record carries (so an old record is described by its own). */
 export function describeStandardThresholds(thresholds: Thresholds): string {
   const pct = (name: string): string => `${Math.round((thresholds[name] ?? Number.NaN) * 100)}%`;
-  return `Settled when broken is at most ${pct("clear")} and the base question was answered and is under ${pct("already")} (the base's lines did not already break the rule). Flagged when broken is at least ${pct("flag")} and the base did not already break the rule (its answer under ${pct("already")}, or missing: then it is flagged, not hidden). Otherwise undecided: that includes a clean-looking change whose base already broke the rule, or whose base answer is missing.`;
+  const tier = thresholds.tier === undefined ? "" : ` and 1 - P(wrong) is at least ${tierPercent(thresholds.tier)} (the item's tier), where P(wrong) is the chance the changed lines break the rule`;
+  return `Settled when broken is at most ${pct("clear")}${tier} and the base question was answered and is under ${pct("already")} (the base's lines did not already break the rule). Flagged when broken is at least ${pct("flag")} and the base did not already break the rule (its answer under ${pct("already")}, or missing: then it is flagged, not hidden). Otherwise undecided: that includes a clean-looking change whose base already broke the rule, or whose base answer is missing.`;
 }
 
 /**
@@ -98,9 +103,10 @@ export function explainStandardVerdict(answers: Readonly<Record<string, JevAnswe
   if (breaks === undefined) return "Undecided: the answer about the changed lines could not be read, so nothing is settled.";
   const already = before !== undefined && before >= (thresholds.already ?? 0.5);
   const base = before === undefined ? "the base question has no answer" : `the base's lines ${already ? "already broke the rule" : "did not already break the rule"} (${pct(before)})`;
-  if (verdict === "settled") return `Settled: the changed lines are unlikely to break the rule (${pct(breaks)}) and ${base}.`;
+  if (verdict === "settled") return `Settled: the changed lines are unlikely to break the rule (${pct(breaks)}${thresholds.tier === undefined ? "" : `, within the tier of ${tierPercent(thresholds.tier)}`}) and ${base}.`;
   if (verdict === "flagged") return before === undefined ? `Flagged: the changed lines break the rule (${pct(breaks)}) and ${base}, so the violation is flagged, not hidden.` : `Flagged: the changed lines break the rule (${pct(breaks)}) and ${base}: a new violation.`;
   if (breaks >= (thresholds.flag ?? 0.5)) return `Undecided: the changed lines break the rule (${pct(breaks)}) but ${base}, so this is not a new violation; a person looks.`;
+  if (breaks <= (thresholds.clear ?? 0.1) && before !== undefined && !already && thresholds.tier !== undefined && !clearsTier(breaks, thresholds.tier)) return `Undecided: the changed lines pass the gate's own limit (${pct(breaks)}) but not the tier of ${tierPercent(thresholds.tier)}: a person looks.`;
   if (breaks <= (thresholds.clear ?? 0.1)) return before === undefined ? `Undecided: the changed lines look clean (${pct(breaks)}), but ${base}, so it cannot be settled.` : `Undecided: the changed lines look clean (${pct(breaks)}), but ${base}, and a change over a violation the base already had is never settled; a person looks.`;
   return `Undecided: the chance that the changed lines break the rule (${pct(breaks)}) is between the settle limit (${pct(thresholds.clear ?? 0.1)}) and the flag limit (${pct(thresholds.flag ?? 0.5)}).`;
 }
@@ -175,6 +181,7 @@ export const standardGate: Gate<StandardInput> = {
     }
     // Settled needs both answers. A missing or unreadable base answer is an unknown, never a "no". And a base that already broke the
     // rule is never settled, whatever the changed lines look like (they may only have moved the breach): a person looks.
-    return breaks <= (thresholds.clear ?? 0.1) && before !== undefined && !already ? "settled" : "undecided";
+    // The gate's own limits say when it may settle; the tier says how sure the settle must be.
+    return breaks <= (thresholds.clear ?? 0.1) && before !== undefined && !already && clearsTier(breaks, thresholds.tier) ? "settled" : "undecided";
   },
 };

@@ -1,6 +1,7 @@
 import { yesOf, UNREADABLE } from "./gate.ts";
 import type { Gate, Thresholds, Verdict } from "./gate.ts";
 import type { JevAnswer } from "./client.ts";
+import { clearsTier, tierPercent } from "../tier-table.ts";
 
 /**
  * The claim gate: is one claim of the description shown by the changes derived from the places
@@ -45,9 +46,13 @@ export const MAX_STATE_CHARS = 40_000;
 /**
  * The fixed starting thresholds, the one place they are written. The reviewer's tier table (a
  * later issue) replaces them. Recorded with every record, so a changed constant makes a new record.
- *   settled: shown >= `shown` and contradicted <= `contradicted`
+ *   settled: shown >= `shown` and contradicted <= `contradicted`, and, when the record carries a
+ *            `tier` (the item's tier from the reviewer's table, as a fraction: 0.999), 1 - P(wrong) >= tier,
+ *            where P(wrong) = (1 - shown) + contradicted: the claim is wrong when it is not shown or is
+ *            contradicted, and the two chances are added (the union bound: the two answers are asked apart,
+ *            so no joint chance is known, and adding them can only hold a settle back, never let one through)
  *   flagged: contradicted >= `flag`
- *   undecided: anything else
+ *   undecided: anything else, including a settle that passes the limits above and not the tier
  */
 export const CLAIM_THRESHOLDS: Thresholds = { shown: 0.9, contradicted: 0.1, flag: 0.5 };
 
@@ -59,7 +64,26 @@ export const QUESTION_LABELS: Readonly<Record<string, string>> = { shown: "Shown
 /** Says the rule in words, from the thresholds a record carries (so an old record is described by its own). */
 export function describeThresholds(thresholds: Thresholds): string {
   const pct = (name: string): string => `${Math.round((thresholds[name] ?? Number.NaN) * 100)}%`;
-  return `Settled when shown is at least ${pct("shown")} and contradicted is at most ${pct("contradicted")}. Flagged when contradicted is at least ${pct("flag")}. Otherwise undecided.`;
+  const tier = thresholds.tier === undefined ? "" : ` and 1 - P(wrong) is at least ${tierPercent(thresholds.tier)} (the item's tier), where P(wrong) is the chance it is not shown plus the chance it is contradicted`;
+  return `Settled when shown is at least ${pct("shown")} and contradicted is at most ${pct("contradicted")}${tier}. Flagged when contradicted is at least ${pct("flag")}. Otherwise undecided.`;
+}
+
+/** The chance that settling a claim is a mistake: it is not shown, or it is contradicted. */
+const wrongOf = (shown: number, contradicted: number): number => Math.min(1, 1 - shown + contradicted);
+
+/** Why a record has its verdict, from its own answers and thresholds, so a settle held back by the tier says so. */
+export function explainClaimVerdict(answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds, verdict: Verdict): string {
+  const pct = (value: number): string => `${Math.round(value * 1000) / 10}%`;
+  const shown = yesOf(answers, "shown");
+  const contradicted = yesOf(answers, "contradicted");
+  // A record from before tiers has nothing to explain beyond its own thresholds.
+  if (thresholds.tier === undefined) return "";
+  if (shown === undefined || contradicted === undefined) return "Undecided: an answer could not be read, so nothing is settled.";
+  const wrong = wrongOf(shown, contradicted);
+  const own = shown >= (thresholds.shown ?? 0.9) && contradicted <= (thresholds.contradicted ?? 0.1);
+  if (verdict === "settled") return `Settled: the chance of being wrong is ${pct(wrong)}, within the tier of ${tierPercent(thresholds.tier)}.`;
+  if (verdict === "undecided" && own && !clearsTier(wrong, thresholds.tier)) return `Undecided: the claim passes the gate's own limits but not the tier of ${tierPercent(thresholds.tier)}: the chance of being wrong is ${pct(wrong)}, so a person looks.`;
+  return "";
 }
 
 const DATA_NOTE =
@@ -123,7 +147,8 @@ export const claimGate: Gate<ClaimInput> = {
     const contradicted = yesOf(answers, "contradicted");
     if (shown === undefined || contradicted === undefined) return UNREADABLE;
     if (contradicted >= (thresholds.flag ?? 0.5)) return "flagged";
-    if (shown >= (thresholds.shown ?? 0.9) && contradicted <= (thresholds.contradicted ?? 0.1)) return "settled";
+    // The gate's own limits say when it may settle; the tier says how sure the settle must be.
+    if (shown >= (thresholds.shown ?? 0.9) && contradicted <= (thresholds.contradicted ?? 0.1) && clearsTier(wrongOf(shown, contradicted), thresholds.tier)) return "settled";
     return "undecided";
   },
 };

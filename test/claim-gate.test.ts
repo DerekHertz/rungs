@@ -14,7 +14,7 @@ import type { JudgedRecord } from "../src/jev/store.ts";
 import type { JudgeSubject } from "../src/jev/subject.ts";
 import { serve } from "../src/server.ts";
 import { collectStandards } from "../src/standards.ts";
-import { fakeClient, finishedJudged } from "./jev-fixtures.ts";
+import { fakeClient, finishedJudged, testTiers } from "./jev-fixtures.ts";
 import { createJevClient } from "../src/jev/client.ts";
 import type { JevAnswer, JevResponse } from "../src/jev/client.ts";
 
@@ -62,7 +62,7 @@ function subjectOf(claims: JudgeSubject["claims"], trees: { base: FileTree; head
   const baseGraph = extract(trees.base);
   const graph = extract(trees.head);
   const comparison = compare(baseGraph, graph, { base: trees.base, head: trees.head });
-  return { comparison, contracts: contractsMoved(comparison, baseGraph, graph), claims, baseTree: trees.base, headTree: trees.head, head: ownersOf(graph), base: ownersOf(baseGraph), standards: collectStandards({ graph: baseGraph, tree: trees.base }, trees.head) };
+  return { comparison, contracts: contractsMoved(comparison, baseGraph, graph), claims, baseTree: trees.base, headTree: trees.head, head: ownersOf(graph), base: ownersOf(baseGraph), standards: collectStandards({ graph: baseGraph, tree: trees.base }, trees.head), tiers: testTiers };
 }
 
 test("the state holds the claim, each linked place's derived facts and its changed lines, and unlinked claims are not judged", () => {
@@ -139,7 +139,7 @@ const THREE = "Adds fresh.\n- Removes stay.\n- Mentions nothing linked.\n";
 test("streets compare with judging on writes one judged record per linked claim, and none for an unlinked one", async () => {
   const dir = mkdtempSync(join(tmpdir(), "streets-claim-gate-"));
   scratch.push(dir);
-  const client = fakeClient((request) => Promise.resolve(request.state.claim?.includes("fresh") ? answer(0.97, 0.02) : answer(0.3, 0.7)));
+  const client = fakeClient((request) => Promise.resolve(request.state.claim?.includes("fresh") ? answer(0.9995, 0.0003) : answer(0.3, 0.7)));
   const judged = judgedSource({ judge: true, env: {}, baseTree: serveBase, headTree: serveHead, cacheDir: dir, client });
   const server = await serve(serveHead, 0, against, THREE, threeClaims, undefined, undefined, undefined, undefined, judged);
   servers.push(server);
@@ -148,8 +148,11 @@ test("streets compare with judging on writes one judged record per linked claim,
   const records: JudgedRecord[] = document.sets.flatMap((set) => set.records);
   expect(records.map((record) => record.about)).toEqual([{ claim: 0 }, { claim: 1 }]);
   expect(client.requests).toHaveLength(2);
-  expect(records[0]).toMatchObject({ tier: "judged", key: "claim:0", question: { id: "claim", version: "claim-v2" }, verdict: "settled", thresholds: CLAIM_THRESHOLDS, model: "fake-1", inputTokens: 1000 });
-  expect(records[0]!.answers).toEqual({ shown: yes(0.97), contradicted: yes(0.02) });
+  expect(records[0]).toMatchObject({ tier: "judged", key: "claim:0", question: { id: "claim", version: "claim-v2" }, verdict: "settled", thresholds: { ...CLAIM_THRESHOLDS, tier: 0.999 }, model: "fake-1", inputTokens: 1000 });
+  // With no stored vocabulary the stakes are unknown: the strictest tier, and the record says so.
+  expect(records[0]!.pick).toMatchObject({ percent: 99.9, rank: 0 });
+  expect(records[0]!.pick!.why.join("; ")).toMatch(/stakes: possible harm/);
+  expect(records[0]!.answers).toEqual({ shown: yes(0.9995), contradicted: yes(0.0003) });
   expect(records[0]!.shown.state.claim).toBe("Adds fresh.");
   expect(records[0]!.shown.state["place 1"]).toContain("+5: export function fresh() {");
   expect(records[1]).toMatchObject({ key: "claim:1", verdict: "flagged" });

@@ -11,6 +11,7 @@ import type { GateContext, GateRunner } from "./source.ts";
 import { judgeItems } from "./store.ts";
 import type { Item } from "./store.ts";
 import type { JudgeSubject, Owners } from "./subject.ts";
+import { withTier } from "../tier-table.ts";
 
 /** The owning file and name of every node of `graph`, read from the nodes themselves. */
 export function ownersOf(graph: Graph): Owners {
@@ -109,7 +110,9 @@ export function claimItems(subject: JudgeSubject): Item<ClaimInput>[] {
     .map((claim) => {
       const places = claim.ids.flatMap((id) => placeOf(id, subject) ?? []);
       const input: ClaimInput = { claim: claim.text, places: places.slice(0, MAX_PLACES), omittedPlaces: Math.max(0, places.length - MAX_PLACES) };
-      return { key: `claim:${claim.index}`, about: { claim: claim.index }, input };
+      // The claim's tier comes from the places it is linked to: how big and how far-reaching they changed, and what harm a mistake there could cause.
+      const pick = subject.tiers({ ids: claim.ids });
+      return { key: `claim:${claim.index}`, about: { claim: claim.index }, input, thresholds: withTier(CLAIM_THRESHOLDS, pick), pick };
     });
 }
 
