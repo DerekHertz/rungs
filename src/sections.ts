@@ -40,7 +40,7 @@ export interface FilePair {
 export const PREAMBLE = "(before the first heading)";
 
 /** The sections of one side of one file, the lines before the first heading standing as one of their own. */
-function sectionsOf(sections: readonly SectionNode[], path: string, text: string): SectionNode[] {
+export function sectionsOf(sections: readonly SectionNode[], path: string, text: string): SectionNode[] {
   const end = (sections[0]?.range.start ?? countLines(text) + 1) - 1;
   if (end < 1) return [...sections];
   const preamble: SectionNode = { id: nodeId("section", path, PREAMBLE), level: "section", path, name: PREAMBLE, heading: "", parent: nodeId("file", path, ""), headingLevel: 0, qualifiedName: PREAMBLE, range: { start: 1, end } };
