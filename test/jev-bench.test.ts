@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { formatReport, parseCases, rescore, runBench } from "../src/jev/bench.ts";
 import type { CaseFile } from "../src/jev/bench.ts";
+import { rateOf } from "../src/jev/rate.ts";
 import { fakeClient, gullibleClient, response, toyGate, toyThresholds } from "./jev-fixtures.ts";
 import type { ToyInput } from "./jev-fixtures.ts";
 
@@ -166,4 +167,22 @@ test("a re-score reads the saved decisions against the current labels, asks noth
   // A new case has no saved decision.
   const added: CaseFile<ToyInput> = { ...file, cases: [...file.cases, { id: "new", label: "good", input: { claim: "c", text: "t" } }] };
   expect(() => rescore({ gate: toyGate, file: added, previous: original, from: "old.json" })).toThrow(/new/);
+});
+
+test("a result without saved fingerprints cannot be re-scored: it refuses, naming the cases, and asks nothing", async () => {
+  const original = await runBench({ gate: toyGate, file, client: fakeClient(), thresholds: toyThresholds, repeat: true });
+  const bare = { ...original, runs: [{ ...original.runs[0], answers: undefined }, original.runs[1]] } as unknown as typeof original;
+  const relabelled: CaseFile<ToyInput> = { ...file, cases: file.cases.map((one) => (one.id === "good-2" ? { ...one, label: "broken" as const } : one)) };
+  expect(() => rescore({ gate: toyGate, file: relabelled, previous: bare, from: "old.json" })).toThrow(/good-1 \(run 1\): no saved fingerprint.*good-2 \(run 1\)/);
+});
+
+test("the cost per case is over the judgments actually asked: one run, a repeat, and none", async () => {
+  const one = await runBench({ gate: toyGate, file: noChangedBar, client: fakeClient(), thresholds: toyThresholds });
+  const two = await runBench({ gate: toyGate, file: noChangedBar, client: fakeClient(), thresholds: toyThresholds, repeat: true });
+  expect(one.asked).toBe(7);
+  expect(two.asked).toBe(14);
+  expect(rateOf(one, "r").usdPerCase).toBeCloseTo(100 * 0.042 / 1e6, 12);
+  expect(rateOf(two, "r").usdPerCase).toBeCloseTo(100 * 0.042 / 1e6, 12);
+  const reused = await runBench({ gate: toyGate, file: noChangedBar, client: fakeClient(), thresholds: toyThresholds, saved: one.runs[0].answers! });
+  expect(rateOf(reused, "r").usdPerCase).toBe(0);
 });

@@ -18,6 +18,8 @@ export interface ReportLike {
   readonly changed: readonly string[];
   readonly usd: number;
   readonly costUnknown: number;
+  /** Judgments sent to Jev to make the report; reused or re-scored answers are not counted. */
+  readonly asked?: number;
   readonly bar: readonly { readonly measure: string; readonly max: number; readonly got: number | null; readonly met: boolean }[];
   readonly blockers: readonly string[];
   readonly adopted: boolean;
@@ -52,6 +54,8 @@ export interface GateRatesDocument {
 
 /** The rate of one report; `run` names its results file. */
 export function rateOf(report: ReportLike, run: string): GateRate {
+  // Judgments actually asked; a report written before this was counted ran every case twice.
+  const judgments = report.asked ?? report.counts.cases * 2;
   return {
     gate: report.gate,
     version: report.version,
@@ -65,7 +69,7 @@ export function rateOf(report: ReportLike, run: string): GateRate {
     undecided: report.undecided.length,
     notJudged: report.notJudged.length,
     changed: report.changed.length,
-    usdPerCase: report.costUnknown > 0 || report.counts.cases === 0 ? null : report.usd / (report.counts.cases * 2),
+    usdPerCase: report.costUnknown > 0 ? null : judgments === 0 ? 0 : report.usd / judgments,
     bar: report.bar,
     blockers: report.blockers,
     adopted: report.adopted,

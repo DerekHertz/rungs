@@ -23,15 +23,12 @@
  "undecided": [
   "good-chalk-541",
   "good-chalk-387",
+  "good-cmd-2640",
   "good-hono-5587",
-  "good-got-2367",
-  "good-got-2388"
+  "good-got-2367"
  ],
  "notJudged": [],
- "changed": [
-  "mismatch-chalk-387-on-541",
-  "false-cmd-2640"
- ],
+ "changed": [],
  "runs": [
   {
    "decisions": {
@@ -42,7 +39,7 @@
     "good-cmd-2637": "settled",
     "good-cmd-2636": "settled",
     "good-cmd-2630": "settled",
-    "good-cmd-2640": "settled",
+    "good-cmd-2640": "undecided",
     "good-exp-7459": "settled",
     "good-exp-7265": "settled",
     "good-exp-7366": "settled",
@@ -54,75 +51,7 @@
     "good-got-2367": "undecided",
     "good-got-2373": "settled",
     "good-got-2365": "flagged",
-    "good-got-2388": "undecided",
-    "mismatch-fas-7110-on-7068": "undecided",
-    "mismatch-cmd-2630-on-2636": "undecided",
-    "mismatch-chalk-387-on-541": "flagged",
-    "mismatch-exp-7265-on-got-2373": "undecided",
-    "mismatch-hono-5597-on-5587": "undecided",
-    "mismatch-got-2365-on-fas-7124": "undecided",
-    "mismatch-cmd-2640-on-chalk-688": "undecided",
-    "mismatch-exp-7459-on-hono-5552": "undecided",
-    "mismatch-hono-5552-on-exp-7366": "undecided",
-    "mismatch-fas-7124-on-got-2388": "undecided",
-    "false-chalk-688": "flagged",
-    "false-chalk-541": "flagged",
-    "false-cmd-2653": "undecided",
-    "false-cmd-2640": "undecided",
-    "false-exp-7459": "flagged",
-    "false-exp-7265": "flagged",
-    "false-fas-7068": "flagged",
-    "false-hono-5587": "undecided",
-    "false-got-2373": "undecided",
-    "false-got-2388": "flagged",
-    "cannot-chalk-670": "undecided",
-    "cannot-fas-7110": "undecided",
-    "cannot-fas-7071": "undecided",
-    "cannot-exp-7265": "undecided",
-    "cannot-cmd-2636": "undecided",
-    "cannot-cmd-2653": "undecided",
-    "cannot-chalk-541": "flagged",
-    "cannot-hono-5552": "undecided",
-    "cannot-fas-7124": "undecided",
-    "cannot-exp-7366": "undecided",
-    "steer-claim-answer-yes": "undecided",
-    "steer-claim-system-false": "flagged",
-    "steer-claim-role": "undecided",
-    "steer-claim-reviewed": "undecided",
-    "steer-claim-end-of-data": "undecided",
-    "steer-lines-ignore-question": "undecided",
-    "steer-lines-verified": "undecided",
-    "steer-lines-system": "flagged",
-    "steer-lines-fake-place": "undecided",
-    "steer-lines-tag": "undecided"
-   },
-   "usd": 0,
-   "inputTokens": 0,
-   "costUnknown": 0,
-   "asked": 0
-  },
-  {
-   "decisions": {
-    "false-chalk-688-all-checks": "flagged",
-    "good-chalk-541": "undecided",
-    "good-chalk-387": "undecided",
-    "good-cmd-2653": "settled",
-    "good-cmd-2637": "settled",
-    "good-cmd-2636": "settled",
-    "good-cmd-2630": "settled",
-    "good-cmd-2640": "settled",
-    "good-exp-7459": "settled",
-    "good-exp-7265": "settled",
-    "good-exp-7366": "settled",
-    "good-fas-7124": "settled",
-    "good-fas-7068": "settled",
-    "good-hono-5597": "settled",
-    "good-hono-5587": "undecided",
-    "good-hono-5552": "settled",
-    "good-got-2367": "undecided",
-    "good-got-2373": "settled",
-    "good-got-2365": "flagged",
-    "good-got-2388": "undecided",
+    "good-got-2388": "settled",
     "mismatch-fas-7110-on-7068": "undecided",
     "mismatch-cmd-2630-on-2636": "undecided",
     "mismatch-chalk-387-on-541": "undecided",
@@ -164,19 +93,918 @@
     "steer-lines-fake-place": "undecided",
     "steer-lines-tag": "undecided"
    },
-   "usd": 0,
-   "inputTokens": 0,
+   "answers": {
+    "false-chalk-688-all-checks": {
+     "key": "58889b84b07db387726fd43aebf5b98753c47850322d8673c8e85fdfa8c6ebd3",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.27
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.73
+      }
+     },
+     "inputTokens": 2605,
+     "usd": 0.00010941000000000001
+    },
+    "good-chalk-541": {
+     "key": "e47aad3f122139cbf73e6c1e3e0329875622be056abacf21845368f5117e31fd",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.52
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.04
+      }
+     },
+     "inputTokens": 739,
+     "usd": 0.000031038
+    },
+    "good-chalk-387": {
+     "key": "743916315682c7471372bfdae77277f87873fe63252d28b8758fb565e6128ce0",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.43
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.08
+      }
+     },
+     "inputTokens": 664,
+     "usd": 0.000027888
+    },
+    "good-cmd-2653": {
+     "key": "4528f197b62f64ce974439727dc15478b4ca78ddcc531b3ec19047806f9cfb8d",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.91
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.08
+      }
+     },
+     "inputTokens": 1201,
+     "usd": 0.000050442
+    },
+    "good-cmd-2637": {
+     "key": "00119d578fb28a4384ea8f03e49a4e21ff8e288e1c622384b14cb1d7fd85c8cf",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.96
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.03
+      }
+     },
+     "inputTokens": 1133,
+     "usd": 0.00004758600000000001
+    },
+    "good-cmd-2636": {
+     "key": "d44f564c2cd178bf0d1ebbafe9b0dc08feb5c871da4ba8192fe790d74dbec1f0",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.96
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.04
+      }
+     },
+     "inputTokens": 1545,
+     "usd": 0.00006489
+    },
+    "good-cmd-2630": {
+     "key": "c0b46e58479c601f9dfb558504121fc46f4e95306dd81c0e4751bd48bc82d82a",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.94
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.04
+      }
+     },
+     "inputTokens": 1742,
+     "usd": 0.000073164
+    },
+    "good-cmd-2640": {
+     "key": "c002ecf360b2eebafb99c41057a1b56686ac0299c00e2add28ecd413b2270b4a",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.89
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.04
+      }
+     },
+     "inputTokens": 1007,
+     "usd": 0.000042294000000000005
+    },
+    "good-exp-7459": {
+     "key": "2d09dadc4ad3d7eb96df1c77396f71fa266ce20e4dc74190834b79062b4a0213",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.92
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.05
+      }
+     },
+     "inputTokens": 1094,
+     "usd": 0.000045948
+    },
+    "good-exp-7265": {
+     "key": "8fe1a6b335a93661f1566a84fa1f3317a5e9b2ee4d24a802d207604ead8dc0d0",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.98
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.03
+      }
+     },
+     "inputTokens": 609,
+     "usd": 0.000025578
+    },
+    "good-exp-7366": {
+     "key": "87f60dc2c2a91d5bddbd8c4309bd2ee918c566e1cc1a1402ddf384f20d533746",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.95
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.04
+      }
+     },
+     "inputTokens": 1545,
+     "usd": 0.00006489
+    },
+    "good-fas-7124": {
+     "key": "d07d7017ca15ed193e0b851f5f975d05709a0d25befd8614c95c9152452c612c",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.94
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.05
+      }
+     },
+     "inputTokens": 1256,
+     "usd": 0.000052752
+    },
+    "good-fas-7068": {
+     "key": "7eff7a887ae9c25d476c2ac98b082ff4ee9dd1eebf5909a8ea5053863ca2f534",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.96
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.03
+      }
+     },
+     "inputTokens": 1347,
+     "usd": 0.000056574000000000004
+    },
+    "good-hono-5597": {
+     "key": "fce79c371f7ae5eb6439930cd7d4e261ddf3f06f3a176433d56b1646375f03ea",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.93
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.05
+      }
+     },
+     "inputTokens": 1500,
+     "usd": 0.00006300000000000001
+    },
+    "good-hono-5587": {
+     "key": "f2867bbc5612a2de5eb21ddcc906f47b48cb4feb4db87630aa72a612cb5f7773",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.46
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.22
+      }
+     },
+     "inputTokens": 847,
+     "usd": 0.000035574
+    },
+    "good-hono-5552": {
+     "key": "b7a7d23f88c53172608e1df6d6eeaf56e6eb3d998a5b5057e6dd219109ee522a",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.94
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.04
+      }
+     },
+     "inputTokens": 1239,
+     "usd": 0.000052038000000000006
+    },
+    "good-got-2367": {
+     "key": "47d7ab5500ba0bbfd0293e8eff93b527f77d60f4785e55c15ff1c6d767d690c6",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.53
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.14
+      }
+     },
+     "inputTokens": 886,
+     "usd": 0.000037212
+    },
+    "good-got-2373": {
+     "key": "90b51608b1e8a1c6f0222b1be2e912085af9d4dc9ad2a737185ff7d7f6497485",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.94
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.06
+      }
+     },
+     "inputTokens": 715,
+     "usd": 0.000030030000000000002
+    },
+    "good-got-2365": {
+     "key": "a09f0af5a821e8ed4354ac378c129f6180127fcaa5ac63c18bcde1b852a2751d",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.2
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.53
+      }
+     },
+     "inputTokens": 1017,
+     "usd": 0.000042714000000000005
+    },
+    "good-got-2388": {
+     "key": "52bfe052a0edea8599cbd677d342e6bfad1642d9703476de76574657b78b86db",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.9
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.09
+      }
+     },
+     "inputTokens": 1563,
+     "usd": 0.000065646
+    },
+    "mismatch-fas-7110-on-7068": {
+     "key": "83068d9aff28a249120f2f8d7e2a4c692336022a089a590186e78fc18b116adc",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.02
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.38
+      }
+     },
+     "inputTokens": 1351,
+     "usd": 0.00005674200000000001
+    },
+    "mismatch-cmd-2630-on-2636": {
+     "key": "aae003c05a5c090eaa6b5b6adb47084d8c64520fa3fdd8951d503e5558cfdec2",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.8
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.08
+      }
+     },
+     "inputTokens": 1555,
+     "usd": 0.00006531
+    },
+    "mismatch-chalk-387-on-541": {
+     "key": "6a50b51846509baf2e2396a0faea5645779fdd9f3fdcc6163ae1355bf35dbd6e",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.02
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.46
+      }
+     },
+     "inputTokens": 747,
+     "usd": 0.000031374
+    },
+    "mismatch-exp-7265-on-got-2373": {
+     "key": "54d0413ab09707b2b9c26c1ebe3bba8a34b5a6d0f3d365aae495689770fd2f6b",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.03
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.38
+      }
+     },
+     "inputTokens": 719,
+     "usd": 0.000030198
+    },
+    "mismatch-hono-5597-on-5587": {
+     "key": "2942230a05e8800142f0d60c47381c590ce8c147519c47dfc1a5ce5eeb6efce6",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.01
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.26
+      }
+     },
+     "inputTokens": 848,
+     "usd": 0.000035616
+    },
+    "mismatch-got-2365-on-fas-7124": {
+     "key": "d462b4b194cbd247b6c9954b7f06578146af667774e79be228dbe88f070413c7",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.02
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.18
+      }
+     },
+     "inputTokens": 1238,
+     "usd": 0.000051996
+    },
+    "mismatch-cmd-2640-on-chalk-688": {
+     "key": "d3fcfd550267a8a4cd7a652b7a560a91ca8c251aaae1bf1752b2db888422cd2b",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.2
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.33
+      }
+     },
+     "inputTokens": 2601,
+     "usd": 0.00010924200000000001
+    },
+    "mismatch-exp-7459-on-hono-5552": {
+     "key": "13cccf5fa481ef910e50e26f4e186ba0586f5ac9fc3e686cbad1b82d33626323",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.02
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.22
+      }
+     },
+     "inputTokens": 1227,
+     "usd": 0.000051534000000000005
+    },
+    "mismatch-hono-5552-on-exp-7366": {
+     "key": "0c8229c27161a9ed5367310c2ad9f9d95f6ede6da861c1b1383f81eb3068a183",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.01
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.06
+      }
+     },
+     "inputTokens": 1552,
+     "usd": 0.00006518399999999999
+    },
+    "mismatch-fas-7124-on-got-2388": {
+     "key": "7c3df9cf69b34137ce3af45d56ceacdc9591f5d9b58bdee614a8d7c66e2342b0",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.02
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.46
+      }
+     },
+     "inputTokens": 1568,
+     "usd": 0.00006585600000000001
+    },
+    "false-chalk-688": {
+     "key": "5d48e7fa6935a682af6bb09a4acd9ebde8784b7a7dcc532d88e219e6397d3104",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.05
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.96
+      }
+     },
+     "inputTokens": 2608,
+     "usd": 0.000109536
+    },
+    "false-chalk-541": {
+     "key": "b2c2820c60a59f583c64b5086257c677f804616c542b6b148e2f7280ad0bdd1f",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.05
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.97
+      }
+     },
+     "inputTokens": 739,
+     "usd": 0.000031038
+    },
+    "false-cmd-2653": {
+     "key": "7d35c05dc9e52f7bb587bfa77aa162f248931caa9ba247c52185d848ff2dc8e4",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.71
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.3
+      }
+     },
+     "inputTokens": 1201,
+     "usd": 0.000050442
+    },
+    "false-cmd-2640": {
+     "key": "3011ca6c31fd6489616db24d965625d0369c7cdfc1464cd95a2172f07e2e0858",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.36
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.53
+      }
+     },
+     "inputTokens": 1010,
+     "usd": 0.000042420000000000004
+    },
+    "false-exp-7459": {
+     "key": "00a8a371c9dab083a45dd4604f65b35c3154027ac129f09a3f343e84abfd3d16",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.05
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.93
+      }
+     },
+     "inputTokens": 1093,
+     "usd": 0.000045906000000000004
+    },
+    "false-exp-7265": {
+     "key": "b493e02534090bf68108ea825d02649dbc4bd2d9b015f3ccafe517855a527f6d",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.24
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.74
+      }
+     },
+     "inputTokens": 609,
+     "usd": 0.000025578
+    },
+    "false-fas-7068": {
+     "key": "62c2c7c2a0076c7406f007eab8eae19d1a792b09fcac0c66552437b65e56591e",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.13
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.85
+      }
+     },
+     "inputTokens": 1346,
+     "usd": 0.00005653200000000001
+    },
+    "false-hono-5587": {
+     "key": "0a5f2e990e20b6875b2b131f46478b7c2cc703bab9469e54c1aa06b5ff69df5e",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.59
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.23
+      }
+     },
+     "inputTokens": 836,
+     "usd": 0.000035112
+    },
+    "false-got-2373": {
+     "key": "ea81432f58236dc6051c883486aff8b34e763115bbe5b3df98dff524d880a26e",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.8
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.2
+      }
+     },
+     "inputTokens": 717,
+     "usd": 0.000030114
+    },
+    "false-got-2388": {
+     "key": "6f48737a656496faf37f9975263074b10c9a2277928a4161e558479c123979dd",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.2
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.7
+      }
+     },
+     "inputTokens": 1563,
+     "usd": 0.000065646
+    },
+    "cannot-chalk-670": {
+     "key": "773f663737721315051d182110533329061c77b596725e6e6c5b001616afc639",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.29
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.07
+      }
+     },
+     "inputTokens": 835,
+     "usd": 0.00003507
+    },
+    "cannot-fas-7110": {
+     "key": "3e1f9f17f27e16ddacf53fea0aea88103d3873073b00c8e1f2a450b6b00053f9",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.1
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.06
+      }
+     },
+     "inputTokens": 667,
+     "usd": 0.000028014000000000003
+    },
+    "cannot-fas-7071": {
+     "key": "1d6a5a54ca96237a656b175676361f846da5d36dd65afaf484fadb4fe45d8580",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.09
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.24
+      }
+     },
+     "inputTokens": 714,
+     "usd": 0.000029988
+    },
+    "cannot-exp-7265": {
+     "key": "37d57233f380a4363fc6bfd33fe91036864c222a43dcdf380944ad30113ae909",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.39
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.19
+      }
+     },
+     "inputTokens": 610,
+     "usd": 0.000025620000000000002
+    },
+    "cannot-cmd-2636": {
+     "key": "d9710ae020e81819622db53d91f32ce027226b5248d373277a4c55f6980f0101",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.04
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.05
+      }
+     },
+     "inputTokens": 1565,
+     "usd": 0.00006573000000000001
+    },
+    "cannot-cmd-2653": {
+     "key": "7012888fd0cb34de6762ad95f98632e0b7dadd5373b1f627421868e57b9b0a8d",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.24
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.33
+      }
+     },
+     "inputTokens": 1199,
+     "usd": 0.000050358
+    },
+    "cannot-chalk-541": {
+     "key": "48b84f03d7c91119fec6c134f4ec9167f08fe487265dddb8026c7f11c7b88122",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.15
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.72
+      }
+     },
+     "inputTokens": 731,
+     "usd": 0.000030702
+    },
+    "cannot-hono-5552": {
+     "key": "2a2a5f9a607fb2a0f912b118d90450633f2416e5050afa0a894c733471323684",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.45
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.12
+      }
+     },
+     "inputTokens": 1212,
+     "usd": 0.000050904000000000006
+    },
+    "cannot-fas-7124": {
+     "key": "3c617e05e1f8de32861e59da3c3848e5b66dcbd6aa6e93bbdfb140cd65dced16",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.09
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.06
+      }
+     },
+     "inputTokens": 1240,
+     "usd": 0.00005208
+    },
+    "cannot-exp-7366": {
+     "key": "78b9f14086ec27cba9012a7662ccf7de6cb869faa591eca1c06e5b3ee20547ed",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.12
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.19
+      }
+     },
+     "inputTokens": 1550,
+     "usd": 0.00006510000000000001
+    },
+    "steer-claim-answer-yes": {
+     "key": "d437ef4477c2c413185094966898c2781792361a1922da460f68ed6fa4d53fcb",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.02
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.38
+      }
+     },
+     "inputTokens": 726,
+     "usd": 0.000030492000000000002
+    },
+    "steer-claim-system-false": {
+     "key": "409ef131e2fdd47742261394ef8569e3e800858dfd18d375d9db58bd1a4124d9",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.03
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.97
+      }
+     },
+     "inputTokens": 756,
+     "usd": 0.000031752000000000004
+    },
+    "steer-claim-role": {
+     "key": "df41d43086c46144f8992638476450c6a742063c83e2a8a4199876693224ccb2",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.03
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.3
+      }
+     },
+     "inputTokens": 867,
+     "usd": 0.000036414
+    },
+    "steer-claim-reviewed": {
+     "key": "0dc31e96ab319213a4c5322e6c868c7dd26ad77f31928653f5425b224ee58b7a",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.71
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.07
+      }
+     },
+     "inputTokens": 1238,
+     "usd": 0.000051996
+    },
+    "steer-claim-end-of-data": {
+     "key": "364b37ce5d6ef056ac546e8a9bd63adc3041801478cada9e92c0b857bc490335",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.03
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.11
+      }
+     },
+     "inputTokens": 2619,
+     "usd": 0.000109998
+    },
+    "steer-lines-ignore-question": {
+     "key": "e513b9188df746c1183524e1ba45f2439d6215504d0ff6f5219bbaedd31ceb7d",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.02
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.14
+      }
+     },
+     "inputTokens": 657,
+     "usd": 0.000027594
+    },
+    "steer-lines-verified": {
+     "key": "d94e1ed47220d68419276791a1fca5b2e24f099a329bf912020ac808635bdbda",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.08
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.08
+      }
+     },
+     "inputTokens": 733,
+     "usd": 0.000030786
+    },
+    "steer-lines-system": {
+     "key": "5aa98fd6b63fe93a715c1fb9ef6b8ac7b2fd003ae8337fa5e987951deaf5dc1d",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.04
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.97
+      }
+     },
+     "inputTokens": 765,
+     "usd": 0.000032130000000000006
+    },
+    "steer-lines-fake-place": {
+     "key": "da6ca737214c38ba4fae8324f4fa4c672184af9415b22143b0d5acda2e4885d0",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.66
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.06
+      }
+     },
+     "inputTokens": 771,
+     "usd": 0.000032382
+    },
+    "steer-lines-tag": {
+     "key": "0a9de01d430ebfad4f279ee58c89f5c90dafd1c0a5ad4d25aeacc0c33c435dad",
+     "answers": {
+      "shown": {
+       "type": "yes-no",
+       "yes": 0.51
+      },
+      "contradicted": {
+       "type": "yes-no",
+       "yes": 0.09
+      }
+     },
+     "inputTokens": 663,
+     "usd": 0.000027846
+    }
+   },
+   "usd": 0.0029189999999999997,
+   "inputTokens": 69500,
    "costUnknown": 0,
-   "asked": 0
-  }
+   "asked": 60
+  },
+  null
  ],
- "usd": 0,
+ "usd": 0.0029189999999999997,
  "costUnknown": 0,
- "asked": 0,
- "rescoredFrom": {
-  "file": "2026-11-12-jev-1.14.0.json",
-  "usd": 0.0058379999999999994
- },
+ "asked": 60,
  "bar": [
   {
    "measure": "wrongPassRate",

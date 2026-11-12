@@ -281,31 +281,35 @@ export async function runBench<Input>(request: { gate: Gate<Input>; file: CaseFi
 /**
  * Scores an earlier report's saved decisions against the cases' current labels: no call to Jev,
  * so nothing is asked and nothing is spent. Both runs' decisions are reused as they were. The
- * cases must be the same ones, and the report's gate version must be the gate's (a case renamed
- * since carries its old id in `formerId`). The answers of the old runs are kept when it has them.
+ * cases must be the same ones, the report's gate version must be the gate's, and every case must have a saved fingerprint that still matches (a case renamed since carries its old id in `formerId`); otherwise it refuses, naming the cases.
  */
 export function rescore<Input>(request: { gate: Gate<Input>; file: CaseFile<Input>; previous: BenchReport; from: string }): BenchReport {
   const { gate, file, previous, from } = request;
   if (file.gate !== gate.id || previous.gate !== gate.id) throw new Error(`cases and result must be for gate "${gate.id}"`);
   if (previous.version !== gate.version) throw new Error(`the result is for ${previous.version}, not ${gate.version}: its answers are not this gate's`);
-  const old = (run: RunResult): RunResult => {
+  const refused: string[] = [];
+  const old = (run: RunResult, which: number): RunResult => {
     const decisions: Record<string, Decision> = Object.create(null) as Record<string, Decision>;
     const answers: Record<string, SavedAnswer> = Object.create(null) as Record<string, SavedAnswer>;
     for (const one of file.cases) {
       const was = run.decisions[one.id] === undefined && one.formerId !== undefined ? one.formerId : one.id;
       const decision = run.decisions[was];
-      if (decision === undefined) throw new Error(`case "${one.id}" has no saved decision in ${from}: it is a new case, so it must be asked`);
-      decisions[one.id] = decision;
       const saved = run.answers?.[was];
-      if (saved !== undefined) {
-        // The saved answer is only this case's if what Jev was shown is unchanged.
-        if (saved.key !== answerKey(gate, one.input, previous.thresholds, previous.model)) throw new Error(`case "${one.id}" is not what ${from} was asked: its state, the question version, thresholds or model changed, so it must be asked`);
+      // A decision is only this case's if the result kept what Jev was shown (a fingerprint) and it still matches.
+      if (decision === undefined) refused.push(`${one.id} (run ${which}): no saved decision, a new case`);
+      else if (saved === undefined) refused.push(`${one.id} (run ${which}): no saved fingerprint`);
+      else if (saved.key !== answerKey(gate, one.input, previous.thresholds, previous.model)) refused.push(`${one.id} (run ${which}): its state, question version, thresholds or model changed`);
+      else {
+        decisions[one.id] = decision;
         answers[one.id] = saved;
       }
     }
-    return { decisions, ...(Object.keys(answers).length === 0 ? {} : { answers }), usd: 0, inputTokens: 0, costUnknown: 0, asked: 0 };
+    return { decisions, answers, usd: 0, inputTokens: 0, costUnknown: 0, asked: 0 };
   };
-  const runs: [RunResult, RunResult | null] = [old(previous.runs[0]), previous.runs[1] === null ? null : old(previous.runs[1])];
+  const first = old(previous.runs[0], 1);
+  const second = previous.runs[1] === null ? null : old(previous.runs[1], 2);
+  if (refused.length > 0) throw new Error(`cannot re-score ${from} without asking Jev: ${refused.join('; ')}. These cases must be asked.`);
+  const runs: [RunResult, RunResult | null] = [first, second];
   return score({ gate, file: file as CaseFile<unknown>, model: previous.model, thresholds: previous.thresholds, runs, rescoredFrom: { file: from, usd: previous.rescoredFrom?.usd ?? previous.usd } });
 }
 
