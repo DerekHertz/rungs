@@ -69,6 +69,7 @@ export function hoverFacts({ nodes, ghostFiles, lots, picture, importance, waysI
     const unknown = [...nodes.values()].filter((node) => node.level === "file" && node.analysis === "not fully read" && node.id !== file.id && !ids.includes(node.id)).length;
     return [
       above.length === 0 && unknown === 0 ? "importance: nothing rests on it" : `importance: ${restsOnIt(above.length, unknown)}`,
+      ...(lots().get(file.id)?.plinthAtLeast ? ["plinth: drawn as at least this tall (dashed outline); how much taller is unknown"] : []),
       ...above.slice(0, TOOLTIP_FILES).map((path) => `  ${path}`),
       ...(above.length > TOOLTIP_FILES ? [`  and ${above.length - TOOLTIP_FILES} more: click the building for the full list`] : []),
       ...(way === undefined ? [] : [`way in: ${way.reasons.join(", ")}`]),

@@ -100,6 +100,21 @@ export function unknownRestOf(graph: Graph, file: NodeId, known: Iterable<NodeId
   return graph.nodes.flatMap((node) => (node.level === "file" && node.analysis === "not fully read" && !counted.has(node.id) && !paths.has(node.path) ? [node.id] : []));
 }
 
+/**
+ * The files whose plinth could be taller than the known edges make it, each with the unread files
+ * that may import it (`unknownRestOf`, given the `rests` already counted). A file no adapter reads
+ * is never imported, so it has none. The known height is not touched: this only says it is a floor.
+ */
+export function plinthUnknownOf(graph: Graph, rests: ReadonlyMap<NodeId, readonly NodeId[]>): Map<NodeId, NodeId[]> {
+  const marked = new Map<NodeId, NodeId[]>();
+  for (const node of graph.nodes) {
+    if (node.level !== "file" || node.analysis === "not analysed") continue;
+    const unread = unknownRestOf(graph, node.id, rests.get(node.id) ?? []);
+    if (unread.length > 0) marked.set(node.id, unread);
+  }
+  return marked;
+}
+
 /** The files that rest on `file` through the names `of` it, or through any name when `of` is "all". Never the file itself. */
 export type ExportRadius = (file: NodeId, of: readonly string[] | "all") => NodeId[];
 

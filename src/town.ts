@@ -1,7 +1,7 @@
 import type { Comparison } from "./compare.ts";
 import { resourcesOf } from "./graph.ts";
 import type { ContainerNode, FileNode, Graph, ModuleNode, NodeId, ResourceKind, Role } from "./graph.ts";
-import { importanceOf, possiblyReachedFrom, reachedFrom } from "./importance.ts";
+import { importanceOf, plinthUnknownOf, possiblyReachedFrom, reachedFrom } from "./importance.ts";
 import type { WayIn } from "./importance.ts";
 
 /*
@@ -142,6 +142,8 @@ export interface Lot {
   /** The plinth's sprite, none for a file nothing rests on, and how far the building is raised by it. */
   readonly plinth: string | undefined;
   readonly raise: number;
+  /** How many unread files may import this file: its plinth is drawn as at least this tall when above 0, and the height itself is never changed. */
+  readonly plinthAtLeast: number;
   /** Why the repo declares this file a way in; empty for any other file. */
   readonly wayIn: readonly string[];
   /** A non-test way in: it has a gate. */
@@ -383,6 +385,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
   const { graph, ghosts } = comparison === null ? { graph: head, ghosts: new Set<NodeId>() } : withGhosts(head, comparison);
   // Importance and reach are the head's alone: a ghost has no place in them.
   const rests = importanceOf(head);
+  const mayRise = plinthUnknownOf(head, rests);
   const fromWays = reachedFrom(head, waysIn.map((way) => way.id));
   const maybeFromWays = possiblyReachedFrom(head, waysIn.map((way) => way.id));
   const wayById = new Map(waysIn.map((way) => [way.id, way]));
@@ -618,6 +621,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
       restsOn,
       plinth: plinthStep === 0 ? undefined : `plinth-${plinthStep}`,
       raise: plinthStep === 0 ? 0 : PLINTH_HEIGHTS[plinthStep - 1]!,
+      plinthAtLeast: gone ? 0 : (mayRise.get(file.id) ?? []).length,
       wayIn: way?.reasons ?? [],
       gate: way !== undefined && file.role !== "tests" && sprites.has("gate"),
       reached: ghosts.has(file.id) || fromWays.has(file.id),

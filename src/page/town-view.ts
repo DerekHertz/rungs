@@ -7,7 +7,7 @@ import type { Reach } from "../reach.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
 import { EFFECT_COLOR } from "./palette.ts";
-import { UNREAD_EDGE, paintUnread } from "./unread-look.ts";
+import { UNREAD_EDGE, paintAtLeast, paintUnread } from "./unread-look.ts";
 
 /*
  * Draws a Town on a 2D canvas from the sprite sheet: every thing standing in the picture is a
@@ -121,7 +121,7 @@ const CLICK_SLOP = 4;
 const FLIGHT_MS = 260;
 
 /** Which sprite of a lot this is: the building (or rubble), or a mark standing on it. */
-type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag" | "test-flag" | "call-mast";
+type Part = "building" | "plinth" | "gate" | "scaffold" | "crane" | "moved-sign" | "flag" | "test-flag" | "call-mast" | "at-least";
 
 type Thing =
   | { readonly kind: "lot"; readonly lot: Lot; readonly part: Part; readonly sprite: string; readonly X: number; readonly Y: number; readonly Z: number; readonly key: number }
@@ -499,7 +499,11 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       // Lit buildings wait for a last pass, so nothing faded or named is drawn over them.
       if (isLit(thing)) continue;
       ctx.globalAlpha = dimming ? 0.4 : 1;
-      paintUnread(ctx, thing.kind === "lot" && thing.part === "building" && thing.lot.unread, () => drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z));
+      if (thing.kind === "lot" && thing.part === "at-least") {
+        // The top of the stone as it stands (the ground where none does): the plinth sprite is 3.4 wide.
+        const half = 1.7;
+        paintAtLeast(ctx, [groundScreen(thing.X - half, thing.Y - half, thing.Z), groundScreen(thing.X + half, thing.Y - half, thing.Z), groundScreen(thing.X + half, thing.Y + half, thing.Z), groundScreen(thing.X - half, thing.Y + half, thing.Z)], Math.max(2, Math.round(2 * dpr * Math.min(camera.zoom, 1.5))));
+      } else paintUnread(ctx, thing.kind === "lot" && thing.part === "building" && thing.lot.unread, () => drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z));
       if (thing.kind === "lot" && thing.part === "moved-sign" && thing.lot.movedTo !== null) boardText(thing.lot.movedTo.path, thing.X, thing.Y);
       ctx.globalAlpha = 1;
     }
@@ -767,6 +771,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
           const mark = (part: Part, sprite: string, X: number, Y: number, bias: number, Z = 0): Thing => ({ kind: "lot", lot, part, sprite, X, Y, Z, key: X - Y + bias });
           return [
             ...(lot.plinth === undefined ? [] : [mark("plinth", lot.plinth, lot.X, lot.Y, -0.05)]),
+            ...(lot.plinthAtLeast > 0 ? [mark("at-least", "", lot.X, lot.Y, -0.04, lot.raise)] : []),
             mark("building", lot.sprite, lot.X, lot.Y, 0, lot.raise),
             ...(lot.overlay === null ? [] : [mark("scaffold", lot.overlay, lot.X, lot.Y, 0.01, lot.raise)]),
             ...(lot.gate ? [mark("gate", "gate", lot.X, lot.Y - GATE_FRONT, 0)] : []),
