@@ -25,6 +25,14 @@ describe("which plinths are drawn as at least this tall", () => {
     expect(marked.has(idOf(graph, "README.md"))).toBe(false);
   });
 
+  test("two unread files do not mark each other: an unread file has its own look", () => {
+    const graph = extract(tree({ "entry.ts": "export const e = 1;\n", "a.ts": "export const x = (;\n", "b.ts": "export const x = (;\n" }));
+    const marked = plinthUnknownOf(graph, importanceOf(graph));
+    expect(marked.has(idOf(graph, "a.ts"))).toBe(false);
+    expect(marked.has(idOf(graph, "b.ts"))).toBe(false);
+    expect(marked.get(idOf(graph, "entry.ts"))).toEqual([idOf(graph, "a.ts"), idOf(graph, "b.ts")].sort());
+  });
+
   test("no unread file anywhere: no mark", () => {
     const graph = extract(tree({ "entry.ts": 'import "./lib.ts";\n', "lib.ts": "export const l = 1;\n" }));
     expect(plinthUnknownOf(graph, importanceOf(graph)).size).toBe(0);
