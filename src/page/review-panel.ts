@@ -11,7 +11,8 @@ import { MEMBER_CAP, memberTally } from "../type-change.ts";
 import { qualifyUnread, claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
 import type { ContractRow, ContractsReport, DependencyReview, DependencyRow, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { LineRange, NodeId } from "../graph.ts";
-import { observedAbout, observedBody, observedNote } from "./observed-panel.ts";
+import { observedBody } from "./observed-panel.ts";
+import { observedAbout, observedNote } from "../observed-text.ts";
 import type { ObservedInput } from "./observed-panel.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import { testChangesBlock } from "./test-changes-panel.ts";
@@ -901,7 +902,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     ["Claims", linkNote(input.link)],
     ...(input.walkAbout === undefined ? [] : ([["Walkthrough", input.walkAbout]] as [string, string][])),
     ["Unmentioned", "A change counts as mentioned when its path or name appears in the description (a dependency by its name); a Markdown section when its heading, or an enclosing heading, appears as a whole phrase, ignoring case. One only an agent links to the module or its file stays in the count as linked by the agent only; an agent's link to a folder covers none of its files. A lockfile change is listed under the dependency changes it follows. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
-    ...(observedNow === null ? [] : observedAbout(observedNow))
+    ...(observedNow === null ? [] : observedAbout(observedNow.document))
   ];
   const fillAbout = (): void => {
     aboutBody.replaceChildren(...aboutNotes().flatMap(([title, text]) => [element("h3", "review-subtitle", title), element("p", "rv-note", text)]));

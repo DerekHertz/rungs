@@ -1,4 +1,5 @@
 import type { ContractMoveKind } from "./compare.ts";
+import { leftoverRunning } from "./leftover.ts";
 import { runningText, verdictParts } from "./observed-types.ts";
 import type { ObservedDocument } from "./observed-types.ts";
 import { signatureDiff } from "./review.ts";
@@ -218,7 +219,7 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
       const total = pass + fail + skip;
       const { control } = observed;
       // With a control run the counts are the verdicts': a test skipped on a side, one-sided or named twice is not a pass.
-      const verdicts = control.status === "ran" ? verdictParts(control.counts) : [];
+      const verdicts = control.status === "ran" ? verdictParts(control.counts, control.notComparedFailures) : [];
       const failed = control.status !== "ran" ? `${fail} fail of ${total} (no control run)` : `${verdicts.join(" · ")} of ${total}`;
       run =
         total === 0
@@ -233,6 +234,10 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
     } else if (observed.status === "unreliable") run = "results unreliable";
     else if (observed.status === "failed") run = "run failed";
     else run = "not run";
+    // A process that may still be running, or leftovers nobody looked for, is said on the row itself.
+    const leftover = observed.status === "ran" || observed.status === "failed" || observed.status === "unreliable" ? observed.leftover : undefined;
+    if (leftover !== undefined && leftoverRunning(leftover)) run = `${run} · a process left running`;
+    else if (leftover?.notChecked !== undefined) run = `${run} · leftovers not checked`;
   }
   return [run, changes].filter((part) => part !== "").join(" · ");
 }

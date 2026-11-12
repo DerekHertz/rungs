@@ -32,7 +32,7 @@ const ran = (over: Partial<Extract<ObservedDocument, { status: "ran" }>> = {}): 
   deleted: [],
   edited: [],
   written: null,
-  control: { status: "ran", seconds: 1, counts: { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 0 }, baseOnly: [] },
+  control: { status: "ran", seconds: 1, counts: { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 0 }, notComparedFailures: 0, baseOnly: [] },
   ...over,
 });
 const at = (ids: string[], document: ObservedDocument | null, changes = none) => observedAt(stop(...ids), graph, comparison, document, changes);

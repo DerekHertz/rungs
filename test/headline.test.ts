@@ -112,3 +112,13 @@ test("a test file that left test discovery but still exists is counted apart, ne
   expect(line).toContain("tests in deleted files: 4");
   expect(line).toContain("tests moved out of test discovery: 2");
 });
+
+test("while a head failure is not compared the part never says no regressions flat: it says none was found and how many failures were not compared", () => {
+  const counts = { ...nothing, unclear: 1 };
+  const line = headline(none, noTests, ran(0, 1, { status: "ran", seconds: 1, counts, notComparedFailures: 1, baseOnly: [] }));
+  expect(line).toContain("main's tests: no regression found, 1 failure not compared");
+  expect(line).not.toContain("no regressions");
+  expect(headline(none, noTests, ran(0, 2, { status: "ran", seconds: 1, counts: { ...nothing, "head only": 2 }, notComparedFailures: 2, baseOnly: [] }))).toContain("no regression found, 2 failures not compared");
+  // A real regression is said as it was.
+  expect(headline(none, noTests, ran(0, 2, { status: "ran", seconds: 1, counts: { ...nothing, regression: 1, unclear: 1 }, notComparedFailures: 1, baseOnly: [] }))).toContain("1 regression");
+});

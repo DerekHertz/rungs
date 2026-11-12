@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { chooseIsolation, detectSandbox, runIsolated } from "../src/sandbox.ts";
-import type { Isolation, Places, Step } from "../src/sandbox.ts";
+import type { Isolation, Places, ProcessTable, Step } from "../src/sandbox.ts";
 
 const SECRET = "streets-probe-secret-value";
 const outsideFile = fileURLToPath(import.meta.url);
@@ -162,7 +162,9 @@ for (const isolation of [bwrap, unsandboxed]) {
       ],
       ...limits,
     });
-    expect(run.steps).toEqual([{ exitCode: 3, timedOut: false, truncated: false, ms: expect.any(Number), output: "one\ntwo\n" }]);
+    // Outside bwrap a step is checked for what it left behind, and found nothing; in bwrap there is nothing to check.
+    const checked = isolation.kind === "bwrap" ? {} : { leftover: { strays: [], more: 0, held: false } };
+    expect(run.steps).toEqual([{ exitCode: 3, timedOut: false, truncated: false, ms: expect.any(Number), output: "one\ntwo\n", ...checked }]);
   });
 
   test(`${isolation.kind}: files the run writes to its out folder are collected, capped in size`, async () => {
@@ -319,8 +321,8 @@ test("unsandboxed: a process a step leaves behind holding its output is killed a
     outputBytes: 1024,
   });
   expect(Date.now() - started).toBeLessThan(10_000);
-  expect(run.steps[0]).toMatchObject({ exitCode: 0, timedOut: false, leftover: "1 process outlived the step and was killed" });
-  expect(run.steps[1]).toEqual({ exitCode: 0, timedOut: false, truncated: false, ms: expect.any(Number), output: "next\n" });
+  expect(run.steps[0]).toMatchObject({ exitCode: 0, timedOut: false, leftover: { strays: [{ pid: Number(run.steps[0]?.output), name: "node", killed: true }], more: 0, held: false } });
+  expect(run.steps[1]).toEqual({ exitCode: 0, timedOut: false, truncated: false, ms: expect.any(Number), output: "next\n", leftover: { strays: [], more: 0, held: false } });
   expect(await gone(Number(run.steps[0]?.output))).toBe(true);
   expect(existsSync(run.root)).toBe(false);
 });
@@ -338,8 +340,8 @@ test("unsandboxed: a step past the limit with a process left behind is a timeout
     outputBytes: 1024,
   });
   expect(Date.now() - started).toBeLessThan(10_000);
-  expect(run.steps[0]).toMatchObject({ exitCode: null, timedOut: true, leftover: "1 process outlived the step and was killed" });
   const pid = Number(run.steps[0]?.output);
+  expect(run.steps[0]).toMatchObject({ exitCode: null, timedOut: true, leftover: { strays: [{ pid, name: "sleep", killed: true }], held: false } });
   expect(pid).toBeGreaterThan(0);
   expect(await gone(pid)).toBe(true);
   expect(existsSync(run.root)).toBe(false);
@@ -357,7 +359,7 @@ test("unsandboxed: a left-behind process that hid itself still cannot hold the r
   const pid = Number(run.steps[0]?.output);
   try {
     expect(Date.now() - started).toBeLessThan(10_000);
-    expect(run.steps[0]).toMatchObject({ exitCode: 0, leftover: "something the step started kept its output open, and no process could be found to kill" });
+    expect(run.steps[0]).toMatchObject({ exitCode: 0, leftover: { strays: [], more: 0, held: true } });
     expect(existsSync(run.root)).toBe(false);
   } finally {
     process.kill(pid, "SIGKILL");
@@ -375,7 +377,7 @@ test("in the sandbox a process left behind dies with its step: the namespace end
   });
   expect(Date.now() - started).toBeLessThan(10_000);
   expect(run.steps[0]).toEqual({ exitCode: 0, timedOut: false, truncated: false, ms: expect.any(Number), output: expect.stringMatching(/^\d+\n$/) });
-  // The output closed because the namespace ended, not because the 1 s output grace ran out: only the grace path names a leftover. (No elapsed-time bound: node start-up alone can pass it under load.)
+  // The output closed because the namespace ended, not because the 1 s output grace ran out; a step in the sandbox has no leftover to report. (No elapsed-time bound: node start-up alone can pass it under load.)
   expect(run.steps[0]?.leftover).toBeUndefined();
   expect(run.steps[1]?.output).toBe("0\n");
 });
@@ -655,4 +657,137 @@ test("a pinned path the tree does not hold is refused before anything runs", asy
   await expect(
     runIsolated({ tree: new Map([["a", "x"]]), pinned: new Set(["b"]), isolation: { kind: "unsandboxed" }, steps: () => [], timeoutMs: 1000, outputBytes: 100 }),
   ).rejects.toThrow('a pinned file is not in the tree: "b"');
+});
+
+// The run looks for what a step left behind through a table of processes; these stand in for a machine where one cannot be killed, or read.
+const table = (over: Partial<ProcessTable>): ProcessTable => ({ list: () => [], belongs: () => false, name: () => "node", kill: () => {}, alive: () => false, ...over });
+const quick = (processes: ProcessTable) => runIsolated({ tree: new Map(), isolation: unsandboxed, steps: (places) => [{ argv: [places.node, "-e", "1"] }], processes, timeoutMs: 30_000, outputBytes: 1024 });
+
+test("unsandboxed: a process that is still alive after it was killed is left behind and not killable", async () => {
+  const refusing = table({
+    list: () => [4_000_001],
+    belongs: (pid) => pid === 4_000_001,
+    name: () => "node",
+    kill: () => {
+      throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+    },
+    alive: () => true,
+  });
+  const run = await quick(refusing);
+  expect(run.steps[0]?.leftover).toEqual({ strays: [{ pid: 4_000_001, name: "node", killed: false }], more: 0, held: false });
+});
+
+test("unsandboxed: a process that dies when it is killed is killed, and one that was gone by the time of the signal is not called alive", async () => {
+  let dead = new Set<number>();
+  const run = await quick(
+    table({
+      list: () => [4_000_002, 4_000_003],
+      belongs: () => true,
+      kill: (pid) => {
+        if (pid === 4_000_003) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+        dead = new Set([...dead, pid]);
+      },
+      alive: (pid) => !dead.has(pid) && pid !== 4_000_003,
+    }),
+  );
+  expect(run.steps[0]?.leftover).toEqual({
+    strays: [{ pid: 4_000_002, name: "node", killed: true }, { pid: 4_000_003, name: "node", killed: true }],
+    more: 0,
+    held: false,
+  });
+});
+
+test("unsandboxed: a leftover check that cannot list the machine's processes is not checked, never none left", async () => {
+  const run = await quick(
+    table({
+      list: () => {
+        throw Object.assign(new Error("no such directory"), { code: "ENOENT" });
+      },
+    }),
+  );
+  expect(run.steps[0]?.leftover).toEqual({ strays: [], more: 0, held: false, notChecked: "the process list could not be read (ENOENT)" });
+});
+
+test("unsandboxed: a process name from the run is cut to plain characters before it is passed on", async () => {
+  const run = await quick(table({ list: () => [4_000_004], belongs: () => true, name: () => `no\u001b[31mde\n${"x".repeat(100)}`, alive: () => false }));
+  const [stray] = run.steps[0]?.leftover?.strays ?? [];
+  expect(stray?.name).toMatch(/^[\w.+?-]{1,32}$/);
+});
+
+test("a step in the sandbox has no leftover to report: its namespace ends with it", async () => {
+  const run = await runIsolated({ tree: new Map(), isolation: bwrap, steps: (places) => [{ argv: [places.node, "-e", "1"] }], timeoutMs: 30_000, outputBytes: 1024 });
+  expect(run.steps[0]).not.toHaveProperty("leftover");
+});
+
+// A step that can write the copy can change what the steps after it read. With a read-only work folder it cannot; what it legitimately writes goes to its scratch folders.
+const READ_ONLY_SCRIPT = `import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+const tries = {
+  write: () => writeFileSync("src/code.mjs", "FORGED"),
+  append: () => writeFileSync("src/code.mjs", "FORGED", { flag: "a" }),
+  create: () => writeFileSync("src/new.mjs", "FORGED"),
+  remove: () => rmSync("src/code.mjs"),
+  rename: () => renameSync("src/code.mjs", "src/gone.mjs"),
+  replace: () => { writeFileSync("/tmp/new.mjs", "FORGED"); renameSync("/tmp/new.mjs", "src/code.mjs"); },
+  mkdir: () => mkdirSync("fresh"),
+  link: () => symlinkSync("/etc/passwd", "src/link"),
+  chmod: () => { chmodSync("src/code.mjs", 0o666); writeFileSync("src/code.mjs", "FORGED"); },
+  dependency: () => writeFileSync("node_modules/dep/index.mjs", "FORGED"),
+  testFile: () => writeFileSync("test/b.test.mjs", "FORGED"),
+  folder: () => renameSync("src", "moved"),
+  remount: () => execFileSync("mount", ["-o", "remount,rw,bind", "/work"], { stdio: "ignore" }),
+};
+const outcome = {};
+for (const [name, attempt] of Object.entries(tries)) {
+  try { attempt(); outcome[name] = "done"; } catch (error) { outcome[name] = error.code ?? "failed"; }
+}
+const scratch = {};
+for (const where of ["/tmp/scratch", process.env.HOME + "/scratch", "/out/scratch"]) {
+  try { writeFileSync(where, "mine"); scratch[where] = readFileSync(where, "utf8"); } catch (error) { scratch[where] = error.code; }
+}
+console.log(JSON.stringify({ outcome, scratch, code: readFileSync("src/code.mjs", "utf8"), dep: readFileSync("node_modules/dep/index.mjs", "utf8") }));
+`;
+const readOnlyTree = () =>
+  new Map([["src/code.mjs", "ORIGINAL"], ["node_modules/dep/index.mjs", "DEP"], ["test/b.test.mjs", "TEST"], ["read-only.mjs", READ_ONLY_SCRIPT]]);
+
+test("bwrap: with a read-only work folder a step changes nothing in the copy, and writes freely to its scratch folders", async () => {
+  const run = await runIsolated({ tree: readOnlyTree(), readOnlyWork: true, isolation: bwrap, steps: (places) => [{ argv: [places.node, "read-only.mjs"] }], timeoutMs: 30_000, outputBytes: 1 << 16 });
+  const result = JSON.parse(run.steps[0]?.output ?? "{}") as { outcome: Record<string, string>; scratch: Record<string, string>; code: string; dep: string };
+  expect(result.code).toBe("ORIGINAL");
+  expect(result.dep).toBe("DEP");
+  for (const [name, code] of Object.entries(result.outcome)) expect(code, name).not.toBe("done");
+  expect(Object.values(result.scratch)).toEqual(["mine", "mine", "mine"]);
+});
+
+test("bwrap: a step's scratch folder is its run's own: nothing one run wrote is there for the next", async () => {
+  const write = { tree: new Map<string, string>(), readOnlyWork: true, isolation: bwrap, steps: (places: Places) => [{ argv: [places.node, "-e", `require("fs").writeFileSync("/tmp/kept", "x"); require("fs").writeFileSync(process.env.HOME + "/kept", "x")`] }], timeoutMs: 30_000, outputBytes: 1024 };
+  const read = { ...write, steps: (places: Places) => [{ argv: [places.node, "-e", `console.log(require("fs").existsSync("/tmp/kept"), require("fs").existsSync(process.env.HOME + "/kept"))`] }] };
+  await runIsolated(write);
+  const run = await runIsolated(read);
+  expect(run.steps[0]?.output.trim()).toBe("false false");
+});
+
+test("unsandboxed: read-only work cannot be enforced, so the copy stays writable and the run must say its results are weaker", async () => {
+  const script = `import { readFileSync, writeFileSync } from "node:fs"; writeFileSync("src/code.mjs", "FORGED"); console.log(readFileSync("src/code.mjs", "utf8"));`;
+  const run = await runIsolated({ tree: new Map([["src/code.mjs", "ORIGINAL"], ["forge.mjs", script]]), readOnlyWork: true, isolation: unsandboxed, steps: (places) => [{ argv: [places.node, "forge.mjs"] }], timeoutMs: 30_000, outputBytes: 1 << 16 });
+  expect(run.steps[0]?.output.trim()).toBe("FORGED");
+});
+
+// A pattern in a step's output is seen as it arrives, so output cut at the limit cannot hide it.
+const watching = (script: string, watch?: RegExp) =>
+  runIsolated({ tree: new Map(), isolation: bwrap, steps: (places) => [{ argv: [places.node, "-e", script] }], ...(watch === undefined ? {} : { watch }), timeoutMs: 30_000, outputBytes: 1024 });
+
+test("a watched pattern after the output limit is still seen, and the output is cut", async () => {
+  const run = await watching(`process.stdout.write("x".repeat(5000)); process.stdout.write("then EROFS")`, /EROFS/);
+  expect(run.steps[0]).toMatchObject({ truncated: true, watched: true });
+  expect(run.steps[0]?.output).not.toContain("EROFS");
+});
+
+test("a watched pattern split across two writes is seen, and one that never appears is not", async () => {
+  const split = await watching(`process.stdout.write("read-only fi"); setTimeout(() => process.stdout.write("le system"), 150)`, /read-only file system/);
+  expect(split.steps[0]?.watched).toBe(true);
+  const absent = await watching(`process.stdout.write("fine")`, /EROFS/);
+  expect(absent.steps[0]).not.toHaveProperty("watched");
+  const unwatched = await watching(`process.stdout.write("EROFS")`);
+  expect(unwatched.steps[0]).not.toHaveProperty("watched");
 });

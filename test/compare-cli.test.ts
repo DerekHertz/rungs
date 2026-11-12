@@ -272,6 +272,8 @@ test("--run-tests runs main's tests against the head once in the sandbox, says h
     expect(stderr()).toMatch(/^streets: tests written by this PR \(1 files, claimed, not evidence\): 0 of 1 failed$/m);
     expect(stderr()).toContain("streets: Evidence against mistakes, not against a hostile author: the PR's code runs inside each test.");
     expect(observed).toMatchObject({ status: "ran", sandbox: "bwrap", counts: { pass: 1, fail: 1, skip: 0 }, written: { tier: "claimed", files: ["b.test.mjs"] } });
+    expect(stderr()).not.toMatch(/left behind|leftovers/);
+    expect(observed).not.toHaveProperty("leftover");
   } finally {
     child.kill();
   }
@@ -285,6 +287,9 @@ test("--run-tests-unsandboxed with no sandbox warns that the results are as trus
     const observed = await observedWhenDone(url);
     expect(stderr()).toMatch(/^streets: running the base's tests once against the head's code WITHOUT a sandbox: .*as trustworthy as the PR's author/m);
     expect(stderr()).toMatch(/^streets: ran 1 tests with node --test in unsandboxed in [\d.]+s: 1 pass, 0 fail, 0 skip \(ran without a sandbox: as trustworthy as the PR's author\)$/m);
+    expect(stderr()).toMatch(/^streets: no process left behind$/m);
+    expect(stderr()).toContain("one test can rewrite the code and test files another test reads");
+    expect(observed).toMatchObject({ leftover: { strays: [], more: 0, held: false } });
     expect(observed).toMatchObject({ status: "ran", sandbox: "unsandboxed" });
   } finally {
     child.kill();

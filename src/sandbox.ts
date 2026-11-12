@@ -7,6 +7,7 @@ import { delimiter, dirname, isAbsolute, join, normalize } from "node:path";
 import { promisify } from "node:util";
 import type { FileTree } from "./graph.ts";
 import { cacheDirectory } from "./link.ts";
+import type { Leftover, Stray } from "./leftover.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -61,11 +62,31 @@ export interface StepResult {
   /** Standard output and error as they arrived, cut at the run's output limit. */
   readonly output: string;
   readonly truncated: boolean;
+  /** Set when the step's output matched the request's `watch` pattern, wherever in it, cut or not. */
+  readonly watched?: true;
   /**
-   * Set when the step left a process running behind it. Only a run outside bwrap can: it is
-   * killed when it can be found, and says so here either way.
+   * What the step left running behind it, found after it ended. Only a step outside bwrap can
+   * leave anything, so a step in bwrap has none, which says nothing of "none found": that is a
+   * `Leftover` with no strays. A process found is killed, and is named here whether it died or not.
    */
-  readonly leftover?: string;
+  readonly leftover?: Leftover;
+}
+
+/**
+ * How a run finds and ends the processes an unsandboxed step left behind. The host's /proc by
+ * default; a request may give another, for a machine whose processes cannot be killed or listed.
+ */
+export interface ProcessTable {
+  /** Every process on the machine; throws when they cannot be listed. */
+  readonly list: () => number[];
+  /** Whether the process still carries the run's mark or works inside its folder. */
+  readonly belongs: (pid: number, root: string) => boolean;
+  /** The process's command name, as the machine gives it. */
+  readonly name: (pid: number) => string;
+  /** Sends the process a signal that cannot be caught; throws when it cannot. */
+  readonly kill: (pid: number) => void;
+  /** Whether the process is still running (a zombie is not). */
+  readonly alive: (pid: number) => boolean;
 }
 
 /**
@@ -103,6 +124,22 @@ export interface RunRequest {
    * step's own user can undo.
    */
   readonly pinned?: ReadonlySet<string>;
+  /**
+   * In bwrap, `places.work` is mounted read-only whole: no step can write, remove, replace or
+   * rename anything in the copy, node_modules and the test files included, so what one test does
+   * can never change what a later one reads. What a step legitimately writes goes to its scratch
+   * folders: /tmp and the home folder inside it (a fresh tmpfs for the run) and `places.out`.
+   * Outside bwrap a step runs as the user who started the run, so this cannot be enforced and
+   * the copy stays writable; the caller must then say its results are weaker.
+   */
+  readonly readOnlyWork?: boolean;
+  /**
+   * A pattern looked for in the output of every step in the copy as it arrives, before it is cut
+   * at `outputBytes`: a step whose output passes the limit still says it matched.
+   */
+  readonly watch?: RegExp;
+  /** How leftover processes are found and ended outside bwrap; the host's /proc when absent. */
+  readonly processes?: ProcessTable;
   readonly isolation: Isolation;
   readonly install?: Install;
   readonly steps: (places: Places) => readonly Step[];
@@ -181,10 +218,11 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     }
   }
   const root = await mkdtemp(join(tmpdir(), "streets-run-"));
+  const processes = request.processes ?? hostProcesses;
   let child: ReturnType<typeof spawn> | undefined;
   const interrupted = (signal: NodeJS.Signals) => {
     if (child?.pid !== undefined) killTree(child.pid);
-    killStrays(root);
+    killStrays(root, processes);
     removeSync(root);
     process.exit(signal === "SIGINT" ? 130 : 143);
   };
@@ -209,19 +247,16 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     const report = request.report ? { chunks: [] as Buffer[], bytes: 0, limit } : undefined;
     const deadline = Date.now() + request.timeoutMs;
     const run = async (argv: readonly string[], room: Room): Promise<StepResult> => {
-      const command = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, room, pinned), "--", ...argv] : [...argv];
-      const { open, ...finished } = await runStep(command, host[room], deadline, request.outputBytes, isolation, root, room === "work" ? report : undefined, (spawned) => {
+      const command = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, room, pinned, request.readOnlyWork === true), "--", ...argv] : [...argv];
+      const { open, ...finished } = await runStep(command, host[room], deadline, request.outputBytes, isolation, root, room === "work" ? report : undefined, room === "work" ? request.watch : undefined, (spawned) => {
         child = spawned;
       });
       // In bwrap the namespace dies with the step. Outside it a process can leave the step's group.
-      const killed = isolation.kind === "bwrap" ? 0 : killStrays(root);
-      const leftover =
-        killed > 0
-          ? `${killed} ${killed === 1 ? "process" : "processes"} outlived the step and ${killed === 1 ? "was" : "were"} killed`
-          : open
-            ? "something the step started kept its output open, and no process could be found to kill"
-            : undefined;
-      return leftover === undefined ? finished : { ...finished, leftover };
+      if (isolation.kind === "bwrap") return finished;
+      const swept = killStrays(root, processes);
+      const strays = await survivors(swept.found, processes);
+      const leftover: Leftover = { strays, more: 0, held: open && strays.length === 0, ...(swept.notChecked === undefined ? {} : { notChecked: swept.notChecked }) };
+      return { ...finished, leftover };
     };
     const succeeded = (result: StepResult) => result.exitCode === 0 && !result.timedOut;
     const install = request.install === undefined ? undefined : await run(request.install.argv(places), "install");
@@ -244,7 +279,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     return { ...(install === undefined ? {} : { install }), steps: results, collected, ...(reported === undefined ? {} : { report: reported }), root, places };
   } finally {
     process.off("SIGINT", interrupted).off("SIGTERM", interrupted);
-    if (request.isolation.kind !== "bwrap") killStrays(root);
+    if (request.isolation.kind !== "bwrap") killStrays(root, processes);
     await remove(root);
   }
 }
@@ -252,7 +287,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
 /** Where a command runs: the install's folder, with the network, or the copy, with none. */
 type Room = "install" | "work";
 
-function bwrapArgs(host: Record<Room | "out" | "tools" | "pinned", string>, node: string, npm: string, room: Room, pinned: readonly string[]): string[] {
+function bwrapArgs(host: Record<Room | "out" | "tools" | "pinned", string>, node: string, npm: string, room: Room, pinned: readonly string[], readOnlyWork: boolean): string[] {
   const args = ["--unshare-all", "--die-with-parent", "--new-session", "--clearenv"];
   for (const dir of SYSTEM) args.push("--ro-bind-try", dir, dir);
   for (const name of ETC) args.push("--ro-bind-try", `/etc/${name}`, `/etc/${name}`);
@@ -261,6 +296,7 @@ function bwrapArgs(host: Record<Room | "out" | "tools" | "pinned", string>, node
   args.push("--ro-bind", host.tools, INSIDE.tools);
   // The network and the tree's files are never in the same room.
   if (room === "install") args.push("--share-net", "--bind", host.install, INSIDE.install, "--chdir", INSIDE.install);
+  else if (readOnlyWork) args.push("--ro-bind", host.work, INSIDE.work, "--bind", host.out, INSIDE.out, "--chdir", INSIDE.work);
   else {
     args.push("--bind", host.work, INSIDE.work, "--bind", host.out, INSIDE.out);
     // A folder that is a mount point cannot be renamed or removed, so a pinned file's place cannot
@@ -293,6 +329,7 @@ function runStep(
   isolation: Isolation,
   root: string,
   report: { chunks: Buffer[]; bytes: number; readonly limit: number } | undefined,
+  watch: RegExp | undefined,
   started: (child: ReturnType<typeof spawn>) => void,
 ): Promise<StepResult & { readonly open: boolean }> {
   const [command, ...args] = argv;
@@ -309,7 +346,17 @@ function runStep(
     const chunks: Buffer[] = [];
     let kept = 0;
     let truncated = false;
-    const take = (chunk: Buffer) => {
+    // Each stream keeps its last characters, so a pattern split across two chunks is still seen.
+    let watched = false;
+    const carry = new Map<string, string>();
+    const look = (chunk: Buffer, stream: string) => {
+      if (watch === undefined || watched) return;
+      const window = (carry.get(stream) ?? "") + chunk.toString("utf8");
+      watched = watch.test(window);
+      carry.set(stream, window.slice(-WATCH_CARRY));
+    };
+    const take = (chunk: Buffer, stream: string) => {
+      look(chunk, stream);
       const room = limit - kept;
       if (chunk.length > room) truncated = true;
       if (room <= 0) return;
@@ -317,8 +364,8 @@ function runStep(
       chunks.push(part);
       kept += part.length;
     };
-    child.stdout?.on("data", take);
-    child.stderr?.on("data", take);
+    child.stdout?.on("data", (chunk: Buffer) => take(chunk, "out"));
+    child.stderr?.on("data", (chunk: Buffer) => take(chunk, "err"));
     // The step is over when it exits or is killed. A process it left behind may hold its output
     // open for ever, so the output gets a moment to close and is then let go.
     let timedOut = false;
@@ -347,7 +394,7 @@ function runStep(
         }
         closeSync(reported);
       }
-      resolve({ exitCode: timedOut ? null : exitCode, timedOut, ms: Date.now() - begun, output: Buffer.concat(chunks).toString("utf8"), truncated, open });
+      resolve({ exitCode: timedOut ? null : exitCode, timedOut, ms: Date.now() - begun, output: Buffer.concat(chunks).toString("utf8"), truncated, ...(watched ? { watched: true as const } : {}), open });
     };
     const over = () => {
       letGo ??= setTimeout(() => finish(true), OUTPUT_GRACE_MS);
@@ -406,37 +453,68 @@ async function unreadableNode(root: string): Promise<string> {
   throw new Error("could not make an unreadable copy of node for the run");
 }
 
+/** How many characters of a stream are kept to join a watched pattern split across two chunks. */
+const WATCH_CARRY = 200;
+
 /** How long a finished step's output may stay open before the run stops waiting for it. */
 const OUTPUT_GRACE_MS = 1000;
 /** Names the run to every process an unsandboxed step starts, so those left behind can be found. */
 const RUN_MARK = "STREETS_RUN";
 
 /**
- * Kills what an unsandboxed run left behind and returns how many: every process of this user
- * that still carries the run's mark or still works inside its folder. A process that dropped
- * both cannot be found this way; nor can any where there is no /proc.
+ * Kills what an unsandboxed run left behind: every process of this user that still carries the
+ * run's mark or still works inside its folder. A process that dropped both cannot be found this
+ * way. `found` is each one found, with its name read before it was killed; `notChecked` says why
+ * the processes could not be listed, and then nothing is known of what was left, not that nothing
+ * was (no /proc, as on macOS, is that case).
  */
-function killStrays(root: string): number {
-  const found = new Set<number>();
+function killStrays(root: string, table: ProcessTable): { readonly found: ReadonlyMap<number, string>; readonly notChecked?: string } {
+  const found = new Map<number, string>();
   for (let pass = 0; pass < 3; pass += 1) {
     let pids: number[];
     try {
-      pids = readdirSync("/proc").filter((name) => /^\d+$/.test(name)).map(Number);
-    } catch {
-      return found.size;
+      pids = table.list();
+    } catch (error) {
+      return { found, notChecked: `the process list could not be read (${(error as NodeJS.ErrnoException).code ?? (error as Error).message})` };
     }
-    const fresh = pids.filter((pid) => pid !== process.pid && !found.has(pid) && belongsTo(pid, root));
+    const fresh = pids.filter((pid) => pid !== process.pid && !found.has(pid) && table.belongs(pid, root));
     if (fresh.length === 0) break;
     for (const pid of fresh) {
-      found.add(pid);
+      found.set(pid, plainName(table, pid));
       try {
-        process.kill(pid, "SIGKILL");
+        table.kill(pid);
       } catch {
-        // Already gone.
+        // Already gone, or not killable: `survivors` tells which.
       }
     }
   }
-  return found.size;
+  return { found };
+}
+
+/** A process's name as plain characters, cut short: it was chosen by the run and goes to the page and the terminal. */
+function plainName(table: ProcessTable, pid: number): string {
+  let name: string;
+  try {
+    name = table.name(pid);
+  } catch {
+    name = "";
+  }
+  return name.replace(/[^\w.+-]/g, "?").slice(0, 32) || "unknown";
+}
+
+/** How long a killed process may take to be gone before it is called not killable. */
+const KILL_WAIT_MS = 500;
+
+/** The processes found, each marked killed once it is gone; one still alive after the wait is not killable. */
+async function survivors(found: ReadonlyMap<number, string>, table: ProcessTable): Promise<Stray[]> {
+  const alive = new Set(found.keys());
+  const until = Date.now() + KILL_WAIT_MS;
+  for (;;) {
+    for (const pid of alive) if (!table.alive(pid)) alive.delete(pid);
+    if (alive.size === 0 || Date.now() >= until) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return [...found].map(([pid, name]) => ({ pid, name, killed: !alive.has(pid) }));
 }
 
 function belongsTo(pid: number, root: string): boolean {
@@ -448,6 +526,30 @@ function belongsTo(pid: number, root: string): boolean {
     return false;
   }
 }
+
+/** Whether a process is running: not gone, and not a zombie waiting to be reaped. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3) !== "Z";
+  } catch {
+    return true;
+  }
+}
+
+/** This machine's processes, through /proc. Where there is no /proc they cannot be listed. */
+const hostProcesses: ProcessTable = {
+  list: () => readdirSync("/proc").filter((name) => /^\d+$/.test(name)).map(Number),
+  belongs: belongsTo,
+  name: (pid) => readFileSync(`/proc/${pid}/comm`, "utf8").trim(),
+  kill: (pid) => process.kill(pid, "SIGKILL"),
+  alive: isAlive,
+};
 
 // The step leads its own process group. Under bwrap that group is bwrap alone, and its death
 // kills the namespace's first process (--die-with-parent), and with it every process inside.

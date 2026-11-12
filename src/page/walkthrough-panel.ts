@@ -1,4 +1,4 @@
-import { EVIDENCE_LINE, UNSANDBOXED_LINE, VERDICT_WORD, runningText } from "../observed-types.ts";
+import { EVIDENCE_LINE, UNSANDBOXED_LINE, runningText, verdictText } from "../observed-types.ts";
 import { ROLLUP_OVER, signatureDiff } from "../review.ts";
 import type { LineRange, NodeId } from "../graph.ts";
 import { walkStatus } from "../stops.ts";
@@ -200,7 +200,7 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
         const dim = test.verdict !== undefined && test.verdict !== "regression" && test.outcome === "fail";
         const item = element("li", dim ? "review-row observed-loose observed-dim" : "review-row observed-loose");
         const text = element("span", "contract-text");
-        const where = [test.file, ...(test.why === undefined ? [] : [test.why]), ...(test.verdict === undefined || test.verdict === "passes" ? [] : [VERDICT_WORD[test.verdict]])].join(" · ");
+        const where = [test.file, ...(test.why === undefined ? [] : [test.why]), ...(test.verdict === undefined || test.verdict === "passes" ? [] : [verdictText(test.verdict, test.verdictWhy)])].join(" · ");
         text.append(element("span", "review-label", test.name || "(the whole file)"), element("span", "contract-where", where));
         if (test.message !== undefined) text.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
         item.append(outcomeMark(test.outcome), text);
