@@ -26,7 +26,7 @@ A tier is built as a stack of PRs on a tier branch, with a review queue beside i
 
 1. **Before the tier.** If its plan depends on an earlier result (a gate adopted, a bar met), check that result against what the plan assumed. If it came out differently, tell Derek before starting. Then cut `tier-<n>` from the latest `origin/main`.
 2. **Stack.** The tier's tasks are built in order, each on its own branch on top of the one before: task 1 branches from `tier-<n>`, task 2 from task 1's branch, and so on. Each PR targets the branch below it.
-3. **Queue, don't wait.** When a task's first build is done and the PR is open, it goes into the review queue, and the builder starts the next task on top of it straight away.
+3. **Queue, don't wait.** When a task's first build is done and the PR is open, it goes into the review queue, and the next task starts on top of it straight away.
 4. **Review queue.** Each queued PR gets one Codex review in a fresh run, oldest first, in the background: `scripts/codex-review.sh <pr> <branch> 1 "<contract>" <base branch>`. The review covers that PR against the branch it sits on, so each review sees only its own task.
 5. **Course-correct.** When a review comes back, sort its findings:
    - A finding that makes the picture or a review answer wrong goes to the builder. The builder fixes it on that task's branch, rebases the branches above it, and adjusts the task it is building now if the same mistake is there. Review the fix by reading its diff; it does not go back into the queue.
@@ -34,7 +34,7 @@ A tier is built as a stack of PRs on a tier branch, with a review queue beside i
 6. **Merge into the tier.** Once a task's fixes are in, `scripts/merge-when-green.sh <pr> <sha>` merges it into the branch below. GitHub retargets the next PR in the stack.
 7. **End of the tier, the one wait.** When every task is merged into `tier-<n>`, open a PR from `tier-<n>` to `main` and give it one Codex review against `main`, with the tier's goal as the contract. This review looks for what no single task review could see, such as the same mistake repeated across tasks. Fix only findings that make the picture or an answer wrong, file the rest, then merge it into `main`. The next tier starts from that `main`.
 
-One builder works through a tier's stack. If its context runs low, start a fresh builder on the top branch: the stack, the PRs and the filed issues carry the state.
+Each task gets a fresh builder, started once the task below it is in the queue. It begins on the top branch of the stack and gets that PR's body, which is the handoff: what was built, the decisions made and the doubts left open. Review fixes for a task lower in the stack go to whichever builder is working on top at the time. It fixes them on that task's branch and rebases the branches above. Don't keep one builder for the whole tier: its context fills with old tool output from tasks that are already finished.
 
 ## Merge
 
