@@ -164,7 +164,7 @@ function problemWith(whole: Record<string, unknown>): string | undefined {
     ["extractorVersion", isText(whole.extractorVersion)],
     ["files", isRecord(whole.files) && Object.values(whole.files).every(isText)],
     ["pathsWithheld", isCount(whole.pathsWithheld)],
-    ["coverage", hasFields(whole.coverage, { of: isCount, mapped: isCount, measured: (one) => typeof one === "boolean", unjudged: (one) => one === undefined || isCount(one), stale: (one) => one === undefined || isCount(one) })],
+    ["coverage", hasFields(whole.coverage, { of: isCount, mapped: isCount, measured: (one) => typeof one === "boolean", unjudged: (one) => one === undefined || isCount(one), stale: (one) => one === undefined || isCount(one), reason: (one) => one === undefined || isText(one) })],
     ["vocabulary", isRecord(whole.vocabulary)],
     ["memberships", whole.memberships === undefined || problemWithMemberships(whole.memberships) === undefined],
   ];

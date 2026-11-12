@@ -11,7 +11,7 @@ import type { JevClient } from "./client.ts";
 import { safeClip } from "./claim-source.ts";
 import { requestFor } from "./gate.ts";
 import type { Thresholds } from "./gate.ts";
-import { MAX_CODE_LINES, MAX_CONTEXT_LINES, MAX_DOC_LINES, MAX_TERM_PINS, MEMBERSHIP_THRESHOLDS, membershipGate } from "./membership-gate.ts";
+import { MAX_CODE_LINES, MAX_CONTEXT_LINES, MAX_DOC_LINES, MAX_TERM_PINS, MEMBERSHIP_THRESHOLDS, answersCover, membershipGate } from "./membership-gate.ts";
 import type { MembershipInput, TermFacts, TermPinFacts, UnitFacts } from "./membership-gate.ts";
 
 /*
@@ -312,20 +312,33 @@ export async function judgeMemberships(request: JudgeMembershipsRequest): Promis
   let reused = 0;
   let usd = 0;
   let costUnknown = 0;
-  const wanted = pairs.slice(0, maxPairs);
+  const toAsk: number[] = [];
   const kept = (index: number, why: string): void => {
     const pair = pairs[index]!;
     const old = previous.get(pairKey(pair.unit.key, pair.term.key));
     if (old !== undefined) slots[index] = { ...old, stale: old.digest !== pair.unit.digest ? "the function changed" : `not judged again: ${why}` };
   };
-  wanted.forEach((pair, index) => {
+  // Answers that can be reused are separated first and do not use the per-run limit: only pairs that
+  // must be asked count against it, so a run over the limit finishes the rest on the next run.
+  pairs.forEach((pair, index) => {
     const old = previous.get(pairKey(pair.unit.key, pair.term.key));
     const shown = requestFor(membershipGate, inputOf(pair, tree));
-    if (old !== undefined && old.digest === pair.unit.digest && old.model === client.model && JSON.stringify(old.shown) === JSON.stringify(shown) && JSON.stringify(old.thresholds) === JSON.stringify(thresholds) && old.question.version === question.version) {
+    if (
+      old !== undefined &&
+      old.digest === pair.unit.digest &&
+      old.model === client.model &&
+      JSON.stringify(old.shown) === JSON.stringify(shown) &&
+      JSON.stringify(old.thresholds) === JSON.stringify(thresholds) &&
+      old.question.version === question.version &&
+      answersCover(old.answers, Object.keys(shown.questions))
+    ) {
       slots[index] = fresh(old);
       reused += 1;
-    } else asking.push(index);
+    } else toAsk.push(index);
   });
+  asking.push(...toAsk.slice(0, maxPairs));
+  const over = toAsk.slice(maxPairs);
+  for (const index of over) kept(index, `over the limit of ${maxPairs} pairs`);
   let next = 0;
   const worker = async (): Promise<void> => {
     for (let slot = next++; slot < asking.length; slot = next++) {
@@ -340,6 +353,13 @@ export async function judgeMemberships(request: JudgeMembershipsRequest): Promis
       }
       if (judged.usage.usd === null) costUnknown += 1;
       else usd += judged.usage.usd;
+      // A call that answered, but not every question with a probability, is unknown: no record, so no later run reuses it.
+      if (!answersCover(judged.answers, Object.keys(shown.questions))) {
+        const reason = "an answer could not be read (missing or not a probability)";
+        notJudged.push({ unit: pair.unit.key, term: pair.term.key, reason });
+        kept(index, reason);
+        continue;
+      }
       slots[index] = {
         tier: "judged",
         unit: pair.unit.key,
@@ -357,13 +377,12 @@ export async function judgeMemberships(request: JudgeMembershipsRequest): Promis
     }
   };
   await Promise.all(Array.from({ length: Math.min(PARALLEL, asking.length) }, worker));
-  for (let index = maxPairs; index < pairs.length; index++) kept(index, `over the limit of ${maxPairs} pairs`);
   return {
     records: slots.filter((one): one is MembershipRecord => one !== undefined),
     asked: asking.length,
     reused,
     notJudged: notJudged.sort((a, b) => byText(a.unit, b.unit) || byText(a.term, b.term)),
-    overLimit: Math.max(0, pairs.length - maxPairs),
+    overLimit: over.length,
     usd,
     costUnknown,
   };

@@ -2,7 +2,7 @@ import type { JevAnswer, JevRequest } from "./jev/client.ts";
 import type { Thresholds, Verdict } from "./jev/gate.ts";
 import { MAX_CANDIDATES, NARROWING_VERSION } from "./jev/membership-source.ts";
 import type { JudgeOutcome, Narrowed, Unit, UnitLevel } from "./jev/membership-source.ts";
-import { MEMBERSHIP_GATE_ID, MEMBERSHIP_THRESHOLDS, membershipGate } from "./jev/membership-gate.ts";
+import { MEMBERSHIP_GATE_ID, MEMBERSHIP_THRESHOLDS, answersCover, membershipGate } from "./jev/membership-gate.ts";
 import type { Term } from "./vocabulary.ts";
 
 /*
@@ -96,6 +96,20 @@ function isAnswer(value: unknown): boolean {
   return value.type === "choice" && isNumberMap(value.probabilities) && isText(value.choice);
 }
 
+/**
+ * Whether a record's answers are whole and its verdict follows from them. Every question it was
+ * asked has a readable probability (a record that lacks one is not a judged fact, it is damage), and
+ * for the current version of the question the verdict is what the answers and the record's own
+ * thresholds give. A record of another version is checked for its answers only: it is stale, not damaged.
+ */
+function isConsistent(record: unknown): boolean {
+  if (!isRecord(record) || !isRecord(record.shown) || !isRecord(record.shown.questions) || !isRecord(record.answers) || !isRecord(record.question) || !isNumberMap(record.thresholds)) return true;
+  const names = Object.keys(record.shown.questions);
+  if (names.length === 0 || !answersCover(record.answers as Record<string, JevAnswer>, names)) return false;
+  if (record.question.id !== membershipGate.id || record.question.version !== membershipGate.version) return true;
+  return membershipGate.decide(record.answers as Record<string, JevAnswer>, record.thresholds as Thresholds) === record.verdict;
+}
+
 /** The name of the first thing wrong with stored memberships, or undefined when they are whole. Every field the report and the later steps read is checked. */
 export function problemWithMemberships(value: unknown): string | undefined {
   const top: [string, boolean][] = [
@@ -109,6 +123,7 @@ export function problemWithMemberships(value: unknown): string | undefined {
       "records",
       isRecord(value) &&
         isList(value.records, (one) =>
+          isConsistent(one) &&
           hasFields(one, {
             tier: (tier) => tier === "judged",
             unit: isText,
@@ -136,7 +151,8 @@ export type PairStatus = "member" | "not a member" | "middle band" | "stale" | "
 
 /** A record's status. A stale answer is never a member, a no or a middle band: it is stale. No record is "not judged", never a no. */
 export function pairStatus(record: MembershipRecord | undefined): PairStatus {
-  if (record === undefined) return "not judged";
+  // A record that lacks a readable answer is unknown, never a middle band (validation refuses to store one; this is the guard behind it).
+  if (record === undefined || !answersCover(record.answers, Object.keys(record.shown.questions))) return "not judged";
   if (record.stale !== undefined) return "stale";
   return record.verdict === "settled" ? "member" : record.verdict === "flagged" ? "not a member" : "middle band";
 }
@@ -246,12 +262,17 @@ export interface Coverage {
   readonly unjudged?: number;
   /** Mappings gone stale because their function changed (or the question did). Present once memberships exist. */
   readonly stale?: number;
+  /** Why coverage is not measured when it is nothing to do with a pair's answer: there is nothing to measure it over. */
+  readonly reason?: string;
 }
 
 export function coverageOf(of: number, memberships: StoredMemberships | undefined): Coverage {
   if (memberships === undefined) return { of, mapped: 0, measured: false };
   const { pairs, mappedFiles } = summarize(memberships, []);
-  return { of, mapped: mappedFiles, measured: pairs.notJudged === 0 && pairs.stale === 0, unjudged: pairs.notJudged, stale: pairs.stale };
+  const picked = pairs.member + pairs.notMember + pairs.middle + pairs.stale + pairs.notJudged;
+  // Over no files, or when no pair was picked, nothing was measured: a share of nothing is not a coverage.
+  const reason = of === 0 ? "no analysed files" : picked === 0 ? "no pair was picked: no term shares a word with any function, class or constant" : undefined;
+  return { of, mapped: mappedFiles, measured: reason === undefined && pairs.notJudged === 0 && pairs.stale === 0, unjudged: pairs.notJudged, stale: pairs.stale, ...(reason === undefined ? {} : { reason }) };
 }
 
 /* ---- building and keeping ---- */
@@ -331,7 +352,9 @@ export function membershipLines(stored: StoredMemberships | undefined, coverage:
   }
   const summary = summarize(stored, terms);
   const caveat = notRead > 0 ? `; ${plural(notRead, "file")} not analysed or not fully read ${notRead === 1 ? "is" : "are"} not counted` : "";
-  if (coverage.measured) {
+  if (coverage.reason !== undefined) {
+    lines.push(`  coverage: not measured: ${coverage.reason} (${coverage.mapped} of ${plural(coverage.of, "analysed file")} map to a term${caveat})`);
+  } else if (coverage.measured) {
     const cut = summary.pairs.cut;
     lines.push(`  coverage: ${coverage.mapped} of ${plural(coverage.of, "analysed file")} map to a term (measured: every pair the narrowing rule picked has a current answer${cut > 0 ? `; ${plural(cut, "pair")} left out by the cap of ${MAX_CANDIDATES} per function` : ""}${caveat})`);
   } else {
