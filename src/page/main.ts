@@ -1,25 +1,26 @@
 import { reachMap } from "../reach.ts";
-import { pictureOf, tallyText } from "../compare.ts";
-import type { Comparison, ContractMove } from "../compare.ts";
+import { pictureOf } from "../compare.ts";
+import type { Comparison } from "../compare.ts";
 import { escapeStep, flyTarget } from "../focus.ts";
 import { isCodeNode } from "../graph.ts";
 import type { Edge, FileNode, Graph, LineRange, ModuleNode, NodeId, ResourceKind } from "../graph.ts";
 import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
-import { contractsReport, dependencyReview, effectsChangedRows, newEffects, unmentioned, unmentionedIds } from "../review.ts";
-import type { EffectRow, BaseFunction, ReviewEntry } from "../review.ts";
+import type { ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
-import { judgedInput } from "./judged-panel.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
 import type { CameraState } from "./town-view.ts";
 import type { TownHandlers } from "./town-view.ts";
 import { townOf, withGhosts } from "../town.ts";
-import { callsOut } from "../town-calls.ts";
 import { importanceOf, reachedFrom } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
 import { insideOf, marksOf } from "../town-inside.ts";
 import { createTownInsideView } from "./town-inside-view.ts";
+import type { PullRequestName } from "../arrival.ts";
+import { setUpReview } from "./review-setup.ts";
+import { hoverFacts } from "./hover-facts.ts";
+import { showTownLegend } from "./legend-panel.ts";
 import { showTooltip } from "./tooltip-card.ts";
-import type { Lot, Town } from "../town.ts";
+import type { Lot } from "../town.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
 import { markFailedLine, renderFailure } from "./failure-panel.ts";
@@ -27,23 +28,15 @@ import { changeNote, collapseRows, drawRows, loadRows, markRows, revealRange } f
 import type { CodeParts, Drawn, Fold, Loaded } from "./code-rows.ts";
 import { renderFileWhy } from "./file-why-panel.ts";
 import type { Neighbours } from "./file-why-panel.ts";
-import { restsOnIt } from "../defining.ts";
 import type { FileWhy } from "../defining.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import type { RiskItem } from "../risks.ts";
 import { NO_TEST_MARKS, testMarks } from "../test-marks.ts";
 import type { TestMark } from "../test-marks.ts";
-import { comparedLine, failingEntry, walkEntry } from "../arrival.ts";
-import type { PullRequestName } from "../arrival.ts";
-import { renderArrival } from "./arrival-panel.ts";
-import { renderReview } from "./review-panel.ts";
-import type { ClaimRow, LinkNote, ReviewHandle, ReviewSnapshot } from "./review-panel.ts";
+import type { ClaimRow, ReviewHandle, ReviewSnapshot } from "./review-panel.ts";
 import { enterStop, leaveTour, stopRow } from "../tour-selection.ts";
 import type { SavedSelection } from "../tour-selection.ts";
-import { renderWalkthrough } from "./walkthrough-panel.ts";
 import type { Walk } from "./walkthrough-panel.ts";
-import { observedAt, stopFacts, tourCoverage, coverageLine, walkSummary } from "../stops.ts";
-import type { WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
 import type { NarratedDoc } from "../narration.ts";
 import { renderNarration } from "./narration-panel.ts";
@@ -138,7 +131,7 @@ const reaches = reachMap(picture);
 
 const handlers: TownHandlers = {
   hover(id, at) {
-    const facts = id === undefined ? undefined : describe(id);
+    const facts = id === undefined ? undefined : hoverFor(id);
     if (facts === undefined) {
       tooltip.style.display = "none";
       return;
@@ -180,6 +173,7 @@ const handlers: TownHandlers = {
 };
 const flagged = new Map<NodeId, TestMark>([...marksOfTests.files].map(([path, mark]) => [`file:${path}` as NodeId, mark] as const).filter(([id]) => nodes.has(id)));
 const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles, reaches, flagged);
+const hoverFor = hoverFacts({ nodes, ghostFiles, lots: () => lots, picture, importance, waysIn, reachedByWays, marks: marksOfTests, observedRun });
 const insideView = createTownInsideView(
     stage,
     {
@@ -214,52 +208,6 @@ function chooseResource(kind: ResourceKind | undefined): void {
   townView.highlight(reaching, kind);
 }
 
-function describe(id: NodeId): string[] | undefined {
-  const file = nodes.get(id) ?? ghostFiles.get(id);
-  const lot = lots.get(id);
-  if (file?.level !== "file" || lot === undefined) return undefined;
-  return [
-    file.path,
-    ...changeFacts(file),
-    `role: ${file.role ?? "none"}`,
-    ...townFacts(file),
-    ...failingFacts(file),
-    ...testMarkFacts(file),
-    file.lines === null ? "binary" : `lines: ${file.lines}`,
-    file.analysis === "analysed"
-      ? `functions: ${lot.functions}   classes: ${lot.classes}`
-      : "not analysed",
-  ];
-}
-
-const TOOLTIP_FILES = 10;
-
-/** What the change did to the file's tests, when it is a test file the town flags. */
-function testMarkFacts(file: FileNode): string[] {
-  const mark = marksOfTests.files.get(file.path);
-  if (mark === undefined) return [];
-  return [mark === "weakened" ? "tests weakened, removed or skipped by this change (derived)" : "base test file edited by this change (derived)"];
-}
-
-/** The tests of the file that failed when main's tests ran against this change. */
-function failingFacts(file: FileNode): string[] {
-  const failed = (observedRun?.failing ?? []).filter((test) => test.file === file.path);
-  return failed.length === 0 ? [] : [`failing tests (observed): ${failed.length}`, ...failed.slice(0, 5).map((test) => `· ${test.name}`), ...(failed.length > 5 ? [`· and ${failed.length - 5} more`] : [])];
-}
-
-/** In the town: what rests on the file (the count with its list), how the repo declares it a way in, and whether anything reaches it. */
-function townFacts(file: FileNode): string[] {
-  const above = (importance.get(file.id) ?? []).map((id) => nodes.get(id)?.path ?? id);
-  const way = waysIn.find((entry) => entry.id === file.id);
-  return [
-    above.length === 0 ? "importance: nothing rests on it" : `importance: ${restsOnIt(above.length)}`,
-    ...above.slice(0, TOOLTIP_FILES).map((path) => `  ${path}`),
-    ...(above.length > TOOLTIP_FILES ? [`  and ${above.length - TOOLTIP_FILES} more: click the building for the full list`] : []),
-    ...(way === undefined ? [] : [`way in: ${way.reasons.join(", ")}`]),
-    ...(reachedByWays.has(file.id) ? [] : ["nothing reaches it"]),
-  ];
-}
-
 /** The full list of files resting on `file`, in the pane the outline uses, each one opening on a click. */
 function showRests(file: ModuleNode): boolean {
   const above = (importance.get(file.id) ?? []).map((id) => nodes.get(id)).filter((node): node is ModuleNode => node !== undefined);
@@ -276,97 +224,6 @@ function showRests(file: ModuleNode): boolean {
   });
   outlinePane.replaceChildren(head, ...rows);
   return true;
-}
-
-function changeFacts(file: FileNode): string[] {
-  if (!nodes.has(file.id) && lots.get(file.id)?.movedTo != null) return [`moved away to ${lots.get(file.id)?.movedTo?.path}`];
-  const entry = picture.overlay?.entry(file.id);
-  if (entry === undefined) return picture.overlay === null ? [] : ["change: unchanged"];
-  const facts = [`change: ${entry.kind}`];
-  if (entry.kind === "moved") facts.push(`moved from ${entry.from.path}`);
-  if (entry.kind === "removed") facts.push(`removed (was ${file.lines === null ? "binary" : `${file.lines} lines`})`);
-  const tally = picture.overlay?.tally(file.id) ?? null;
-  const code = tally === null ? "" : tallyText(tally);
-  if (code !== "") facts.push(`functions ${code}`);
-  return facts;
-}
-
-/** What the town's sprites stand for. Nothing is listed that the picture does not draw. */
-function showTownLegend(town: Town): void {
-  const kinds = document.createElement("div");
-  kinds.textContent = "building: workshop source \u00b7 lab tests \u00b7 library docs \u00b7 shed config and build \u00b7 warehouse generated \u00b7 hut no role";
-  const size = document.createElement("div");
-  size.textContent = `size: classes and functions per file, square-root scale (${town.counts.fewest} to ${town.counts.most}); every file has a lot of the same size`;
-  const harbour = document.createElement("div");
-  harbour.textContent =
-    town.piers.length === 0 && town.unpictured.length === 0
-      ? "harbour: no outside resource is reached"
-      : `harbour: ${town.piers.map((pier) => pier.kind).join(", ")}${town.unpictured.length > 0 ? ` (no sprite yet for ${town.unpictured.join(", ")})` : ""}`;
-  const stone = document.createElement("div");
-  stone.textContent =
-    town.importance.most === 0
-      ? "plinth: the stone a building stands on is as tall as the files resting on it through imports; no file has any here"
-      : `plinth: the taller the stone, the more files rest on it through imports, square-root scale (${town.importance.fewest} to ${town.importance.most}); none where nothing rests on it \u00b7 point at a building for the list`;
-  const ways = document.createElement("div");
-  ways.textContent = `gate: a way in the repo declares in package.json (main, bin, exports, scripts); test files are ways in too, with no gate \u00b7 footpath: every file but code has one; a code file has one when a way in reaches it through imports, and ${town.unreached} code files have none: nothing reaches them`;
-  const against = document.createElement("div");
-  const flag = document.createElement("div");
-  if (observed?.status === "ran") flag.textContent = "red pennant: a test in the file failed when main's tests ran against this change (observed, one run; evidence against mistakes, not against a hostile author)";
-  if (comparison !== null) {
-    against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
-  }
-  const testMarked = document.createElement("div");
-  const weakenedFiles = [...flagged.values()].filter((mark) => mark === "weakened").length;
-  testMarked.textContent = [
-    weakenedFiles > 0 ? "yellow checked banner: a test file whose tests the change removed, weakened or newly skipped (inside, that test's room has a yellow floor and a hazard sign)" : "",
-    flagged.size > weakenedFiles ? "violet flag: a base test file the change edited" : "",
-  ]
-    .filter((text) => text !== "")
-    .join(" \u00b7 ");
-  const outside = document.createElement("div");
-  const marked = callsOut(town.lots, reaches).size;
-  outside.textContent = [
-    marked > 0 ? "pink mast: a changed file whose new code calls out to the outside world (named only inside the file)" : "",
-    town.piers.length > 0 ? "line: a selected building to the harbour structures it reaches, bright for a new call, dim for an old one" : "",
-  ]
-    .filter((text) => text !== "")
-    .join(" \u00b7 ");
-  const lines = document.createElement("section");
-  lines.append(kinds, size, stone, ways, harbour, ...(outside.textContent === "" ? [] : [outside]), ...(comparison === null ? [] : [against]), ...(observed?.status === "ran" ? [flag] : []), ...(testMarked.textContent === "" ? [] : [testMarked]));
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  const show = (open: boolean): void => {
-    lines.hidden = !open;
-    toggle.textContent = open ? "Legend \u25be" : "Legend \u25b8";
-    toggle.setAttribute("aria-expanded", String(open));
-  };
-  // Collapsed to its one line so it never covers the picture, open only if the viewer left it open.
-  show(legendState() === "open");
-  toggle.addEventListener("click", () => {
-    const open = lines.hidden === true;
-    show(open);
-    rememberLegend(open ? "open" : "closed");
-  });
-  legend.replaceChildren(toggle, lines);
-}
-
-const LEGEND_KEY = "streets.legend";
-
-function legendState(): "open" | "closed" | undefined {
-  try {
-    const value = localStorage.getItem(LEGEND_KEY);
-    return value === "open" || value === "closed" ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function rememberLegend(state: "open" | "closed"): void {
-  try {
-    localStorage.setItem(LEGEND_KEY, state);
-  } catch {
-    // Without storage the legend simply opens each visit.
-  }
 }
 
 /** Opens a file walls down over the town: its functions as rooms, its outside calls as objects. */
@@ -408,7 +265,7 @@ function showTown(): void {
   const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison, waysIn, new Set(marksOfTests.files.keys()));
   lots = new Map(town.lots.map((lot) => [lot.id, lot]));
   townView.show(town);
-  showTownLegend(town);
+  showTownLegend(legend, town, { comparison, observedRan: observed?.status === "ran", flagged, reaches });
   showTrail();
 }
 
@@ -897,81 +754,24 @@ window.addEventListener("keydown", (event) => {
 });
 
 if (comparison !== null && testChanges !== null) {
-  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; sentences: { index: number; text: string }[]; context: { text: string }[]; link: LinkNote };
-  const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
-  const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
-  const review = document.querySelector<HTMLElement>("#review")!;
-  review.hidden = false;
   viewState = firstView(true);
-  const claimed = claims.description === null ? null : unmentioned(comparison, picture.graph, claims.description, linked, testChanges, ((await (await fetch("/base-functions.json")).json()) as { functions: BaseFunction[] }).functions);
-  const effects = newEffects(comparison, picture.graph, claims.description ?? "", linked);
-  const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
-  const coverage = tourCoverage(tour.stops, comparison);
-  risks = ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks;
-  reviewHandle = renderReview(review, {
-    ...(await judgedInput(claims.claims, claims.link.status === "ok")),
-    walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
-    description: claims.description,
-    claims: claims.claims,
-    context: claims.context,
-    link: claims.link,
-    pickClaim,
-    unmentioned: claimed,
-    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed), picture.graph, effectsChangedRows(comparison, picture.graph, claims.description ?? "", linked)),
-    effects,
-    dependencies: dependencyReview(comparison, claims.description ?? ""),
-    pick: pickEntry,
-    pickEffect: (row: EffectRow) => pickNode(row.id, row.range),
-    pickNode,
-    observed: observed === null ? null : { document: observed, report: observedRun },
-    testChanges,
-    risks,
-    pickRisk: (risk: RiskItem) => {
-      showPick();
-      pickPlaces(risk.ids);
+  const set = await setUpReview(
+    { comparison, graph: picture.graph, testChanges, observed, observedRun, nodes, changed },
+    {
+      pickClaim,
+      pickEntry,
+      pickNode,
+      pickPlaces,
+      showPick,
+      visitStop,
+      tourOpen: () => manual !== undefined,
+      endTour,
+      clearOutline,
     },
-  });
-
-  const run = (await (await fetch("/run.json")).json()) as { repo: string | null };
-  const host = document.querySelector<HTMLElement>("#walk")!;
-  host.hidden = false;
-  walk = renderWalkthrough(host, {
-    note: tour.walkthrough,
-    stops: tour.stops,
-    coverage,
-    claims: claims.sentences,
-    facts: (stop) => stopFacts(stop, comparison, picture.graph, moves),
-    observed: (stop) => observedAt(stop, picture.graph, comparison, observed, testChanges),
-    describe(id) {
-      const node = nodes.get(id) ?? changed.get(id);
-      if (node === undefined) return { label: id };
-      return isCodeNode(node) ? { label: `${node.qualifiedName} in ${node.path}` } : { label: node.path };
-    },
-    rows(id) {
-      const node = nodes.get(id) ?? changed.get(id);
-      return loadRows(id, node !== undefined && isCodeNode(node) ? node.range.start : 1);
-    },
-    visit: visitStop,
-  });
-  // The opening view: what is compared, and the failures and the tour one click away.
-  const failing = observedRun?.failing.length ?? 0;
-  review.prepend(
-    renderArrival({
-      compared: comparedLine(run.repo, comparison.against),
-      tests: failingEntry(observed === null ? "absent" : observed.status, failing),
-      tour: walkEntry(tour.walkthrough, tour.stops.length, coverage),
-      openTests: () => {
-        // Going to the failing tests is a pick of the reviewer's own: it ends the tour and leaves its selection behind.
-        if (manual !== undefined) {
-          endTour();
-          reviewHandle?.selectRisk(undefined);
-          clearOutline();
-        }
-        void reviewHandle?.openTests();
-      },
-      startTour: () => walk?.step(1),
-    }),
   );
+  reviewHandle = set.review;
+  walk = set.walk;
+  risks = set.risks;
 }
 
 /** Every file of the picture, the ones a move left behind included: the search reaches each, with or without a risk. */

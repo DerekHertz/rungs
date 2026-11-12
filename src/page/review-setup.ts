@@ -1,0 +1,127 @@
+import type { Comparison, ContractMove } from "../compare.ts";
+import { isCodeNode } from "../graph.ts";
+import type { Graph, LineRange, ModuleNode, NodeId } from "../graph.ts";
+import { contractsReport, dependencyReview, effectsChangedRows, newEffects, unmentioned, unmentionedIds } from "../review.ts";
+import type { BaseFunction, EffectRow, ReviewEntry } from "../review.ts";
+import type { ObservedDocument } from "../observed-types.ts";
+import type { observedReport } from "../observed-report.ts";
+import type { RiskItem } from "../risks.ts";
+import type { TestChanges } from "../test-changes-types.ts";
+import { comparedLine, failingEntry, walkEntry } from "../arrival.ts";
+import type { PullRequestName } from "../arrival.ts";
+import { coverageLine, observedAt, stopFacts, tourCoverage, walkSummary } from "../stops.ts";
+import type { WalkNote } from "../stops.ts";
+import type { Stop } from "../tour.ts";
+import { renderArrival } from "./arrival-panel.ts";
+import { loadRows } from "./code-rows.ts";
+import { judgedInput } from "./judged-panel.ts";
+import { renderReview } from "./review-panel.ts";
+import type { ClaimRow, LinkNote, ReviewHandle } from "./review-panel.ts";
+import { renderWalkthrough } from "./walkthrough-panel.ts";
+import type { Walk } from "./walkthrough-panel.ts";
+
+/** What the review and the walkthrough read of the page: the picture's data. */
+export interface ReviewData {
+  readonly comparison: Comparison & { against: { ref: string; commit: string; pr?: PullRequestName } };
+  readonly graph: Graph;
+  readonly testChanges: TestChanges;
+  readonly observed: ObservedDocument | null;
+  readonly observedRun: ReturnType<typeof observedReport> | null;
+  readonly nodes: ReadonlyMap<NodeId, ModuleNode>;
+  readonly changed: ReadonlyMap<NodeId, ModuleNode>;
+}
+
+/** What the review and the walkthrough do to the page when the reviewer picks something. */
+export interface ReviewActions {
+  pickClaim(claim: ClaimRow): void;
+  pickEntry(entry: ReviewEntry): void;
+  pickNode(id: NodeId, marked?: LineRange): void;
+  pickPlaces(ids: readonly string[]): void;
+  showPick(): void;
+  visitStop(stop: Stop | undefined): void;
+  tourOpen(): boolean;
+  endTour(): void;
+  clearOutline(): void;
+}
+
+/** Loads the claims, contracts, walkthrough and risks, then draws the review sidebar, the walkthrough and the opening view. */
+export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<{ review: ReviewHandle; walk: Walk; risks: readonly RiskItem[] }> {
+  const { comparison, graph, testChanges, observed, observedRun, nodes, changed } = data;
+  const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; sentences: { index: number; text: string }[]; context: { text: string }[]; link: LinkNote };
+  const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
+  const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
+  const review = document.querySelector<HTMLElement>("#review")!;
+  review.hidden = false;
+  // The base functions are fetched only when there is a description to check against them.
+  const baseFunctions = claims.description === null ? [] : ((await (await fetch("/base-functions.json")).json()) as { functions: BaseFunction[] }).functions;
+  const claimed = claims.description === null ? null : unmentioned(comparison, graph, claims.description, linked, testChanges, baseFunctions);
+  const effects = newEffects(comparison, graph, claims.description ?? "", linked);
+  const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
+  const coverage = tourCoverage(tour.stops, comparison);
+  const risks = ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks;
+  const reviewHandle = renderReview(review, {
+    ...(await judgedInput(claims.claims, claims.link.status === "ok")),
+    walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
+    description: claims.description,
+    claims: claims.claims,
+    context: claims.context,
+    link: claims.link,
+    pickClaim: on.pickClaim,
+    unmentioned: claimed,
+    contracts: contractsReport(comparison, moves, claimed === null ? new Set() : unmentionedIds(claimed), graph, effectsChangedRows(comparison, graph, claims.description ?? "", linked)),
+    effects,
+    dependencies: dependencyReview(comparison, claims.description ?? ""),
+    pick: on.pickEntry,
+    pickEffect: (row: EffectRow) => on.pickNode(row.id, row.range),
+    pickNode: on.pickNode,
+    observed: observed === null ? null : { document: observed, report: observedRun },
+    testChanges,
+    risks,
+    pickRisk: (risk: RiskItem) => {
+      on.showPick();
+      on.pickPlaces(risk.ids);
+    },
+  });
+
+  const run = (await (await fetch("/run.json")).json()) as { repo: string | null };
+  const host = document.querySelector<HTMLElement>("#walk")!;
+  host.hidden = false;
+  const walk = renderWalkthrough(host, {
+    note: tour.walkthrough,
+    stops: tour.stops,
+    coverage,
+    claims: claims.sentences,
+    facts: (stop) => stopFacts(stop, comparison, graph, moves),
+    observed: (stop) => observedAt(stop, graph, comparison, observed, testChanges),
+    describe(id) {
+      const node = nodes.get(id) ?? changed.get(id);
+      if (node === undefined) return { label: id };
+      return isCodeNode(node) ? { label: `${node.qualifiedName} in ${node.path}` } : { label: node.path };
+    },
+    rows(id) {
+      const node = nodes.get(id) ?? changed.get(id);
+      return loadRows(id, node !== undefined && isCodeNode(node) ? node.range.start : 1);
+    },
+    visit: on.visitStop,
+  });
+  // The opening view: what is compared, and the failures and the tour one click away.
+  const failing = observedRun?.failing.length ?? 0;
+  review.prepend(
+    renderArrival({
+      compared: comparedLine(run.repo, comparison.against),
+      tests: failingEntry(observed === null ? "absent" : observed.status, failing),
+      tour: walkEntry(tour.walkthrough, tour.stops.length, coverage),
+      openTests: () => {
+        // Going to the failing tests is a pick of the reviewer's own: it ends the tour and leaves its selection behind.
+        if (on.tourOpen()) {
+          on.endTour();
+          reviewHandle.selectRisk(undefined);
+          on.clearOutline();
+        }
+        void reviewHandle.openTests();
+      },
+      startTour: () => walk.step(1),
+    }),
+  );
+  return { review: reviewHandle, walk, risks };
+}
