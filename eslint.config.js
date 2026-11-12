@@ -21,10 +21,11 @@ export default defineConfig(
       // qualifiedName) or the graph, never from slicing its id.
       "no-restricted-syntax": [
         "error",
-        {
-          selector: "CallExpression[callee.property.name=/^(split|indexOf|lastIndexOf)$/][arguments.0.value='#']",
+        // On an id: a variable or property named `id`, `...Id` or `...Ids[...]`. A URL's "#" fragment is not an id.
+        ...["Identifier", "MemberExpression > Identifier.property"].map((target) => ({
+          selector: `CallExpression[callee.property.name=/^(split|indexOf|lastIndexOf)$/][arguments.0.value='#'] > MemberExpression.callee > ${target === "Identifier" ? "Identifier.object" : "MemberExpression.object > Identifier.property"}[name=/^(id|.*Id)$/]`,
           message: "Read a node's file or name from the node or the graph (path, qualifiedName), not by splitting its id at '#'.",
-        },
+        })),
       ],
     },
   },

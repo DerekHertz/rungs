@@ -9,8 +9,9 @@ out=${REVIEW_DIR:-${TMPDIR:-/tmp}/streets-reviews}
 mkdir -p "$out"
 git -C "$repo" fetch -q origin "$branch" main
 tree=$(mktemp -d)
-git -C "$repo" worktree add -q --detach "$tree" "origin/$branch"
-trap 'git -C "$repo" worktree remove --force "$tree"' EXIT
+# Cleanup is set before the worktree exists, and no hook from the reviewed branch runs.
+trap 'git -C "$repo" -c core.hooksPath=/dev/null worktree remove --force "$tree" 2>/dev/null; rm -rf "$tree"; git -C "$repo" worktree prune' EXIT
+git -C "$repo" -c core.hooksPath=/dev/null worktree add -q --detach "$tree" "origin/$branch"
 standards=$(cat "$repo/CODING_STANDARDS.md" 2>/dev/null || true)
 (cd "$tree" && codex exec --sandbox read-only -m gpt-6-astra -c model_reasoning_effort=high -o "$out/$pr-r$round.md" \
   "Review the diff between origin/main and HEAD in this repo (git diff origin/main...HEAD). Read SPEC.md and AGENTS.md for the product's rules. Contract: $contract
