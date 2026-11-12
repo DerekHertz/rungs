@@ -210,3 +210,50 @@ test("a hunk is tied to the functions its lines are in", async () => {
   const top = pickerOf(tiering, { "src/orders/place.ts": "import 'node:path';\nexport function placeOrder(): void {}\n" });
   expect(top({ ids: [file("src/orders/place.ts")], hunk: { head: { start: 1, end: 1 }, base: null } }).percent).toBe(99.9);
 });
+
+test("a claim linked to a judged-none function and to a changed file with no code in it (unparseable, markdown, binary) has unknown stakes: the strictest tier", async () => {
+  const tiering = await tieringFor({});
+  const edits = { ...smallOrder, "src/orders/policy.ts": "export function broken( {\n" };
+  const pick = pickerOf(tiering, edits)({ ids: [file("src/orders/place.ts"), file("src/orders/policy.ts")] });
+  expect(pick.percent).toBe(99.9);
+  expect(pick.why.join("; ")).toMatch(/stakes: possible harm.*policy\.ts/);
+  expect(pick.why.join("; ")).not.toMatch(/judged none/);
+  // A docs file linked beside the function is no code to judge either.
+  const docs = pickerOf(tiering, { ...smallOrder, "docs/guide.md": "# Order flow\n\nchanged\n" })({ ids: [file("src/orders/place.ts"), file("docs/guide.md")] });
+  expect(docs.percent).toBe(99.9);
+  // Alone, the same function stays judged none.
+  expect(pickerOf(tiering, edits)({ ids: [file("src/orders/place.ts")] }).percent).toBe(95);
+});
+
+test("a changed file that could not be read in full, or a named place that is no known change, is unknown: complexity is the strictest tier too", async () => {
+  const tiering = await tieringFor({});
+  const broken = pickerOf(tiering, { "src/orders/policy.ts": "export function broken( {\n" })({ ids: [file("src/orders/policy.ts")] });
+  expect(broken.why.join("; ")).toMatch(/1 changed file could not be read in full/);
+  const stranger = pickerOf(tiering, smallOrder)({ ids: [file("src/orders/place.ts"), file("src/orders/nowhere.ts")] });
+  expect(stranger.percent).toBe(99.9);
+  expect(stranger.why.join("; ")).toMatch(/a named place is no change this comparison knows/);
+  expect(stranger.why.join("; ")).not.toMatch(/judged none/);
+});
+
+test("a kind adopted after setup was never asked of any term: possible harm, never judged none", async () => {
+  const withoutMoney: KindChoice = { asked: every.asked.filter((id) => id !== "money"), notJudged: [{ id: "money", reason: "missed the bench bar" }] };
+  const result = await setUp({ dir: repo(files), cacheDir: temp("streets-cache-"), judge: clientFor({}), deps: { kindChoice: withoutMoney } });
+  const stored = result.stored as StoredVocabulary;
+  const before: Tiering = { table: DEFAULT_TIERS, vocabulary: { status: "ok", stored, choice: withoutMoney } };
+  expect(pickerOf(before, smallOrder)({ ids: [file("src/orders/place.ts")] }).why.join("; ")).toMatch(/money not judged/);
+  // Money is adopted, and setup is not run again: the stored stakes say nothing about it.
+  const after: Tiering = { table: DEFAULT_TIERS, vocabulary: { status: "ok", stored, choice: every } };
+  const pick = pickerOf(after, smallOrder)({ ids: [file("src/orders/place.ts")] });
+  expect(pick.percent).toBe(99.9);
+  expect(pick.why.join("; ")).toMatch(/stakes: possible harm.*money not judged/);
+  expect(pick.why.join("; ")).not.toMatch(/judged none/);
+});
+
+test("one added call out is one kind of call out, not two", async () => {
+  const tiering = await tieringFor({});
+  const pick = pickerOf(tiering, { "src/orders/place.ts": "export function placeOrder(): void {\n  void fetch('https://example.com/orders');\n}\n" })({ ids: [file("src/orders/place.ts")] });
+  expect(pick.why.join("; ")).toMatch(/effects reached: 1 kind of call out/);
+  // A call out in a changed file whose function did not change counts once too.
+  const aside = pickerOf(tiering, { "src/orders/place.ts": "export function placeOrder(): void {}\nconst later = fetch('https://example.com/a');\nvoid later;\n" })({ ids: [file("src/orders/place.ts")] });
+  expect(aside.why.join("; ")).toMatch(/effects reached: 1 kind of call out/);
+});

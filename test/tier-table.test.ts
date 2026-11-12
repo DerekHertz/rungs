@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { COMPLEXITY_CUTOFFS, DEFAULT_TIERS, TIER_RULE_VERSION, complexityRank, parseTiers, pickTier, stakesRank, tierText, unknownTier } from "../src/tier-table.ts";
 import type { ComplexityFacts, StakesFacts } from "../src/tier-table.ts";
 
-const small: ComplexityFacts = { blastRadius: 0, unreadMayRest: 0, effects: 0, lines: 5 };
+const small: ComplexityFacts = { blastRadius: 0, unreadMayRest: 0, effects: 0, lines: 5, unreadFiles: 0, unknownPlaces: 0 };
 const none: StakesFacts = { status: "none", terms: ["order"] };
 
 test("the default table is 99.9 / 99 / 95, strictest first, and the rule is versioned", () => {
@@ -31,6 +31,9 @@ test("complexity: any effect, a blast radius of ten, two hundred lines, or lines
   expect(rank({ lines: 200 })).toBe(0);
   // Unknown is never small: lines not known is strict, and unread files that may rest on it count toward the radius.
   expect(rank({ lines: null })).toBe(0);
+  expect(rank({ unreadFiles: 1 })).toBe(0);
+  expect(rank({ unknownPlaces: 1 })).toBe(0);
+  expect(complexityRank({ ...small, unreadFiles: 2 }).why.join("; ")).toMatch(/2 changed files could not be read in full/);
   expect(rank({ blastRadius: 2, unreadMayRest: 1 })).toBe(1);
   expect(rank({ blastRadius: 5, unreadMayRest: 5 })).toBe(0);
 });

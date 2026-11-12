@@ -15,11 +15,13 @@
  *     - strict: the changed code reaches an effect (a call out to a process, the network, the file
  *       system, a queue, a timer or code loaded at run time), or 10 or more files rest on the changed
  *       files (the unread files that may rest on them count too), or 200 or more lines changed, or the
- *       number of changed lines is not known;
+ *       number of changed lines is not known, or a changed file could not be read in full (what it
+ *       calls out is not known), or the item names a place that is no change the comparison knows;
  *     - middle: 3 or more files rest on them, or 40 or more lines changed.
  *   Stakes pick the loosest tier only when every term a changed function belongs to is judged "no"
- *   for every kind of harm, completely (see stakes.ts): every kind asked, every member shown, nothing
- *   cut. Any other state is possible harm and picks the strictest tier: could cause, unclear, stale,
+ *   for every kind of harm that may be judged now, completely (see stakes.ts): every kind asked of that
+ *   term, every member shown, nothing cut, and every part of the item covered (a changed file with no
+ *   changed function in it, or a named place that is no known change, has no term to read). Any other state is possible harm and picks the strictest tier: could cause, unclear, stale,
  *   not judged, judged no over some of the code, a changed function mapped to no term, no stored
  *   vocabulary at all. Stakes unknown never read as none.
  *
@@ -57,6 +59,10 @@ export interface ComplexityFacts {
   readonly effects: number;
   /** Changed lines, added and removed; null when they are not known (binary, too large to diff). */
   readonly lines: number | null;
+  /** Changed files that could not be read in full (a syntax error): the calls out they make are not known, so none is not known to be none. */
+  readonly unreadFiles: number;
+  /** Places the item names that are no change the comparison knows: what they changed is not known. */
+  readonly unknownPlaces: number;
 }
 
 /** What is stored about the harm a mistake in the item's changed functions could cause. */
@@ -110,6 +116,8 @@ export function complexityRank(facts: ComplexityFacts): { readonly rank: TierRan
   const strict: string[] = [];
   if (facts.effects >= COMPLEXITY_CUTOFFS.strict.effects) strict.push(`effects reached: ${plural(facts.effects, "kind")} of call out`);
   if (reach >= COMPLEXITY_CUTOFFS.strict.blastRadius) strict.push(`large blast radius: ${rests}`);
+  if (facts.unreadFiles > 0) strict.push(`${plural(facts.unreadFiles, "changed file")} could not be read in full, so the calls out in it are not known`);
+  if (facts.unknownPlaces > 0) strict.push(`${plural(facts.unknownPlaces, "named place")} ${facts.unknownPlaces === 1 ? "is" : "are"} no change this comparison knows`);
   if (facts.lines === null) strict.push("changed lines not known");
   else if (facts.lines >= COMPLEXITY_CUTOFFS.strict.lines) strict.push(`large change: ${plural(facts.lines, "line")} changed`);
   if (strict.length > 0) return { rank: 0, why: strict };
@@ -151,7 +159,7 @@ export function clearsTier(wrong: number, tier: number | undefined): boolean {
 }
 
 /** The picker of a caller that knows nothing of an item (a bench case has no comparison): everything unknown, so the strictest tier. */
-export const unknownTier: TierPicker = () => pickTier({ blastRadius: 0, unreadMayRest: 0, effects: 0, lines: null }, { status: "possible", reason: "nothing is known of this item" });
+export const unknownTier: TierPicker = () => pickTier({ blastRadius: 0, unreadMayRest: 0, effects: 0, lines: null, unreadFiles: 0, unknownPlaces: 0 }, { status: "possible", reason: "nothing is known of this item" });
 
 /** A gate's own thresholds with the item's tier added, as the fraction a gate's `decide` reads in `tier`. */
 export const withTier = (thresholds: Readonly<Record<string, number>>, pick: TierPick): Readonly<Record<string, number>> => ({ ...thresholds, tier: tierLevel(pick.percent) });

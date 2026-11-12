@@ -129,7 +129,9 @@ function stakesLookup(vocabulary: VocabularyRead, baseGraph: Graph, baseTree: Fi
       if (term === undefined) reasons.push("the term has no stored stakes");
       else if (term.members === 0) reasons.push("the term has no mapped member");
       else {
-        for (const id of term.asked) {
+        // Every kind that may be judged now, not only the ones this term was asked at setup: a kind adopted since then was never asked of it, and that is "not judged", never "no".
+        for (const id of stakes.kinds.asked) {
+          if (term.cut.includes(id)) continue;
           const status = stakeStatus(records.get(stakePairKey(key, id)));
           if (status === "could cause") harms.push(kindName(id));
           else if (status !== "judged no") reasons.push(`${kindName(id)} ${status}`);
@@ -247,17 +249,17 @@ export function tierPicker(request: TierRequest): TierPicker {
       const baseId = change.kind === "moved" ? change.from.id : change.kind === "added" ? undefined : change.node.id;
       for (const label of baseId === undefined ? [] : (baseEffects().get(baseId) ?? [])) effects.add(label);
     }
-    // Calls that came or went, and calls that stayed but take other arguments, in an item's files (a hunk's lines when it has them).
+    // Calls that came or went, and calls that stayed but take other arguments, in an item's files (a hunk's lines when it has them). A call is one kind of call out whether it is reached from a changed function or came with the change: the same label is added once.
     const nodePath = (id: NodeId, side: "head" | "base"): string | undefined => (side === "head" ? headNodes() : baseNodes()).get(id)?.path;
     for (const effect of comparison.effects) {
       const side = effect.kind === "added" ? "head" : "base";
       const path = nodePath(effect.edge.from, side);
       const range = side === "head" ? scope.hunk?.head : scope.hunk?.base;
-      if (path !== undefined && paths.has(path) && (scope.hunk === undefined || overlaps(effect.edge.range, range ?? null))) effects.add(`${effect.kind} ${effectLabel(effect.edge)}`);
+      if (path !== undefined && paths.has(path) && (scope.hunk === undefined || overlaps(effect.edge.range, range ?? null))) effects.add(effectLabel(effect.edge));
     }
     for (const changed of comparison.changedEffects) {
       const path = nodePath(changed.owner, "head");
-      if (path !== undefined && paths.has(path) && (scope.hunk === undefined || changed.ranges.some((range) => overlaps(range, scope.hunk?.head ?? null)))) effects.add(`changed ${changed.label}`);
+      if (path !== undefined && paths.has(path) && (scope.hunk === undefined || changed.ranges.some((range) => overlaps(range, scope.hunk?.head ?? null)))) effects.add(changed.label);
     }
 
     let lines: number | null = 0;
@@ -270,7 +272,13 @@ export function tierPicker(request: TierRequest): TierPicker {
       }
       lines += scope.hunk === undefined ? changed.length : changed.filter((one) => (one.head !== undefined && scope.hunk!.head !== null && one.head >= scope.hunk!.head.start && one.head <= scope.hunk!.head.end) || (one.base !== undefined && scope.hunk!.base !== null && one.base >= scope.hunk!.base.start && one.base <= scope.hunk!.base.end)).length;
     }
-    return { blastRadius: known.size, unreadMayRest: unread.size, effects: effects.size, lines };
+    // Files the item names are covered only when read in full: a file with a syntax error has calls out nobody can see.
+    const unreadFiles = files.filter((file) => {
+      const head = file.kind === "removed" ? undefined : headNodes().get(file.node.id);
+      const base = file.kind === "added" ? undefined : baseNodes().get(file.kind === "moved" ? file.from.id : file.node.id);
+      return [head, base].some((node) => node?.level === "file" && node.analysis === "not fully read");
+    }).length;
+    return { blastRadius: known.size, unreadMayRest: unread.size, effects: effects.size, lines, unreadFiles, unknownPlaces: scope.ids.filter((id) => !changesById.has(id)).length };
   };
 
   /** The top-level unit a changed node belongs to in the base: itself, or the class or function that holds it. */
@@ -301,13 +309,18 @@ export function tierPicker(request: TierRequest): TierPicker {
     return change.node.path;
   };
 
-  const stakes = (code: readonly ModuleChange[], scope: ItemScope): StakesFacts => {
+  const stakes = (files: readonly ModuleChange[], code: readonly ModuleChange[], scope: ItemScope): StakesFacts => {
     const found = lookup();
     if (typeof found === "string") return { status: "possible", reason: found };
     if (code.length === 0) return { status: "possible", reason: scope.hunk === undefined ? "no changed function to map to a term" : "the changed lines are in no function, so no term is known for them" };
     const reasons: string[] = [];
     const harms: string[] = [];
     const none = new Set<string>();
+    // A changed file with no changed function in it (unparseable, binary, a document, a script of top-level statements) has no term to read stakes from: unknown, however clean the functions beside it are.
+    const strangers = scope.ids.filter((id) => !changesById.has(id)).length;
+    if (strangers > 0) reasons.push(`${strangers === 1 ? "a named place is" : `${strangers} named places are`} no change this comparison knows`);
+    const bare = new Set(files.filter((file) => !codeByPath.has(file.node.path)).map((file) => file.node.path));
+    if (bare.size > 0) reasons.push(`${named(bare)} changed with no function to map to a term`);
     // Functions with no term, by the unit (or top-level function) that holds them: one line per reason, not one per nested callback.
     const unmapped = new Set<string>();
     const noTerm = new Set<string>();
@@ -339,6 +352,6 @@ export function tierPicker(request: TierRequest): TierPicker {
   return (scope) => {
     const files = filesOf(scope.ids);
     const code = codeOf(files, scope);
-    return pickTier(complexity(files, code, scope), stakes(code, scope), tiering.table);
+    return pickTier(complexity(files, code, scope), stakes(files, code, scope), tiering.table);
   };
 }
