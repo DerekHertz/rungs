@@ -6,7 +6,8 @@ import { afterAll, expect, test, vi } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import { JevError, jevCost } from "../src/jev/client.ts";
 import type { JevClient, JevRequest, JevResponse } from "../src/jev/client.ts";
-import { reportLines, setUp } from "../src/setup.ts";
+import { reportLines } from "../src/setup.ts";
+import { setUp } from "./setup-no-stakes.ts";
 import type { StoredVocabulary } from "../src/setup.ts";
 
 const scratch: string[] = [];

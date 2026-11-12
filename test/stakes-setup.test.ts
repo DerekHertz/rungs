@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { afterAll, expect, test } from "vitest";
 import { HARM_CATALOGUE, HARM_CATALOGUE_VERSION } from "../src/harm-catalogue.ts";
 import { JevError, jevCost } from "../src/jev/client.ts";
+import { kindChoice, readKindsFile } from "../src/jev/stakes-adoption.ts";
 import type { JevClient, JevRequest, JevResponse } from "../src/jev/client.ts";
 import { reportLines, setUp } from "../src/setup.ts";
 import type { SetupDeps, StoredVocabulary } from "../src/setup.ts";
@@ -248,4 +249,14 @@ test("a stored stakes record whose verdict does not follow from its answers is d
   const result = await setUp({ dir, cacheDir, deps: deps() });
   expect(result.work).toBe("replaced unreadable");
   expect(result.why).toMatch(/stakes/);
+});
+
+test("by default a run asks only the kinds the committed bench result adopted, and lists the others as not judged", async () => {
+  const choice = kindChoice(await readKindsFile());
+  expect(choice.asked.length + choice.notJudged.length).toBe(HARM_CATALOGUE.length);
+  const result = await setUp({ dir: repo(files), cacheDir: temp("streets-cache-"), judge: clientFor() });
+  expect(result.stored.stakes!.kinds).toEqual(choice);
+  expect(new Set(result.stored.stakes!.records.map((record) => record.kind))).toEqual(new Set(choice.asked));
+  const text = reportLines(result).join("\n");
+  for (const one of choice.notJudged) expect(text).toContain(`kind not judged: ${HARM_CATALOGUE.find((kind) => kind.id === one.id)!.name} (${one.reason})`);
 });

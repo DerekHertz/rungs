@@ -52,6 +52,20 @@ mapped, flagged is a confident no, undecided is the middle band (unmapped, never
 cases are text copied from this repository at one commit; hand-built cases are written for the bench
 (none is copied from a private repository).
 
+`gates/stakes/` holds the stakes edge's cases: `sources.json` lists terms (a doc section each), code
+(one function with its comment, its path and its name) and cases (a label, a kind of harm from the
+catalogue, a term and its members), all with the text inline; `build.ts` writes `cases.json` through
+`stakesInputFor`, the code `streets setup --judge` runs to show a term and its members. A case's
+input is the gate's `StakesInput` (the kind's id, the term, and the members with their comments,
+code and derived effects); the question's words come from the catalogue entry, so a catalogue change
+re-renders every case. For this gate settled is a **confident no** (this kind of harm is out of the
+term's reach), flagged a confident yes, and undecided the middle band, never read as none: the other
+way round from the gates above, because a stake wrongly read as none is the dangerous mistake. The
+bench is scored over all cases, and again over each kind's own cases with the same bar (no call to
+Jev): `kinds.json` says which kinds met it, and `streets setup --judge` asks only about those; a kind
+that missed is "not judged", for every term. Each kind has its own good, broken (one steering) and
+cannot-tell cases.
+
 ## Cases
 
 - `label` is the truth: `good` (should be settled), `broken` (must not be settled) or

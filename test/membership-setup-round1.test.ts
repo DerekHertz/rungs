@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import { afterAll, expect, test } from "vitest";
 import { jevCost } from "../src/jev/client.ts";
 import type { JevAnswer, JevClient, JevRequest, JevResponse } from "../src/jev/client.ts";
-import { reportLines, setUp } from "../src/setup.ts";
+import { reportLines } from "../src/setup.ts";
+import { setUp } from "./setup-no-stakes.ts";
 
 const scratch: string[] = [];
 afterAll(() => {
