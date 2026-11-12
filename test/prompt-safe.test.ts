@@ -189,6 +189,23 @@ test("a test title with brackets goes through the title rule; a real computed me
   expect(promptName(`C.${JSON.stringify('[SECRET_KEY]')}`)).toBe("C.[…]");
 });
 
+test("a bracket never lets a quoted literal or a secret through in any segment", () => {
+  expect(promptName(JSON.stringify('readFile("sk-proj-abcdefgh12345678[case]") callback'))).toBe('readFile("…") callback');
+  expect(promptName(JSON.stringify(`${KEY}[x]`))).toBe(WITHHELD);
+  expect(promptName(`obj.${JSON.stringify(`${KEY}[x]`)}`)).toBe(`obj.${WITHHELD}`);
+  expect(promptName(`obj.${JSON.stringify('["a"][b]')}`)).toBe("obj.[…]");
+  expect(promptName(JSON.stringify('get [x]'))).toBe("get […]");
+});
+
+test("a bracket in a real graph's callback or key never leaks", () => {
+  const source = [`readFile("sk-proj-abcdefgh12345678[case]", () => {});`, `export const obj = { "${KEY}[x]": () => 1 };`, ""].join("\n");
+  const files = tree({ "package.json": "{}\n", "src/a.ts": source });
+  const graph = extract(files);
+  const user = tourPrompt([], placesOf(compare(base, graph), graph)).user;
+  expect(user).not.toContain("sk-proj");
+  expect(user).not.toContain("abcdefgh");
+});
+
 test("a title's quotes are dropped, its backslashes withheld", () => {
   expect(promptName(JSON.stringify('it("say \\"(new)\\"") callback'))).toBe('it("say (new)") callback');
   expect(promptName(JSON.stringify('it("a\\\\b") callback'))).toBe('it("…") callback');

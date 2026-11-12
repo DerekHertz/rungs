@@ -171,8 +171,11 @@ export function promptName(qualified: string): string {
       } catch {
         text = raw;
       }
-      const bracket = TEST_CALL.test(text) ? -1 : text.indexOf("[");
-      head = bracket === -1 ? literalFree(text, raw) : `${text.slice(0, bracket)}[…]`;
+      // Every quoted literal is dealt with first; a bracket is looked for only in what is left.
+      const clean = literalFree(text, raw);
+      const shown = clean === raw ? text : clean;
+      const bracket = clean === WITHHELD || TEST_CALL.test(text) ? -1 : shown.indexOf("[");
+      head = bracket === -1 ? clean : `${shown.slice(0, bracket)}[…]`;
     } else {
       while (end < qualified.length && qualified[end] !== "." && qualified[end] !== "@") end++;
       head = qualified.slice(at, end);
