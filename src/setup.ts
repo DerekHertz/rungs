@@ -237,6 +237,24 @@ async function readStored(file: string): Promise<Previous> {
   return { kind: "ok", stored: whole as unknown as StoredVocabulary, whole };
 }
 
+/** What `streets setup` stored for a repository, read for the page: nothing, a file that cannot be trusted, or the vocabulary. */
+export type StoredRead =
+  | { readonly kind: "missing" }
+  | { readonly kind: "unreadable"; readonly why: string }
+  | { readonly kind: "ok"; readonly stored: StoredVocabulary };
+
+/** Reads the stored vocabulary of the repository in `dir` without changing anything. The file is checked whole, as setup checks it. */
+export async function readVocabulary(dir: string, cacheDir: string): Promise<StoredRead> {
+  let identity: Identity;
+  try {
+    identity = await repoIdentity(dir);
+  } catch (error) {
+    return { kind: "unreadable", why: (error as Error).message };
+  }
+  const found = await readStored(fileFor(cacheDir, identity.key));
+  return found.kind === "ok" ? { kind: "ok", stored: found.stored } : found;
+}
+
 /** The base's files as stored: stored path to the digest of its text. A Map, since a path may be named like a property of an object ("__proto__", "constructor"). */
 function digestsOf(tree: FileTree, unavailable: RefBase["unavailable"]): Map<string, string> {
   const files = new Map<string, string>();
@@ -413,7 +431,7 @@ const MAX_UNREAD_SHOWN = 10;
  * Code files whose members could not be looked at: text files no adapter reads, and unread files that are not Markdown or a
  * manifest. A term that no read file maps to may have members in these, so it is "not known", never "no members".
  */
-function codeFilesUnread(vocabulary: Vocabulary): number {
+export function codeFilesUnread(vocabulary: Vocabulary): number {
   return vocabulary.notAnalysed + vocabulary.unread.filter((one) => !one.path.endsWith(".md") && basename(one.path) !== "package.json").length;
 }
 

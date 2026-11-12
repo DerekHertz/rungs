@@ -40,6 +40,8 @@ import { collectStandards } from "./standards.ts";
 import type { JudgeSubject } from "./jev/subject.ts";
 import type { JudgedSource } from "./jev/store.ts";
 import type { NarrateRequest } from "./narrate.ts";
+import type { StoredRead } from "./setup.ts";
+import { vocabularyDocument } from "./vocabulary-doc.ts";
 
 /** Writes a function's narration; the seam the command line fills with the agent and tests fake. */
 export type Narrator = (request: Pick<NarrateRequest, "node" | "outline" | "renarrate">) => Promise<Asked<Narration>>;
@@ -91,6 +93,9 @@ interface Resource {
  * callees as the TypeScript compiler resolves them (src/calls.ts), worked out on that first ask and kept.
  * `GET /calls?id=` is the same for any one class or function of the head: `callers` and `callees`
  * (resolved blocks with the lines of each call, and the unresolved calls); 404 for anything else.
+ * `GET /vocabulary.json` is the repository's stored vocabulary (`streets setup`) read against the head (src/vocabulary-doc.ts): its
+ * terms and where each is written (derived), and which functions belong to which term (judged, with the probability), stale
+ * or not judged where the change edited or added a function. With no stored vocabulary it says so; 404 without a base.
  * The claims are the person's `description` as a claimed fact, kept apart from the graph and the
  * comparison; `description` is null in them when none was given. The description is split into
  * claims by rules, and `link`, when given, is asked once for the agent's links from each claim to
@@ -143,6 +148,7 @@ export type SnapshotInputs = [
   tests?: TestRun | ((onControl: () => void) => Promise<TestRun>),
   repo?: string,
   judged?: JudgedSource,
+  vocabulary?: StoredRead,
 ];
 
 /** One snapshot's answers without a listener of its own, so a host (the PR picker) can swap one for another behind a single address. */
@@ -165,6 +171,7 @@ export async function createSnapshot(
   tests?: TestRun | ((onControl: () => void) => Promise<TestRun>),
   repo?: string,
   judged?: JudgedSource,
+  vocabulary?: StoredRead,
 ): Promise<Snapshot> {
   const tree: FileTree = new Map(given);
   const baseTree = base === undefined ? undefined : new Map(base.tree);
@@ -254,6 +261,8 @@ export async function createSnapshot(
     resources.set("/test-changes.json", { contentType: "application/json; charset=utf-8", body: testsChanged });
     const risks = `${JSON.stringify({ tier: "derived", risks: risksOf(comparison, baseGraph, graph, testChanges(readable?.baseTree ?? new Map(), readable?.headTree ?? tree), isTestFile) }, null, 2)}\n`;
     resources.set("/risks.json", { contentType: "application/json; charset=utf-8", body: risks });
+    // The stored vocabulary read against the head: derived words with their lines, judged memberships, each labelled. The file card and the risk entries name terms from it.
+    resources.set("/vocabulary.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(vocabularyDocument(vocabulary, { graph, tree }), null, 2)}\n` });
   }
 
   const narrations = new Map<NodeId, Promise<NarratedDoc>>();

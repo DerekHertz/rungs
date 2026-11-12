@@ -6,6 +6,8 @@ import type { BaseFunction, EffectRow, ReviewEntry } from "../review.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import type { observedReport } from "../observed-report.ts";
 import type { RiskItem } from "../risks.ts";
+import { termsNaming } from "../file-card.ts";
+import type { VocabularyDoc } from "../file-card.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import { comparedLine, failingEntry, walkEntry } from "../arrival.ts";
 import type { Entry, PullRequestName } from "../arrival.ts";
@@ -32,6 +34,8 @@ export interface ReviewData {
   readonly observedRun: ReturnType<typeof observedReport> | null;
   readonly nodes: ReadonlyMap<NodeId, ModuleNode>;
   readonly changed: ReadonlyMap<NodeId, ModuleNode>;
+  /** The stored vocabulary read against this comparison; null when it could not be fetched. */
+  readonly vocabulary: VocabularyDoc | null;
 }
 
 /** What the review and the walkthrough do to the page when the reviewer picks something. */
@@ -106,6 +110,7 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
     testChanges,
     unread: comparison.unread,
     risks,
+    termsOf: (path: string, ids: readonly NodeId[]) => termsNaming(data.vocabulary, path, ids),
     pickRisk: (risk: RiskItem) => {
       on.showPick();
       on.pickPlaces(risk.ids);

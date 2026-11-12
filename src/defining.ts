@@ -258,12 +258,16 @@ export const count = (n: number, word: string): string => `${n} ${word}${n === 1
 export const restsOnIt = (n: number, unread = 0): string => restsText(n, unread);
 
 /** New and changed effects counted apart: each line from `fileWhy` starts with "new " or "changed ". */
-function effectsText(effects: readonly string[]): string {
+export function effectsText(effects: readonly string[]): string {
   const added = effects.filter((line) => line.startsWith("new ")).length;
   const changed = effects.length - added;
   if (effects.length === 0) return "no new or changed effect";
   return [added > 0 ? count(added, "new effect") : "", changed > 0 ? count(changed, "changed effect") : ""].filter((part) => part !== "").join(" · ");
 }
+
+/** Whether a test reaches the file, in words: a test file that could not be read makes it unknown, never "no test". */
+export const testReachText = (why: Why): string =>
+  why.isTest ? "is a test file" : why.testReaches.length === 0 ? (why.testReachUnknown ? "test reach unknown: a test file could not be read" : "no test reaches it") : `${why.testReachUnknown ? "at least " : ""}${count(why.testReaches.length, "test file")} reach it`;
 
 /** The one line that says why the file matters: derived facts only, each a number or a name. */
 export function whyLine(found: FileWhy): string {
@@ -273,7 +277,7 @@ export function whyLine(found: FileWhy): string {
     why.contracts.length === 0 ? "no contract moved" : `${count(why.contracts.length, "contract")} moved`,
     why.dependents.length === 0 && why.unknownDependents === 0 ? "no file rests on it" : restsOnIt(why.dependents.length, why.unknownDependents),
     effectsText(why.effects),
-    why.isTest ? "is a test file" : why.testReaches.length === 0 ? (why.testReachUnknown ? "test reach unknown: a test file could not be read" : "no test reaches it") : `${why.testReachUnknown ? "at least " : ""}${count(why.testReaches.length, "test file")} reach it`,
+    testReachText(why),
   ];
   return parts.join(" · ");
 }
