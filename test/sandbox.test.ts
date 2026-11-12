@@ -327,16 +327,21 @@ test("unsandboxed: a process a step leaves behind holding its output is killed a
 
 test("unsandboxed: a step past the limit with a process left behind is a timeout, not a wait", async () => {
   const started = Date.now();
+  // The 1 s limit runs from the step's start, so the process must exist almost at once: a shell
+  // starts it in a millisecond or two, where a second node can take over a second to start on a
+  // loaded machine and the limit would end the step before it left anything behind.
   const run = await runIsolated({
     tree: new Map(),
     isolation: unsandboxed,
-    steps: (places) => [{ argv: [places.node, "-e", stray("", " setInterval(() => {}, 1000);")] }],
+    steps: () => [{ argv: ["/bin/sh", "-c", "setsid sleep 1000 & echo $!; sleep 1000"] }],
     timeoutMs: 1000,
     outputBytes: 1024,
   });
   expect(Date.now() - started).toBeLessThan(10_000);
   expect(run.steps[0]).toMatchObject({ exitCode: null, timedOut: true, leftover: "1 process outlived the step and was killed" });
-  expect(await gone(Number(run.steps[0]?.output))).toBe(true);
+  const pid = Number(run.steps[0]?.output);
+  expect(pid).toBeGreaterThan(0);
+  expect(await gone(pid)).toBe(true);
   expect(existsSync(run.root)).toBe(false);
 });
 
