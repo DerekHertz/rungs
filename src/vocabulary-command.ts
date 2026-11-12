@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
-import { certificationOf, certificationText, correctionsDigest, describeCorrection, effectOf, noLongerApply, vocabularyDigest } from "./corrections.ts";
+import { certificationOfStored, digestOfStored, gapsOf } from "./certification.ts";
+import { certificationText, correctionsDigest, describeCorrection, effectOf, noLongerApply } from "./corrections.ts";
 import type { Certification, Correction, Effect } from "./corrections.ts";
 import { EMPTY_ANSWER } from "./file-card.ts";
 import { looksSecret } from "./prompt-safe.ts";
@@ -29,7 +30,8 @@ export const VOCABULARY_USAGE = `usage: streets vocabulary <command> [--dir <dir
   remove <term>                 take the term out: it is not shown and its answers do not count
   member <function> <term> yes|no   say whether a function belongs to a term (the function is its name,
                                 path#name, or a full key such as function:src/a.ts#a)
-  certify                       record that you looked at the terms and corrections as they are now
+  certify                       record that you looked at the terms and corrections as they are now; refused
+                                while anything they are built from is unread, stale, cut or not judged
 A <term> is its key or its name. --dir is the repository (default: here). --by is who you are; without it
 the name comes from git config user.name, and never from the email. The vocabulary is the one
 \`streets setup\` stored; a correction is kept by every later setup.`;
@@ -111,7 +113,9 @@ const listLines = (stored: StoredVocabulary, effect: Effect, corrections: readon
   const lines = [`streets vocabulary: ${shown(stored.repo)}, built from ${shown(stored.base.ref)} at ${stored.base.commit.slice(0, 7)}`];
   const all = termsOf(stored);
   const proposed = proposedKeys(stored, effect);
-  lines.push(`  ${certificationText(certificationOf(all, corrections, stored.certification))}`);
+  const certification = certificationOfStored(stored);
+  lines.push(`  ${certificationText(certification)}`);
+  if (certification.kind === "changed" && certification.gaps !== undefined) lines.push(`    incomplete now: ${certification.gaps.join("; ")}`);
   if (vocabulary.status === "unknown") lines.push(`  terms: unknown, which is not none and not zero: ${shown(vocabulary.reason ?? "something could not be read")}`);
   else lines.push(`  terms: ${effect.visible.size} shown${all.length === effect.visible.size ? "" : ` of ${all.length}`}${proposed.size === 0 ? "" : `, ${proposed.size} of them proposed by ${shown(stored.proposals?.model ?? "a model")}, or including a part it proposed (claimed)`}`);
   if (stored.proposals?.answered === 0) lines.push(`  ${EMPTY_ANSWER} (own words reached ${stored.proposals.basis.mapped} of ${stored.proposals.basis.of} files, under half)`);
@@ -170,10 +174,11 @@ export async function vocabularyCommand(argv: readonly string[], deps: CommandDe
   const named = (key: string): string => shown(effect.nameOf(key));
 
   if (command === "certify") {
-    if (stored.vocabulary.status === "unknown") return refuse(`the terms are unknown, which is not none: ${shown(stored.vocabulary.reason ?? "something could not be read")}. Nothing was certified`);
-    const state = certificationOf(termsOf(stored), corrections, stored.certification);
+    const gaps = gapsOf(stored);
+    if (gaps.length > 0) return refuse(`the vocabulary is incomplete, and incomplete data is not certified: ${gaps.join("; ")}. Nothing was certified`);
+    const state = certificationOfStored(stored);
     if (state.kind === "certified") return done(`already certified: ${certificationText(state)}`);
-    const certification: Certification = { ...stamp, vocabulary: vocabularyDigest(termsOf(stored)), corrections: correctionsDigest(corrections) };
+    const certification: Certification = { ...stamp, vocabulary: digestOfStored(stored), corrections: correctionsDigest(corrections) };
     await write({ certification });
     const claimed = proposedKeys(stored, effect).size;
     return done(`certified by ${shown(stamp.by)} at ${stamp.at}: ${effect.visible.size} terms shown${claimed === 0 ? "" : ` (${claimed} proposed by a model, claimed, now vouched for by you)`}, ${corrections.length} corrections`);

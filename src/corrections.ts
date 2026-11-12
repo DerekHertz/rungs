@@ -4,6 +4,7 @@ import type { PairStatus } from "./memberships.ts";
 import { certificationLine } from "./file-card.ts";
 import type { DocCertification, DocStamp } from "./file-card.ts";
 import { shown } from "./stored-names.ts";
+import type { TermPin } from "./vocabulary.ts";
 
 /*
  * Corrections: what a person says about a vocabulary, stored with it (`corrections` in the setup
@@ -36,7 +37,7 @@ export type Correction = Stamp & { readonly label: string } & (
 
 /** A certification: who and when, and what the person was shown. See `certificationOf`. */
 export interface Certification extends Stamp {
-  /** `vocabularyDigest` of the terms at the time. */
+  /** `vocabularyDigest` of what the person was shown of the terms at the time. */
   readonly vocabulary: string;
   /** `correctionsDigest` of the corrections at the time. */
   readonly corrections: string;
@@ -253,8 +254,26 @@ export function noLongerApply(effect: Effect, corrections: readonly Correction[]
 
 const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 
-/** What a person looked at when they certified the terms: every term's key and name, in key order. */
-export const vocabularyDigest = (terms: readonly { readonly key: string; readonly name: string }[]): string => digest(terms.map((term) => [term.key, term.name]).sort((a, b) => (a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0)));
+/** What a person was shown of one term when they certified: its name, where the repository wrote it (an own term), or what a model said it is and the files it named (a proposed term). */
+export interface ReviewedTerm {
+  readonly key: string;
+  readonly name: string;
+  readonly pins?: readonly TermPin[];
+  readonly claimed?: { readonly description: string; readonly files: readonly string[] };
+}
+
+const byKey = (a: ReviewedTerm, b: ReviewedTerm): number => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+
+/**
+ * What a person looked at when they certified the terms, in key order: every term's key and name, the places an own term was
+ * written (source, path, lines, text), and for a proposed term its description, the files it named and the model that proposed
+ * it. The `v` marks the shape: a digest of an older shape (keys and names only) never matches, so it reads as changed.
+ */
+export const vocabularyDigest = (terms: readonly ReviewedTerm[], model?: string): string =>
+  digest({
+    v: 2,
+    terms: [...terms].sort(byKey).map((term) => [term.key, term.name, (term.pins ?? []).map((pin) => [pin.source, pin.path, pin.range, pin.written]), term.claimed === undefined ? null : [term.claimed.description, term.claimed.files, model ?? null]]),
+  });
 
 /** Every correction, in the order made, with who and when. */
 export const correctionsDigest = (corrections: readonly Correction[]): string => digest(corrections);
@@ -262,24 +281,38 @@ export const correctionsDigest = (corrections: readonly Correction[]): string =>
 export type CertificationState =
   | { readonly kind: "drafted"; readonly was?: Stamp; readonly since?: "corrections" }
   | { readonly kind: "certified"; readonly by: string; readonly at: string }
-  | { readonly kind: "changed"; readonly by: string; readonly at: string };
+  /** `gaps` is set when it changed because something it is built from is now unread, stale, cut or not judged. */
+  | { readonly kind: "changed"; readonly by: string; readonly at: string; readonly gaps?: readonly string[] };
+
+/** What a certification is read against besides the terms and the corrections. */
+export interface CertificationContext {
+  /** The model that proposed the terms (`proposals.model`), when any did. */
+  readonly model?: string | undefined;
+  /** What is unread, stale, cut or not judged in what the vocabulary is built from now (see `gapsOf`): none may stand under a certification. */
+  readonly gaps?: readonly string[];
+}
 
 /**
  * Whether the vocabulary is certified. THE RULE, the simplest one that is never false: a
- * certification records the digest of the terms (key and name) and of the corrections as they were
- * when `streets vocabulary certify` ran. Certified means both digests match the store now, so the
- * label never sits on terms or corrections nobody saw.
+ * certification records the digest of everything the person reviewed of the terms (see
+ * `vocabularyDigest`) and of the corrections as they were when `streets vocabulary certify` ran.
+ * Certified means both digests match the store now and nothing the vocabulary is built from is
+ * unread, stale, cut or not judged, so the label never sits on terms, descriptions or corrections
+ * nobody saw, or on data that is incomplete.
  * - No certification: drafted.
  * - Corrections differ (any later correction, of any kind): drafted again, naming who certified before.
- * - Only the terms differ (setup rebuilt them with other keys or names): "changed", said as
- *   "certified ..., vocabulary changed since". It is not plain certified.
- * Judged memberships are not part of what is certified: a person certifies terms and corrections.
+ * - The terms differ (setup rebuilt them with other keys, names or places, or a model said something else of
+ *   them), or the vocabulary is incomplete now: "changed", said as "certified ..., vocabulary changed since".
+ *   It is not plain certified.
+ * Judged memberships are not part of what is certified: a person certifies terms and corrections, and only
+ * that they are whole.
  */
-export function certificationOf(terms: readonly { readonly key: string; readonly name: string }[], corrections: readonly Correction[], certification: Certification | undefined): CertificationState {
+export function certificationOf(terms: readonly ReviewedTerm[], corrections: readonly Correction[], certification: Certification | undefined, context: CertificationContext = {}): CertificationState {
   if (certification === undefined) return { kind: "drafted" };
   const who = { by: certification.by, at: certification.at };
   if (certification.corrections !== correctionsDigest(corrections)) return { kind: "drafted", was: who, since: "corrections" };
-  if (certification.vocabulary !== vocabularyDigest(terms)) return { kind: "changed", ...who };
+  if (certification.vocabulary !== vocabularyDigest(terms, context.model)) return { kind: "changed", ...who };
+  if (context.gaps !== undefined && context.gaps.length > 0) return { kind: "changed", ...who, gaps: context.gaps };
   return { kind: "certified", ...who };
 }
 
