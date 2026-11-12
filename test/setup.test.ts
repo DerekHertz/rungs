@@ -138,12 +138,12 @@ test("fields another step added to the stored file survive a rebuild", async () 
   const cacheDir = temp("streets-cache-");
   const first = await setUp({ dir, cacheDir });
   const stored = JSON.parse(readFileSync(first.file, "utf8"));
-  stored.corrections = [{ term: "order flow", rename: "ordering" }];
+  stored.reviewerNotes = [{ term: "order flow", note: "ask the team" }];
   writeFileSync(first.file, JSON.stringify(stored));
   commit(dir, { "src/orders/cancel.ts": "export function cancelOrder(): void {}\n" });
   const second = await setUp({ dir, cacheDir });
   expect(second.work).toBe("rebuilt");
-  expect(JSON.parse(readFileSync(first.file, "utf8")).corrections).toEqual([{ term: "order flow", rename: "ordering" }]);
+  expect(JSON.parse(readFileSync(first.file, "utf8")).reviewerNotes).toEqual([{ term: "order flow", note: "ask the team" }]);
 });
 
 test("the default base is the tip of the main branch, not the point a feature branch left it", async () => {

@@ -17,3 +17,6 @@ export const standIn = (text: string): string => `withheld:${createHash("sha256"
 export function storedPath(path: string): string {
   return path.split("/").some(looksSecret) ? `/${standIn(path)}` : path;
 }
+
+/** Text from the store as it is shown or printed: itself, or "withheld" when it is shaped like a secret (the file was edited, or a person typed one). */
+export const shown = (text: string): string => (looksSecret(text) ? "withheld" : text);

@@ -209,13 +209,13 @@ test("fields another step added survive a judged run, and so do memberships when
   const cacheDir = temp("streets-cache-");
   const first = await setUp({ dir, cacheDir, judge: clientFor() });
   const withExtra = stored(first.file);
-  withExtra.corrections = [{ term: "order flow", rename: "ordering" }];
+  withExtra.reviewerNotes = [{ term: "order flow", note: "ask the team" }];
   writeFileSync(first.file, JSON.stringify(withExtra));
   commit(dir, { "src/orders/cancel.ts": "export function cancelOrder(): void {}\n" });
   const second = await setUp({ dir, cacheDir, judge: clientFor() });
   expect(second.work).toBe("rebuilt");
   const after = stored(second.file);
-  expect(after.corrections).toEqual([{ term: "order flow", rename: "ordering" }]);
+  expect(after.reviewerNotes).toEqual([{ term: "order flow", note: "ask the team" }]);
   expect(after.memberships?.units.some((unit) => unit.name === "cancelOrder")).toBe(true);
 });
 

@@ -1,4 +1,6 @@
 import type { Comparison, ModuleChange } from "./compare.ts";
+import { combine, effectOf, pairKeyOf } from "./corrections.ts";
+import type { Part } from "./corrections.ts";
 import { diffText } from "./diff.ts";
 import { effectLabel, effectSets } from "./effects.ts";
 import { EXTRACTOR_VERSION } from "./extract/extract.ts";
@@ -12,6 +14,7 @@ import { stakePairKey, termMembers } from "./jev/stakes-source.ts";
 import { isBinary } from "./lines.ts";
 import { pairStatus, reconcile } from "./memberships.ts";
 import { promptName } from "./prompt-safe.ts";
+import { shown } from "./stored-names.ts";
 import type { StoredRead, StoredVocabulary } from "./setup.ts";
 import { kindChoice, readKindsFile } from "./jev/stakes-adoption.ts";
 import { reconcileStakes, stakeStatus } from "./stakes.ts";
@@ -77,10 +80,12 @@ const listOf = (reasons: readonly string[]): string => {
 /** One term's stakes: whether every kind of harm is judged no, completely. */
 type TermStakes = { readonly status: "none" } | { readonly status: "could cause"; readonly harms: readonly string[] } | { readonly status: "possible"; readonly reason: string };
 
-/** What a unit is mapped to, from the memberships as they stand against this comparison's base. */
+/** What a unit is mapped to, from the memberships as they stand against this comparison's base, with a person's corrections over them. */
 interface UnitTerms {
-  /** The terms it is a current member of. */
+  /** The terms it is a current member of: a term as the corrections leave it (merged ones folded in, removed ones gone). */
   readonly terms: readonly string[];
+  /** The terms in `terms` it is in only because a person said so: the stakes of the term were judged without its code. */
+  readonly added: ReadonlySet<string>;
   /** False when a pair of the unit is stale, not judged or left out by the cap: it may belong to a term not listed. */
   readonly known: boolean;
 }
@@ -106,41 +111,86 @@ function stakesLookup(vocabulary: VocabularyRead, baseGraph: Graph, baseTree: Fi
   const records = new Map([...stakes.records, ...stakes.derived].map((record) => [stakePairKey(record.term, record.kind), record]));
   const heldUnits = new Map(held.units.map((unit) => [unit.key, unit]));
   const heldRecords = new Map(held.records.map((record) => [pairKey(record.unit, record.term), record]));
-  const names = new Map(terms.map((term) => [term.key, term.name]));
+  // A person's word wins over the judged answer, as it does on the card: the same rule (src/corrections.ts) reads both.
+  const effect = effectOf(terms, stored.corrections ?? []);
+  const unitKeys = new Set(units.map((unit) => unit.key));
+  const said = new Map([...effect.pairs].filter(([, pair]) => unitKeys.has(pair.unit)));
+  const saidTerms = new Map<string, string[]>();
+  for (const pair of said.values()) saidTerms.set(pair.unit, [...(saidTerms.get(pair.unit) ?? []), pair.term]);
   const storedTerms = new Map(stakes.terms.map((term) => [term.key, term]));
   const kindName = (id: string): string => harmKind(id)?.name ?? id;
+  /** One stored term's stakes, and whether it has no judged code at all (then it says nothing about a union it is part of). */
+  const ownStakes = (key: string): { readonly stakes: TermStakes; readonly empty: boolean } => {
+    const term = storedTerms.get(key);
+    const harms: string[] = [];
+    const reasons: string[] = [];
+    if (term === undefined) reasons.push("the term has no stored stakes");
+    else if (term.members === 0) reasons.push(term.unknown > 0 ? "a mapping of the term is not fully known" : "the term has no mapped member");
+    else {
+      // Every kind that may be judged now, not only the ones this term was asked at setup: a kind adopted since then was never asked of it, and that is "not judged", never "no".
+      for (const id of stakes.kinds.asked) {
+        if (term.cut.includes(id)) continue;
+        const status = stakeStatus(records.get(stakePairKey(key, id)));
+        if (status === "could cause") harms.push(kindName(id));
+        else if (status !== "judged no") reasons.push(`${kindName(id)} ${status}`);
+      }
+      for (const id of term.cut) reasons.push(`${kindName(id)} left out by the cap`);
+      for (const one of stakes.kinds.notJudged) reasons.push(`${kindName(one.id)} not judged`);
+      if (term.unknown > 0) reasons.push("a mapping of the term is not fully known");
+    }
+    const stakesOf: TermStakes = harms.length > 0 ? { status: "could cause", harms } : reasons.length > 0 ? { status: "possible", reason: listOf(reasons) } : { status: "none" };
+    // Empty means no code and nothing unknown: a term whose members are stale, not judged or cut may hold code, so it speaks, and so does a term nothing is stored for.
+    return { stakes: stakesOf, empty: term !== undefined && term.members === 0 && term.unknown === 0 };
+  };
   const answered = new Map<string, TermStakes>();
   return {
     units: new Map(units.map((unit) => [unit.id, unit])),
     unitTerms(unit) {
       const seen = heldUnits.get(unit.key);
-      if (seen === undefined) return undefined;
-      const statuses = seen.candidates.map((key) => ({ key, status: pairStatus(heldRecords.get(pairKey(unit.key, key))) }));
-      const known = seen.cut.length === 0 && statuses.every((one) => one.status !== "stale" && one.status !== "not judged");
-      return { terms: statuses.filter((one) => one.status === "member").map((one) => one.key), known };
+      const candidates = seen?.candidates ?? [];
+      const keys = new Set<string>();
+      for (const key of [...candidates, ...(saidTerms.get(unit.key) ?? [])]) {
+        const visible = effect.resolve(key);
+        if (visible !== undefined) keys.add(visible);
+      }
+      if (seen === undefined && keys.size === 0) return undefined;
+      const members: string[] = [];
+      const added = new Set<string>();
+      let known = true;
+      for (const key of keys) {
+        const parts: Part[] = [];
+        let judgedMember = false;
+        for (const source of effect.sources(key)) {
+          const word = said.get(pairKeyOf(unit.key, source));
+          const status = candidates.includes(source) ? pairStatus(heldRecords.get(pairKey(unit.key, source))) : undefined;
+          if (status === "member") judgedMember = true;
+          if (word !== undefined) parts.push({ status: word.belongs ? "member" : "not a member", said: word });
+          else if (status !== undefined) parts.push({ status });
+        }
+        const { status, corrected } = combine(said.get(pairKeyOf(unit.key, key)), parts);
+        if (status === "member") {
+          members.push(key);
+          if (corrected !== undefined && !judgedMember) added.add(key);
+        } else if (status === "stale" || status === "not judged") known = false;
+      }
+      // A pair the cap left out of the questions is unknown, unless a person has spoken for it.
+      for (const key of seen?.cut ?? []) {
+        const visible = effect.resolve(key);
+        if (visible !== undefined && !said.has(pairKeyOf(unit.key, key)) && !said.has(pairKeyOf(unit.key, visible))) known = false;
+      }
+      return { terms: members, added, known };
     },
-    termName: (key) => names.get(key) ?? key,
+    termName: (key) => shown(effect.nameOf(key)),
     termStakes(key) {
       const cached = answered.get(key);
       if (cached !== undefined) return cached;
-      const term = storedTerms.get(key);
-      const harms: string[] = [];
-      const reasons: string[] = [];
-      if (term === undefined) reasons.push("the term has no stored stakes");
-      else if (term.members === 0) reasons.push("the term has no mapped member");
-      else {
-        // Every kind that may be judged now, not only the ones this term was asked at setup: a kind adopted since then was never asked of it, and that is "not judged", never "no".
-        for (const id of stakes.kinds.asked) {
-          if (term.cut.includes(id)) continue;
-          const status = stakeStatus(records.get(stakePairKey(key, id)));
-          if (status === "could cause") harms.push(kindName(id));
-          else if (status !== "judged no") reasons.push(`${kindName(id)} ${status}`);
-        }
-        for (const id of term.cut) reasons.push(`${kindName(id)} left out by the cap`);
-        for (const one of stakes.kinds.notJudged) reasons.push(`${kindName(one.id)} not judged`);
-        if (term.unknown > 0) reasons.push("a mapping of the term is not fully known");
-      }
-      const result: TermStakes = harms.length > 0 ? { status: "could cause", harms } : reasons.length > 0 ? { status: "possible", reason: listOf(reasons) } : { status: "none" };
+      // A merged term holds the code of every part, so it carries the worst of their stakes; a part with no judged code says nothing, unless none has any.
+      const parts = effect.sources(key).map(ownStakes);
+      const speaking = parts.filter((part) => !part.empty);
+      const used = (speaking.length > 0 ? speaking : parts.slice(0, 1)).map((part) => part.stakes);
+      const harms = used.flatMap((one) => (one.status === "could cause" ? one.harms : []));
+      const reasons = used.flatMap((one) => (one.status === "possible" ? [one.reason] : []));
+      const result: TermStakes = harms.length > 0 ? { status: "could cause", harms: [...new Set(harms)] } : reasons.length > 0 ? { status: "possible", reason: listOf(reasons) } : { status: "none" };
       answered.set(key, result);
       return result;
     },
@@ -334,6 +384,7 @@ export function tierPicker(request: TierRequest): TierPicker {
       }
       if (mapped.terms.length === 0) noTerm.add(promptName(unit!.name));
       if (!mapped.known) notKnown.add(promptName(unit!.name));
+      for (const key of mapped.added) reasons.push(`${found.termName(key)}: ${promptName(unit!.name)} was added to it by a person after its stakes were judged`);
       for (const key of mapped.terms) {
         const stake = found.termStakes(key);
         if (stake.status === "could cause") harms.push(...stake.harms.map((harm) => `${harm} in ${found.termName(key)}`));

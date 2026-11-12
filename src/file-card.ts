@@ -14,12 +14,20 @@ import type { LineRange, NodeId } from "./graph.ts";
  * "no terms", which is said only of a file whose every function was judged and belongs to none.
  */
 
+/** Who and when, as the page shows it: a display name, withheld when it is shaped like a secret. */
+export interface DocStamp {
+  readonly by: string;
+  readonly at: string;
+}
+
 /** A term and the best probability that one of a file's functions belongs to it. */
 export interface DocTermRef {
   readonly key: string;
   readonly name: string;
-  /** Jev's probability that the code belongs to the term, 0 to 1. */
-  readonly probability: number;
+  /** Jev's probability that the code belongs to the term, 0 to 1. Null when a person's correction says so (human tier): there is no probability to show, and it is never read as 1. */
+  readonly probability: number | null;
+  /** Set when a person corrected it to a member: shown as "corrected by <name>", whatever the judged record says. */
+  readonly corrected?: DocStamp;
 }
 
 /** What is known of the terms of a file's functions, classes and constants in the head. */
@@ -65,7 +73,10 @@ export interface DocMember {
   readonly path: string | null;
   readonly name: string | null;
   readonly level: string;
-  readonly probability: number;
+  /** Null for a member a person corrected to (human tier, not judged). */
+  readonly probability: number | null;
+  /** Set when a person corrected it to a member: shown as "corrected by <name>". */
+  readonly corrected?: DocStamp;
   /** "stale": the function changed (or is gone) since it was judged, so it is not counted. */
   readonly state: "member" | "stale";
   readonly why?: string;
@@ -80,6 +91,14 @@ export interface DocTerm {
   readonly summary: { readonly kind: "has members" | "no members" | "not known"; readonly why: string };
   readonly pins: readonly DocPin[];
   readonly members: readonly DocMember[];
+  /** Set when a person confirmed the term. */
+  readonly confirmed?: DocStamp;
+  /** The name the vocabulary gave it, when a person renamed it. */
+  readonly renamedFrom?: string;
+  /** The names of the terms merged into this one: its members are theirs too. */
+  readonly mergedFrom?: readonly string[];
+  /** Judged members a person corrected to "not a member": left out of the list, counted here. */
+  readonly correctedAway?: number;
   /** Members left out of the list to keep the document short, counted by what they are (current or stale) and never dropped silently. The list puts current members first. */
   readonly membersOmitted?: { readonly current: number; readonly stale: number };
 }
@@ -100,13 +119,32 @@ export interface VocabularyDoc {
   readonly judged: boolean;
   readonly model?: string;
   readonly terms: readonly DocTerm[];
+  /** Whether a person has certified the vocabulary, and whether it changed since (see src/corrections.ts). Present when a vocabulary is stored. */
+  readonly certification?: DocCertification;
+  /** A person's corrections, and the ones with nothing to apply to in this tree (kept, never dropped). Present when a vocabulary is stored. */
+  readonly corrections?: { readonly count: number; readonly noLongerApply: readonly { readonly text: string; readonly why: string; readonly by: string; readonly at: string }[] };
   /** Files whose path was withheld from the store. */
   readonly withheldPaths: number;
   readonly files: readonly DocFile[];
 }
 
+export type DocCertification =
+  | { readonly kind: "drafted"; readonly was?: DocStamp; readonly since?: "corrections" }
+  | { readonly kind: "certified"; readonly by: string; readonly at: string }
+  | { readonly kind: "changed"; readonly by: string; readonly at: string };
+
+/** The certification in one line, for the page and the command line. Names in it are already withheld when they are shaped like a secret. */
+export function certificationLine(state: DocCertification): string {
+  if (state.kind === "certified") return `certified by ${state.by} at ${state.at}`;
+  if (state.kind === "changed") return `certified by ${state.by} at ${state.at}, vocabulary changed since`;
+  return state.was === undefined ? "drafted: nobody has certified it" : `drafted: corrections changed since ${state.was.by} certified it at ${state.was.at}`;
+}
+
 /** A probability for people: floored, so an answer that is not certain never reads as 100%. */
 export const percent = (probability: number): string => `${Math.floor(probability * 100)}%`;
+
+/** A term's mark beside its name: its probability when judged, "corrected by <name>" when a person said so. */
+export const markOf = (ref: { readonly probability: number | null; readonly corrected?: DocStamp }): string => (ref.corrected === undefined ? (ref.probability === null ? "" : percent(ref.probability)) : `corrected by ${ref.corrected.by}`);
 
 /** A stored path or name that was withheld reads as "withheld". */
 export const shownPath = (path: string | null): string => (path === null ? "withheld" : path);
@@ -142,16 +180,24 @@ export function termsLine(doc: VocabularyDoc | null | undefined, file: DocFile |
   if (doc === null) return { chips: [], text: "vocabulary unavailable: the page could not load it" };
   if (doc === undefined || doc.state === "none") return { chips: [], text: NO_VOCABULARY };
   if (doc.state === "unreadable") return { chips: [], text: `the stored vocabulary could not be read (${doc.why ?? "unknown reason"}): run streets setup` };
-  const note = doc.rules === undefined ? {} : { note: `built with other rules (${doc.rules}): run streets setup` };
+  // What the reader needs to weigh every term on the line: the rules it was built with, whether a person certified it, and corrections that found nothing to apply to.
+  const gone = doc.corrections?.noLongerApply.length ?? 0;
+  const notes = [
+    doc.rules === undefined ? "" : `built with other rules (${doc.rules}): run streets setup`,
+    doc.certification === undefined ? "" : `vocabulary ${certificationLine(doc.certification)}`,
+    gone === 0 ? "" : `${gone} ${gone === 1 ? "correction" : "corrections"} no longer apply (streets vocabulary list)`,
+  ].filter((part) => part !== "");
+  const note = notes.length === 0 ? {} : { note: notes.join("; ") };
   const say = (text: string, chips: readonly TermChip[] = []): TermsLine => ({ chips, text, ...note });
   if (doc.terms.length === 0 && doc.termsStatus === "none") return say("no terms: everything was read and the repository wrote none");
   if (doc.terms.length === 0 && doc.termsStatus === "unknown") return say(`terms unknown: ${doc.reason ?? "something could not be read"}`);
-  if (!doc.judged) return say("not judged (run streets setup --judge)");
+  // Corrections are a person's word and stand without judging: a file with corrected terms shows them.
+  if (!doc.judged && (file?.terms.length ?? 0) === 0) return say("not judged (run streets setup --judge)");
   if (unread) return say("not judged: the file could not be read");
   // No adapter, or a syntax error: its code is not read, so what its terms are is unknown, never "no function".
   if (file?.unread !== undefined) return say(`this file's code is not read (${file.unread}): its terms are not known`);
   const units = file?.units;
-  const chips = (file?.terms ?? []).map((term) => ({ key: term.key, name: term.name, text: `${term.name} ${percent(term.probability)}` }));
+  const chips = (file?.terms ?? []).map((term) => ({ key: term.key, name: term.name, text: `${term.name} ${markOf(term)}`.trim() }));
   const stale = units?.stale ?? 0;
   const notJudged = units?.notJudged ?? 0;
   if (chips.length > 0) return say([notJudged > 0 ? `${notJudged} of ${units!.total} ${UNITS} not judged` : "", stale > 0 ? staleText(stale, file?.staleWhy) : ""].filter((part) => part !== "").join(", "), chips);
@@ -170,7 +216,8 @@ export interface Stakes {
   readonly harms: readonly { readonly kind: string; readonly probability: number }[];
 }
 
-export type CardTier = "judged" | "derived";
+/** "human" is a person's own word (a correction), never mixed into a judged line. */
+export type CardTier = "judged" | "derived" | "human";
 
 export interface CardLine {
   readonly label: string;
@@ -234,7 +281,7 @@ export function fileCard(input: CardInput): CardRow[] {
       id: "is",
       label: "What it is",
       lines: [
-        { label: "terms", tier: "judged", text: terms.text, chips: terms.chips, ...(terms.note === undefined ? {} : { note: terms.note }) },
+        { label: "terms", tier: terms.chips.length > 0 && (input.file?.terms ?? []).every((term) => term.corrected !== undefined) ? "human" : "judged", text: terms.text, chips: terms.chips, ...(terms.note === undefined ? {} : { note: terms.note }) },
         { label: "role", tier: "derived", text: input.role ?? "no role: the path matches no convention" },
       ],
     },
