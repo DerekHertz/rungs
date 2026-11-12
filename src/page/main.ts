@@ -1,3 +1,4 @@
+import "./snapshot-guard.ts";
 import { reachMap } from "../reach.ts";
 import { pictureOf } from "../compare.ts";
 import type { Comparison } from "../compare.ts";
@@ -41,6 +42,7 @@ import type { Stop } from "../tour.ts";
 import type { NarratedDoc } from "../narration.ts";
 import { renderNarration } from "./narration-panel.ts";
 import { activatable } from "./activatable.ts";
+import { mountPicker } from "./pr-picker.ts";
 import { backLabel, firstView, nextView } from "../narrow-view.ts";
 import type { ViewEvent, ViewState } from "../narrow-view.ts";
 import { isTyping, searchEntries } from "../find-files.ts";
@@ -790,6 +792,7 @@ wireFind({ box: findBox, results: findResults, status: findStatus, files: fileHi
 
 paintViews();
 showTown();
+void mountPicker(document.getElementById("pr-picker")!);
 
 /** A test function that failed in the run: what the runner gave of the failure, and the line its stack named marked in the source. */
 function showFailure(node: ModuleNode): void {
