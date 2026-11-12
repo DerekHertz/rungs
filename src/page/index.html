@@ -681,6 +681,21 @@
         background: #a5541a;
         color: #fff1e3;
       }
+      .review-judged.judging {
+        background: #2a3a52;
+        color: #9fc4f0;
+        animation: judging-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes judging-pulse {
+        50% {
+          opacity: 0.55;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .review-judged.judging {
+          animation: none;
+        }
+      }
       .review-judged.not-judged {
         background: #232c38;
         color: #8a9bb0;

@@ -17,7 +17,8 @@ import type { RiskItem } from "../risks.ts";
 import { CHANGE_WORD, CONTRACT_WORD } from "../mark-text.ts";
 import { CLAIM_GATE_ID } from "../jev/claim-gate.ts";
 import { judgedDetail, markButton } from "./judged-panel.ts";
-import type { JudgedView } from "./judged-panel.ts";
+import type { JudgedUpdate, JudgedView } from "./judged-panel.ts";
+import type { JudgedMark } from "../judged-marks.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   changed: "~",
@@ -157,6 +158,8 @@ export interface ReviewHandle {
   selectRisk(risk: RiskItem | undefined): void;
   snapshot(): ReviewSnapshot;
   restore(saved: ReviewSnapshot): void;
+  /** Judging moved on: redraw the claims' marks in place and the Claims summary's counts. */
+  setJudged(update: JudgedUpdate): void;
 }
 
 /** The text of a target group: a literal in quotes, or exactly what is not known. */
@@ -180,6 +183,9 @@ function linkNote(link: LinkNote): string {
  * One opens at a time and takes the column's height. Everything user-supplied goes in as text.
  */
 export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandle {
+  let judgedView = input.judged ?? null;
+  const markSlots = new Map<number, (mark: JudgedMark) => void>();
+  const summaries = new Map<RowId, HTMLElement>();
   let active: { pick: HTMLElement; detail?: HTMLElement } | undefined;
   let openRow: RowId | undefined;
   const riskPicks = new Map<RiskItem, { pick: HTMLElement; detail: HTMLElement }>();
@@ -290,27 +296,38 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     pick.title = claim.text;
     pick.append(element("span", "rv-one review-claim", claim.text));
     if (linked) pick.append(element("span", claim.ids.length === 0 ? "review-flag" : "review-size", claim.ids.length === 0 ? "no places" : plural(claim.ids.length, "place")));
-    const mark = input.judged?.marks.get(claim.index);
-    if (input.judged === null || input.judged === undefined || mark === undefined) {
+    const first = judgedView?.marks.get(claim.index);
+    if (judgedView === null || first === undefined) {
       item.append(pick, full);
       return item;
     }
     // The judged mark is a button of its own beside the claim: it picks the claim (its places light up) and opens the check.
-    const detail = judgedDetail(mark, input.judged);
-    full.append(detail);
     const line = element("div", "claim-line");
-    line.append(
-      pick,
-      markButton(
+    let shown: { mark: JudgedMark; button: HTMLElement; detail: HTMLDetailsElement } | undefined;
+    const place = (mark: JudgedMark): void => {
+      if (shown !== undefined && JSON.stringify(shown.mark) === JSON.stringify(mark)) return;
+      const detail = judgedDetail(mark, judgedView!);
+      const button = markButton(
         mark,
         () => {
           choose(pick, full);
           input.pickClaim(claim);
           detail.open = true;
         },
-        input.judged.adopted?.(CLAIM_GATE_ID) === true,
-      ),
-    );
+        judgedView?.adopted?.(CLAIM_GATE_ID) === true,
+      );
+      if (shown === undefined) line.append(pick, button);
+      else {
+        const wasOpen = shown.detail.open;
+        shown.button.replaceWith(button);
+        shown.detail.replaceWith(detail);
+        detail.open = wasOpen;
+      }
+      if (shown === undefined) full.append(detail);
+      shown = { mark, button, detail };
+    };
+    place(first);
+    markSlots.set(claim.index, place);
     item.append(line, full);
     return item;
   }
@@ -748,6 +765,8 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     return span;
   };
   for (const question of questions) {
+    const summary = summaryOf(question.summary);
+    summaries.set(question.id, summary);
     const wrap = element("section", "rv-row");
     const head = element("h2", "rv-head");
     const button = element("button", "rv-toggle");
@@ -756,7 +775,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     const bodyId = `review-body-${question.id}`;
     button.setAttribute("aria-controls", bodyId);
     const chevron = element("span", "rv-chevron", "▸");
-    button.append(chevron, element("span", "rv-name-label", `${question.name}:`), summaryOf(question.summary), element("span", `review-tag ${question.tag}`, question.tag));
+    button.append(chevron, element("span", "rv-name-label", `${question.name}:`), summary, element("span", `review-tag ${question.tag}`, question.tag));
     if (question.about !== undefined) button.title = question.about;
     head.append(button);
     const body = element("div", "rv-body");
@@ -832,6 +851,20 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       if (found === undefined) return clearActive();
       choose(found.pick, found.detail);
       found.pick.scrollIntoView({ block: "nearest" });
+    },
+    setJudged(update) {
+      // No document to read must not leave a mark "judging…": such a mark falls back to "not judged".
+      judgedView = update.judged ?? (judgedView === null ? null : { ...judgedView, marks: new Map([...judgedView.marks].map(([index, mark]) => [index, mark.kind === "pending" ? ({ kind: "not judged", reason: "the judging progress could not be read" } as JudgedMark) : mark])) });
+      if (judgedView !== null) for (const [index, place] of markSlots) {
+        const mark = judgedView.marks.get(index);
+        if (mark !== undefined) place(mark);
+      }
+      const text = claimsSummary(input.description, input.claims, input.link.status, input.context.length, update.judgedSummary);
+      const span = summaries.get("claims");
+      if (span !== undefined) {
+        span.textContent = text;
+        span.title = text;
+      }
     },
     snapshot: () => ({ open: openRow, active, scroll: scroller()?.scrollTop ?? 0 }),
     restore(saved) {

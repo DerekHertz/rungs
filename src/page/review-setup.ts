@@ -15,6 +15,7 @@ import type { Stop } from "../tour.ts";
 import { renderArrival } from "./arrival-panel.ts";
 import { loadRows } from "./code-rows.ts";
 import { judgedInput } from "./judged-panel.ts";
+import type { JudgedUpdate } from "./judged-panel.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote, ReviewHandle } from "./review-panel.ts";
 import { renderWalkthrough } from "./walkthrough-panel.ts";
@@ -66,8 +67,10 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
   const coverage = tourCoverage(tour.stops, comparison);
   const risks = ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks;
   on.risksLoaded(risks);
+  // Judging may answer before the panel is drawn: the latest update waits for the handle.
+  const drawn: { handle?: ReviewHandle; waiting?: JudgedUpdate } = {};
   const reviewHandle = renderReview(review, {
-    ...(await judgedInput(claims.claims, claims.link.status === "ok")),
+    ...(await judgedInput(claims.claims, claims.link.status === "ok", (update) => (drawn.handle === undefined ? (drawn.waiting = update) : drawn.handle.setJudged(update)))),
     walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
     description: claims.description,
     claims: claims.claims,
@@ -89,6 +92,8 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
       on.pickPlaces(risk.ids);
     },
   });
+  drawn.handle = reviewHandle;
+  if (drawn.waiting !== undefined) reviewHandle.setJudged(drawn.waiting);
   on.reviewDrawn(reviewHandle);
 
   const run =(await (await fetch("/run.json")).json()) as { repo: string | null };

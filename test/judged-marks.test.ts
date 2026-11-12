@@ -47,7 +47,7 @@ test("with judging off every claim reads not judged with the document's reason, 
 test("the row summary counts the marks, number first, after the links", () => {
   const document = on([record(0, "settled"), record(1, "flagged"), record(2, "settled")]);
   const marks = claimMarks(document, claims, true)!;
-  expect(countMarks(marks.values())).toEqual({ settled: 2, flagged: 1, undecided: 0, notJudged: 2 });
+  expect(countMarks(marks.values())).toEqual({ settled: 2, flagged: 1, undecided: 0, notJudged: 2, pending: 0 });
   expect(countsText(countMarks(marks.values()))).toBe("2 settled, 1 flagged, 2 not judged");
   expect(claimsSummary("d", claims, "ok", 0, judgedSummary(document, marks))).toBe("4 of 5 linked · 2 settled, 1 flagged, 2 not judged");
 });
@@ -55,4 +55,18 @@ test("the row summary counts the marks, number first, after the links", () => {
 test("a cost the service did not report is unknown, never zero", () => {
   expect(costText(record(0, "settled"))).toBe("1,200 input tokens, $0.000050");
   expect(costText({ inputTokens: null, usd: null })).toBe("cost unknown");
+});
+
+test("a pending document marks the claims still being asked as judging, counted apart", () => {
+  const document: JudgedDocument = { tier: "judged", status: "pending", sets: [], notJudged: [], usd: 0, costUnknown: 0, pending: [{ gate: "claim", key: "claim:0", about: { claim: 0 } }] };
+  const marks = claimMarks(document, [{ index: 0, ids: ["x"] }, { index: 1, ids: [] }], true)!;
+  expect(marks.get(0)).toEqual({ kind: "pending" });
+  expect(marks.get(1)?.kind).toBe("not judged");
+  expect(countsText(countMarks(marks.values()))).toBe("1 not judged, 1 judging…");
+});
+
+test("a run that failed gives every unanswered claim its reason", () => {
+  const document: JudgedDocument = { tier: "judged", status: "on", runFailed: "judging failed: boom", sets: [], notJudged: [], usd: 0, costUnknown: 0 };
+  const marks = claimMarks(document, [{ index: 0, ids: ["x"] }], true)!;
+  expect(marks.get(0)).toEqual({ kind: "not judged", reason: "judging failed: boom" });
 });

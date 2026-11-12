@@ -1,3 +1,4 @@
+import type { JudgedDocument } from "../src/jev/judged-types.ts";
 import { jevCost } from "../src/jev/client.ts";
 import type { JevAnswer, JevClient, JevRequest, JevResponse } from "../src/jev/client.ts";
 import { yesOf } from "../src/jev/gate.ts";
@@ -71,3 +72,13 @@ export const emptySubject: JudgeSubject = {
   head: new Map(),
   base: new Map(),
 };
+
+/** /judged.json once the run is done: the server answers at once, so a test polls past the pending phase. */
+export async function finishedJudged(base: string): Promise<JudgedDocument> {
+  let document = (await (await fetch(new URL("judged.json", base))).json()) as JudgedDocument;
+  for (let tries = 0; tries < 400 && document.status === "pending"; tries++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    document = (await (await fetch(new URL("judged.json", base))).json()) as JudgedDocument;
+  }
+  return document;
+}

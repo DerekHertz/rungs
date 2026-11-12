@@ -91,4 +91,5 @@ export const claimRunner: GateRunner = (context: GateContext) =>
     base: context.base,
     head: context.head,
     cacheDir: context.cacheDir,
+    ...(context.events === undefined ? {} : { events: context.events }),
   });

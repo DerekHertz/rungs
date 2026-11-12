@@ -10,10 +10,10 @@ import type { ClaimInput } from "../src/jev/claim-gate.ts";
 import { claimItems, ownersOf } from "../src/jev/claim-source.ts";
 import { requestFor } from "../src/jev/gate.ts";
 import { judgedSource } from "../src/jev/source.ts";
-import type { JudgedDocument, JudgedRecord } from "../src/jev/store.ts";
+import type { JudgedRecord } from "../src/jev/store.ts";
 import type { JudgeSubject } from "../src/jev/subject.ts";
 import { serve } from "../src/server.ts";
-import { fakeClient } from "./jev-fixtures.ts";
+import { fakeClient, finishedJudged } from "./jev-fixtures.ts";
 import { createJevClient } from "../src/jev/client.ts";
 import type { JevAnswer, JevResponse } from "../src/jev/client.ts";
 
@@ -142,7 +142,7 @@ test("streets compare with judging on writes one judged record per linked claim,
   const judged = judgedSource({ judge: true, env: {}, baseTree: serveBase, headTree: serveHead, cacheDir: dir, client });
   const server = await serve(serveHead, 0, against, THREE, threeClaims, undefined, undefined, undefined, undefined, judged);
   servers.push(server);
-  const document = (await (await fetch(new URL("judged.json", server.url))).json()) as JudgedDocument;
+  const document = await finishedJudged(server.url);
   expect(document.status).toBe("on");
   const records: JudgedRecord[] = document.sets.flatMap((set) => set.records);
   expect(records.map((record) => record.about)).toEqual([{ claim: 0 }, { claim: 1 }]);
@@ -157,7 +157,7 @@ test("streets compare with judging on writes one judged record per linked claim,
   const again = fakeClient();
   const second = await serve(serveHead, 0, against, THREE, threeClaims, undefined, undefined, undefined, undefined, judgedSource({ judge: true, env: {}, baseTree: serveBase, headTree: serveHead, cacheDir: dir, client: again }));
   servers.push(second);
-  const replay = (await (await fetch(new URL("judged.json", second.url))).json()) as JudgedDocument;
+  const replay = await finishedJudged(second.url);
   expect(replay.sets.flatMap((set) => set.records)).toEqual(records);
   expect(again.requests).toHaveLength(0);
 });
@@ -181,7 +181,7 @@ test("a claim whose call fails is listed not judged with why, and the others kee
     cached: false,
   }), undefined, undefined, undefined, undefined, judged);
   servers.push(server);
-  const document = (await (await fetch(new URL("judged.json", server.url))).json()) as JudgedDocument;
+  const document = await finishedJudged(server.url);
   expect(document.sets.flatMap((set) => set.records).map((record) => record.key)).toEqual(["claim:1"]);
   expect(document.notJudged).toMatchObject([{ gate: "claim", key: "claim:0", about: { claim: 0 }, reason: "the classifier failed" }]);
 });
@@ -212,7 +212,7 @@ test("a call that succeeded with an unreadable answer is a judged record, undeci
     context: [], dropped: { ids: 0, claims: 0, restatements: 0 }, cached: false,
   }), undefined, undefined, undefined, undefined, judged);
   servers.push(server);
-  const document = (await (await fetch(new URL("judged.json", server.url))).json()) as JudgedDocument;
+  const document = await finishedJudged(server.url);
   const [record] = document.sets.flatMap((set) => set.records);
   expect(record).toMatchObject({ key: "claim:0", verdict: "undecided", answers: { shown: { type: "yes-no", yes: 0.99 }, contradicted: { type: "unreadable", why: expect.any(String) } } });
   expect(document.notJudged).toEqual([]);
