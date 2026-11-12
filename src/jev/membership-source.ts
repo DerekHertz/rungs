@@ -175,10 +175,13 @@ const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 export function narrow(units: readonly Unit[], terms: readonly Term[], tree: FileTree): Narrowed {
   const stemsOf = new Map<string, string[]>();
   const index = new Map<string, Term[]>();
+  // A term a model proposed is also a candidate for every unit of the files it named: it shares no word with a poorly named unit. Those pairs rank after every pair that shares a word.
+  const citedBy = new Map<string, Term[]>();
   for (const term of terms) {
     const stems = termStems(term);
     stemsOf.set(term.key, stems);
     for (const one of stems) index.set(one, [...(index.get(one) ?? []), term]);
+    for (const path of term.claimed?.files ?? []) citedBy.set(path, [...(citedBy.get(path) ?? []), term]);
   }
   const perUnit = new Map<string, { candidates: string[]; cut: string[] }>();
   const pairs: Candidate[] = [];
@@ -189,12 +192,13 @@ export function narrow(units: readonly Unit[], terms: readonly Term[], tree: Fil
     const have = unitStems(unit, lines);
     const found = new Map<string, Term>();
     for (const one of have.keys()) for (const term of index.get(one) ?? []) found.set(term.key, term);
+    for (const term of citedBy.get(unit.path) ?? []) found.set(term.key, term);
     const ranked: Candidate[] = [];
     for (const term of found.values()) {
-      if (term.pins.every((pin) => isOwnPin(pin, unit))) continue;
+      if (term.pins.length > 0 && term.pins.every((pin) => isOwnPin(pin, unit))) continue;
       const mine = stemsOf.get(term.key)!;
       const shared = mine.filter((one) => have.has(one));
-      ranked.push({ unit, term, shared, score: shared.length / mine.length, nameHits: shared.filter((one) => have.get(one) === "name").length });
+      ranked.push({ unit, term, shared, score: mine.length === 0 ? 0 : shared.length / mine.length, nameHits: shared.filter((one) => have.get(one) === "name").length });
     }
     ranked.sort((a, b) => b.score - a.score || b.nameHits - a.nameHits || byText(a.term.key, b.term.key));
     perUnit.set(unit.key, { candidates: ranked.slice(0, MAX_CANDIDATES).map((one) => one.term.key), cut: ranked.slice(MAX_CANDIDATES).map((one) => one.term.key) });
@@ -233,7 +237,7 @@ export function termFacts(term: Term, tree: FileTree): TermFacts {
     written: safeClip(pin.written),
     context: pinContext(pin, tree),
   }));
-  return { name: safeClip(term.name), pins, omittedPins: Math.max(0, term.pins.length - pins.length) };
+  return { name: safeClip(term.name), pins, omittedPins: Math.max(0, term.pins.length - pins.length), ...(term.claimed === undefined ? {} : { claimed: safeClip(term.claimed.description) }) };
 }
 
 /** A unit as the gate is shown it: its path, signature, the comment above it and the first lines of its code. */

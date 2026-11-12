@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { judge } from "./client.ts";
 import type { JevAnswer, JevClient } from "./client.ts";
-import { requestFor } from "./gate.ts";
+import { requestFor, verdictOf } from "./gate.ts";
 import type { Gate, Thresholds, Verdict } from "./gate.ts";
 
 /**
@@ -161,7 +161,7 @@ async function runOnce<Input>(gate: Gate<Input>, cases: readonly Case<Input>[], 
     const reused = saved?.[one.id];
     if (reused !== undefined && reused.key === key) {
       answers[one.id] = reused;
-      decisions[one.id] = gate.decide(reused.answers, thresholds);
+      decisions[one.id] = verdictOf(gate, one.input, reused.answers, thresholds);
       continue;
     }
     asked += 1;
@@ -176,7 +176,7 @@ async function runOnce<Input>(gate: Gate<Input>, cases: readonly Case<Input>[], 
       inputTokens += judged.usage.inputTokens;
     }
     answers[one.id] = { key, answers: judged.answers, inputTokens: judged.usage.inputTokens, usd: judged.usage.usd };
-    decisions[one.id] = gate.decide(judged.answers, thresholds);
+    decisions[one.id] = verdictOf(gate, one.input, judged.answers, thresholds);
   }
   return { decisions, answers, usd, inputTokens, costUnknown, asked };
 }

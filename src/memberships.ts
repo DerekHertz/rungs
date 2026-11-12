@@ -184,6 +184,8 @@ export interface TermSummary {
   readonly why: string;
   /** A term the repository's docs wrote: it has a heading or a package description among its places. */
   readonly docs: boolean;
+  /** A term a model proposed: claimed, not written in the repository. */
+  readonly claimed: boolean;
 }
 
 export interface MembershipSummary {
@@ -199,7 +201,7 @@ export interface MembershipSummary {
 const plural = (count: number, one: string, many = `${one}s`): string => `${count} ${count === 1 ? one : many}`;
 
 /** Counts what the stored memberships say, from the units, the records and the vocabulary's terms. */
-export function summarize(memberships: StoredMemberships, terms: readonly Pick<Term, "key" | "name" | "pins">[], codeUnread = 0): MembershipSummary {
+export function summarize(memberships: StoredMemberships, terms: readonly Pick<Term, "key" | "name" | "pins" | "claimed">[], codeUnread = 0): MembershipSummary {
   const byPair = recordsByPair(memberships);
   const byUnit: Record<UnitStatus, number> = { "with a term": 0, "no candidate term": 0, "not a member of any candidate": 0, "middle band only": 0, "not known": 0 };
   const counts = { member: 0, notMember: 0, middle: 0, stale: 0, notJudged: 0, cut: 0 };
@@ -238,7 +240,7 @@ export function summarize(memberships: StoredMemberships, terms: readonly Pick<T
   const termList: TermSummary[] = terms.map((term) => {
     const one = perTerm.get(term.key) ?? { member: 0, notMember: 0, middle: 0, stale: 0, notJudged: 0, cut: 0, candidates: 0 };
     const docs = term.pins.some((pin) => pin.source === "heading" || pin.source === "package description");
-    const base = { key: term.key, name: term.name, members: one.member, docs };
+    const base = { key: term.key, name: term.name, members: one.member, docs, claimed: term.claimed !== undefined };
     if (one.member > 0) return { ...base, kind: "has members", why: `${plural(one.member, "member")}` };
     const unknown = [one.notJudged > 0 ? `${plural(one.notJudged, "pair")} not judged` : "", one.stale > 0 ? `${one.stale} stale` : "", one.cut > 0 ? `${plural(one.cut, "candidate")} left out by the cap of ${MAX_CANDIDATES} per function` : "", codeUnread > 0 ? `${plural(codeUnread, "code file")} could not be read` : ""].filter((part) => part !== "");
     if (unknown.length > 0) return { ...base, kind: "not known", why: unknown.join(", ") };
@@ -360,7 +362,7 @@ export function reconcile(previous: StoredMemberships, units: readonly Unit[], n
 const money = (usd: number): string => `$${usd.toFixed(6)}`;
 
 /** The report's lines about memberships. `note` is this run's judging, when it judged. */
-export function membershipLines(stored: StoredMemberships | undefined, coverage: Coverage, terms: readonly Pick<Term, "key" | "name" | "pins">[], note: JudgingNote | undefined, notRead: number, codeUnread = 0): string[] {
+export function membershipLines(stored: StoredMemberships | undefined, coverage: Coverage, terms: readonly Pick<Term, "key" | "name" | "pins" | "claimed">[], note: JudgingNote | undefined, notRead: number, codeUnread = 0): string[] {
   const lines: string[] = [];
   const unitWord = "functions, classes and constants";
   if (stored === undefined) {
@@ -404,7 +406,10 @@ export function membershipLines(stored: StoredMemberships | undefined, coverage:
     const unknown = omitted.length - none;
     lines.push(`    and ${plural(omitted.length, "more term")} from the docs: ${[none > 0 ? `${none} with no members` : "", unknown > 0 ? `${unknown} not known to have members` : ""].filter((part) => part !== "").join(", ")}`);
   }
-  const others = summary.terms.filter((term) => !term.docs && term.kind === "no members").length;
+  const others = summary.terms.filter((term) => !term.docs && !term.claimed && term.kind === "no members").length;
   if (others > 0) lines.push(`    ${plural(others, "other term")} named only by code, folders or tests ${others === 1 ? "has" : "have"} no members`);
+  const proposed = summary.terms.filter((term) => term.claimed && term.kind !== "has members");
+  for (const term of proposed.slice(0, 10)) lines.push(`    ${term.kind === "no members" ? "proposed term with no members" : "proposed term not known to have members"}: ${term.name} (${term.why})`);
+  if (proposed.length > 10) lines.push(`    and ${plural(proposed.length - 10, "more proposed term")} without known members`);
   return lines;
 }

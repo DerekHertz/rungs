@@ -6,7 +6,8 @@ import { isBinary, sliceLines } from "../lines.ts";
 import { cap } from "../prompt-safe.ts";
 import type { Rule, Standards } from "../standards.ts";
 import type { StandardsDocument } from "../standards-marks.ts";
-import { safeClip, withholdSecrets } from "./claim-source.ts";
+import { withTier } from "../tier-table.ts";
+import { clipText, withholdSecrets } from "./claim-source.ts";
 import { MAX_HUNK_LINES, MAX_RULE_CHARS, STANDARD_THRESHOLDS, standardGate } from "./standard-gate.ts";
 import type { HunkFacts, RuleFacts, StandardInput } from "./standard-gate.ts";
 import type { GateContext, GateRunner } from "./source.ts";
@@ -22,7 +23,7 @@ export const HUNK_CHANGED_LINES = 40;
 export const MAX_PAIRS = 300;
 
 /** One hunk before it is named for a file: the base's side and the head's side of the same stretch. */
-export type Hunk = Pick<HunkFacts, "base" | "head" | "before" | "after" | "part"> & {
+export type Hunk = Pick<HunkFacts, "base" | "head" | "before" | "after" | "part" | "clipped"> & {
   /** Set on a part of a split replacement that holds lines of one side only, though the run replaced lines: its other side is in other parts, so it must not be judged as if nothing were there. */
   readonly lopsided?: true;
 };
@@ -114,6 +115,12 @@ export function hunksOf(before: string, after: string): Hunk[] | { readonly skip
     const free = previous === undefined ? first.from : previous.from === first.from ? 0 : first.from - previous.to - 1 - trailing[at - 1]!;
     const lead = Math.min(HUNK_CONTEXT, Math.max(0, free));
     const lines = { before: [] as string[], after: [] as string[] };
+    let clipped = false;
+    const safeClip = (text: string): string => {
+      const found = clipText(text);
+      if (found.clipped) clipped = true;
+      return found.text;
+    };
     const baseNumbers: number[] = [];
     const headNumbers: number[] = [];
     const same = (from: number, to: number): void => {
@@ -140,7 +147,7 @@ export function hunksOf(before: string, after: string): Hunk[] | { readonly skip
     });
     const last = group.at(-1)!;
     same(last.to + 1, last.to + 1 + trailing[at]!);
-    return { base: rangeOf(baseNumbers), head: rangeOf(headNumbers), before: lines.before, after: lines.after, ...(group.length === 1 && first.part !== undefined ? { part: first.part } : {}), ...(group.length === 1 && first.lopsided === true ? { lopsided: true as const } : {}) };
+    return { base: rangeOf(baseNumbers), head: rangeOf(headNumbers), before: lines.before, after: lines.after, clipped, ...(group.length === 1 && first.part !== undefined ? { part: first.part } : {}), ...(group.length === 1 && first.lopsided === true ? { lopsided: true as const } : {}) };
   });
 }
 
@@ -160,17 +167,23 @@ export function ruleScope(path: string): string {
 
 const inScope = (scope: string, path: string): boolean => scope === "" || path.startsWith(`${scope}/`);
 
+const MAX_PATH_CHARS = 200;
+
 /** A path as the gate is shown it: each segment goes through the secret rule, so a secret-shaped segment reads "withheld"; then clipped. */
-export const safePath = (path: string): string => cap(path.split("/").map(withholdSecrets).join("/"), 200);
+export const safePath = (path: string): string => cap(path.split("/").map(withholdSecrets).join("/"), MAX_PATH_CHARS);
+/** Whether `safePath` cut the path. */
+export const pathCut = (path: string): boolean => path.split("/").map(withholdSecrets).join("/").length > MAX_PATH_CHARS;
 
 /** A rule as the gate is shown it: the base's text, secrets withheld first, then cut with the cut counted. */
 function ruleFacts(rule: Rule, baseText: string): RuleFacts {
   const text = withholdSecrets(sliceLines(baseText, rule.range));
+  const headings = [rule.heading, ...rule.ancestorHeadings].map(clipText);
   return {
     path: safePath(rule.path),
     kind: rule.kind,
-    heading: safeClip(rule.heading),
-    ancestors: rule.ancestorHeadings.map(safeClip),
+    heading: headings[0]!.text,
+    ancestors: headings.slice(1).map((heading) => heading.text),
+    clipped: headings.some((heading) => heading.clipped) || pathCut(rule.path) || pathCut(ruleScope(rule.path)),
     lines: rule.range,
     text: text.slice(0, MAX_RULE_CHARS),
     cutChars: Math.max(0, text.length - MAX_RULE_CHARS),
@@ -228,7 +241,9 @@ export function standardItems(subject: JudgeSubject): { readonly items: Item<Sta
           skipped.push({ status: "not judged", key, about, reason: `over the cap of ${MAX_PAIRS} rule and hunk pairs asked per comparison; this pair was not asked` });
           continue;
         }
-        items.push({ key, about, input: { rule: facts, hunk: { path: safePath(path), label, ...hunk } } });
+        // The hunk's tier comes from its file and its lines: how far the change reaches, and what harm a mistake there could cause.
+        const pick = subject.tiers({ ids: nodes, hunk: { head: hunk.head, base: hunk.base } });
+        items.push({ key, about, input: { rule: facts, hunk: { path: safePath(path), label, ...hunk, clipped: hunk.clipped || pathCut(path) || (change.kind === "moved" && pathCut(change.from.path)) } }, thresholds: withTier(STANDARD_THRESHOLDS, pick), pick });
       }
     }
   }

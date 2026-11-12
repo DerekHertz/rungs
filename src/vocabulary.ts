@@ -49,8 +49,13 @@ export interface Term {
   readonly name: string;
   /** Every distinct spelling merged into this term, sorted. */
   readonly spellings: readonly string[];
-  /** Sorted by path, then line, then source. Never empty. */
+  /** Sorted by path, then line, then source. Never empty for a term the repository wrote; empty for a proposed one. */
   readonly pins: readonly TermPin[];
+  /**
+   * Set only on a term a model proposed (a claimed fact, kept in the store's `proposals` and never in the derived
+   * `vocabulary.terms`): what the model said it is, and the files it named as belonging to it.
+   */
+  readonly claimed?: { readonly description: string; readonly files: readonly string[] };
 }
 
 /** Why a term was dropped. "short": its key is under MIN_KEY_CHARS or all digits. "generic": GENERIC_WORDS or GENERIC_PHRASES. */
@@ -140,8 +145,14 @@ const STOP_STEM_SET: ReadonlySet<string> = new Set(STOP_WORDS.map(stem));
 /** Whether a stem (see `stem`) is a stop word or a generic word: it says nothing about what a module is for. Narrowing code to candidate terms skips these. */
 export const isFillerStem = (word: string): boolean => STOP_STEM_SET.has(word) || GENERIC_WORD_SET.has(word);
 
+/** Why the table drops a key, or undefined. `longest` is the length of its longest spelling's words before stemming, which is what "too short" is judged on. */
+export function dropRuleOf(key: string, longest: number): DropRule | undefined {
+  const words = key.split(" ");
+  return longest < MIN_KEY_CHARS || words.every((word) => /^\p{N}+$/u.test(word)) ? "short" : GENERIC_PHRASE_SET.has(key) || words.every((word) => GENERIC_WORD_SET.has(word)) ? "generic" : undefined;
+}
+
 /** The written text as it may be shown: letters, digits and "_ . $ / -" only. */
-const spelling = (written: string): string => written.replace(/[^\p{L}\p{N}_.$/ -]+/gu, " ").replace(/\s+/g, " ").trim();
+export const spelling = (written: string): string => written.replace(/[^\p{L}\p{N}_.$/ -]+/gu, " ").replace(/\s+/g, " ").trim();
 
 /** A heading without its Markdown: link targets, emphasis, code ticks and HTML tags. */
 const plainHeading = (heading: string): string => heading.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/<[^>]*>/g, "").replace(/[`*~]/g, "").trim();
@@ -440,8 +451,7 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
   const terms: Term[] = [];
   const dropped: { key: string; name: string; rule: DropRule }[] = [];
   for (const [key, { longest, pins: list }] of [...into.pins].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-    const words = key.split(" ");
-    const rule: DropRule | undefined = longest < MIN_KEY_CHARS || words.every((word) => /^\p{N}+$/u.test(word)) ? "short" : GENERIC_PHRASE_SET.has(key) || words.every((word) => GENERIC_WORD_SET.has(word)) ? "generic" : undefined;
+    const rule = dropRuleOf(key, longest);
     const pins = [...new Map(list.map((pin) => [`${pin.path}\0${pin.range?.start ?? ""}\0${pin.range?.end ?? ""}\0${pin.source}\0${pin.written}`, pin])).values()];
     pins.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0) || (a.range?.start ?? 0) - (b.range?.start ?? 0) || (a.source < b.source ? -1 : a.source > b.source ? 1 : 0) || (a.written < b.written ? -1 : a.written > b.written ? 1 : 0));
     const counts = new Map<string, number>();

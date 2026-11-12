@@ -21,6 +21,8 @@ import { CHANGE_WORD, CONTRACT_WORD } from "../mark-text.ts";
 import { termNote } from "./term-note.ts";
 import { CLAIM_GATE_ID } from "../jev/claim-gate.ts";
 import { judgedDetail, markButton } from "./judged-panel.ts";
+import { folds, splitSettled } from "../judged-fold.ts";
+import { foldedClaims, foldedList } from "./folded.ts";
 import type { JudgedUpdate, JudgedView } from "./judged-panel.ts";
 import type { JudgedMark } from "../judged-marks.ts";
 import type { StandardLine, StandardsView } from "../standards-marks.ts";
@@ -287,7 +289,10 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
         head.append(element("span", "review-flag", "gap"));
         body.append(head);
       } else if (group.name === "linked") body.append(element("h3", "review-subtitle", `Linked (${group.items.length})`));
-      body.append(list(...group.items.map((claim) => claimRow(claim, linked))));
+      // A claim a judged check settled folds to one line under its group, still counted; the rest stay open in their own order.
+      const adopted = judgedView?.adopted?.(CLAIM_GATE_ID) === true;
+      const { open, folded } = splitSettled(group.items, (claim) => folds(judgedView?.marks.get(claim.index), adopted));
+      body.append(list(...open.map((claim) => claimRow(claim, linked))), ...foldedList(folded.map((claim) => claimRow(claim, linked))));
     }
     if (input.context.length > 0) body.append(contextList(input.context));
   }
@@ -745,13 +750,10 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       ["Judging…", view.lines.filter((line) => line.mark.kind === "pending")],
     ];
     for (const [name, found] of groups) if (found.length > 0) body.append(element("h3", "review-subtitle", `${name} (${found.length})`), list(...found.map((line) => standardRow(line, view))));
-    // A settled item folds to one line and stays in its count; it is never left out.
-    const settled = view.lines.filter(verdict("settled"));
-    if (settled.length > 0) {
-      const folded = element("details", "review-context");
-      folded.append(element("summary", "review-summary", `Settled (${settled.length})`), list(...settled.map((line) => standardRow(line, view))));
-      body.append(folded);
-    }
+    // A settled item folds to one line and stays in its count; it is never left out. A settle of a gate that has not met its bar stays open.
+    const { open: unfolded, folded } = splitSettled(view.lines.filter(verdict("settled")), (line) => folds(line.mark, view.adopted));
+    if (unfolded.length > 0) body.append(element("h3", "review-subtitle", `Settled, gate not adopted (${unfolded.length})`), list(...unfolded.map((line) => standardRow(line, view))));
+    body.append(...foldedList(folded.map((line) => standardRow(line, view))));
   }
 
   // Tests
@@ -937,11 +939,18 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       found.pick.scrollIntoView({ block: "nearest" });
     },
     setJudged(update) {
+      const foldedBefore = foldedClaims(input.claims, judgedView);
       // No document to read must not leave a mark "judging…": such a mark falls back to "not judged".
       judgedView = update.judged ?? (judgedView === null ? null : { ...judgedView, marks: new Map([...judgedView.marks].map(([index, mark]) => [index, mark.kind === "pending" ? ({ kind: "not judged", reason: "the judging progress could not be read" } as JudgedMark) : mark])) });
       if (judgedView !== null) for (const [index, place] of markSlots) {
         const mark = judgedView.marks.get(index);
         if (mark !== undefined) place(mark);
+      }
+      // A claim that has just settled folds (and one that is no longer settled opens): the group is drawn again.
+      const claimsRow = bodies.get("claims");
+      if (claimsRow?.filled === true && foldedClaims(input.claims, judgedView) !== foldedBefore) {
+        claimsRow.body.replaceChildren();
+        claimsRow.fill(claimsRow.body);
       }
       const text = claimsSummary(input.description, input.claims, input.link.status, input.context.length, update.judgedSummary);
       const span = summaries.get("claims");

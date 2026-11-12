@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { readBase, readCheckout, readExecutables } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
+import { PROPOSE_EFFORT, PROPOSE_MODEL } from "./propose.ts";
 import { parseOptions, USAGE } from "./options.ts";
 import type { Options } from "./options.ts";
 import { servePicker } from "./picker.ts";
@@ -23,6 +24,9 @@ import type { FileTree } from "./graph.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
 import { readVocabulary, reportLines, setUp, vocabularyNotice } from "./setup.ts";
+import { tieringOf } from "./tier-facts.ts";
+import { DEFAULT_TIERS } from "./tier-table.ts";
+import { vocabularyCommand } from "./vocabulary-command.ts";
 import { clientFor } from "./jev/client.ts";
 import { judgedSource } from "./jev/source.ts";
 import type { Claim } from "./claims.ts";
@@ -96,6 +100,19 @@ function openBrowser(url: string): void {
   spawn(command, args, { stdio: "ignore", detached: true })
     .on("error", () => {})
     .unref();
+}
+
+if (process.argv[2] === "vocabulary") {
+  // Corrections and certification are a stored file's business: no page is served and no model is called.
+  try {
+    const result = await vocabularyCommand(process.argv.slice(3), { cacheDir: cacheDirectory(process.env, homedir()) });
+    for (const line of result.out) console.log(line);
+    for (const line of result.err) console.error(result.code === 1 ? `streets: ${line}` : line);
+    process.exit(result.code);
+  } catch (error) {
+    console.error(`streets: ${(error as Error).message}`);
+    process.exit(1);
+  }
 }
 
 const parsed = parseOptions(process.argv.slice(2));
@@ -202,10 +219,12 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
         return outcome;
       }
     : undefined;
-  const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cache });
-  if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
-  // What setup stored, read for the file card: nothing stored is said as nothing, never as an empty vocabulary.
+  // What setup stored, read once: for the file card, and for the tier of each judged item (its complexity and its stored stakes).
+  // Nothing stored is said as nothing, never as an empty vocabulary.
   const vocabulary = await readVocabulary(options.dir, cache);
+  const tiering = options.judge ? await tieringOf(vocabulary, options.tiers ?? DEFAULT_TIERS) : undefined;
+  const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cache, ...(tiering === undefined ? {} : { tiering }) });
+  if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
   const inputs: SnapshotInputs = [against, description, link, walk, narrator, observed, from?.repo ?? basename(resolve(options.dir)), judged, vocabulary];
   return { tree, base, inputs };
 }
@@ -217,7 +236,9 @@ if (options.setup) {
     const key = process.env.TYPESAFE_API_KEY;
     const judging = options.judge && key !== undefined && key !== "";
     if (options.judge && !judging) console.error("streets: no TYPESAFE_API_KEY in the environment: nothing sent, no code is mapped to a term");
-    for (const line of reportLines(await setUp({ dir: options.dir, cacheDir: cache, ...(options.base === undefined ? {} : { ref: options.base }), ...(judging ? { judge: clientFor(true, process.env) } : {}) }))) console.log(line);
+    // Proposing sends only paths and names, to Sonnet through the person's own Claude login, and only when asked for.
+    const proposing = options.propose === true ? { propose: claudeRunner("claude", { model: PROPOSE_MODEL, effort: PROPOSE_EFFORT }) } : {};
+    for (const line of reportLines(await setUp({ dir: options.dir, cacheDir: cache, ...(options.base === undefined ? {} : { ref: options.base }), ...(judging ? { judge: clientFor(true, process.env) } : {}), ...proposing }))) console.log(line);
     process.exit(0);
   } catch (error) {
     console.error(`streets: ${(error as Error).message}`);

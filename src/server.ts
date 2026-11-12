@@ -36,6 +36,7 @@ import { beginJudging } from "./jev/live.ts";
 import type { Judging } from "./jev/live.ts";
 import { ownersOf } from "./jev/claim-source.ts";
 import { standardsBody } from "./jev/standard-source.ts";
+import { NO_TIERING, tierPicker } from "./tier-facts.ts";
 import { collectStandards } from "./standards.ts";
 import type { JudgeSubject } from "./jev/subject.ts";
 import type { JudgedSource } from "./jev/store.ts";
@@ -253,6 +254,8 @@ export async function createSnapshot(
       head: ownersOf(graph),
       base: ownersOf(baseGraph),
       standards,
+      // How sure a judged check must be to settle an item: its complexity and stakes pick a tier (see tier-facts.ts).
+      tiers: tierPicker({ tiering: judged?.tiering ?? NO_TIERING, comparison, baseGraph, graph, baseTree: baseTree ?? new Map(), tree }),
     };
     resources.set("/standards.json", { contentType: "application/json; charset=utf-8", body: standardsBody(standards) });
     const contracts = `${JSON.stringify({ tier: "derived", moves, effectsChanged: comparison.changedEffects }, null, 2)}\n`;

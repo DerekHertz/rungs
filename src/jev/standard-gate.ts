@@ -2,6 +2,8 @@ import type { LineRange } from "../graph.ts";
 import { yesOf, UNREADABLE } from "./gate.ts";
 import type { Gate, Thresholds, Verdict } from "./gate.ts";
 import type { JevAnswer } from "./client.ts";
+import { clearsTier, tierPercent } from "../tier-table.ts";
+import { MAX_LINE_CHARS } from "./claim-gate.ts";
 
 /**
  * The standard gate: does one changed hunk break one written rule. The rule is a section of a
@@ -32,6 +34,8 @@ export interface RuleFacts {
   readonly text: string;
   /** Characters of the section's text that were cut; 0 when it is whole. */
   readonly cutChars: number;
+  /** True when the rule's path, heading or an enclosing heading was clipped to a bound (it ends in "..." or "…"). */
+  readonly clipped: boolean;
   /** The folder the rule applies to ("" is the whole repository): a nested AGENTS.md applies to its own subtree only. */
   readonly scope: string;
   /** True when the change edited, moved or deleted the rule file (the text above is still the base's); null when unknown. */
@@ -52,6 +56,8 @@ export interface HunkFacts {
   readonly before: readonly string[];
   /** The head's side: "+12: text" added, " 11: text" unchanged. */
   readonly after: readonly string[];
+  /** True when a line of the hunk, or its path, was clipped to a bound (a source line ends in "..."). */
+  readonly clipped: boolean;
   /** Set when one run of changed lines was too long for one hunk and was split: this is part `number` of `of`, each part with its own lines of both sides. */
   readonly part?: { readonly number: number; readonly of: number };
 }
@@ -72,9 +78,12 @@ export const MAX_STATE_CHARS = 40_000;
 /**
  * The fixed starting thresholds. The reviewer's tier table (a later issue) replaces them. Recorded
  * with every record, so a changed constant makes a new record.
- *   settled: breaks <= `clear` AND the base question was answered and is under `already`
+ *   settled: breaks <= `clear` AND the base question was answered and is under `already` AND, when the
+ *            record carries a `tier` (the item's tier from the reviewer's table, as a fraction: 0.999),
+ *            1 - P(wrong) >= tier, where P(wrong) = breaks: settling is wrong when the lines break the rule
  *   flagged: breaks >= `flag`, unless the base already broke the rule (before >= `already`)
- *   undecided: anything else, including a violation the base already had
+ *   undecided: anything else, including a violation the base already had and a settle that passes the
+ *              limits above and not the tier
  */
 export const STANDARD_THRESHOLDS: Thresholds = { clear: 0.1, flag: 0.5, already: 0.5 };
 
@@ -84,7 +93,8 @@ export const STANDARD_QUESTION_LABELS: Readonly<Record<string, string>> = { brea
 /** Says the rule in words, from the thresholds a record carries (so an old record is described by its own). */
 export function describeStandardThresholds(thresholds: Thresholds): string {
   const pct = (name: string): string => `${Math.round((thresholds[name] ?? Number.NaN) * 100)}%`;
-  return `Settled when broken is at most ${pct("clear")} and the base question was answered and is under ${pct("already")} (the base's lines did not already break the rule). Flagged when broken is at least ${pct("flag")} and the base did not already break the rule (its answer under ${pct("already")}, or missing: then it is flagged, not hidden). Otherwise undecided: that includes a clean-looking change whose base already broke the rule, or whose base answer is missing.`;
+  const tier = thresholds.tier === undefined ? "" : ` and 1 - P(wrong) is at least ${tierPercent(thresholds.tier)} (the item's tier), where P(wrong) is the chance the changed lines break the rule`;
+  return `Settled when broken is at most ${pct("clear")}${tier} and the base question was answered and is under ${pct("already")} (the base's lines did not already break the rule). Flagged when broken is at least ${pct("flag")} and the base did not already break the rule (its answer under ${pct("already")}, or missing: then it is flagged, not hidden). Otherwise undecided: that includes a clean-looking change whose base already broke the rule, or whose base answer is missing.`;
 }
 
 /**
@@ -98,9 +108,10 @@ export function explainStandardVerdict(answers: Readonly<Record<string, JevAnswe
   if (breaks === undefined) return "Undecided: the answer about the changed lines could not be read, so nothing is settled.";
   const already = before !== undefined && before >= (thresholds.already ?? 0.5);
   const base = before === undefined ? "the base question has no answer" : `the base's lines ${already ? "already broke the rule" : "did not already break the rule"} (${pct(before)})`;
-  if (verdict === "settled") return `Settled: the changed lines are unlikely to break the rule (${pct(breaks)}) and ${base}.`;
+  if (verdict === "settled") return `Settled: the changed lines are unlikely to break the rule (${pct(breaks)}${thresholds.tier === undefined ? "" : `, within the tier of ${tierPercent(thresholds.tier)}`}) and ${base}.`;
   if (verdict === "flagged") return before === undefined ? `Flagged: the changed lines break the rule (${pct(breaks)}) and ${base}, so the violation is flagged, not hidden.` : `Flagged: the changed lines break the rule (${pct(breaks)}) and ${base}: a new violation.`;
   if (breaks >= (thresholds.flag ?? 0.5)) return `Undecided: the changed lines break the rule (${pct(breaks)}) but ${base}, so this is not a new violation; a person looks.`;
+  if (breaks <= (thresholds.clear ?? 0.1) && before !== undefined && !already && thresholds.tier !== undefined && !clearsTier(breaks, thresholds.tier)) return `Undecided: the changed lines pass the gate's own limit (${pct(breaks)}) but not the tier of ${tierPercent(thresholds.tier)}: a person looks.`;
   if (breaks <= (thresholds.clear ?? 0.1)) return before === undefined ? `Undecided: the changed lines look clean (${pct(breaks)}), but ${base}, so it cannot be settled.` : `Undecided: the changed lines look clean (${pct(breaks)}), but ${base}, and a change over a violation the base already had is never settled; a person looks.`;
   return `Undecided: the chance that the changed lines break the rule (${pct(breaks)}) is between the settle limit (${pct(thresholds.clear ?? 0.1)}) and the flag limit (${pct(thresholds.flag ?? 0.5)}).`;
 }
@@ -128,6 +139,29 @@ function side(name: string, path: string, range: LineRange | null, lines: readon
   return [`${name}: ${path} lines ${range.start}-${range.end}${split}`, ...shown.map((line) => `  ${line}`), ...(cut > 0 ? [`  [${cut} more lines were cut from this state; the first ${shown.length} are shown]`] : [])].join("\n");
 }
 
+/** The state for one input and what it left out, built together so the two cannot disagree. */
+function stateOf(input: StandardInput): { readonly state: Record<string, string>; readonly cut: string[] } {
+  const { rule, hunk } = input;
+  const cut: string[] = [];
+  if (rule.cutChars > 0) cut.push(`${rule.cutChars} characters of the rule were cut`);
+  if (rule.clipped) cut.push("the rule's path or heading was clipped");
+  if (hunk.clipped) cut.push(`a line or the path of the hunk was clipped to ${MAX_LINE_CHARS} characters`);
+  for (const [name, lines] of [["base", hunk.before], ["head", hunk.after]] as const) if (lines.length > MAX_HUNK_LINES) cut.push(`${lines.length - MAX_HUNK_LINES} more lines of the hunk's ${name} side were cut`);
+  const state: Record<string, string> = {
+    rule: ruleText(rule),
+    "before the change (base)": side("Base", hunk.path, hunk.base, hunk.before, "the file did not exist or had nothing here", hunk.part),
+    "after the change (head)": side("Head", hunk.path, hunk.head, hunk.after, "the file was removed or has nothing here", hunk.part),
+  };
+  let total = 0;
+  for (const [key, text] of Object.entries(state)) {
+    const room = Math.max(0, MAX_STATE_CHARS - total);
+    if (text.length > room) cut.push(`${key} was cut to fit the state budget`);
+    state[key] = text.length > room ? `${text.slice(0, room)}\n[cut to fit the state budget of ${MAX_STATE_CHARS} characters]` : text;
+    total += state[key]!.length;
+  }
+  return { state, cut };
+}
+
 export const standardGate: Gate<StandardInput> = {
   id: STANDARD_GATE_ID,
   version: "standard-v2",
@@ -150,20 +184,8 @@ export const standardGate: Gate<StandardInput> = {
       },
     },
   },
-  state(input) {
-    const state: Record<string, string> = {
-      rule: ruleText(input.rule),
-      "before the change (base)": side("Base", input.hunk.path, input.hunk.base, input.hunk.before, "the file did not exist or had nothing here", input.hunk.part),
-      "after the change (head)": side("Head", input.hunk.path, input.hunk.head, input.hunk.after, "the file was removed or has nothing here", input.hunk.part),
-    };
-    let total = 0;
-    for (const [key, text] of Object.entries(state)) {
-      const room = Math.max(0, MAX_STATE_CHARS - total);
-      state[key] = text.length > room ? `${text.slice(0, room)}\n[cut to fit the state budget of ${MAX_STATE_CHARS} characters]` : text;
-      total += state[key]!.length;
-    }
-    return state;
-  },
+  state: (input) => stateOf(input).state,
+  cut: (input) => stateOf(input).cut,
   decide(answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds): Verdict {
     const breaks = yesOf(answers, "breaks");
     if (breaks === undefined) return UNREADABLE;
@@ -175,6 +197,7 @@ export const standardGate: Gate<StandardInput> = {
     }
     // Settled needs both answers. A missing or unreadable base answer is an unknown, never a "no". And a base that already broke the
     // rule is never settled, whatever the changed lines look like (they may only have moved the breach): a person looks.
-    return breaks <= (thresholds.clear ?? 0.1) && before !== undefined && !already ? "settled" : "undecided";
+    // The gate's own limits say when it may settle; the tier says how sure the settle must be.
+    return breaks <= (thresholds.clear ?? 0.1) && before !== undefined && !already && clearsTier(breaks, thresholds.tier) ? "settled" : "undecided";
   },
 };

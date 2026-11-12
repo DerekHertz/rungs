@@ -1,6 +1,7 @@
 import type { Comparison, ContractMove } from "../compare.ts";
 import type { FileTree, NodeId } from "../graph.ts";
 import type { Standards } from "../standards.ts";
+import type { TierPicker } from "../tier-table.ts";
 
 /** Which file owns a node, and the node's own name, by node identity: ids are never taken apart by string. */
 export type Owners = ReadonlyMap<NodeId, { readonly path: string; readonly name: string }>;
@@ -26,4 +27,6 @@ export interface JudgeSubject {
   readonly base: Owners;
   /** The written rules of the base (see collectStandards): the standard gate's rules. */
   readonly standards: Standards;
+  /** Picks each item's tier from its complexity and stakes (see tier-facts.ts): how sure a judged check must be to settle it. */
+  readonly tiers: TierPicker;
 }

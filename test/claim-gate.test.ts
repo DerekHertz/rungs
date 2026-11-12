@@ -14,7 +14,7 @@ import type { JudgedRecord } from "../src/jev/store.ts";
 import type { JudgeSubject } from "../src/jev/subject.ts";
 import { serve } from "../src/server.ts";
 import { collectStandards } from "../src/standards.ts";
-import { fakeClient, finishedJudged } from "./jev-fixtures.ts";
+import { fakeClient, finishedJudged, testTiers } from "./jev-fixtures.ts";
 import { createJevClient } from "../src/jev/client.ts";
 import type { JevAnswer, JevResponse } from "../src/jev/client.ts";
 
@@ -62,7 +62,7 @@ function subjectOf(claims: JudgeSubject["claims"], trees: { base: FileTree; head
   const baseGraph = extract(trees.base);
   const graph = extract(trees.head);
   const comparison = compare(baseGraph, graph, { base: trees.base, head: trees.head });
-  return { comparison, contracts: contractsMoved(comparison, baseGraph, graph), claims, baseTree: trees.base, headTree: trees.head, head: ownersOf(graph), base: ownersOf(baseGraph), standards: collectStandards({ graph: baseGraph, tree: trees.base }, trees.head) };
+  return { comparison, contracts: contractsMoved(comparison, baseGraph, graph), claims, baseTree: trees.base, headTree: trees.head, head: ownersOf(graph), base: ownersOf(baseGraph), standards: collectStandards({ graph: baseGraph, tree: trees.base }, trees.head), tiers: testTiers };
 }
 
 test("the state holds the claim, each linked place's derived facts and its changed lines, and unlinked claims are not judged", () => {
@@ -94,7 +94,7 @@ test("the state is bounded: changed lines are capped per place and places per cl
   const text = claimGate.state(added.input)["place 1"]!;
   expect(text).toContain(`[${100 - MAX_CHANGED_LINES} more changed lines were cut from this state; the first ${MAX_CHANGED_LINES} are shown]`);
   expect(text.split("\n").length).toBeLessThan(MAX_FACTS + MAX_CHANGED_LINES + 10);
-  const many: ClaimInput = { claim: "x", places: Array.from({ length: MAX_PLACES }, () => ({ label: "altered f", facts: [], lines: [], cutLines: 0 })), omittedPlaces: 3 };
+  const many: ClaimInput = { claim: "x", places: Array.from({ length: MAX_PLACES }, () => ({ label: "altered f", facts: [], cutFacts: 0, clipped: false, lines: [], cutLines: 0 })), omittedPlaces: 3 };
   expect(claimGate.state(many).omitted).toMatch(/3 more linked places were left out/);
 });
 
@@ -139,7 +139,7 @@ const THREE = "Adds fresh.\n- Removes stay.\n- Mentions nothing linked.\n";
 test("streets compare with judging on writes one judged record per linked claim, and none for an unlinked one", async () => {
   const dir = mkdtempSync(join(tmpdir(), "streets-claim-gate-"));
   scratch.push(dir);
-  const client = fakeClient((request) => Promise.resolve(request.state.claim?.includes("fresh") ? answer(0.97, 0.02) : answer(0.3, 0.7)));
+  const client = fakeClient((request) => Promise.resolve(request.state.claim?.includes("fresh") ? answer(0.9995, 0.0003) : answer(0.3, 0.7)));
   const judged = judgedSource({ judge: true, env: {}, baseTree: serveBase, headTree: serveHead, cacheDir: dir, client });
   const server = await serve(serveHead, 0, against, THREE, threeClaims, undefined, undefined, undefined, undefined, judged);
   servers.push(server);
@@ -148,8 +148,11 @@ test("streets compare with judging on writes one judged record per linked claim,
   const records: JudgedRecord[] = document.sets.flatMap((set) => set.records);
   expect(records.map((record) => record.about)).toEqual([{ claim: 0 }, { claim: 1 }]);
   expect(client.requests).toHaveLength(2);
-  expect(records[0]).toMatchObject({ tier: "judged", key: "claim:0", question: { id: "claim", version: "claim-v2" }, verdict: "settled", thresholds: CLAIM_THRESHOLDS, model: "fake-1", inputTokens: 1000 });
-  expect(records[0]!.answers).toEqual({ shown: yes(0.97), contradicted: yes(0.02) });
+  expect(records[0]).toMatchObject({ tier: "judged", key: "claim:0", question: { id: "claim", version: "claim-v2" }, verdict: "settled", thresholds: { ...CLAIM_THRESHOLDS, tier: 0.999 }, model: "fake-1", inputTokens: 1000 });
+  // With no stored vocabulary the stakes are unknown: the strictest tier, and the record says so.
+  expect(records[0]!.pick).toMatchObject({ percent: 99.9, rank: 0 });
+  expect(records[0]!.pick!.why.join("; ")).toMatch(/stakes: possible harm/);
+  expect(records[0]!.answers).toEqual({ shown: yes(0.9995), contradicted: yes(0.0003) });
   expect(records[0]!.shown.state.claim).toBe("Adds fresh.");
   expect(records[0]!.shown.state["place 1"]).toContain("+5: export function fresh() {");
   expect(records[1]).toMatchObject({ key: "claim:1", verdict: "flagged" });
@@ -192,7 +195,7 @@ test("the claim text is capped and the whole state has a budget; each cut is not
   const state = claimGate.state({ claim: huge, places: [], omittedPlaces: 0 });
   expect(state.claim!.length).toBeLessThan(MAX_CLAIM_CHARS + 200);
   expect(state.claim).toMatch(/\[claim cut to the first 2000 characters of 1000000\]$/);
-  const wide = { label: "altered f", facts: [], lines: Array.from({ length: MAX_CHANGED_LINES }, () => "+1: " + "y".repeat(200)), cutLines: 0 };
+  const wide = { label: "altered f", facts: [], cutFacts: 0, clipped: false, lines: Array.from({ length: MAX_CHANGED_LINES }, () => "+1: " + "y".repeat(200)), cutLines: 0 };
   const total = (input: ClaimInput) => Object.values(claimGate.state(input)).reduce((sum, text) => sum + text.length, 0);
   const many: ClaimInput = { claim: huge, places: Array.from({ length: MAX_PLACES }, () => wide), omittedPlaces: 0 };
   expect(total(many)).toBeLessThanOrEqual(MAX_STATE_CHARS + 400);

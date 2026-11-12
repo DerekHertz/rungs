@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { readRef } from "./checkout.ts";
+import { certificationOfStored } from "./certification.ts";
+import { certificationText, describeCorrection, effectOf, noLongerApply, problemWithCertification, problemWithCorrections } from "./corrections.ts";
+import type { Certification, Correction, Inapplicable } from "./corrections.ts";
 import type { RefBase } from "./checkout.ts";
 import { EXTRACTOR_VERSION, digestOf, extract } from "./extract/extract.ts";
 import type { FileTree } from "./graph.ts";
@@ -19,8 +22,11 @@ import { kindChoice as chosenKinds, readKindsFile } from "./jev/stakes-adoption.
 import { MAX_STAKES_PAIRS, judgeStakes, stakePairKey, termMembers } from "./jev/stakes-source.ts";
 import type { KindChoice, StakeRecord, StakesNote, StoredStakes } from "./stakes.ts";
 import { problemWithStakes, reconcileStakes, stakes as buildStakes, stakesAreCurrent, stakesLines } from "./stakes.ts";
+import type { AgentRunner } from "./link.ts";
+import { ownCoverage, problemWithProposals, proposalLines, settleProposals, withProposed } from "./propose.ts";
+import type { ProposingNote, StoredProposals } from "./propose.ts";
 import { collectVocabulary, VOCABULARY_TABLE_VERSION } from "./vocabulary.ts";
-import type { Vocabulary } from "./vocabulary.ts";
+import type { Term, Vocabulary } from "./vocabulary.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,8 +40,10 @@ const execFileAsync = promisify(execFile);
  * function, class or constant is mapped to the terms code picked for it (the membership gate), the
  * judged records are stored beside the vocabulary (a separate tier, see memberships.ts) and
  * coverage is measured. Without `--judge`, stored memberships are only brought up to date: a
- * mapping whose function changed is marked stale. Whatever later steps add to the stored file
- * (certification) is kept when setup rewrites it.
+ * mapping whose function changed is marked stale. A person's corrections and certification
+ * (src/corrections.ts) and whatever later steps add to the stored file are kept when setup
+ * rewrites it. A stored file that cannot be read is copied aside before it is replaced, so
+ * corrections in it are never lost without a word.
  */
 
 /** The shape of the stored file. Raise it when a field's meaning changes. */
@@ -64,7 +72,16 @@ export interface StoredVocabulary {
   readonly memberships?: StoredMemberships;
   /** Judged: whether a mistake in each term's code could cause each kind of harm. Absent until `streets setup --judge` has run. */
   readonly stakes?: StoredStakes;
+  /** A person's corrections, in the order made (human tier): they win over every judged answer and are kept by every later setup. Absent until one is made. */
+  readonly corrections?: readonly Correction[];
+  /** Who certified the vocabulary and what they were shown (see certificationOf). Absent until someone certifies. */
+  readonly certification?: Certification;
+  /** Terms a model proposed where the repository's own words reach under half of the code (claimed tier, apart from `vocabulary.terms`). Absent until `streets setup --propose` has proposed some. */
+  readonly proposals?: StoredProposals;
 }
+
+/** The terms of a stored vocabulary as everything reads them: the repository's own, then the proposed ones. */
+export const termsOf = (stored: Pick<StoredVocabulary, "vocabulary" | "proposals">): readonly Term[] => withProposed(stored.vocabulary.terms, stored.proposals);
 
 export type SetupWork = "first setup" | "unchanged" | "rebuilt" | "rules changed" | "replaced unreadable";
 
@@ -85,6 +102,12 @@ export interface SetupResult {
   readonly judging?: JudgingNote;
   /** What this run's stakes judging did; absent when it did not judge. */
   readonly judgingStakes?: StakesNote;
+  /** What this run did about proposing terms; absent when nothing was redone at all (an unchanged repository, no `--judge`, no `--propose`). */
+  readonly proposing?: ProposingNote;
+  /** Where the stored file that could not be read was copied before it was replaced; set only for "replaced unreadable". */
+  readonly backup?: string;
+  /** The corrections kept, and the ones that have nothing to apply to in the base just read; absent when there are none. */
+  readonly corrections?: { readonly kept: number; readonly noLongerApply: readonly Inapplicable[] };
 }
 
 /** What a test may swap to see that no work was done. */
@@ -106,6 +129,8 @@ export interface SetupRequest {
   readonly ref?: string;
   /** Judging on: the classifier that answers the membership questions. Left out, no model is called. */
   readonly judge?: JevClient;
+  /** Proposing on: the agent that proposes terms where the repository's own words reach under half of the code. Left out, no term is proposed and nothing is sent. */
+  readonly propose?: AgentRunner;
   readonly deps?: SetupDeps;
 }
 
@@ -150,6 +175,24 @@ async function defaultRef(dir: string): Promise<string> {
 
 const fileFor = (cacheDir: string, key: string): string => join(cacheDir, "vocabulary", `${key}.json`);
 
+/** The file the repository in `dir` keeps its vocabulary in, whatever its checkout or worktree. */
+export async function storeFile(dir: string, cacheDir: string): Promise<string> {
+  return fileFor(cacheDir, (await repoIdentity(dir)).key);
+}
+
+/** Writes the stored vocabulary whole or not at all: another run, or a reader, never sees half of one. */
+export async function writeStored(file: string, stored: unknown): Promise<void> {
+  await mkdir(dirname(file), { recursive: true });
+  const scratch = `${file}.${process.pid}.tmp`;
+  try {
+    await writeFile(scratch, `${JSON.stringify(stored, null, 2)}\n`);
+    await rename(scratch, file);
+  } catch (error) {
+    await rm(scratch, { force: true });
+    throw new Error(`cannot store the vocabulary in ${file}: ${(error as Error).message}`, { cause: error });
+  }
+}
+
 export { storedPath };
 
 /** A ref as it is stored and printed: itself, or a stand-in when a part of it is shaped like a secret. */
@@ -182,6 +225,9 @@ function problemWith(whole: Record<string, unknown>): string | undefined {
     ["vocabulary", isRecord(whole.vocabulary)],
     ["memberships", whole.memberships === undefined || problemWithMemberships(whole.memberships) === undefined],
     ["stakes", whole.stakes === undefined || problemWithStakes(whole.stakes) === undefined],
+    ["corrections", whole.corrections === undefined || problemWithCorrections(whole.corrections) === undefined],
+    ["certification", problemWithCertification(whole.certification) === undefined],
+    ["proposals", whole.proposals === undefined || problemWithProposals(whole.proposals) === undefined],
   ];
   const failed = checks.find(([, ok]) => !ok);
   if (failed !== undefined) return failed[0];
@@ -211,12 +257,12 @@ function problemWith(whole: Record<string, unknown>): string | undefined {
   return vocabulary.find(([, ok]) => !ok)?.[0];
 }
 
-type Previous =
+export type Previous =
   | { readonly kind: "missing" }
   | { readonly kind: "unreadable"; readonly why: string }
   | { readonly kind: "ok"; readonly stored: StoredVocabulary; /** Everything in the file, including fields a later step added. */ readonly whole: Record<string, unknown> };
 
-async function readStored(file: string): Promise<Previous> {
+export async function readStored(file: string): Promise<Previous> {
   let text: string;
   try {
     text = await readFile(file, "utf8");
@@ -338,7 +384,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
       // A catalogue, question or threshold change under stored stakes is work to do even then: they go stale. So is a
       // change in which kinds may be asked about: a kind that is no longer adopted keeps no stake counted.
       const stakesHold = stored.stakes === undefined || (stakesAreCurrent(stored.stakes) && JSON.stringify(stored.stakes.kinds) === JSON.stringify(await currentChoice()));
-      if (changes.added + changes.changed + changes.removed === 0 && request.judge === undefined && stakesHold) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
+      if (changes.added + changes.changed + changes.removed === 0 && request.judge === undefined && request.propose === undefined && stakesHold) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
       work = changes.added + changes.changed + changes.removed === 0 ? "unchanged" : "rebuilt";
     }
   }
@@ -346,6 +392,21 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
   const graph = graphOf(base.tree);
   const vocabulary = withUnavailable(collect({ graph, tree: base.tree }), base.unavailable);
   const prior = previous.kind === "ok" ? previous.stored.memberships : undefined;
+  const units = unitsOf(graph, base.tree);
+  // Where the repository's own words reach under half of the code, a model proposes terms; code decides that, from the repository's own terms alone.
+  const earlier = previous.kind === "ok" ? previous.stored : undefined;
+  const settled = await settleProposals({
+    coverage: ownCoverage(graph, units, narrow(units, vocabulary.terms, base.tree)),
+    runner: request.propose,
+    prior: earlier?.proposals,
+    graph,
+    units,
+    own: vocabulary.terms,
+    corrections: earlier?.corrections ?? [],
+    earlier: earlier === undefined ? [] : termsOf(earlier),
+  });
+  const { proposals } = settled;
+  const terms = withProposed(vocabulary.terms, proposals);
   let held: StoredMemberships | undefined;
   let judging: JudgingNote | undefined;
   const priorStakes = previous.kind === "ok" ? previous.stored.stakes : undefined;
@@ -353,9 +414,8 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
   let judgingStakes: StakesNote | undefined;
   if (request.judge !== undefined || prior !== undefined) {
     // Which pairs are asked is decided by code alone (see narrow); a model is asked only about those.
-    const units = unitsOf(graph, base.tree);
-    const narrowed = narrow(units, vocabulary.terms, base.tree);
-    if (request.judge === undefined) held = reconcile(prior!, units, narrowed, vocabulary.terms, base.tree);
+    const narrowed = narrow(units, terms, base.tree);
+    if (request.judge === undefined) held = reconcile(prior!, units, narrowed, terms, base.tree);
     else {
       const maxPairs = deps.maxPairs ?? MAX_PAIRS;
       const outcome = await judgeMemberships({ pairs: narrowed.pairs, tree: base.tree, previous: new Map<string, MembershipRecord>((prior?.records ?? []).map((record) => [pairKey(record.unit, record.term), record])), client: request.judge, maxPairs });
@@ -364,7 +424,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     }
     // Stakes are judged over the memberships just made: a term's code is the functions mapped to it now.
     if (request.judge !== undefined || priorStakes !== undefined) {
-      const entries = termMembers(held!, units, vocabulary.terms);
+      const entries = termMembers(held!, units, terms);
       const choice = await currentChoice();
       if (request.judge === undefined) heldStakes = reconcileStakes(priorStakes!, entries, base.tree, choice, effectSets(graph));
       else {
@@ -383,8 +443,14 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
       }
     }
   }
+  // Corrections are kept as they are; the ones with nothing to apply to in this base are reported, never dropped.
+  const kept = previous.kind === "ok" ? previous.stored.corrections : undefined;
+  const correctionsKept = kept === undefined || kept.length === 0 ? undefined : { kept: kept.length, noLongerApply: noLongerApply(effectOf(terms, kept), kept, new Set(units.map((unit) => unit.key))) };
+  // Proposals are redecided on every run: what the earlier file held is not carried over unless settled keeps it.
+  const { proposals: dropped, ...carried } = previous.kind === "ok" ? previous.whole : ({} as Record<string, unknown>);
+  void dropped;
   const stored: StoredVocabulary = {
-    ...(previous.kind === "ok" ? previous.whole : {}),
+    ...carried,
     format: FORMAT,
     tier: "derived",
     repo: identity.name,
@@ -396,21 +462,21 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     vocabulary: storable(vocabulary),
     ...(held === undefined ? {} : { memberships: held }),
     ...(heldStakes === undefined ? {} : { stakes: heldStakes }),
+    ...(proposals === undefined ? {} : { proposals }),
   };
   // A judged run over a repository nothing changed in, whose answers are all current, has nothing to write.
-  if (work === "unchanged" && previous.kind === "ok" && JSON.stringify([stored.memberships, stored.stakes, stored.coverage]) === JSON.stringify([previous.stored.memberships, previous.stored.stakes, previous.stored.coverage])) {
-    return { work, file, ref, stored: previous.stored, previousCommit: previous.stored.base.commit, ...(judging === undefined ? {} : { judging }), ...(judgingStakes === undefined ? {} : { judgingStakes }) };
+  if (work === "unchanged" && previous.kind === "ok" && JSON.stringify([stored.memberships, stored.stakes, stored.coverage, stored.proposals]) === JSON.stringify([previous.stored.memberships, previous.stored.stakes, previous.stored.coverage, previous.stored.proposals])) {
+    return { work, file, ref, stored: previous.stored, previousCommit: previous.stored.base.commit, ...(judging === undefined ? {} : { judging }), ...(judgingStakes === undefined ? {} : { judgingStakes }), proposing: settled.note };
   }
-  await mkdir(dirname(file), { recursive: true });
-  // A whole file or none: another run, or a reader, never sees half of one.
-  const scratch = `${file}.${process.pid}.tmp`;
-  try {
-    await writeFile(scratch, `${JSON.stringify(stored, null, 2)}\n`);
-    await rename(scratch, file);
-  } catch (error) {
-    await rm(scratch, { force: true });
-    throw new Error(`cannot store the vocabulary in ${file}: ${(error as Error).message}`, { cause: error });
+  // A stored file that could not be read may hold a person's corrections: it is copied aside first, and a copy that fails stops the run before anything is replaced.
+  let backup: string | undefined;
+  if (previous.kind === "unreadable") {
+    backup = `${file}.unreadable-${new Date().toISOString().replace(/[-:.]/g, "")}`;
+    await copyFile(file, backup).catch((error: unknown) => {
+      throw new Error(`the stored vocabulary could not be read (${previous.why}) and could not be copied aside (${(error as Error).message}), so it was not replaced: ${file}`, { cause: error });
+    });
   }
+  await writeStored(file, stored);
   return {
     work,
     file,
@@ -420,6 +486,9 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     ...(previous.kind === "ok" ? { previousCommit: previous.stored.base.commit, ...(work === "rebuilt" ? { files: countChanges(before, files) } : {}) } : {}),
     ...(judging === undefined ? {} : { judging }),
     ...(judgingStakes === undefined ? {} : { judgingStakes }),
+    proposing: settled.note,
+    ...(backup === undefined ? {} : { backup }),
+    ...(correctionsKept === undefined ? {} : { corrections: correctionsKept }),
   };
 }
 
@@ -458,6 +527,8 @@ export function reportLines(result: SetupResult): string[] {
       break;
     case "replaced unreadable":
       lines.push(`  the stored vocabulary could not be read (${result.why}), so it was built again from nothing`);
+      // Corrections in the old file are not carried over: the copy is where they are.
+      if (result.backup !== undefined) lines.push(`  the old file was copied to ${result.backup} before it was replaced: any corrections in it are there, not in the new one`);
       break;
   }
   lines.push(`  stored: ${result.file}`);
@@ -476,8 +547,17 @@ export function reportLines(result: SetupResult): string[] {
   if (vocabulary.unread.length > MAX_UNREAD_SHOWN) lines.push(`    and ${vocabulary.unread.length - MAX_UNREAD_SHOWN} more`);
   lines.push(`  not analysed: ${vocabulary.notAnalysed} text files in a language no adapter reads`);
   if (stored.pathsWithheld > 0) lines.push(`  paths withheld: ${stored.pathsWithheld} (a part of the path is shaped like a secret, so the path is not stored)`);
-  lines.push(...membershipLines(stored.memberships, stored.coverage, vocabulary.terms, result.judging, vocabulary.notAnalysed + vocabulary.unread.length, codeFilesUnread(vocabulary)));
-  lines.push(...stakesLines(stored.stakes, vocabulary.terms, result.judgingStakes, stored.memberships !== undefined));
+  const terms = termsOf(stored);
+  lines.push(...proposalLines(result.proposing, stored.proposals));
+  lines.push(...membershipLines(stored.memberships, stored.coverage, terms, result.judging, vocabulary.notAnalysed + vocabulary.unread.length, codeFilesUnread(vocabulary)));
+  lines.push(...stakesLines(stored.stakes, terms, result.judgingStakes, stored.memberships !== undefined));
+  const corrections = stored.corrections ?? [];
+  if (corrections.length > 0) {
+    const gone = result.corrections?.noLongerApply ?? [];
+    lines.push(`  corrections: ${plural(corrections.length, "correction")} kept${result.corrections === undefined ? "" : `, ${gone.length} no longer apply`}`);
+    for (const one of gone) lines.push(`    no longer applies: ${describeCorrection(one.correction)} (${one.why})`);
+  }
+  lines.push(`  vocabulary: ${certificationText(certificationOfStored(stored))}`);
   return lines;
 }
 

@@ -691,6 +691,25 @@
         background: #3a4658;
         color: #d6deea;
       }
+      .judged-tier {
+        opacity: 0.85;
+        font-variant-numeric: tabular-nums;
+      }
+      .judged-tier::before {
+        content: "\00b7\00a0";
+      }
+      .judged-kind {
+        font-weight: 600;
+      }
+      .judged-kind::before {
+        content: "\00b7\00a0";
+      }
+      .judged-kind.unknown,
+      .judged-kind.no-miss-found {
+        font-weight: 400;
+        font-style: italic;
+        opacity: 0.8;
+      }
       .review-judged.settled {
         background: #1f6f5a;
         color: #e8fff6;
@@ -1071,6 +1090,11 @@
         border-color: #3a4658;
         color: #d6deea;
       }
+      .card-tier.human {
+        background: #2f5d46;
+        border-color: #2f5d46;
+        color: #dcf3e6;
+      }
       .card-label {
         color: #8a9bb0;
       }
@@ -1093,6 +1117,14 @@
       }
       .card-term:hover {
         border-color: #ffd84a;
+      }
+      .card-term-claimed {
+        color: #e6b85c;
+        border-style: dashed;
+        border-color: #e6b85c;
+      }
+      .card-claimed {
+        color: #e6b85c;
       }
       .card-term-detail {
         margin: 2px 0 4px 10px;

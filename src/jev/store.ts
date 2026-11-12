@@ -3,9 +3,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { judge } from "./client.ts";
 import type { JevClient } from "./client.ts";
-import { requestFor } from "./gate.ts";
+import { requestFor, verdictOf } from "./gate.ts";
 import type { JudgeSubject } from "./subject.ts";
 import type { Gate, Thresholds } from "./gate.ts";
+import type { TierPick } from "../tier-table.ts";
+import type { Tiering } from "../tier-facts.ts";
 import type { About, JudgedDocument, JudgedRecord, JudgedSet } from "./judged-types.ts";
 
 export type { About, JudgedDocument, JudgedRecord, JudgedSet } from "./judged-types.ts";
@@ -15,6 +17,10 @@ export interface Item<Input> {
   readonly key: string;
   readonly about: About;
   readonly input: Input;
+  /** The thresholds this item is decided by, when they are its own (the gate's, plus the item's tier); the request's otherwise. */
+  readonly thresholds?: Thresholds;
+  /** The tier the item was picked, recorded with its answer. */
+  readonly pick?: TierPick;
 }
 
 export type ItemOutcome =
@@ -62,6 +68,21 @@ export interface JudgedRun {
 
 const PARALLEL = 4;
 
+/** The record with what the gate says it left out of this input's evidence: the same request has the same cuts, so a record read back, or written before cuts were recorded, gets them from its input. */
+function withCut<Input>(gate: Gate<Input>, input: Input, record: JudgedRecord): JudgedRecord {
+  const { cut: was, ...rest } = record;
+  void was;
+  const cut = gate.cut?.(input);
+  return cut === undefined ? rest : { ...rest, cut };
+}
+
+/** A record on file with the thresholds, tier and verdict of this comparison's item: the answers are its own. */
+function recordOf(known: JudgedRecord, thresholds: Thresholds, pick: TierPick | undefined, verdict: JudgedRecord["verdict"]): JudgedRecord {
+  const { pick: was, ...rest } = known;
+  void was;
+  return { ...rest, thresholds, verdict, ...(pick === undefined ? {} : { pick }) };
+}
+
 /** A comparison, a question's version and a model make one key; the trees are named by digest. */
 export function setKey(base: string, head: string, question: { id: string; version: string }, model: string): string {
   return createHash("sha256").update(JSON.stringify([base, head, question.id, question.version, model])).digest("hex");
@@ -98,8 +119,11 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
   const asked: number[] = [];
   items.forEach((item, index) => {
     const known = saved.get(item.key);
-    if (known !== undefined && JSON.stringify(known.shown) === JSON.stringify(requestFor(gate, item.input)) && JSON.stringify(known.thresholds) === JSON.stringify(thresholds)) {
-      outcomes[index] = { status: "judged", record: known, cached: true };
+    if (known !== undefined && JSON.stringify(known.shown) === JSON.stringify(requestFor(gate, item.input))) {
+      // The same request has the same answers. A verdict is a function of the answers, the thresholds and what the evidence left
+      // out, so it is decided again here from what is on file, with no call: a changed tier or threshold, or a settle written
+      // before cut evidence was withheld, never carries over.
+      outcomes[index] = { status: "judged", record: withCut(gate, item.input, recordOf(known, item.thresholds ?? thresholds, item.pick, verdictOf(gate, item.input, known.answers, item.thresholds ?? thresholds))), cached: true };
     } else asked.push(index);
   });
   events?.plan(identity, outcomes.filter((outcome) => outcome !== undefined), asked.map((index) => ({ key: items[index]!.key, about: items[index]!.about })));
@@ -118,19 +142,20 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
       }
       if (judged.usage.usd === null) costUnknown += 1;
       else usd += judged.usage.usd;
-      const record: JudgedRecord = {
+      const record: JudgedRecord = withCut(gate, item.input, {
         tier: "judged",
         key: item.key,
         about: item.about,
         question,
         shown,
         answers: judged.answers,
-        thresholds,
-        verdict: gate.decide(judged.answers, thresholds),
+        thresholds: item.thresholds ?? thresholds,
+        verdict: verdictOf(gate, item.input, judged.answers, item.thresholds ?? thresholds),
+        ...(item.pick === undefined ? {} : { pick: item.pick }),
         model: judged.model,
         inputTokens: judged.usage.inputTokens,
         usd: judged.usage.usd,
-      };
+      });
       outcomes[index] = { status: "judged", record, cached: false };
       events?.outcome(gate.id, outcomes[index]!);
     }
@@ -154,6 +179,8 @@ export interface JudgedSource {
   readonly status: "on" | "off";
   /** Why judging is off. */
   readonly reason?: string;
+  /** The reviewer's tier table and the stored vocabulary the tiers are picked from; the default table and no vocabulary when left out. */
+  readonly tiering?: Tiering;
   /** How many gates will each call `events.plan` once (default one). */
   readonly gates?: number;
   load(subject: JudgeSubject, events?: JudgingEvents): Promise<readonly JudgedRun[]>;

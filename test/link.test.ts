@@ -242,7 +242,21 @@ test("the CLI runner passes the prompt on stdin, allows no tools or MCP servers,
       const ok = args.includes("-p") && args[args.indexOf("--tools") + 1] === "" && args.includes("--strict-mcp-config") && !args.includes("--mcp-config") && args[args.indexOf("--model") + 1] === "opus" && args[args.indexOf("--effort") + 1] === "medium" && args[args.indexOf("--output-format") + 1] === "json" && args.includes("--json-schema") && input === "p";
       console.log(JSON.stringify({ is_error: !ok, result: "bad args " + args.join(" "), structured_output: { links: [] }, modelUsage: { "claude-x": {} } }));
     });`);
-  expect(await claudeRunner(command).run(request)).toEqual({ output: { links: [] }, model: "claude-x" });
+  expect(await claudeRunner(command).run(request)).toEqual({ output: { links: [] }, model: "claude-x", usd: null });
+});
+
+test("the CLI runner asks for the model and effort it is given, and reports the cost the CLI states; a cost it does not state, or states wrongly, is unknown, never zero", async () => {
+  const echo = (cost: string): string =>
+    stub(`
+    process.stdin.on("data", () => {}).on("end", () => {
+      const args = process.argv.slice(2);
+      console.log(JSON.stringify({ is_error: false, structured_output: { asked: args[args.indexOf("--model") + 1] + "/" + args[args.indexOf("--effort") + 1] }, modelUsage: { "claude-sonnet-x": {} }, ${cost} }));
+    });`);
+  const options = { model: "sonnet", effort: "low" };
+  expect(await claudeRunner(echo("total_cost_usd: 0.0123"), options).run(request)).toEqual({ output: { asked: "sonnet/low" }, model: "claude-sonnet-x", usd: 0.0123 });
+  for (const bad of ["x: 1", 'total_cost_usd: "0.01"', "total_cost_usd: -1", "total_cost_usd: null"]) {
+    expect(await claudeRunner(echo(bad), options).run(request)).toMatchObject({ usd: null });
+  }
 });
 
 // Every case here but the last must fail for its own reason, so each gets a timeout so long that

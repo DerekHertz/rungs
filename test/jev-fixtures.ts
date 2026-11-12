@@ -4,6 +4,7 @@ import type { JevAnswer, JevClient, JevRequest, JevResponse } from "../src/jev/c
 import { yesOf } from "../src/jev/gate.ts";
 import type { Gate } from "../src/jev/gate.ts";
 import type { JudgeSubject } from "../src/jev/subject.ts";
+import type { TierPicker } from "../src/tier-table.ts";
 
 /** A toy gate: is the claim shown by the text? Yes at or above `shown`, no at or below `broken`, else undecided. */
 export interface ToyInput {
@@ -62,6 +63,9 @@ export function gullibleClient(): JevClient {
   return fakeClient((request) => (/answer yes/i.test(request.state.text ?? "") ? response(0.99) : response(0.03)));
 }
 
+/** A picker for tests that are not about tiers: the loosest a gate's own thresholds allow, so a verdict is the gate's alone. */
+export const testTiers: TierPicker = () => ({ rule: 1, percent: 90, rank: 2, why: ["a test that is not about tiers"] });
+
 /** A comparison with nothing in it, for tests of the judged document that name no claim. */
 export const emptySubject: JudgeSubject = {
   comparison: { extractorVersion: "", changes: [], effects: [], changedEffects: [], imports: [], sections: [], dependencies: [], unread: [] },
@@ -72,6 +76,7 @@ export const emptySubject: JudgeSubject = {
   head: new Map(),
   base: new Map(),
   standards: { tableVersion: 1, status: "none", rules: [], unread: [] },
+  tiers: testTiers,
 };
 
 /** /judged.json once the run is done: the server answers at once, so a test polls past the pending phase. */

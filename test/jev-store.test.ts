@@ -150,3 +150,28 @@ test("unknown usage is recorded and served as unknown cost, not zero", async () 
   expect(document.costUnknown).toBe(2);
   expect(document.sets[0]!.records.map((record) => [record.inputTokens, record.usd])).toEqual([[null, null], [null, null]]);
 });
+
+test("an item carries its own thresholds and tier: the record holds both, and the tier can hold a settle back", async () => {
+  const dir = temp();
+  const tight = { ...toyThresholds, shown: 0.99 };
+  const pick = { rule: 1, percent: 99.9, rank: 0 as const, why: ["effects reached: 1 call out"] };
+  const first = await judgeItems({ gate: toyGate, items: [{ ...items[0]!, thresholds: tight, pick }, items[1]!], thresholds: toyThresholds, client: fakeClient(), base: "b1", head: "h1", cacheDir: dir });
+  const [one, two] = first.outcomes;
+  if (one?.status !== "judged" || two?.status !== "judged") throw new Error("expected judged");
+  // 0.97 settles at the gate's own 0.9 and not at the item's 0.99: its record says what it was held to.
+  expect(one.record).toMatchObject({ thresholds: tight, verdict: "undecided", pick });
+  expect(two.record.pick).toBeUndefined();
+  expect(two.record.thresholds).toEqual(toyThresholds);
+});
+
+test("a changed tier on a stored answer is decided again from its answers with no call", async () => {
+  const dir = temp();
+  await run(dir);
+  const client = fakeClient();
+  const tight = { ...toyThresholds, shown: 0.99 };
+  const pick = { rule: 1, percent: 99.9, rank: 0 as const, why: ["stakes: possible harm, no vocabulary is stored"] };
+  const again = await judgeItems({ gate: toyGate, items: [{ ...items[0]!, thresholds: tight, pick }, items[1]!], thresholds: toyThresholds, client, base: "b1", head: "h1", cacheDir: dir });
+  expect(client.requests).toHaveLength(0);
+  expect(again.calls).toBe(0);
+  expect(again.outcomes[0]).toMatchObject({ status: "judged", cached: true, record: { verdict: "undecided", thresholds: tight, pick } });
+});
