@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { headline } from "../src/headline.ts";
+import { headline, headlineTitle } from "../src/headline.ts";
 import type { Comparison } from "../src/compare.ts";
 import type { ObservedDocument } from "../src/observed-types.ts";
 import type { TestChanges } from "../src/test-changes-types.ts";
@@ -24,13 +24,13 @@ test("the headline counts calls, argument changes, imports, dependencies and rem
     ...none,
     changes: [change("file")],
     effects: [{ kind: "added" }, { kind: "added" }, { kind: "removed" }],
-    changedEffects: [{ count: 2 }, { count: 1 }],
+    changedEffects: [{ count: 2, calls: [{}, {}] }, { count: 1, calls: [{}] }],
     imports: [{ kind: "added" }],
     dependencies: [{ kind: "added" }],
   } as unknown as Comparison;
   const removed = { ...noTests, removedTests: [{ file: "a", name: "b" }], deletedFiles: [{ path: "t", tests: 3 }] } as TestChanges;
   expect(headline(comparison, removed, ran(27, 0))).toBe(
-    "files 1 altered · calls +2 −1 · 3 calls changed arguments · imports +1 · 1 dependency changed · 4 tests removed · main's tests: 27 passed",
+    "files 1 altered · calls +2 −1 · 3 calls changed arguments · imports +1 · 1 dependency changed · 1 test name removed \u00b7 3 tests in deleted files · main's tests: 27 passed",
   );
 });
 
@@ -43,4 +43,24 @@ test("failing, unfinished and unreliable runs are said as what they are, and no 
 
 test("a change of only dependencies is not said to change no code", () => {
   expect(headline({ ...none, dependencies: [{ kind: "added" }] } as unknown as Comparison, noTests, null)).toBe("1 dependency changed · tests not run");
+});
+
+test("a resolution call that is new, gone or changed is not said to be a call whose arguments changed", () => {
+  const comparison = { ...none, changedEffects: [{ count: 1, calls: [], added: ['"x"'], removed: [] }] } as unknown as Comparison;
+  const line = headline(comparison, noTests, null);
+  expect(line).toContain("1 resolution changed");
+  expect(line).not.toContain("changed arguments");
+});
+
+test("tests that ran without a sandbox say so in the line and in the hover", () => {
+  const unsandboxed = { ...ran(3, 0), sandbox: "unsandboxed" } as unknown as ObservedDocument;
+  expect(headline(none, noTests, unsandboxed)).toContain("main's tests: 3 passed (ran without a sandbox)");
+  expect(headlineTitle("x", unsandboxed)).toContain("as trustworthy as the PR's author");
+  expect(headlineTitle("x", ran(3, 0))).toBe("x");
+});
+
+test("removed tests are counted as names, since two tests of one name are one lost name", () => {
+  const removed = { ...noTests, removedTests: [{ file: "a", name: "same" }] } as TestChanges;
+  expect(headline(none, removed, null)).toContain("1 test name removed");
+  expect(headline(none, removed, null)).not.toContain("1 test removed");
 });

@@ -1,5 +1,6 @@
 import type { Comparison } from "./compare.ts";
 import { isCodeNode } from "./graph.ts";
+import { UNSANDBOXED_LINE } from "./observed-types.ts";
 import type { ObservedDocument } from "./observed-types.ts";
 import type { TestChanges } from "./test-changes-types.ts";
 
@@ -21,7 +22,8 @@ function testsPart(observed: ObservedDocument | null): string {
   if (observed === null) return "tests not run";
   if (observed.status === "ran") {
     const { pass, fail } = observed.counts;
-    return fail === 0 ? `main's tests: ${pass} passed` : `main's tests: ${fail} failed, ${pass} passed`;
+    const result = fail === 0 ? `main's tests: ${pass} passed` : `main's tests: ${fail} failed, ${pass} passed`;
+    return observed.sandbox === "unsandboxed" ? `${result} (ran without a sandbox)` : result;
   }
   if (observed.status === "failed") return "tests did not finish";
   if (observed.status === "unreliable") return "test results unreliable";
@@ -42,14 +44,24 @@ export function headline(comparison: Comparison, testChanges: TestChanges, obser
   const added = comparison.effects.filter((effect) => effect.kind === "added").length;
   const removed = comparison.effects.length - added;
   if (added + removed > 0) parts.push(`calls ${[added > 0 ? `+${added}` : "", removed > 0 ? `−${removed}` : ""].filter((part) => part !== "").join(" ")}`);
-  const argumentCalls = comparison.changedEffects.reduce((sum, row) => sum + row.count, 0);
+  // An effect call is in this list only when both trees have it; a resolution may also be new or gone, so it is counted apart.
+  const argumentCalls = comparison.changedEffects.reduce((sum, row) => sum + row.calls.length, 0);
   if (argumentCalls > 0) parts.push(`${plural(argumentCalls, "call")} changed arguments`);
+  const resolutions = comparison.changedEffects.reduce((sum, row) => sum + (row.calls.length === 0 ? row.count : 0), 0);
+  if (resolutions > 0) parts.push(`${plural(resolutions, "resolution")} changed`);
   const imported = comparison.imports.filter((change) => change.kind === "added").length;
   const unimported = comparison.imports.length - imported;
   if (imported + unimported > 0) parts.push(`imports ${[imported > 0 ? `+${imported}` : "", unimported > 0 ? `−${unimported}` : ""].filter((part) => part !== "").join(" ")}`);
   if (comparison.dependencies.length > 0) parts.push(`${plural(comparison.dependencies.length, "dependency", "dependencies")} changed`);
-  const removedTests = testChanges.removedTests.length + testChanges.deletedFiles.reduce((sum, file) => sum + file.tests, 0);
-  if (removedTests > 0) parts.push(`${plural(removedTests, "test")} removed`);
+  const lostNames = testChanges.removedTests.length;
+  if (lostNames > 0) parts.push(`${plural(lostNames, "test name")} removed`);
+  const inDeleted = testChanges.deletedFiles.reduce((sum, file) => sum + file.tests, 0);
+  if (inDeleted > 0) parts.push(`${plural(inDeleted, "test")} in deleted files`);
   parts.push(testsPart(observed));
   return parts.join(" · ");
+}
+
+/** The hover: the line, with the sandbox qualification in full when the run had none. */
+export function headlineTitle(text: string, observed: ObservedDocument | null): string {
+  return observed?.status === "ran" && observed.sandbox === "unsandboxed" ? `${text} \u2014 ${UNSANDBOXED_LINE}` : text;
 }
