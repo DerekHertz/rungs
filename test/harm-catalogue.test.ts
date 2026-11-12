@@ -16,8 +16,8 @@ const SECURITY = [
   "misconfiguration",
   "vulnerable dependencies",
   "authentication",
-  "software and data integrity failures",
-  "security logging and monitoring failures",
+  "supply chain and build integrity",
+  "logging",
   "server-side request forgery",
 ];
 const OTHER = ["data loss or corruption", "privacy", "availability", "money", "compatibility for callers", "what users see"];
@@ -31,6 +31,25 @@ describe("the harm catalogue", () => {
     for (const id of ids) expect(id).toMatch(/^[a-z]+(?:-[a-z]+)*$/);
     expect(harmKind("injection")?.name).toBe("injection");
     expect(harmKind("__proto__")).toBeUndefined();
+  });
+
+  test("each security kind carries OWASP's official 2021 name and id, once each", () => {
+    const owasp = HARM_CATALOGUE.filter((kind) => kind.group === "security").map((kind) => kind.owasp);
+    expect(owasp).toEqual([
+      "A01:2021 Broken Access Control",
+      "A02:2021 Cryptographic Failures",
+      "A03:2021 Injection",
+      "A04:2021 Insecure Design",
+      "A05:2021 Security Misconfiguration",
+      "A06:2021 Vulnerable and Outdated Components",
+      "A07:2021 Identification and Authentication Failures",
+      "A08:2021 Software and Data Integrity Failures",
+      "A09:2021 Security Logging and Monitoring Failures",
+      "A10:2021 Server-Side Request Forgery (SSRF)",
+    ]);
+    expect(new Set(owasp).size).toBe(10);
+    expect(HARM_CATALOGUE.filter((kind) => kind.group === "other").every((kind) => kind.owasp === undefined)).toBe(true);
+    expect(HARM_CATALOGUE.map((kind) => kind.id).filter((id) => id.includes("failures"))).toEqual(["software-and-data-integrity-failures", "security-logging-and-monitoring-failures"]);
   });
 
   test("every kind has short, plain criteria for yes and for no", () => {
@@ -53,6 +72,14 @@ describe("the harm catalogue", () => {
     expect(harmKind("injection")?.yes).toMatch(/escap/i);
     expect(harmKind("server-side-request-forgery")?.yes).toMatch(/allow-list/i);
     expect(harmKind("data-loss-or-corruption")?.yes).toMatch(/even if/i);
+    // A loosened safeguard is a yes wherever the harm lands: validation upstream of storage, retention and consent.
+    expect(harmKind("data-loss-or-corruption")?.yes).toMatch(/validat/i);
+    expect(harmKind("data-loss-or-corruption")?.no).toMatch(/validat|safeguard/i);
+    expect(harmKind("privacy")?.yes).toMatch(/retention/i);
+    expect(harmKind("privacy")?.yes).toMatch(/consent/i);
+    expect(harmKind("privacy")?.no).toMatch(/retention/i);
+    expect(harmKind("privacy")?.no).toMatch(/consent/i);
+    for (const kind of HARM_CATALOGUE) expect(kind.no, `${kind.id}: a "no" must also rule out a changed check`).toMatch(/\b(?:check|checks|safeguard|limit|validation|validates|protection|setting|step|rule|escaping)\b/i);
     expect(harmKind("availability")?.yes).toMatch(/loop/i);
   });
 
