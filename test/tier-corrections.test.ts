@@ -254,3 +254,25 @@ test("a no on the merged-away term's only member leaves the function in no term"
   expect(found.percent).toBe(99.9);
   expect(stakesWhy(found.why)).toMatch(/chargeCard is mapped to no term/);
 });
+
+test("a function a person added to a term is a member the term's stakes were not judged over: every item touching the term is possible harm, whichever member it changes", async () => {
+  const tiering = await tieringWith((s) => [{ ...stamp, kind: "member", unit: s.unitKey("helper"), term: s.termKey("orders"), belongs: true, label: "helper, term orders" }]);
+  // placeOrder is orders' judged member and helper is not touched: the term still holds code its stakes never examined.
+  const found = pick(tiering, editOrder, "src/orders/place.ts");
+  expect(found.percent).toBe(99.9);
+  expect(stakesWhy(found.why)).toMatch(/orders: helper was added to it by a person after its stakes were judged/);
+  expect(stakesWhy(found.why)).not.toMatch(/judged none/);
+  // A term the person did not touch keeps its judged none.
+  const other = await tieringWith((s) => [{ ...stamp, kind: "member", unit: s.unitKey("helper"), term: s.termKey("payments"), belongs: true, label: "helper, term payments" }]);
+  expect(pick(other, editOrder, "src/orders/place.ts").percent).toBe(95);
+});
+
+test("a function added to a term that another is merged into taints the merged term too", async () => {
+  const tiering = await tieringWith((s) => [
+    { ...stamp, kind: "member", unit: s.unitKey("helper"), term: s.termKey("Zebra crossing"), belongs: true, label: "helper, term zebra crossing" },
+    { ...stamp, kind: "merge", term: s.termKey("Zebra crossing"), into: s.termKey("orders"), label: "zebra crossing into orders" },
+  ]);
+  const found = pick(tiering, editOrder, "src/orders/place.ts");
+  expect(found.percent).toBe(99.9);
+  expect(stakesWhy(found.why)).toMatch(/orders: helper was added to it by a person after its stakes were judged/);
+});

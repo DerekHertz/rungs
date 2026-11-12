@@ -6,7 +6,7 @@ import type { StandardsDocument } from "../standards-marks.ts";
 import { costText, markWord, percent } from "../judged-marks.ts";
 import { followJudging, updateOf } from "../judged-follow.ts";
 import { markTier, markTierWhy } from "../judged-fold.ts";
-import { kindOfMark, kindText } from "../kind-of-miss.ts";
+import { cutOf, kindOfMark, kindText } from "../kind-of-miss.ts";
 import type { Claim, JudgedUpdate, JudgedView } from "../judged-follow.ts";
 
 export type { JudgedUpdate, JudgedView } from "../judged-follow.ts";
@@ -69,6 +69,8 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
   const unreadable = Object.values(record.answers).some((answer) => answer.type === "unreadable");
   const why = explainVerdict(record.question.id, record.answers, record.thresholds, record.verdict);
   if (why !== "") body.append(element("p", "judged-line", why));
+  const cut = record.verdict === "undecided" && record.cut !== undefined && record.cut.length > 0 ? cutOf(record) : undefined;
+  if (cut !== undefined) body.append(element("p", "judged-line", `Never settled over cut evidence: ${cut}. A settle says nothing is wrong, and that cannot be said of what Jev did not see; a flag would still stand.`));
   body.append(element("p", "judged-line", `Verdict: ${record.verdict}${unreadable ? ", because an answer could not be read (an answer that cannot be read never settles anything)" : ""}.`));
   body.append(element("p", "judged-line", `Model ${record.model} · question ${record.question.id} ${record.question.version} · ${costText(record)}`));
   body.append(element("p", "judged-line", view.rate?.(record.question.id) ?? notMeasured(record.question.id)));

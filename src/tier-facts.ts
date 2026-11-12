@@ -144,7 +144,16 @@ function stakesLookup(vocabulary: VocabularyRead, baseGraph: Graph, baseTree: Fi
     return { stakes: stakesOf, empty: term !== undefined && term.members === 0 && term.unknown === 0 };
   };
   const answered = new Map<string, TermStakes>();
-  return {
+  const addedMembers = lazy(() => {
+    const byTerm = new Map<string, string[]>();
+    const spokenFor = new Set([...said.values()].filter((pair) => pair.belongs).map((pair) => pair.unit));
+    for (const unit of units) {
+      if (!spokenFor.has(unit.key)) continue;
+      for (const key of lookup.unitTerms(unit)?.added ?? []) byTerm.set(key, [...(byTerm.get(key) ?? []), promptName(unit.name)]);
+    }
+    return byTerm;
+  });
+  const lookup: StakesLookup = {
     units: new Map(units.map((unit) => [unit.id, unit])),
     unitTerms(unit) {
       const seen = heldUnits.get(unit.key);
@@ -191,11 +200,15 @@ function stakesLookup(vocabulary: VocabularyRead, baseGraph: Graph, baseTree: Fi
       const used = (speaking.length > 0 ? speaking : parts.slice(0, 1)).map((part) => part.stakes);
       const harms = used.flatMap((one) => (one.status === "could cause" ? one.harms : []));
       const reasons = used.flatMap((one) => (one.status === "possible" ? [one.reason] : []));
+      // Stakes are complete only over every current member after the corrections: a function a person added is a member the judged stakes never examined, so whatever the other members were judged, the term is possible harm for every item that touches it.
+      const added = [...new Set(addedMembers().get(key) ?? [])].sort(byText);
+      if (added.length > 0) reasons.push(`${added.slice(0, 2).join(", ")}${added.length > 2 ? ` and ${added.length - 2} more` : ""} ${added.length === 1 ? "was" : "were"} added to it by a person after its stakes were judged`);
       const result: TermStakes = harms.length > 0 ? { status: "could cause", harms: [...new Set(harms)] } : reasons.length > 0 ? { status: "possible", reason: listOf(reasons) } : { status: "none" };
       answered.set(key, result);
       return result;
     },
   };
+  return lookup;
 }
 
 /* ---- the picker ---- */
@@ -267,6 +280,39 @@ export function tierPicker(request: TierRequest): TierPicker {
     return lines;
   };
 
+  /** The changed lines of a file that the item is about: all of them, or the hunk's own; null when they are not known. */
+  const itemLines = (file: ModuleChange, scope: ItemScope): readonly { readonly base?: number; readonly head?: number }[] | null => {
+    const changed = changedLines(file);
+    const hunk = scope.hunk;
+    if (changed === null || hunk === undefined) return changed;
+    const inside = (line: number | undefined, range: LineRange | null): boolean => line !== undefined && range !== null && line >= range.start && line <= range.end;
+    return changed.filter((one) => inside(one.head, hunk.head) || inside(one.base, hunk.base));
+  };
+
+  /**
+   * How many of the item's changed lines in a file are inside no changed function, class or constant (an import, a top-level
+   * statement, a comment above a function), so that no unit and no term is known for them; null when the lines are not known.
+   * A line is covered by the head range of a changed unit when it was added, by the base range of one when it was removed.
+   */
+  const linesOutsideUnits = (file: ModuleChange, scope: ItemScope): number | null => {
+    const changed = itemLines(file, scope);
+    if (changed === null) return null;
+    const basePath = file.kind === "moved" ? file.from.path : file.node.path;
+    const head: LineRange[] = [];
+    const base: LineRange[] = [];
+    for (const change of codeByPath.get(file.node.path) ?? []) {
+      const after = change.kind === "removed" ? null : rangeOf(change.node);
+      const was = change.kind === "altered" ? change.before : change.kind === "removed" ? change.node : change.kind === "moved" ? change.from : undefined;
+      if (after !== null) head.push(after);
+      if (was !== undefined && was.path === basePath) {
+        const range = rangeOf(was);
+        if (range !== null) base.push(range);
+      }
+    }
+    const within = (ranges: readonly LineRange[], line: number | undefined): boolean => line !== undefined && ranges.some((range) => line >= range.start && line <= range.end);
+    return changed.filter((one) => !(one.head !== undefined ? within(head, one.head) : within(base, one.base))).length;
+  };
+
   /** The code changes of an item's files, narrowed to a hunk's lines when it has them. */
   const codeOf = (files: readonly ModuleChange[], scope: ItemScope): ModuleChange[] => {
     const code = files.flatMap((file) => codeByPath.get(file.node.path) ?? []);
@@ -316,12 +362,12 @@ export function tierPicker(request: TierRequest): TierPicker {
     let lines: number | null = 0;
     if (files.length === 0) lines = null;
     for (const file of files) {
-      const changed = changedLines(file);
+      const changed = itemLines(file, scope);
       if (changed === null || lines === null) {
         lines = null;
         continue;
       }
-      lines += scope.hunk === undefined ? changed.length : changed.filter((one) => (one.head !== undefined && scope.hunk!.head !== null && one.head >= scope.hunk!.head.start && one.head <= scope.hunk!.head.end) || (one.base !== undefined && scope.hunk!.base !== null && one.base >= scope.hunk!.base.start && one.base <= scope.hunk!.base.end)).length;
+      lines += changed.length;
     }
     // Files the item names are covered only when read in full: a file with a syntax error has calls out nobody can see.
     const unreadFiles = files.filter((file) => {
@@ -367,11 +413,20 @@ export function tierPicker(request: TierRequest): TierPicker {
     const reasons: string[] = [];
     const harms: string[] = [];
     const none = new Set<string>();
-    // A changed file with no changed function in it (unparseable, binary, a document, a script of top-level statements) has no term to read stakes from: unknown, however clean the functions beside it are.
     const strangers = scope.ids.filter((id) => !changesById.has(id)).length;
     if (strangers > 0) reasons.push(`${strangers === 1 ? "a named place is" : `${strangers} named places are`} no change this comparison knows`);
-    const bare = new Set(files.filter((file) => !codeByPath.has(file.node.path)).map((file) => file.node.path));
+    // One rule for every changed line: a term can be read only for a line that is inside a changed unit. A changed file with no changed function in it (unparseable, binary, a document, a script of top-level statements) has none; a file with functions can still change lines beside them. Stakes there are unknown, however clean the functions nearby are.
+    const bare = new Set<string>();
+    const outside = new Map<string, number | null>();
+    for (const file of files) {
+      if (!codeByPath.has(file.node.path)) bare.add(file.node.path);
+      else {
+        const count = linesOutsideUnits(file, scope);
+        if (count === null || count > 0) outside.set(file.node.path, count);
+      }
+    }
     if (bare.size > 0) reasons.push(`${named(bare)} changed with no function to map to a term`);
+    for (const [path, count] of outside) reasons.push(count === null ? `the changed lines of ${path} are not known, so none is known to be in a function` : `${count === 1 ? "a changed line" : `${count} changed lines`} of ${path} ${count === 1 ? "is" : "are"} outside every function, so no term is known for ${count === 1 ? "it" : "them"}`);
     // Functions with no term, by the unit (or top-level function) that holds them: one line per reason, not one per nested callback.
     const unmapped = new Set<string>();
     const noTerm = new Set<string>();
@@ -385,7 +440,6 @@ export function tierPicker(request: TierRequest): TierPicker {
       }
       if (mapped.terms.length === 0) noTerm.add(promptName(unit!.name));
       if (!mapped.known) notKnown.add(promptName(unit!.name));
-      for (const key of mapped.added) reasons.push(`${found.termName(key)}: ${promptName(unit!.name)} was added to it by a person after its stakes were judged`);
       for (const key of mapped.terms) {
         const stake = found.termStakes(key);
         if (stake.status === "could cause") harms.push(...stake.harms.map((harm) => `${harm} in ${found.termName(key)}`));

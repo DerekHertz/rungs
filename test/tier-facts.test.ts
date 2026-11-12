@@ -257,3 +257,33 @@ test("one added call out is one kind of call out, not two", async () => {
   const aside = pickerOf(tiering, { "src/orders/place.ts": "export function placeOrder(): void {}\nconst later = fetch('https://example.com/a');\nvoid later;\n" })({ ids: [file("src/orders/place.ts")] });
   expect(aside.why.join("; ")).toMatch(/effects reached: 1 kind of call out/);
 });
+
+test("changed lines outside every function leave the stakes unknown, whatever function beside them is judged none", async () => {
+  const tiering = await tieringFor({});
+  const picker = pickerOf(tiering, { "src/orders/place.ts": "globalThis.authEnabled = false;\nexport function placeOrder(): void {\n  void 1;\n}\n" });
+  const found = picker({ ids: [file("src/orders/place.ts")] });
+  expect(found.percent).toBe(99.9);
+  const stakes = found.why.find((reason) => reason.startsWith("stakes:")) ?? "";
+  expect(stakes).toMatch(/stakes: possible harm, .*outside every function/);
+  expect(stakes).not.toMatch(/judged none/);
+  // Only the function's own lines: still judged none.
+  expect(pickerOf(tiering, smallOrder)({ ids: [file("src/orders/place.ts")] }).percent).toBe(95);
+});
+
+test("a removed line outside every function is a change outside it too", async () => {
+  const guarded = "globalThis.authEnabled = true;\nexport function placeOrder(): void {}\n";
+  const tiering = await tieringFor({}, DEFAULT_TIERS, { "src/orders/place.ts": guarded });
+  const base: FileTree = new Map([...baseTree, ["src/orders/place.ts", guarded]]);
+  const found = pickerOf(tiering, { "src/orders/place.ts": "export function placeOrder(): void {\n  void 1;\n}\n" }, base)({ ids: [file("src/orders/place.ts")] });
+  expect(found.percent).toBe(99.9);
+  expect(found.why.join("; ")).not.toMatch(/judged none/);
+});
+
+test("a hunk that reaches lines outside every function is unknown; a hunk wholly in a function is judged none", async () => {
+  const tiering = await tieringFor({});
+  const picker = pickerOf(tiering, { "src/orders/place.ts": "globalThis.authEnabled = false;\nexport function placeOrder(): void {\n  void 1;\n}\n" });
+  const whole = picker({ ids: [file("src/orders/place.ts")], hunk: { head: { start: 1, end: 4 }, base: { start: 1, end: 1 } } });
+  expect(whole.percent).toBe(99.9);
+  expect(whole.why.join("; ")).not.toMatch(/judged none/);
+  expect(picker({ ids: [file("src/orders/place.ts")], hunk: { head: { start: 3, end: 3 }, base: null } }).percent).toBe(95);
+});

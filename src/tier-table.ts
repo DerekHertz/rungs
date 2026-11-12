@@ -21,9 +21,14 @@
  *   Stakes pick the loosest tier only when every term a changed function belongs to is judged "no"
  *   for every kind of harm that may be judged now, completely (see stakes.ts): every kind asked of that
  *   term, every member shown, nothing cut, and every part of the item covered (a changed file with no
- *   changed function in it, or a named place that is no known change, has no term to read). Any other state is possible harm and picks the strictest tier: could cause, unclear, stale,
- *   not judged, judged no over some of the code, a changed function mapped to no term, no stored
- *   vocabulary at all. Stakes unknown never read as none.
+ *   changed function in it, a changed line outside every changed function, or a named place that is no
+ *   known change, has no term to read). A term's stakes are complete only over every current member after
+ *   a person's corrections: a function a person added to it was never judged. Any other state is possible
+ *   harm and picks the strictest tier: could cause, unclear, stale, not judged, judged no over some of the
+ *   code, a changed function mapped to no term, a member added by a person, a changed line outside every
+ *   function, no stored vocabulary at all. Stakes unknown never read as none.
+ *
+ *   A settle over cut evidence is withheld too (see `verdictOf` in jev/gate.ts), whatever the tier.
  *
  * What a tier asks of a settle: with P(wrong) the chance that settling is a mistake, a settle needs
  * 1 - P(wrong) >= the tier. A probability that passes a gate's own settle limit but not the tier's
