@@ -29,7 +29,8 @@ export function classify(head: readonly TestReport[], base: readonly TestReport[
   const headGroups = grouped(head);
   const baseGroups = grouped(base);
   // Files main ran with no failure in them: a head failure main has no report for is a regression of such a file.
-  const baseFiles = new Set(base.map((report) => report.file));
+  // A skipped test shows nothing worked, so a file needs a test that passed.
+  const baseFiles = new Set(base.filter((report) => report.outcome === "pass").map((report) => report.file));
   for (const report of base) if (report.outcome === "fail") baseFiles.delete(report.file);
   const counts: Record<Verdict, number> = { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 0 };
   const verdicts = head.map((report): Verdict => {

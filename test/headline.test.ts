@@ -70,6 +70,11 @@ test("while the control run is under way the part says so, never a partial verdi
   expect(headline(none, noTests, { tier: "observed", tree: "t", status: "running", stage: "tests" })).toContain("tests running…");
 });
 
+test("a test only main ran is not a pass of the PR's run: it is counted as not compared", () => {
+  const counts = { ...nothing, passes: 129, "base only": 1 };
+  expect(headline(none, noTests, ran(129, 0, { status: "ran", seconds: 1, counts, baseOnly: [] }))).toContain("main's tests: no regressions, 1 not compared, 129 passed");
+});
+
 test("a change of only dependencies is not said to change no code", () => {
   expect(headline({ ...none, dependencies: [{ kind: "added" }] } as unknown as Comparison, noTests, null)).toBe("1 dependency changed · tests not run");
 });

@@ -2,7 +2,7 @@ import type { NodeId } from "../graph.ts";
 import { EVIDENCE_LINE, UNSANDBOXED_LINE, VERDICT_WORD, runningText } from "../observed-types.ts";
 import type { ControlDocument, Counts, ObservedDocument, UnmatchedTest } from "../observed-types.ts";
 import { failingHeading } from "../arrival.ts";
-import { rowOutcome, unreliableText } from "../observed-report.ts";
+import { fileMark, rowOutcome, unreliableText } from "../observed-report.ts";
 import type { FailingTest, FileResults, ObservedReport, WrittenReport } from "../observed-report.ts";
 import { element, markPick, markSpan } from "./review-panel.ts";
 import { OUTCOME_GLYPH, OUTCOME_WORD } from "../mark-text.ts";
@@ -14,10 +14,19 @@ export interface ObservedInput {
   readonly report: ObservedReport | null;
 }
 
-const countsText = (counts: Counts, environment = 0): string =>
-  counts.pass + counts.fail + counts.skip + environment === 0
+const countsText = (counts: Counts, environment = 0, fixed = 0, notCompared = 0): string =>
+  counts.pass + counts.fail + counts.skip + environment + fixed + notCompared === 0
     ? "no results"
-    : [counts.fail > 0 ? `${counts.fail} fail` : "", `${counts.pass} pass`, counts.skip > 0 ? `${counts.skip} skip` : "", environment > 0 ? `${environment} environment` : ""].filter((part) => part !== "").join(" · ");
+    : [
+        counts.fail > 0 ? `${counts.fail} fail` : "",
+        `${counts.pass} pass`,
+        counts.skip > 0 ? `${counts.skip} skip` : "",
+        environment > 0 ? `${environment} environment` : "",
+        fixed > 0 ? `${fixed} fixed` : "",
+        notCompared > 0 ? `${notCompared} not compared` : "",
+      ]
+        .filter((part) => part !== "")
+        .join(" · ");
 
 /** What the control run says of the head run, for "About this run". */
 function controlText(control: ControlDocument): string {
@@ -168,12 +177,14 @@ function fileRow(file: FileResults, report: ObservedReport, pickNode: (id: NodeI
   const pick = pickButton(() => pickNode(file.id));
   pick.title = file.path;
   pick.classList.add("observed-file");
-  const state = file.counts.fail > 0 ? "fail" : file.counts.pass + file.counts.skip + (file.environment ?? 0) === 0 ? "none" : "pass";
+  const mark = outcomeMark(fileMark(file));
+  // An environment failure alone is not this PR's doing: its cross is dimmed.
+  if (file.counts.fail === 0 && (file.environment ?? 0) > 0) mark.classList.add("observed-dim");
   pick.append(
-    outcomeMark(state),
+    mark,
     element("span", "review-label", file.path),
     ...(report.deleted.includes(file.path) ? [element("span", "review-flag", "deleted by this PR")] : report.edited.includes(file.path) ? [element("span", "review-flag", "edited by this PR")] : []),
-    element("span", "review-size", countsText(file.counts, file.environment)),
+    element("span", "review-size", countsText(file.counts, file.environment, file.fixed, file.notCompared)),
   );
   item.append(pick);
   return item;

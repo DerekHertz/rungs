@@ -43,7 +43,7 @@ export type VerdictCounts = Readonly<Record<Verdict, number>>;
  * side, one-sided, or named twice). Empty when every test passed on both. `passes` counts only those.
  */
 export function verdictParts(counts: VerdictCounts): string[] {
-  const notCompared = counts.skipped + counts["head only"] + counts.unclear;
+  const notCompared = counts.skipped + counts["head only"] + counts.unclear + counts["base only"];
   const others = [
     ...(counts.environment > 0 ? [`${counts.environment} environment`] : []),
     ...(counts.fixed > 0 ? [`${counts.fixed} fixed`] : []),

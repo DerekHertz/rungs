@@ -133,6 +133,7 @@ test("the tests row says fail of total, or why there is no run", () => {
   const clean = { ...controlled, counts: { pass: 10, fail: 0, skip: 0 } };
   expect(testsSummary({ ...clean, control: { ...controlled.control, counts: { ...counts, regression: 0, environment: 0, passes: 8, skipped: 1, "head only": 1 } } } as never, 0)).toBe("no regressions · 2 not compared of 10");
   expect(testsSummary({ ...clean, control: { ...controlled.control, counts: { ...counts, regression: 0, environment: 0, passes: 10 } } } as never, 0)).toBe("10 pass");
+  expect(testsSummary({ ...clean, control: { ...controlled.control, counts: { ...counts, regression: 0, environment: 0, passes: 9, "base only": 1 } } } as never, 0)).toBe("no regressions · 1 not compared of 10");
   expect(testsSummary({ tier: "observed", tree: "t", status: "running", stage: "control" }, 0)).toBe("running the control run…");
   expect(testsSummary({ tier: "observed", tree: "t", status: "running", stage: "tests" }, 0)).toBe("running tests…");
   expect(testsSummary({ tier: "observed", tree: "t", status: "stopped", why: "x" }, 0)).toBe("not run");

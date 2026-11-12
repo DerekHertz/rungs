@@ -6,7 +6,7 @@ import type { FileTree } from "../src/graph.ts";
 import { observedDocument } from "../src/observed.ts";
 import type { TestReport } from "../src/observed.ts";
 import type { Outcome, RanObserved } from "../src/observed-types.ts";
-import { observedReport, rowOutcome } from "../src/observed-report.ts";
+import { fileMark, observedReport, rowOutcome } from "../src/observed-report.ts";
 
 const at = (path: string[], outcome: Outcome, message?: string): TestReport => ({ file: "test/a.test.mjs", path, outcome, ms: 1, ...(message ? { message } : {}) });
 
@@ -105,6 +105,32 @@ test("a control run that failed, stopped or could not run leaves the head's fail
 test("a run with no control at all is a run with no control run, never zero regressions", () => {
   const document = observedDocument(ran, graph, "t") as RanObserved;
   expect(document.control).toMatchObject({ status: "stopped", why: "not attempted" });
+});
+
+test("a skipped main test is no evidence that a file worked: a crash of such a file is failed and not compared", () => {
+  const crash: TestReport = { file: "test/b.test.mjs", path: ["test/b.test.mjs"], outcome: "fail", ms: 1 };
+  expect(classify([crash], [{ file: "test/b.test.mjs", path: ["a"], outcome: "skip", ms: 0 }]).verdicts).toEqual(["head only"]);
+});
+
+const fileDocument = (headReports: TestReport[], baseReports: TestReport[]) => observedDocument({ ...ran, reports: headReports, control: { status: "ran", seconds: 1, reports: baseReports } }, graph, "t") as RanObserved;
+const added = compare(extract(new Map()), graph);
+const row = (document: RanObserved) => observedReport(document, graph, added).files.find((file) => file.path === "test/a.test.mjs")!;
+
+test("a file row's counts come from the verdicts: passes are passed on both, the rest are counted apart", () => {
+  const document = fileDocument(
+    [at(["p"], "pass"), at(["s"], "pass"), at(["f"], "pass"), at(["h"], "pass"), at(["r"], "fail")],
+    [at(["p"], "pass"), at(["s"], "skip"), at(["f"], "fail"), at(["gone"], "pass"), at(["r"], "pass")],
+  );
+  expect(row(document)).toMatchObject({ counts: { pass: 1, fail: 1, skip: 0 }, fixed: 1, notCompared: 3 });
+});
+
+test("a file's mark is a tick only when everything compared passed on both; environment alone is a cross, mixed takes the worst", () => {
+  const mark = (head: TestReport[], base: TestReport[]) => fileMark(row(fileDocument(head, base)));
+  expect(mark([at(["a"], "pass")], [at(["a"], "pass")])).toBe("pass");
+  expect(mark([at(["a"], "fail")], [at(["a"], "fail")])).toBe("fail");
+  expect(mark([at(["a"], "pass"), at(["b"], "fail")], [at(["a"], "pass"), at(["b"], "fail")])).toBe("fail");
+  expect(mark([at(["a"], "pass"), at(["b"], "pass")], [at(["a"], "pass"), at(["b"], "skip")])).toBe("skip");
+  expect(mark([at(["a"], "pass")], [at(["a"], "fail")])).toBe("skip");
 });
 
 test("tests only main has are listed as base only and counted as neither a pass nor a regression", () => {

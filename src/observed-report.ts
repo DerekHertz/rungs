@@ -16,6 +16,21 @@ export interface FileResults {
   readonly counts: Counts;
   /** Failures that also happen on main's code (environment), when there are any: not counted in `counts.fail`. */
   readonly environment?: number;
+  /** With a control run, tests that failed on main and pass now. `counts.pass` is then only what passed on both. */
+  readonly fixed?: number;
+  /** With a control run, tests skipped on a side, reported by one run only, or named twice: neither passes nor regressions. */
+  readonly notCompared?: number;
+}
+
+/**
+ * A file's mark: a tick only when everything compared passed on both sides. A regression and an
+ * environment failure are both a cross (the page dims the environment one); tests not compared or
+ * fixed leave it neutral; no result is none.
+ */
+export function fileMark(file: FileResults): Outcome | "none" {
+  if (file.counts.fail > 0 || (file.environment ?? 0) > 0) return "fail";
+  if ((file.notCompared ?? 0) > 0 || (file.fixed ?? 0) > 0) return "skip";
+  return file.counts.pass + file.counts.skip === 0 ? "none" : "pass";
 }
 
 /** What the tests this PR wrote or edited came to. They are the PR's claim, never evidence. */
@@ -65,15 +80,26 @@ export function observedReport(document: RanDocument, graph: Graph, comparison: 
   const paths = new Map(graph.nodes.map((node) => [node.id, node.path]));
   // The old path of a moved file (and its functions) is a place of the picture (rubble) that only the base had: its tests ran there.
   for (const change of comparison.changes) if (change.kind === "moved") paths.set(change.from.id, change.from.path);
-  const counts = new Map<string, { pass: number; fail: number; skip: number; environment: number }>();
+  const counts = new Map<string, { pass: number; fail: number; skip: number; environment: number; fixed: number; notCompared: number }>();
   const { control } = document;
   const tally = (path: string, test: ObservedTest) => {
-    const count = counts.get(path) ?? { pass: 0, fail: 0, skip: 0, environment: 0 };
-    if (test.outcome === "fail" && !countsAsFailing(control, test)) {
-      if (test.verdict === "environment") count.environment += 1;
-    } else count[test.outcome] += 1;
+    const count = counts.get(path) ?? { pass: 0, fail: 0, skip: 0, environment: 0, fixed: 0, notCompared: 0 };
+    if (control.status !== "ran") count[test.outcome] += 1;
+    // With a control run the counts are the verdicts': a pass is a pass on both sides.
+    else if (test.verdict === "regression") count.fail += 1;
+    else if (test.verdict === "environment") count.environment += 1;
+    else if (test.verdict === "passes") count.pass += 1;
+    else if (test.verdict === "fixed") count.fixed += 1;
+    else count.notCompared += 1;
     counts.set(path, count);
   };
+  if (control.status === "ran") {
+    for (const test of control.baseOnly) {
+      const count = counts.get(test.file) ?? { pass: 0, fail: 0, skip: 0, environment: 0, fixed: 0, notCompared: 0 };
+      count.notCompared += 1;
+      counts.set(test.file, count);
+    }
+  }
   const failing: FailingTest[] = [];
   const others: FailingTest[] = [];
   const sort = (test: ObservedTest, row: FailingTest) => {
@@ -98,8 +124,16 @@ export function observedReport(document: RanDocument, graph: Graph, comparison: 
     if (node.level !== "file" || (change.kind === "removed" && !deleted.has(node.path))) continue;
     const count = counts.get(node.path);
     if (count === undefined && node.role !== "tests") continue;
-    const { environment, ...own } = count ?? { pass: 0, fail: 0, skip: 0, environment: 0 };
-    files.push({ id: node.id, path: node.path, change: change.kind, counts: own, ...(environment > 0 ? { environment } : {}) });
+    const { environment, fixed, notCompared, ...own } = count ?? { pass: 0, fail: 0, skip: 0, environment: 0, fixed: 0, notCompared: 0 };
+    files.push({
+      id: node.id,
+      path: node.path,
+      change: change.kind,
+      counts: own,
+      ...(environment > 0 ? { environment } : {}),
+      ...(fixed > 0 ? { fixed } : {}),
+      ...(notCompared > 0 ? { notCompared } : {}),
+    });
   }
   const rank = (file: FileResults) => (file.counts.fail > 0 ? 0 : file.counts.pass + file.counts.skip === 0 ? 1 : 2);
   files.sort((a, b) => rank(a) - rank(b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
