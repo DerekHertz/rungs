@@ -23,6 +23,8 @@ export interface Case<Input> {
   readonly input: Input;
   readonly steering?: boolean;
   readonly note?: string;
+  /** Where the case came from, so it can be re-checked (for the claim gate: the repo and pull request of the claim's words and of its changes). Free-form; the bench does not read it. */
+  readonly source?: Readonly<Record<string, unknown>>;
 }
 
 /**

@@ -15,6 +15,7 @@ import type { TestChanges } from "../test-changes-types.ts";
 import { testChangesBlock } from "./test-changes-panel.ts";
 import type { RiskItem } from "../risks.ts";
 import { CHANGE_WORD, CONTRACT_WORD } from "../mark-text.ts";
+import { CLAIM_GATE_ID } from "../jev/claim-gate.ts";
 import { judgedDetail, markButton } from "./judged-panel.ts";
 import type { JudgedView } from "./judged-panel.ts";
 
@@ -300,11 +301,15 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     const line = element("div", "claim-line");
     line.append(
       pick,
-      markButton(mark, () => {
-        choose(pick, full);
-        input.pickClaim(claim);
-        detail.open = true;
-      }),
+      markButton(
+        mark,
+        () => {
+          choose(pick, full);
+          input.pickClaim(claim);
+          detail.open = true;
+        },
+        input.judged.adopted?.(CLAIM_GATE_ID) === true,
+      ),
     );
     item.append(line, full);
     return item;
