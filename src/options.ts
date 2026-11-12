@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: streets [dir] [--port <n>] [--no-open]\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--port <n>] [--no-open]";
+export const USAGE = "usage: streets [dir] [--port <n>] [--no-open]\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
@@ -28,6 +28,8 @@ export interface Options {
   readonly narrate: boolean;
   /** Set by `--renarrate`: write narration again even when the cache holds it. Implies `narrate`. */
   readonly renarrate: boolean;
+  /** Set by `--judge`: let judged checks send source text to TypeSafe's Jev. Off unless given. */
+  readonly judge: boolean;
 }
 
 /** The options, or a one-line usage error. */
@@ -48,6 +50,7 @@ export function parseOptions(argv: readonly string[]): Options | string {
         "run-tests-unsandboxed": { type: "boolean", default: false },
         narrate: { type: "boolean", default: false },
         renarrate: { type: "boolean", default: false },
+        judge: { type: "boolean", default: false },
       },
     });
     const port = Number(values.port);
@@ -67,8 +70,9 @@ export function parseOptions(argv: readonly string[]): Options | string {
     if (walkthrough && !comparing) return "--walkthrough needs compare: streets compare <base> --walkthrough";
     const narrate = values.narrate || values.renarrate;
     if (narrate && !comparing) return "--narrate needs compare: streets compare <base> --narrate";
+    if (values.judge && !comparing) return "--judge needs compare: streets compare <base> --judge";
     if (rest.length > 1) return "expected at most one directory";
-    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate };
+    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate, judge: values.judge };
   } catch (error) {
     return (error as Error).message;
   }
