@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { parseTiers } from "./tier-table.ts";
 import type { TierTable } from "./tier-table.ts";
 
-export const USAGE = "usage: streets [dir] [--link] [--walkthrough] [--port <n>] [--no-open]   (no PR: lists the open PRs to pick from, through gh)\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--tiers <a,b,c>] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--tiers <a,b,c>] [--port <n>] [--no-open]\n         (--tiers: the confidence a judged check must reach to settle an item, three descending percents, strictest first; default 99.9,99,95)\n       streets setup [dir] [--base <ref>] [--judge]   (builds and stores the repository's vocabulary from its base; default: the default branch; --judge maps code to terms with Jev)\n       streets vocabulary <list|confirm|rename|merge|remove|member|certify> [--dir <dir>] [--by <name>]   (confirm or correct the stored vocabulary; streets vocabulary --help)";
+export const USAGE = "usage: streets [dir] [--link] [--walkthrough] [--port <n>] [--no-open]   (no PR: lists the open PRs to pick from, through gh)\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--tiers <a,b,c>] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--tiers <a,b,c>] [--port <n>] [--no-open]\n         (--tiers: the confidence a judged check must reach to settle an item, three descending percents, strictest first; default 99.9,99,95)\n       streets setup [dir] [--base <ref>] [--judge] [--propose]   (builds and stores the repository's vocabulary from its base; default: the default branch; --judge maps code to terms with Jev; --propose has a model propose terms, drawn as claimed, where the repository's own words reach under half of the code)\n       streets vocabulary <list|confirm|rename|merge|remove|member|certify> [--dir <dir>] [--by <name>]   (confirm or correct the stored vocabulary; streets vocabulary --help)";
 
 
 export interface Options {
@@ -39,6 +39,8 @@ export interface Options {
   readonly tiers?: TierTable;
   /** Set by `streets setup`: build and store the repository's vocabulary instead of serving a page. Absent otherwise. `base` is then `--base`. */
   readonly setup?: true;
+  /** Set by `streets setup --propose`: where the repository's own words reach under half of the code, a model proposes terms (sent paths and names, through the person's Claude login). Absent otherwise. */
+  readonly propose?: true;
 }
 
 /** The options, or a one-line usage error. */
@@ -61,6 +63,7 @@ export function parseOptions(argv: readonly string[]): Options | string {
         narrate: { type: "boolean", default: false },
         renarrate: { type: "boolean", default: false },
         judge: { type: "boolean", default: false },
+        propose: { type: "boolean", default: false },
         tiers: { type: "string" },
         base: { type: "string" },
       },
@@ -91,6 +94,7 @@ export function parseOptions(argv: readonly string[]): Options | string {
     const narrate = values.narrate || values.renarrate;
     if (narrate && !comparing) return "--narrate needs compare: streets compare <base> --narrate";
     if (values.judge && !comparing && !setup) return "--judge needs compare or setup: streets compare <base> --judge, streets setup --judge";
+    if (values.propose && !setup) return "--propose needs setup: streets setup --propose";
     let tiers: TierTable | undefined;
     if (values.tiers !== undefined) {
       if (!comparing) return "--tiers needs compare: streets compare <base> --judge --tiers 99.9,99,95";
@@ -102,7 +106,7 @@ export function parseOptions(argv: readonly string[]): Options | string {
     if (setup && link) return "--link needs compare: streets compare <base> --description <file> --link";
     if (setup && walkthrough) return "--walkthrough needs compare: streets compare <base> --walkthrough";
     if (rest.length > 1) return "expected at most one directory";
-    return { ...(setup ? { setup: true as const } : {}), dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, pr, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate, judge: values.judge, ...(tiers === undefined ? {} : { tiers }) };
+    return { ...(setup ? { setup: true as const } : {}), ...(values.propose ? { propose: true as const } : {}), dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, pr, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate, judge: values.judge, ...(tiers === undefined ? {} : { tiers }) };
   } catch (error) {
     return (error as Error).message;
   }

@@ -106,6 +106,20 @@ export interface Effect {
   readonly inapplicable: readonly Inapplicable[];
 }
 
+/**
+ * The keys of the terms a person removed, or merged away as a duplicate, and did not bring back with a confirm. Replayed in the
+ * order made, whether or not a term of that key is in the vocabulary now, so a model that proposes terms is never taken up on
+ * one again on a later setup.
+ */
+export function rejectedTerms(corrections: readonly Correction[]): Set<string> {
+  const rejected = new Set<string>();
+  for (const correction of corrections) {
+    if (correction.kind === "remove" || correction.kind === "merge") rejected.add(correction.term);
+    else if (correction.kind === "confirm") rejected.delete(correction.term);
+  }
+  return rejected;
+}
+
 interface TermState {
   removed: boolean;
   name?: string;

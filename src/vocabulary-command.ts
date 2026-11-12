@@ -4,8 +4,9 @@ import { parseArgs, promisify } from "node:util";
 import { certificationOf, certificationText, correctionsDigest, describeCorrection, effectOf, noLongerApply, vocabularyDigest } from "./corrections.ts";
 import type { Certification, Correction, Effect } from "./corrections.ts";
 import { looksSecret } from "./prompt-safe.ts";
-import { readStored, storeFile, writeStored } from "./setup.ts";
+import { readStored, storeFile, termsOf, writeStored } from "./setup.ts";
 import type { StoredVocabulary } from "./setup.ts";
+import type { Term } from "./vocabulary.ts";
 import { shown } from "./stored-names.ts";
 
 const execFileAsync = promisify(execFile);
@@ -72,7 +73,7 @@ function cleanName(text: string, what: string): { readonly name: string } | { re
   return { name };
 }
 
-type Terms = StoredVocabulary["vocabulary"]["terms"];
+type Terms = readonly Term[];
 
 /** The stored term a person means by `text`: a key exactly, else a name or spelling (as stored or as renamed) without regard to case. */
 function findTerm(text: string, terms: Terms, effect: Effect): { readonly key: string } | { readonly refused: string } {
@@ -101,14 +102,16 @@ function findUnit(text: string, stored: StoredVocabulary): Found<{ readonly key:
 const listLines = (stored: StoredVocabulary, effect: Effect, corrections: readonly Correction[]): string[] => {
   const { vocabulary } = stored;
   const lines = [`streets vocabulary: ${shown(stored.repo)}, built from ${shown(stored.base.ref)} at ${stored.base.commit.slice(0, 7)}`];
-  lines.push(`  ${certificationText(certificationOf(vocabulary.terms, corrections, stored.certification))}`);
+  const all = termsOf(stored);
+  const proposed = new Set(all.filter((term) => term.claimed !== undefined).map((term) => term.key));
+  lines.push(`  ${certificationText(certificationOf(all, corrections, stored.certification))}`);
   if (vocabulary.status === "unknown") lines.push(`  terms: unknown, which is not none and not zero: ${shown(vocabulary.reason ?? "something could not be read")}`);
-  else lines.push(`  terms: ${effect.visible.size} shown${vocabulary.terms.length === effect.visible.size ? "" : ` of ${vocabulary.terms.length}`}`);
+  else lines.push(`  terms: ${effect.visible.size} shown${all.length === effect.visible.size ? "" : ` of ${all.length}`}${proposed.size === 0 ? "" : `, ${proposed.size} of them proposed by ${shown(stored.proposals?.model ?? "a model")} (claimed)`}`);
   for (const term of effect.visible.values()) {
-    const marks = [term.confirmed === undefined ? "" : `confirmed by ${shown(term.confirmed.by)} at ${term.confirmed.at}`, term.renamedFrom === undefined ? "" : `renamed from ${shown(term.renamedFrom)}`, term.mergedFrom === undefined ? "" : `merged in: ${term.mergedFrom.map(shown).join(", ")}`].filter((mark) => mark !== "");
+    const marks = [proposed.has(term.key) ? "proposed by a model (claimed)" : "", term.confirmed === undefined ? "" : `confirmed by ${shown(term.confirmed.by)} at ${term.confirmed.at}`, term.renamedFrom === undefined ? "" : `renamed from ${shown(term.renamedFrom)}`, term.mergedFrom === undefined ? "" : `merged in: ${term.mergedFrom.map(shown).join(", ")}`].filter((mark) => mark !== "");
     lines.push(`    ${shown(term.name)} (${shown(term.key)})${marks.length === 0 ? "" : `: ${marks.join("; ")}`}`);
   }
-  const hidden = vocabulary.terms.filter((term) => !effect.visible.has(term.key));
+  const hidden = all.filter((term) => !effect.visible.has(term.key));
   if (hidden.length > 0) lines.push(`  removed or merged away: ${hidden.map((term) => `${shown(effect.nameOf(term.key))} (${shown(term.key)})`).join(", ")}`);
   // The functions a store judged are known to it; without judging the page checks them against the tree it draws.
   const gone = noLongerApply(effect, corrections, stored.memberships === undefined ? undefined : new Set(stored.memberships.units.map((unit) => unit.key)));
@@ -147,7 +150,7 @@ export async function vocabularyCommand(argv: readonly string[], deps: CommandDe
   if (previous.kind === "unreadable") return refuse(`the stored vocabulary could not be read (${shown(previous.why)}), so nothing was changed: run \`streets setup\`, which copies the old file aside before it builds a new one`);
   const { stored, whole } = previous;
   const corrections = stored.corrections ?? [];
-  const effect = effectOf(stored.vocabulary.terms, corrections);
+  const effect = effectOf(termsOf(stored), corrections);
   if (command === "list") return done(...listLines(stored, effect, corrections));
 
   const who = values.by ?? (await (deps.gitName ?? gitName)(dir));
@@ -160,11 +163,12 @@ export async function vocabularyCommand(argv: readonly string[], deps: CommandDe
 
   if (command === "certify") {
     if (stored.vocabulary.status === "unknown") return refuse(`the terms are unknown, which is not none: ${shown(stored.vocabulary.reason ?? "something could not be read")}. Nothing was certified`);
-    const state = certificationOf(stored.vocabulary.terms, corrections, stored.certification);
+    const state = certificationOf(termsOf(stored), corrections, stored.certification);
     if (state.kind === "certified") return done(`already certified: ${certificationText(state)}`);
-    const certification: Certification = { ...stamp, vocabulary: vocabularyDigest(stored.vocabulary.terms), corrections: correctionsDigest(corrections) };
+    const certification: Certification = { ...stamp, vocabulary: vocabularyDigest(termsOf(stored)), corrections: correctionsDigest(corrections) };
     await write({ certification });
-    return done(`certified by ${shown(stamp.by)} at ${stamp.at}: ${effect.visible.size} terms shown, ${corrections.length} corrections`);
+    const claimed = termsOf(stored).filter((term) => term.claimed !== undefined && effect.visible.has(term.key)).length;
+    return done(`certified by ${shown(stamp.by)} at ${stamp.at}: ${effect.visible.size} terms shown${claimed === 0 ? "" : ` (${claimed} proposed by a model, claimed, now vouched for by you)`}, ${corrections.length} corrections`);
   }
 
   const record = async (correction: Correction, say: string): Promise<CommandResult> => {
@@ -174,14 +178,14 @@ export async function vocabularyCommand(argv: readonly string[], deps: CommandDe
   if (command === "member") {
     const unit = findUnit(args[0]!, stored);
     if (refused(unit)) return refuse(unit.refused);
-    const term = findTerm(args[1]!, stored.vocabulary.terms, effect);
+    const term = findTerm(args[1]!, termsOf(stored), effect);
     if (refused(term)) return refuse(term.refused);
     const answer = args[2];
     if (answer !== "yes" && answer !== "no") return usage(`member ends in yes or no, not "${shown(answer ?? "")}"`);
     const belongs = answer === "yes";
     return record({ ...stamp, kind: "member", unit: unit.key, term: term.key, belongs, label: `${unit.label}, term ${named(term.key)}` }, `${belongs ? "yes" : "no"}: ${unit.label} ${belongs ? "belongs to" : "does not belong to"} ${named(term.key)}`);
   }
-  const first = findTerm(args[0]!, stored.vocabulary.terms, effect);
+  const first = findTerm(args[0]!, termsOf(stored), effect);
   if (refused(first)) return refuse(first.refused);
   const { key } = first;
   const label = named(key);
@@ -189,7 +193,7 @@ export async function vocabularyCommand(argv: readonly string[], deps: CommandDe
     case "confirm":
       return record({ ...stamp, kind: "confirm", term: key, label }, `confirmed ${label}`);
     case "remove": {
-      const absorbed = stored.vocabulary.terms.filter((term) => term.key !== key && effect.resolve(term.key) === key);
+      const absorbed = termsOf(stored).filter((term) => term.key !== key && effect.resolve(term.key) === key);
       return record({ ...stamp, kind: "remove", term: key, label }, `removed ${label}${absorbed.length === 0 ? "" : `; merged into it, so removed with it: ${absorbed.map((term) => named(term.key)).join(", ")}`}`);
     }
     case "rename": {
@@ -200,7 +204,7 @@ export async function vocabularyCommand(argv: readonly string[], deps: CommandDe
     }
     default: {
       // merge
-      const other = findTerm(args[1]!, stored.vocabulary.terms, effect);
+      const other = findTerm(args[1]!, termsOf(stored), effect);
       if (refused(other)) return refuse(other.refused);
       const into = other.key;
       if (into === key) return refuse("a term cannot be merged into itself");

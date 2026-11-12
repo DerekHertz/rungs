@@ -15,6 +15,7 @@ import { isBinary } from "./lines.ts";
 import { pairStatus, reconcile } from "./memberships.ts";
 import { promptName } from "./prompt-safe.ts";
 import { shown } from "./stored-names.ts";
+import { termsOf } from "./setup.ts";
 import type { StoredRead, StoredVocabulary } from "./setup.ts";
 import { kindChoice, readKindsFile } from "./jev/stakes-adoption.ts";
 import { reconcileStakes, stakeStatus } from "./stakes.ts";
@@ -103,7 +104,7 @@ function stakesLookup(vocabulary: VocabularyRead, baseGraph: Graph, baseTree: Fi
   const { stored, choice } = vocabulary;
   if (stored.memberships === undefined) return "no code is mapped to a term yet (run `streets setup --judge`)";
   if (stored.stakes === undefined) return "stakes are not recorded yet (run `streets setup --judge`)";
-  const terms: readonly Term[] = stored.vocabulary.terms;
+  const terms: readonly Term[] = termsOf(stored);
   const units = unitsOf(baseGraph, baseTree);
   const held = reconcile(stored.memberships, units, narrow(units, terms, baseTree), terms, baseTree);
   const entries = termMembers(held, units, terms);
