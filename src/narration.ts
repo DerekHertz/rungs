@@ -2,10 +2,11 @@
 
 import type { CodeNode, LineRange } from "./graph.ts";
 import type { PseudoLine } from "./pseudo-line.ts";
+import { promptBase, promptEffect } from "./prompt-safe.ts";
 import { promptSignature } from "./signature.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached narrations are not reused. */
-export const NARRATION_PROMPT_VERSION = "narration-v1";
+export const NARRATION_PROMPT_VERSION = "narration-v2";
 
 const lines = (range: LineRange): string => (range.start === range.end ? `L${range.start}` : `L${range.start}-${range.end}`);
 
@@ -13,14 +14,16 @@ const lines = (range: LineRange): string => (range.start === range.end ? `L${ran
  * The one thing the agent is shown of a function: its name, signature and lines, then its outline
  * as numbered structure. A pseudocode line's text is source text (its conditions and returned
  * expressions are as written), so only its kind, depth and lines reach the agent, plus what the
- * graph already says of it: the effect label of a call, the id of a nested function. No source text.
+ * graph already says of it: the effect of a call (its category and operation, and only the host,
+ * command name or file name of its target, or "withheld"; see promptEffect) and the id of a nested
+ * function (see promptBase). No source text.
  */
 export function narrationPrompt(node: CodeNode, outline: readonly PseudoLine[]): { system: string; user: string } {
   const rows = outline.map((line, index) => {
-    const note = line.effect !== undefined ? ` ${line.effect}` : line.node === undefined ? "" : ` ${line.node}`;
+    const note = line.effect !== undefined ? ` ${promptEffect(line.effect)}` : line.node === undefined ? "" : ` ${line.promptNode ?? line.node}`;
     return `${index} ${"  ".repeat(line.depth)}${line.kind} ${lines(line.range)}${note}`;
   });
-  const user = [`FUNCTION ${node.id} ${lines(node.range)}${node.exported ? " exported" : ""} ${promptSignature(node.signature)}`, "", "OUTLINE", ...rows].join("\n");
+  const user = [`FUNCTION ${promptBase(node)} ${lines(node.range)}${node.exported ? " exported" : ""} ${promptSignature(node.signature)}`, "", "OUTLINE", ...rows].join("\n");
   return { system: SYSTEM, user };
 }
 

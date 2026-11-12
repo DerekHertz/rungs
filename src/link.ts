@@ -6,9 +6,10 @@ import { join } from "node:path";
 import type { Claim } from "./claims.ts";
 import type { ChangeKind, Comparison } from "./compare.ts";
 import type { Graph, NodeId } from "./graph.ts";
+import { PromptIds } from "./prompt-safe.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached links are not reused. */
-export const PROMPT_VERSION = "claims-v5";
+export const PROMPT_VERSION = "claims-v6";
 
 /**
  * A place an agent may link a claim to: a changed file, or a folder or package holding changed
@@ -17,6 +18,8 @@ export const PROMPT_VERSION = "claims-v5";
  */
 export interface Candidate {
   readonly id: NodeId;
+  /** The id the prompt shows (see PromptIds): the id, cut in the middle when very long. Answers are mapped back from it. */
+  readonly promptId: string;
   /** Exactly what the prompt shows for this candidate. */
   readonly line: string;
   /** The changed files a link to this candidate covers: itself for a file, none for a folder or package. */
@@ -51,13 +54,18 @@ export function candidatesOf(comparison: Comparison, graph: Graph): Candidate[] 
     }
   }
 
+  const ids = new PromptIds();
   const out: Candidate[] = [];
   for (const [dir, entry] of [...folders].sort(([a], [b]) => byText(a, b))) {
     const id = folderIds.get(dir) ?? (`folder:${dir}` as NodeId);
     const kinds = KINDS.filter((kind) => entry.kinds[kind] > 0).map((kind) => `${entry.kinds[kind]} ${kind}`).join(", ");
-    out.push({ id, line: `${id.startsWith("package:") ? "package" : "folder"} ${id} (${entry.files.length} changed ${entry.files.length === 1 ? "file" : "files"}: ${kinds})`, files: [] });
+    const shown = ids.add({ id });
+    out.push({ id, promptId: shown, line: `${id.startsWith("package:") ? "package" : "folder"} ${shown} (${entry.files.length} changed ${entry.files.length === 1 ? "file" : "files"}: ${kinds})`, files: [] });
   }
-  for (const file of files) out.push({ id: file.id, line: `${file.kind} ${file.id}`, files: [file.id] });
+  for (const file of files) {
+    const shown = ids.add({ id: file.id });
+    out.push({ id: file.id, promptId: shown, line: `${file.kind} ${shown}`, files: [file.id] });
+  }
   return out;
 }
 
@@ -133,7 +141,7 @@ export const MAX_RESTATEMENT_WORDS = 20;
 const wordsOf = (text: string): number => text.trim().split(/\s+/).length;
 
 /** Throws unless `output` has the schema's shape. Drops ids that are not candidates and claims out of range. A link to a folder or package covers no file, so it adds nothing. */
-export function validate(output: unknown, claims: readonly Claim[], known: ReadonlyMap<NodeId, readonly NodeId[]>): Validated {
+export function validate(output: unknown, claims: readonly Claim[], known: ReadonlyMap<string, readonly NodeId[]>): Validated {
   const claimCount = claims.length;
   const links = (output as { links?: unknown } | null)?.links;
   if (!Array.isArray(links)) throw new Error("the agent's answer has no links list");
@@ -373,7 +381,8 @@ export interface LinkRequest {
 /** Links claims to changed modules through an agent, cached by the prompt: its version, the claims and the candidate lines. */
 export function linkClaims(request: LinkRequest): Promise<LinkOutcome> {
   const { claims, candidates, runner, cacheDir, relink, timeoutMs } = request;
-  const known = new Map(candidates.map((candidate) => [candidate.id, candidate.files] as const));
+  // The agent answers with the ids the prompt showed (promptId); each maps back to the files it covers.
+  const known = new Map(candidates.map((candidate) => [candidate.promptId, candidate.files] as const));
   return askCached<Validated>({
     prompt: promptFor(claims, candidates),
     schema: SCHEMA,
