@@ -10,7 +10,7 @@ import { isCodeNode } from "../src/graph.ts";
 import type { CodeNode, FileTree, NodeId } from "../src/graph.ts";
 import { candidatesOf, promptFor, validate } from "../src/link.ts";
 import { narrationPrompt } from "../src/narration.ts";
-import { MAX_ID_CHARS, MAX_TARGET_CHARS, PromptIds, WITHHELD, looksSecret, promptEffect, promptName, promptTarget } from "../src/prompt-safe.ts";
+import { MAX_ID_CHARS, MAX_TITLE_CHARS,MAX_TARGET_CHARS, PromptIds, WITHHELD, looksSecret, promptEffect, promptName, promptTarget } from "../src/prompt-safe.ts";
 import { pseudocode } from "../src/pseudocode.ts";
 import { stopFacts } from "../src/stops.ts";
 import { TOUR_PROMPT_VERSION, placesOf, tourPrompt, validateTour } from "../src/tour.ts";
@@ -138,6 +138,57 @@ test("a literal in a callback's or a string key's name never reaches the tour or
   const tour = validateTour({ stops: [{ title: "t", ids: [shown.promptId], claims: [], narration: [{ text: "Reads.", id: shown.promptId, start: range.start, end: range.end }] }] }, 0, places);
   expect(tour.stops[0]!.ids).toEqual([shown.id]);
   expect(shown.id).toContain(KEY);
+});
+
+test("a test runner's plain title reaches the prompts, every other literal stays withheld, and each alias maps back", () => {
+  const long = "x".repeat(300);
+  const source = [
+    'import { readFile } from "node:fs";',
+    "export function run() {",
+    '  describe("parser", () => {});',
+    "}",
+    'describe("parser", () => {});',
+    'describe.only("lexer", () => {});',
+    `it("${KEY}", () => {});`,
+    'it("same", () => {});',
+    'it("same", () => {});',
+    'readFile("x", () => {});',
+    `test("${long}", () => {});`,
+    "",
+  ].join("\n");
+  const files = tree({ "package.json": "{}\n", "src/a.ts": source });
+  const graph = extract(files);
+  const places = placesOf(compare(base, graph), graph);
+  const user = tourPrompt([], places).user;
+  expect(user).toContain('describe("parser") callback');
+  expect(user).toContain('only("lexer") callback');
+  expect(user).not.toContain("sk-proj");
+  expect(user).toContain('readFile("…") callback');
+  expect(user).not.toContain('readFile("x")');
+  expect(user).not.toContain("x".repeat(100));
+  expect(user).toMatch(/test\("x+…x+"\) callback/);
+  const ids = places.map((place) => place.promptId);
+  expect(ids.some((id) => id.endsWith('it("same") callback'))).toBe(true);
+  expect(ids.some((id) => id.endsWith('it("same") callback@2'))).toBe(true);
+  for (const place of places) {
+    const range = place.range;
+    if (range === undefined || range === null) continue;
+    const tour = validateTour({ stops: [{ title: "t", ids: [place.promptId], claims: [], narration: [{ text: "Here.", id: place.promptId, start: range.start, end: range.end }] }] }, 0, places);
+    expect(tour.stops[0]!.ids).toEqual([place.id]);
+  }
+  const run = graph.nodes.find((candidate): candidate is CodeNode => isCodeNode(candidate) && candidate.id === ("function:src/a.ts#run" as NodeId))!;
+  const narration = narrationPrompt(run, pseudocode(graph, files, run.id)!).user;
+  expect(narration).toContain('describe("parser") callback');
+  expect(narration).not.toContain("sk-proj");
+});
+
+test("a test title with a control character, a quote or a secret's shape stays withheld; a long one is cut in the middle", () => {
+  expect(promptName(JSON.stringify('describe("a\\nb") callback'))).toBe('describe("…") callback');
+  expect(promptName(JSON.stringify('it("say \\"hi\\"") callback'))).toBe('it("…") callback');
+  expect(promptName(JSON.stringify(`it("${KEY}") callback`))).toBe('it("…") callback');
+  const shown = promptName(JSON.stringify(`it("${"word ".repeat(60)}") callback`));
+  expect(shown.length).toBeLessThanOrEqual(`it("") callback`.length + MAX_TITLE_CHARS);
+  expect(shown).toContain("…");
 });
 
 test("a computed member is aliased in the narration prompt too", () => {

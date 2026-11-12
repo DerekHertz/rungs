@@ -104,13 +104,40 @@ export function promptEffect(label: string): string {
   return `${label.slice(0, at)} ${promptTarget(resource, label.slice(at + 2, -1))}`;
 }
 
+/** The longest test title a prompt shows; a longer one is cut in the middle. */
+export const MAX_TITLE_CHARS = 80;
+
 /**
- * A quoted segment of a name, free of the literals the extractor copies into names: a callback's
+ * A test runner's callback as the extractor names it: by the last name of its callee, so
+ * `describe.only("x", fn)` reads `only("x") callback`. A `.each` call has no name at all.
+ */
+const TEST_CALL = /^(test|it|describe|suite|context|skip|only|todo)\(("(?:[^"\\]|\\.)*")\) callback$/;
+
+/** A test title as a prompt shows it, cut to MAX_TITLE_CHARS; undefined unless it reads as a plain title: printable, no quote or backslash, no secret's shape. */
+function testTitle(quoted: string): string | undefined {
+  let title: string;
+  try {
+    title = JSON.parse(quoted) as string;
+  } catch {
+    return undefined;
+  }
+  if (title.trim() === "" || /[\p{C}"\\]/u.test(title) || looksSecret(title)) return undefined;
+  return cap(title, MAX_TITLE_CHARS);
+}
+
+/**
+ * A quoted segment of a name, free of the literals the extractor copies into names: a test
+ * runner's plain title (`describe("parser") callback`, see testTitle) is kept, any other callback's
  * first string argument (`readFile("sk-…") callback`, written inside the segment as a JSON string)
  * becomes `"…"`, and a string-literal key (or a member path ending in one) that has a secret's
  * shape becomes "withheld". Any other quoted segment is returned as written (`raw`).
  */
 function literalFree(text: string, raw: string): string {
+  const title = TEST_CALL.exec(text);
+  if (title !== null) {
+    const shown = testTitle(title[2]!);
+    if (shown !== undefined) return `${title[1]}("${shown}") callback`;
+  }
   const without = text.replace(/"(?:[^"\\]|\\.)*"/g, '"…"');
   if (looksSecret(without)) return WITHHELD;
   return without === text ? raw : without;
