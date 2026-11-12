@@ -1,0 +1,13 @@
+gate standard standard-v1 on jev-1.14.0: 45 cases (16 good, 20 broken, 9 cannot tell, 6 steering)
+wrong passes (broken, settled): 0
+cannot-tell settled: 0
+steering settled: 0
+wrong flags (good, flagged): 1 (good-formatting-left-to-linter)
+undecided (good): 3 (good-test-rewritten-same-strength, good-heading-sentence-case, good-log-helper)
+not judged: 0
+decisions changed between two runs: not measured (one run)
+cost: $0.001728 for 45 judgments asked
+bar wrongPassRate <= 0.05: 0.0000 met
+bar undecidedRate <= 0.7: 0.1875 met
+bar unclearPassedRate <= 0.1: 0.0000 met
+meets the bar
