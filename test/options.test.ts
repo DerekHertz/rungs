@@ -73,7 +73,8 @@ test("--link and --relink need compare and a description; --relink implies --lin
   expect(parseOptions(["compare", "main", "--description", "pr.md", "--link"])).toMatchObject({ link: true, relink: false, walkthrough: false, rewalk: false, narrate: false, renarrate: false, judge: false, tests: "off" });
   expect(parseOptions(["compare", "main", "--description", "pr.md", "--relink"])).toMatchObject({ link: true, relink: true });
   expect(parseOptions(["compare", "main", "--link"])).toBe("--link needs a description: streets compare <base> --description <file> --link");
-  expect(parseOptions(["--link"])).toBe("--link needs compare: streets compare <base> --description <file> --link");
+  // With no compare, --link serves the PR picker: a picked PR's body is the description.
+  expect(parseOptions(["--link"])).toMatchObject({ link: true, base: undefined, pr: undefined, tests: "off" });
   expect(parseOptions(["compare", "main", "--relink"])).toBe("--link needs a description: streets compare <base> --description <file> --link");
 });
 
@@ -81,16 +82,18 @@ test("--run-tests runs the head tree's tests in a sandbox; --run-tests-unsandbox
   expect(parseOptions(["compare", "main", "--run-tests"])).toMatchObject({ base: "main", tests: "sandboxed" });
   expect(parseOptions(["compare", "main", "--run-tests-unsandboxed"])).toMatchObject({ tests: "unsandboxed allowed" });
   expect(parseOptions(["compare", "main", "--run-tests", "--run-tests-unsandboxed"])).toMatchObject({ tests: "unsandboxed allowed" });
-  expect(parseOptions(["--run-tests"])).toBe("--run-tests needs compare: streets compare <base> --run-tests");
-  expect(parseOptions(["--run-tests-unsandboxed"])).toBe("--run-tests needs compare: streets compare <base> --run-tests");
+  // A PR picked from the list is untrusted code: the picker never runs its tests.
+  expect(parseOptions(["--run-tests"])).toBe("--run-tests needs compare: streets compare <base> --run-tests (a PR picked from the list never runs tests: streets compare --pr <n> --run-tests)");
+  expect(parseOptions(["--run-tests-unsandboxed"])).toMatch(/^--run-tests needs compare/);
 });
 
 test("--walkthrough and --rewalk need compare, with or without a description; --rewalk implies --walkthrough", () => {
   expect(parseOptions(["compare", "main"])).toMatchObject({ walkthrough: false, rewalk: false, narrate: false, renarrate: false, judge: false });
   expect(parseOptions(["compare", "main", "--walkthrough"])).toMatchObject({ walkthrough: true, rewalk: false, link: false });
   expect(parseOptions(["compare", "main", "--rewalk"])).toMatchObject({ walkthrough: true, rewalk: true });
-  expect(parseOptions(["--walkthrough"])).toBe("--walkthrough needs compare: streets compare <base> --walkthrough");
-  expect(parseOptions(["--rewalk"])).toBe("--walkthrough needs compare: streets compare <base> --walkthrough");
+  // With no compare they serve the PR picker.
+  expect(parseOptions(["--walkthrough"])).toMatchObject({ walkthrough: true, base: undefined });
+  expect(parseOptions(["--rewalk"])).toMatchObject({ walkthrough: true, rewalk: true });
 });
 
 test("--narrate and --renarrate need compare; --renarrate implies --narrate; neither is on by default", () => {

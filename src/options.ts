@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: streets [dir] [--port <n>] [--no-open]\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]";
+export const USAGE = "usage: streets [dir] [--link] [--walkthrough] [--port <n>] [--no-open]   (no PR: lists the open PRs to pick from, through gh)\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
@@ -73,12 +73,10 @@ export function parseOptions(argv: readonly string[]): Options | string {
       return "--description needs compare: streets compare <base> --description <file>";
     }
     const link = values.link || values.relink;
-    if (link && !comparing) return "--link needs compare: streets compare <base> --description <file> --link";
-    if (link && values.description === undefined && pr === undefined) return "--link needs a description: streets compare <base> --description <file> --link";
+    if (comparing && link && values.description === undefined && pr === undefined) return "--link needs a description: streets compare <base> --description <file> --link";
     const walkthrough = values.walkthrough || values.rewalk;
     const tests = values["run-tests-unsandboxed"] ? "unsandboxed allowed" : values["run-tests"] ? "sandboxed" : "off";
-    if (tests !== "off" && !comparing) return "--run-tests needs compare: streets compare <base> --run-tests";
-    if (walkthrough && !comparing) return "--walkthrough needs compare: streets compare <base> --walkthrough";
+    if (tests !== "off" && !comparing) return "--run-tests needs compare: streets compare <base> --run-tests (a PR picked from the list never runs tests: streets compare --pr <n> --run-tests)";
     const narrate = values.narrate || values.renarrate;
     if (narrate && !comparing) return "--narrate needs compare: streets compare <base> --narrate";
     if (values.judge && !comparing) return "--judge needs compare: streets compare <base> --judge";

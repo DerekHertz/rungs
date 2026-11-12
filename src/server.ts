@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import type { ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -115,9 +115,24 @@ interface Resource {
  * It is a POST because it spends a model call; every request must name the server's own address as Host, and this one also as Origin, or it is refused with 403. The agent
  * is shown the function's structure only (see narrationPrompt). Without `narrator` both are 404.
  */
-export async function serve(
-  given: FileTree,
-  port: number,
+export async function serve(given: FileTree, port: number, ...inputs: SnapshotInputs): Promise<RunningServer> {
+  const snapshot = await createSnapshot(given, ...inputs);
+  const server = createServer((request, response) => snapshot.handle(request, response, (server.address() as AddressInfo).port));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", resolve);
+  });
+  snapshot.begin();
+  const address = server.address() as AddressInfo;
+  return {
+    comparison: snapshot.comparison,
+    url: `http://127.0.0.1:${address.port}/`,
+    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+  };
+}
+
+/** Everything `serve` takes after the tree and the port. */
+export type SnapshotInputs = [
   base?: Against,
   description?: string,
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
@@ -126,7 +141,29 @@ export async function serve(
   tests?: TestRun,
   repo?: string,
   judged?: JudgedSource,
-): Promise<RunningServer> {
+];
+
+/** One snapshot's answers without a listener of its own, so a host (the PR picker) can swap one for another behind a single address. */
+export interface Snapshot {
+  readonly comparison: Comparison | undefined;
+  /** Answers one request; `port` is the port the host listens on, for the Host and Origin checks. */
+  handle(request: IncomingMessage, response: ServerResponse, port: number): void;
+  /** Starts the work that waits for the listener (the judged run). Call once the host listens. */
+  begin(): void;
+}
+
+/** The snapshot `serve` serves: see `serve` for the routes. */
+export async function createSnapshot(
+  given: FileTree,
+  base?: Against,
+  description?: string,
+  link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
+  walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
+  narrator?: Narrator,
+  tests?: TestRun,
+  repo?: string,
+  judged?: JudgedSource,
+): Promise<Snapshot> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
   const baseTree = base === undefined ? undefined : new Map(base.tree);
@@ -320,10 +357,10 @@ export async function serve(
   // Call edges are worked out when a view asks (SPEC rule 4), for the head tree, and kept.
   const calls = new CallResolver(tree, graph);
 
-  const server = createServer((request, response) => {
+  const handle = (request: IncomingMessage, response: ServerResponse, port: number): void => {
     // A rebound DNS name reaches this server with a Host and Origin of its own choosing, so both
     // are checked against the address this server listens on, never against each other.
-    const hosts = ownHosts((server.address() as AddressInfo).port);
+    const hosts = ownHosts(port);
     if (!hosts.has(request.headers.host ?? "")) {
       response.writeHead(403).end();
       return;
@@ -397,19 +434,14 @@ export async function serve(
       return;
     }
     response.writeHead(200, { "content-type": resource.contentType }).end(resource.body);
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, "127.0.0.1", resolve);
-  });
+  };
 
-  if (judgeSubject !== undefined) judging = beginJudging(judged, judgeSubject);
-  const address = server.address() as AddressInfo;
   return {
     comparison,
-    url: `http://127.0.0.1:${address.port}/`,
-    close: () =>
-      new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+    handle,
+    begin() {
+      if (judgeSubject !== undefined) judging = beginJudging(judged, judgeSubject);
+    },
   };
 }
 
@@ -428,7 +460,7 @@ async function readSprites(): Promise<Map<string, { contentType: string; body: B
 }
 
 /** The hosts a request to this server may name: its own address, by number or as localhost. */
-function ownHosts(port: number): ReadonlySet<string> {
+export function ownHosts(port: number): ReadonlySet<string> {
   return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 }
 

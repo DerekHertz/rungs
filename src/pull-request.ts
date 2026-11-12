@@ -11,6 +11,9 @@ const FIELDS = "number,title,url,headRefOid,baseRefName,baseRefOid,body,state";
 /** The title is untrusted text in a header; this much of it is shown. */
 const TITLE_LIMIT = 120;
 
+/** An untrusted title as one bounded line. */
+export const titleLine = (raw: string): string => raw.replace(/\s+/g, " ").trim().slice(0, TITLE_LIMIT);
+
 /** One command run: its stdout, or a throw carrying the stderr and `code` ("ENOENT" when the program is missing). */
 export type Runner = (args: readonly string[], cwd: string) => Promise<string>;
 
@@ -198,7 +201,7 @@ export async function openPullRequest(options: OpenOptions): Promise<OpenedPullR
     throw new PullRequestUnavailable(`${cwd} is not a git repository: run --pr inside the repository the pull request belongs to`);
   }
   const view = await readPullRequest(number, top, gh);
-  const title = field(view.title, "title", number).replace(/\s+/g, " ").trim().slice(0, TITLE_LIMIT);
+  const title = titleLine(field(view.title, "title", number));
   const baseRef = field(view.baseRefName, "base branch", number);
   const state = field(view.state, "state", number);
   const url = field(view.url, "url", number);

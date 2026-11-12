@@ -7,6 +7,8 @@ import { basename, resolve } from "node:path";
 import { readBase, readCheckout, readExecutables } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
 import { parseOptions, USAGE } from "./options.ts";
+import type { Options } from "./options.ts";
+import { servePicker } from "./picker.ts";
 import { openPullRequest } from "./pull-request.ts";
 import type { OpenedPullRequest } from "./pull-request.ts";
 import { narrate } from "./narrate.ts";
@@ -14,8 +16,8 @@ import { runTests } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
 import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "./observed-types.ts";
 import { chooseIsolation, detectSandbox } from "./sandbox.ts";
-import { serve } from "./server.ts";
-import type { Narrator } from "./server.ts";
+import { createSnapshot, serve } from "./server.ts";
+import type { Narrator, SnapshotInputs } from "./server.ts";
 import type { FileTree } from "./graph.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
@@ -80,9 +82,9 @@ function openBrowser(url: string): void {
     .unref();
 }
 
-const options = parseOptions(process.argv.slice(2));
-if (typeof options === "string") {
-  console.error(`${options}\n${USAGE}`);
+const parsed = parseOptions(process.argv.slice(2));
+if (typeof parsed === "string") {
+  console.error(`${parsed}\n${USAGE}`);
   process.exit(2);
 }
 
@@ -98,94 +100,126 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
 }
 process.on("exit", () => cleanup?.());
 
-try {
-  if (options.pr !== undefined) {
-    opened = await openPullRequest({ number: options.pr, cwd: options.dir, cacheDir: cacheDirectory(process.env, homedir()), register: (removeSync) => (cleanup = removeSync) });
-    if (opened.note !== undefined) console.error(`streets: ${opened.note}`);
-  }
-  const dir = opened?.dir ?? options.dir;
-  const baseRef = opened === undefined ? options.base : opened.baseTip;
+
+const options: Options = parsed;
+const cache = cacheDirectory(process.env, homedir());
+
+/**
+ * What a comparison page is drawn from, read once. `compare --pr N` and a pull request picked from
+ * the list both come through here, so they draw the same page. `tests` is the run-tests choice:
+ * a picked pull request always passes "off", because a fork's head is untrusted code.
+ */
+async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | undefined, tests: Options["tests"]) {
   const tree = await readCheckout(dir);
-  if (baseRef === undefined) {
-    const server = await serve(tree, options.port, undefined, undefined, undefined, undefined, undefined, undefined, basename(resolve(options.dir)));
-    console.log(`Systems to Streets is showing ${tree.size} files from ${options.dir} at ${server.url}`);
-    if (options.open) openBrowser(server.url);
-  } else {
-    const base = await readBase(dir, baseRef);
-    const against = { ...base, ref: opened?.baseRef ?? baseRef, ...(opened === undefined ? {} : { pr: { number: opened.pr.number, title: opened.pr.title, head: opened.pr.head } }) };
-    const description =
-      opened !== undefined
-        ? opened.description
-        : options.description === undefined
+  const base = await readBase(dir, baseRef);
+  const against = { ...base, ref: from?.baseRef ?? baseRef, ...(from === undefined ? {} : { pr: { number: from.pr.number, title: from.pr.title, head: from.pr.head } }) };
+  const description =
+    from !== undefined
+      ? from.description
+      : options.description === undefined
         ? undefined
         : options.description === "-"
           ? await text(process.stdin)
           : await readFile(options.description, "utf8");
-    const link = options.link
-      ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
-          const candidates = candidatesOf(comparison, graph);
-          console.error(`streets: asking claude to link ${claims.length} claims to ${candidates.length} changed files and folders (up to ${LINK_TIMEOUT_MS / 60000} minutes)`);
-          const started = Date.now();
-          const outcome = await linkClaims({
-            claims,
-            candidates,
-            runner: claudeRunner("claude"),
-            cacheDir: cacheDirectory(process.env, homedir()),
-            relink: options.relink,
-            timeoutMs: LINK_TIMEOUT_MS,
-          });
-          if (outcome.status === "failed") console.error(`streets: no claim links, continuing without them: ${outcome.message}`);
-          else if (outcome.status === "ok") {
-            const linked = outcome.byClaim.filter((ids) => ids.length > 0).length;
-            const how = outcome.cached ? "from the cache" : `by ${outcome.model} in ${Math.round((Date.now() - started) / 1000)}s`;
-            console.error(`streets: linked ${linked} of ${claims.length} claims ${how} (dropped ${outcome.dropped.ids} unknown ids, ${outcome.dropped.claims} bad claim numbers)`);
-          }
-          return outcome;
+  const link = options.link
+    ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
+        const candidates = candidatesOf(comparison, graph);
+        console.error(`streets: asking claude to link ${claims.length} claims to ${candidates.length} changed files and folders (up to ${LINK_TIMEOUT_MS / 60000} minutes)`);
+        const started = Date.now();
+        const outcome = await linkClaims({
+          claims,
+          candidates,
+          runner: claudeRunner("claude"),
+          cacheDir: cache,
+          relink: options.relink,
+          timeoutMs: LINK_TIMEOUT_MS,
+        });
+        if (outcome.status === "failed") console.error(`streets: no claim links, continuing without them: ${outcome.message}`);
+        else if (outcome.status === "ok") {
+          const linked = outcome.byClaim.filter((ids) => ids.length > 0).length;
+          const how = outcome.cached ? "from the cache" : `by ${outcome.model} in ${Math.round((Date.now() - started) / 1000)}s`;
+          console.error(`streets: linked ${linked} of ${claims.length} claims ${how} (dropped ${outcome.dropped.ids} unknown ids, ${outcome.dropped.claims} bad claim numbers)`);
         }
-      : undefined;
-    const tests = options.tests === "off" ? undefined : await observeTests(dir, base.tree, tree, options.tests === "unsandboxed allowed");
-    const walk = options.walkthrough
-      ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
-          const places = placesOf(comparison, graph);
-          console.error(`streets: asking claude for a walkthrough of ${places.length} changed files, classes and functions (up to ${TOUR_TIMEOUT_MS / 60000} minutes)`);
-          const started = Date.now();
-          const outcome = await walkthrough({
-            claims,
-            places,
-            runner: claudeRunner("claude"),
-            cacheDir: cacheDirectory(process.env, homedir()),
-            rewalk: options.rewalk,
-            timeoutMs: TOUR_TIMEOUT_MS,
-          });
-          if (outcome.status === "failed") console.error(`streets: no walkthrough, continuing without it: ${outcome.message}`);
-          else if (outcome.status === "ok") {
-            const how = outcome.cached ? "from the cache" : `by ${outcome.model} in ${Math.round((Date.now() - started) / 1000)}s`;
-            const { stops, ids, claims: numbers, sentences } = outcome.dropped;
-            console.error(`streets: walkthrough of ${outcome.stops.length} stops ${how} (dropped ${stops} stops, ${ids} unknown ids, ${numbers} bad claim numbers, ${sentences} unanchored sentences)`);
-          }
-          return outcome;
+        return outcome;
+      }
+    : undefined;
+  const observed = tests === "off" ? undefined : await observeTests(dir, base.tree, tree, tests === "unsandboxed allowed");
+  const walk = options.walkthrough
+    ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
+        const places = placesOf(comparison, graph);
+        console.error(`streets: asking claude for a walkthrough of ${places.length} changed files, classes and functions (up to ${TOUR_TIMEOUT_MS / 60000} minutes)`);
+        const started = Date.now();
+        const outcome = await walkthrough({
+          claims,
+          places,
+          runner: claudeRunner("claude"),
+          cacheDir: cache,
+          rewalk: options.rewalk,
+          timeoutMs: TOUR_TIMEOUT_MS,
+        });
+        if (outcome.status === "failed") console.error(`streets: no walkthrough, continuing without it: ${outcome.message}`);
+        else if (outcome.status === "ok") {
+          const how = outcome.cached ? "from the cache" : `by ${outcome.model} in ${Math.round((Date.now() - started) / 1000)}s`;
+          const { stops, ids, claims: numbers, sentences } = outcome.dropped;
+          console.error(`streets: walkthrough of ${outcome.stops.length} stops ${how} (dropped ${stops} stops, ${ids} unknown ids, ${numbers} bad claim numbers, ${sentences} unanchored sentences)`);
         }
-      : undefined;
-    const narrator: Narrator | undefined = options.narrate
-      ? async (request) => {
-          const outcome = await narrate({
-            ...request,
-            runner: claudeRunner("claude"),
-            cacheDir: cacheDirectory(process.env, homedir()),
-            renarrate: request.renarrate || options.renarrate,
-            timeoutMs: NARRATE_TIMEOUT_MS,
-          });
-          if (outcome.status === "failed") console.error(`streets: no narration for ${request.node.id}: ${outcome.message}`);
-          else {
-            const how = outcome.cached ? "from the cache" : `by ${outcome.model}`;
-            console.error(`streets: narrated ${request.node.id} in ${outcome.sentences.length} sentences ${how} (dropped ${outcome.dropped.sentences} unanchored sentences)`);
-          }
-          return outcome;
+        return outcome;
+      }
+    : undefined;
+  const narrator: Narrator | undefined = options.narrate
+    ? async (request) => {
+        const outcome = await narrate({
+          ...request,
+          runner: claudeRunner("claude"),
+          cacheDir: cache,
+          renarrate: request.renarrate || options.renarrate,
+          timeoutMs: NARRATE_TIMEOUT_MS,
+        });
+        if (outcome.status === "failed") console.error(`streets: no narration for ${request.node.id}: ${outcome.message}`);
+        else {
+          const how = outcome.cached ? "from the cache" : `by ${outcome.model}`;
+          console.error(`streets: narrated ${request.node.id} in ${outcome.sentences.length} sentences ${how} (dropped ${outcome.dropped.sentences} unanchored sentences)`);
         }
-      : undefined;
-    const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cacheDirectory(process.env, homedir()) });
-    if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
-    const server = await serve(tree, options.port, against, description, link, walk, narrator, tests, opened?.repo ?? basename(resolve(options.dir)), judged);
+        return outcome;
+      }
+    : undefined;
+  const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cache });
+  if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
+  const inputs: SnapshotInputs = [against, description, link, walk, narrator, observed, from?.repo ?? basename(resolve(options.dir)), judged];
+  return { tree, base, inputs };
+}
+
+try {
+  if (options.pr !== undefined) {
+    opened = await openPullRequest({ number: options.pr, cwd: options.dir, cacheDir: cache, register: (removeSync) => (cleanup = removeSync) });
+    if (opened.note !== undefined) console.error(`streets: ${opened.note}`);
+  }
+  const dir = opened?.dir ?? options.dir;
+  const baseRef = opened === undefined ? options.base : opened.baseTip;
+  if (baseRef === undefined) {
+    // No PR and no base: the working tree, with a list of the repository's open pull requests to pick from.
+    const tree = await readCheckout(dir);
+    const repo = basename(resolve(options.dir));
+    const plain = await createSnapshot(tree, undefined, undefined, undefined, undefined, undefined, undefined, repo);
+    const picker = await servePicker({
+      dir: options.dir,
+      port: options.port,
+      cacheDir: cache,
+      plain,
+      build: async (picked) => {
+        if (picked.note !== undefined) console.error(`streets: ${picked.note}`);
+        // A picked pull request's tests never run, whatever the flags: its head is untrusted code.
+        const { tree: head, inputs } = await prepare(picked.dir, picked.baseTip, picked, "off");
+        console.error(`streets: drew PR #${picked.pr.number} (${picked.pr.title}) at head ${picked.pr.head.slice(0, 7)} against ${picked.baseRef}`);
+        return createSnapshot(head, ...inputs);
+      },
+    });
+    cleanup = picker.removeAllSync;
+    console.log(`Systems to Streets is showing ${tree.size} files from ${options.dir} at ${picker.url}`);
+    if (options.open) openBrowser(picker.url);
+  } else {
+    const { tree, base, inputs } = await prepare(dir, baseRef, opened, options.tests);
+    const server = await serve(tree, options.port, ...inputs);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;
