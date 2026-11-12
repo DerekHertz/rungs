@@ -1,5 +1,7 @@
 import { treeDigest } from "../observed.ts";
 import type { FileTree } from "../graph.ts";
+import { claimRunner } from "./claim-source.ts";
+import type { JudgeSubject } from "./subject.ts";
 import { clientFor } from "./client.ts";
 import type { JevClient } from "./client.ts";
 import type { JudgedRun, JudgedSource } from "./store.ts";
@@ -13,14 +15,16 @@ export interface GateContext {
   readonly head: string;
   readonly baseTree: FileTree;
   readonly headTree: FileTree;
+  /** The comparison, its derived facts and the claims with their links. */
+  readonly subject: JudgeSubject;
 }
 
 /**
  * A gate's runner turns a comparison into the items its gate judges and runs `judgeItems` over
- * them. Each gate (the claim gate first) adds its runner here; none exists yet.
+ * them. Each gate adds its runner here; the claim gate is first.
  */
 export type GateRunner = (context: GateContext) => Promise<JudgedRun>;
-export const GATE_RUNNERS: readonly GateRunner[] = [];
+export const GATE_RUNNERS: readonly GateRunner[] = [claimRunner];
 
 export interface SourceRequest {
   readonly judge: boolean;
@@ -45,6 +49,6 @@ export function judgedSource(request: SourceRequest): JudgedSource {
     return { status: "off", reason: "no TYPESAFE_API_KEY in the environment: nothing sent, every judged check reads not judged", load: () => Promise.resolve([]) };
   }
   const client = request.client ?? clientFor(true, env);
-  const context: GateContext = { client, cacheDir, base: treeDigest(baseTree), head: treeDigest(headTree), baseTree, headTree };
-  return { status: "on", load: () => Promise.all(runners.map((runner) => runner(context))) };
+  const digests = { base: treeDigest(baseTree), head: treeDigest(headTree) };
+  return { status: "on", load: (subject) => Promise.all(runners.map((runner) => runner({ client, cacheDir, ...digests, baseTree, headTree, subject }))) };
 }

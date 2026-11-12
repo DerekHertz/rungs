@@ -155,11 +155,12 @@ export function claimGroups<T extends { readonly ids: readonly string[] }>(claim
 
 const plural = (count: number, one: string, many = `${one}s`): string => `${count} ${count === 1 ? one : many}`;
 
-export function claimsSummary(description: string | null, claims: readonly { readonly ids: readonly string[] }[], link: "ok" | "off" | "failed", context = 0): string {
+export function claimsSummary(description: string | null, claims: readonly { readonly ids: readonly string[] }[], link: "ok" | "off" | "failed", context = 0, judged = ""): string {
   if (description === null) return "no description";
   if (claims.length === 0) return context > 0 ? `no claims · ${plural(context, "context line")}` : "no claims read";
-  if (link !== "ok") return `${plural(claims.length, "claim")}, not linked`;
-  return `${claims.filter((claim) => claim.ids.length > 0).length} of ${claims.length} linked`;
+  const base = link !== "ok" ? `${plural(claims.length, "claim")}, not linked` : `${claims.filter((claim) => claim.ids.length > 0).length} of ${claims.length} linked`;
+  // Judged marks, counted number first, after the links: "2 of 3 linked · 1 settled, 1 flagged, 1 not judged".
+  return judged === "" ? base : `${base} · ${judged}`;
 }
 
 /**

@@ -29,6 +29,7 @@ import { risksOf } from "./risks.ts";
 import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
 import { judgedDocument } from "./jev/store.ts";
+import type { JudgeSubject } from "./jev/subject.ts";
 import type { JudgedSource } from "./jev/store.ts";
 import type { NarrateRequest } from "./narrate.ts";
 
@@ -145,6 +146,7 @@ export async function serve(
     ["/graph.json", { contentType: "application/json; charset=utf-8", body: serializeGraph(graph) }],
     ["/ways-in.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", waysIn: waysIn(tree, graph) }, null, 2)}\n` }],
   ]);
+  let judgeSubject: JudgeSubject | undefined;
   if (base !== undefined && baseGraph !== undefined && comparison !== undefined) {
     const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
@@ -182,7 +184,16 @@ export async function serve(
       link: how,
     };
     resources.set("/claims.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
-    const contracts = `${JSON.stringify({ tier: "derived", moves: contractsMoved(comparison, baseGraph, graph), effectsChanged: comparison.changedEffects }, null, 2)}\n`;
+    const moves = contractsMoved(comparison, baseGraph, graph);
+    // The judged tier reads the claims as /claims.json lists them: its records name a claim by that number.
+    judgeSubject = {
+      comparison,
+      contracts: moves,
+      claims: document.claims.map((row) => ({ index: row.index, text: row.sources.map((source) => source.text).join(" "), ids: row.ids })),
+      baseTree: baseTree ?? new Map(),
+      headTree: tree,
+    };
+    const contracts = `${JSON.stringify({ tier: "derived", moves, effectsChanged: comparison.changedEffects }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
     const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(baseTree ?? new Map(), tree, { places: true }) }, null, 2)}\n`;
     resources.set("/test-changes.json", { contentType: "application/json; charset=utf-8", body: testsChanged });
@@ -233,8 +244,8 @@ export async function serve(
     })();
   }
 
-  if (comparison !== undefined) {
-    const body = `${JSON.stringify(await judgedDocument(judged), null, 2)}\n`;
+  if (judgeSubject !== undefined) {
+    const body = `${JSON.stringify(await judgedDocument(judged, judgeSubject), null, 2)}\n`;
     resources.set("/judged.json", { contentType: "application/json; charset=utf-8", body });
   }
 

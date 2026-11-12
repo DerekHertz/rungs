@@ -8,6 +8,7 @@ import { commonDistrict, indexGraph, trail, zoomOut } from "../zoom.ts";
 import { contractsReport, dependencyReview, effectsChangedRows, newEffects, unmentioned, unmentionedIds } from "../review.ts";
 import type { EffectRow, BaseFunction, ReviewEntry } from "../review.ts";
 import type { PseudoLine } from "../pseudo-line.ts";
+import { judgedInput } from "./judged-panel.ts";
 import { createTownView, loadSheet } from "./town-view.ts";
 import type { CameraState } from "./town-view.ts";
 import type { TownHandlers } from "./town-view.ts";
@@ -907,6 +908,7 @@ if (comparison !== null && testChanges !== null) {
   const coverage = tourCoverage(tour.stops, comparison);
   risks = ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks;
   reviewHandle = renderReview(review, {
+    ...(await judgedInput(claims.claims, claims.link.status === "ok")),
     walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
     description: claims.description,
     claims: claims.claims,
