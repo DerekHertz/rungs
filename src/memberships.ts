@@ -1,6 +1,7 @@
 import type { JevAnswer, JevRequest } from "./jev/client.ts";
 import type { Thresholds, Verdict } from "./jev/gate.ts";
-import { MAX_CANDIDATES, NARROWING_VERSION } from "./jev/membership-source.ts";
+import type { FileTree } from "./graph.ts";
+import { MAX_CANDIDATES, NARROWING_VERSION, termDigest } from "./jev/membership-source.ts";
 import type { JudgeOutcome, Narrowed, Unit, UnitLevel } from "./jev/membership-source.ts";
 import { MEMBERSHIP_GATE_ID, MEMBERSHIP_THRESHOLDS, answersCover, membershipGate } from "./jev/membership-gate.ts";
 import type { Term } from "./vocabulary.ts";
@@ -22,6 +23,8 @@ export interface MembershipRecord {
   readonly term: string;
   /** The function's digest when it was judged: a mapping is stale when this no longer matches. */
   readonly digest: string;
+  /** A digest of the term's text the classifier was shown: a mapping is stale when the term's definition changes. */
+  readonly termDigest: string;
   readonly question: { readonly id: string; readonly version: string };
   /** The exact request Jev was sent. */
   readonly shown: JevRequest;
@@ -129,6 +132,7 @@ export function problemWithMemberships(value: unknown): string | undefined {
             unit: isText,
             term: isText,
             digest: isText,
+            termDigest: isText,
             question: (question) => hasFields(question, { id: isText, version: isText }),
             shown: (shown) => hasFields(shown, { state: isRecord, questions: isRecord }),
             answers: (answers) => isRecord(answers) && Object.values(answers).every(isAnswer),
@@ -195,7 +199,7 @@ export interface MembershipSummary {
 const plural = (count: number, one: string, many = `${one}s`): string => `${count} ${count === 1 ? one : many}`;
 
 /** Counts what the stored memberships say, from the units, the records and the vocabulary's terms. */
-export function summarize(memberships: StoredMemberships, terms: readonly Pick<Term, "key" | "name" | "pins">[]): MembershipSummary {
+export function summarize(memberships: StoredMemberships, terms: readonly Pick<Term, "key" | "name" | "pins">[], codeUnread = 0): MembershipSummary {
   const byPair = recordsByPair(memberships);
   const byUnit: Record<UnitStatus, number> = { "with a term": 0, "no candidate term": 0, "not a member of any candidate": 0, "middle band only": 0, "not known": 0 };
   const counts = { member: 0, notMember: 0, middle: 0, stale: 0, notJudged: 0, cut: 0 };
@@ -226,8 +230,8 @@ export function summarize(memberships: StoredMemberships, terms: readonly Pick<T
     if (seen.member > 0) {
       byUnit["with a term"] += 1;
       mapped.add(unit.path);
-    } else if (seen.stale + seen.notJudged > 0) byUnit["not known"] += 1;
-    else if (unit.candidates.length === 0) byUnit[unit.cut.length > 0 ? "not known" : "no candidate term"] += 1;
+    } else if (seen.stale + seen.notJudged > 0 || unit.cut.length > 0) byUnit["not known"] += 1; // a candidate left out by the cap was never asked: no member among those asked is not "no term"
+    else if (unit.candidates.length === 0) byUnit["no candidate term"] += 1;
     else if (seen.middle > 0) byUnit["middle band only"] += 1;
     else byUnit["not a member of any candidate"] += 1;
   }
@@ -236,7 +240,7 @@ export function summarize(memberships: StoredMemberships, terms: readonly Pick<T
     const docs = term.pins.some((pin) => pin.source === "heading" || pin.source === "package description");
     const base = { key: term.key, name: term.name, members: one.member, docs };
     if (one.member > 0) return { ...base, kind: "has members", why: `${plural(one.member, "member")}` };
-    const unknown = [one.notJudged > 0 ? `${plural(one.notJudged, "pair")} not judged` : "", one.stale > 0 ? `${one.stale} stale` : "", one.cut > 0 ? `${plural(one.cut, "candidate")} left out by the cap of ${MAX_CANDIDATES} per function` : ""].filter((part) => part !== "");
+    const unknown = [one.notJudged > 0 ? `${plural(one.notJudged, "pair")} not judged` : "", one.stale > 0 ? `${one.stale} stale` : "", one.cut > 0 ? `${plural(one.cut, "candidate")} left out by the cap of ${MAX_CANDIDATES} per function` : "", codeUnread > 0 ? `${plural(codeUnread, "code file")} could not be read` : ""].filter((part) => part !== "");
     if (unknown.length > 0) return { ...base, kind: "not known", why: unknown.join(", ") };
     if (one.candidates === 0) return { ...base, kind: "no members", why: "no code shares a word with it" };
     if (one.middle > 0) return { ...base, kind: "no members", why: `${plural(one.middle, "candidate")} in the middle band, left unmapped${one.notMember > 0 ? `, ${one.notMember} judged not a member` : ""}` };
@@ -262,17 +266,21 @@ export interface Coverage {
   readonly unjudged?: number;
   /** Mappings gone stale because their function changed (or the question did). Present once memberships exist. */
   readonly stale?: number;
+  /** Functions with no member among the pairs asked and a pair not judged, stale or left out by the cap: not known, never "no term". Present once memberships exist. */
+  readonly unknownUnits?: number;
   /** Why coverage is not measured when it is nothing to do with a pair's answer: there is nothing to measure it over. */
   readonly reason?: string;
 }
 
 export function coverageOf(of: number, memberships: StoredMemberships | undefined): Coverage {
   if (memberships === undefined) return { of, mapped: 0, measured: false };
-  const { pairs, mappedFiles } = summarize(memberships, []);
+  const { pairs, mappedFiles, byUnit } = summarize(memberships, []);
   const picked = pairs.member + pairs.notMember + pairs.middle + pairs.stale + pairs.notJudged;
   // Over no files, or when no pair was picked, nothing was measured: a share of nothing is not a coverage.
-  const reason = of === 0 ? "no analysed files" : picked === 0 ? "no pair was picked: no term shares a word with any function, class or constant" : undefined;
-  return { of, mapped: mappedFiles, measured: reason === undefined && pairs.notJudged === 0 && pairs.stale === 0, unjudged: pairs.notJudged, stale: pairs.stale, ...(reason === undefined ? {} : { reason }) };
+  const reason = of === 0 ? "no analysed files" : picked === 0 && byUnit["not known"] === 0 ? "no pair was picked: no term shares a word with any function, class or constant" : undefined;
+  // A function that has no member and is not fully judged (a pair is not judged or stale, or a candidate was left out by the cap) is not known: `mapped` is then a lower bound.
+  const unknownUnits = byUnit["not known"];
+  return { of, mapped: mappedFiles, measured: reason === undefined && pairs.notJudged === 0 && pairs.stale === 0 && unknownUnits === 0, unjudged: pairs.notJudged, stale: pairs.stale, unknownUnits, ...(reason === undefined ? {} : { reason }) };
 }
 
 /* ---- building and keeping ---- */
@@ -314,17 +322,26 @@ export function memberships(units: readonly Unit[], narrowed: Narrowed, outcome:
  * of a function that was removed, or of a term that is gone, is dropped. A record whose function's
  * digest changed, or whose question or thresholds are not the current ones, is kept and marked stale.
  */
-export function reconcile(previous: StoredMemberships, units: readonly Unit[], narrowed: Narrowed, terms: readonly Pick<Term, "key">[]): StoredMemberships {
+export function reconcile(previous: StoredMemberships, units: readonly Unit[], narrowed: Narrowed, terms: readonly Term[], tree: FileTree): StoredMemberships {
   const current = new Map(units.map((unit) => [unit.key, unit]));
-  const termKeys = new Set(terms.map((term) => term.key));
+  const termsByKey = new Map(terms.map((term) => [term.key, term]));
+  const digests = new Map<string, string>();
+  const digestOf = (term: Term): string => {
+    let digest = digests.get(term.key);
+    if (digest === undefined) digests.set(term.key, (digest = termDigest(term, tree)));
+    return digest;
+  };
   const records: MembershipRecord[] = [];
   for (const record of previous.records) {
     const unit = current.get(record.unit);
-    if (unit === undefined || !termKeys.has(record.term)) continue;
+    const term = termsByKey.get(record.term);
+    if (unit === undefined || term === undefined) continue;
     const why =
       record.digest !== unit.digest
         ? "the function changed"
-        : record.question.version !== membershipGate.version
+        : record.termDigest !== digestOf(term)
+          ? "the term's definition changed"
+          : record.question.version !== membershipGate.version
           ? "the question changed"
           : JSON.stringify(record.thresholds) !== JSON.stringify(MEMBERSHIP_THRESHOLDS)
             ? "the thresholds changed"
@@ -343,14 +360,14 @@ export function reconcile(previous: StoredMemberships, units: readonly Unit[], n
 const money = (usd: number): string => `$${usd.toFixed(6)}`;
 
 /** The report's lines about memberships. `note` is this run's judging, when it judged. */
-export function membershipLines(stored: StoredMemberships | undefined, coverage: Coverage, terms: readonly Pick<Term, "key" | "name" | "pins">[], note: JudgingNote | undefined, notRead: number): string[] {
+export function membershipLines(stored: StoredMemberships | undefined, coverage: Coverage, terms: readonly Pick<Term, "key" | "name" | "pins">[], note: JudgingNote | undefined, notRead: number, codeUnread = 0): string[] {
   const lines: string[] = [];
   const unitWord = "functions, classes and constants";
   if (stored === undefined) {
     lines.push(`  coverage: ${coverage.mapped} of ${plural(coverage.of, "analysed file")} map to a term: not measured, nothing has been judged yet (run \`streets setup --judge\` to map code to terms)`);
     return lines;
   }
-  const summary = summarize(stored, terms);
+  const summary = summarize(stored, terms, codeUnread);
   const caveat = notRead > 0 ? `; ${plural(notRead, "file")} not analysed or not fully read ${notRead === 1 ? "is" : "are"} not counted` : "";
   if (coverage.reason !== undefined) {
     lines.push(`  coverage: not measured: ${coverage.reason} (${coverage.mapped} of ${plural(coverage.of, "analysed file")} map to a term${caveat})`);
@@ -358,7 +375,7 @@ export function membershipLines(stored: StoredMemberships | undefined, coverage:
     const cut = summary.pairs.cut;
     lines.push(`  coverage: ${coverage.mapped} of ${plural(coverage.of, "analysed file")} map to a term (measured: every pair the narrowing rule picked has a current answer${cut > 0 ? `; ${plural(cut, "pair")} left out by the cap of ${MAX_CANDIDATES} per function` : ""}${caveat})`);
   } else {
-    const parts = [coverage.unjudged !== undefined && coverage.unjudged > 0 ? `${plural(coverage.unjudged, "pair")} not judged` : "", coverage.stale !== undefined && coverage.stale > 0 ? `${coverage.stale} stale` : ""].filter((part) => part !== "");
+    const parts = [coverage.unjudged !== undefined && coverage.unjudged > 0 ? `${plural(coverage.unjudged, "pair")} not judged` : "", coverage.stale !== undefined && coverage.stale > 0 ? `${coverage.stale} stale` : "", coverage.unknownUnits !== undefined && coverage.unknownUnits > 0 ? `${plural(coverage.unknownUnits, "function")} with no member and a pair not judged, stale or left out by the cap` : ""].filter((part) => part !== "");
     lines.push(`  coverage: at least ${coverage.mapped} of ${plural(coverage.of, "analysed file")} map to a term: not fully measured (${parts.join(", ")}${caveat})`);
   }
   const { byUnit, pairs } = summary;
@@ -380,7 +397,13 @@ export function membershipLines(stored: StoredMemberships | undefined, coverage:
   const shown = summary.terms.filter((term) => term.docs && term.kind !== "has members");
   const MAX_TERMS_SHOWN = 10;
   for (const term of shown.slice(0, MAX_TERMS_SHOWN)) lines.push(`    ${term.kind === "no members" ? "term with no members" : "term not known to have members"}: ${term.name} (${term.why})`);
-  if (shown.length > MAX_TERMS_SHOWN) lines.push(`    and ${shown.length - MAX_TERMS_SHOWN} more terms from the docs without members`);
+  // The omitted terms are told apart the same way as the listed ones: without members, or not known.
+  const omitted = shown.slice(MAX_TERMS_SHOWN);
+  if (omitted.length > 0) {
+    const none = omitted.filter((term) => term.kind === "no members").length;
+    const unknown = omitted.length - none;
+    lines.push(`    and ${plural(omitted.length, "more term")} from the docs: ${[none > 0 ? `${none} with no members` : "", unknown > 0 ? `${unknown} not known to have members` : ""].filter((part) => part !== "").join(", ")}`);
+  }
   const others = summary.terms.filter((term) => !term.docs && term.kind === "no members").length;
   if (others > 0) lines.push(`    ${plural(others, "other term")} named only by code, folders or tests ${others === 1 ? "has" : "have"} no members`);
   return lines;

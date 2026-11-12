@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { CodeNode, FileTree, Graph, LineRange, NodeId } from "../graph.ts";
 import { isCodeNode } from "../graph.ts";
 import { splitLines } from "../lines.ts";
@@ -252,7 +253,10 @@ export function unitFacts(unit: Unit, tree: FileTree): UnitFacts {
   };
 }
 
-export const inputOf = (candidate: Pick<Candidate, "unit" | "term">, tree: FileTree): MembershipInput => ({ term: termFacts(candidate.term, tree), unit: unitFacts(candidate.unit, tree) });
+/** A digest of everything the classifier is shown of a term: a mapping is stale when this changes, as when its function does. */
+export const termDigest = (term: Term, tree: FileTree): string => createHash("sha256").update(JSON.stringify(termFacts(term, tree))).digest("hex").slice(0, 32);
+
+export const inputOf =(candidate: Pick<Candidate, "unit" | "term">, tree: FileTree): MembershipInput => ({ term: termFacts(candidate.term, tree), unit: unitFacts(candidate.unit, tree) });
 
 /* ---- asking ---- */
 
@@ -316,7 +320,7 @@ export async function judgeMemberships(request: JudgeMembershipsRequest): Promis
   const kept = (index: number, why: string): void => {
     const pair = pairs[index]!;
     const old = previous.get(pairKey(pair.unit.key, pair.term.key));
-    if (old !== undefined) slots[index] = { ...old, stale: old.digest !== pair.unit.digest ? "the function changed" : `not judged again: ${why}` };
+    if (old !== undefined) slots[index] = { ...old, stale: old.digest !== pair.unit.digest ? "the function changed" : old.termDigest !== termDigest(pair.term, tree) ? "the term's definition changed" : `not judged again: ${why}` };
   };
   // Answers that can be reused are separated first and do not use the per-run limit: only pairs that
   // must be asked count against it, so a run over the limit finishes the rest on the next run.
@@ -326,6 +330,7 @@ export async function judgeMemberships(request: JudgeMembershipsRequest): Promis
     if (
       old !== undefined &&
       old.digest === pair.unit.digest &&
+      old.termDigest === termDigest(pair.term, tree) &&
       old.model === client.model &&
       JSON.stringify(old.shown) === JSON.stringify(shown) &&
       JSON.stringify(old.thresholds) === JSON.stringify(thresholds) &&
@@ -365,6 +370,7 @@ export async function judgeMemberships(request: JudgeMembershipsRequest): Promis
         unit: pair.unit.key,
         term: pair.term.key,
         digest: pair.unit.digest,
+        termDigest: termDigest(pair.term, tree),
         question,
         shown,
         answers: judged.answers,

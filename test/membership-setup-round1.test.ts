@@ -119,7 +119,8 @@ test("a record kept from an older question version is not judged against this ve
   const first = await setUp({ dir, cacheDir, judge: goodClient() });
   const file = stored(first.file);
   file.memberships.records[0].question.version = "membership-v0";
-  file.memberships.records[0].verdict = "undecided";
+  // The verdict no longer follows from the answers by this version's rule, which only an older version may do.
+  file.memberships.records[0].answers.belongs.yes = 0.5;
   writeFileSync(first.file, JSON.stringify(file));
   const second = await setUp({ dir, cacheDir });
   expect(second.work).toBe("unchanged");

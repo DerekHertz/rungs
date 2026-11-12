@@ -164,12 +164,17 @@ function problemWith(whole: Record<string, unknown>): string | undefined {
     ["extractorVersion", isText(whole.extractorVersion)],
     ["files", isRecord(whole.files) && Object.values(whole.files).every(isText)],
     ["pathsWithheld", isCount(whole.pathsWithheld)],
-    ["coverage", hasFields(whole.coverage, { of: isCount, mapped: isCount, measured: (one) => typeof one === "boolean", unjudged: (one) => one === undefined || isCount(one), stale: (one) => one === undefined || isCount(one), reason: (one) => one === undefined || isText(one) })],
+    ["coverage", hasFields(whole.coverage, { of: isCount, mapped: isCount, measured: (one) => typeof one === "boolean", unjudged: (one) => one === undefined || isCount(one), stale: (one) => one === undefined || isCount(one), unknownUnits: (one) => one === undefined || isCount(one), reason: (one) => one === undefined || isText(one) })],
     ["vocabulary", isRecord(whole.vocabulary)],
     ["memberships", whole.memberships === undefined || problemWithMemberships(whole.memberships) === undefined],
   ];
   const failed = checks.find(([, ok]) => !ok);
   if (failed !== undefined) return failed[0];
+  // Stored coverage is a count of what the records say, never a cached claim: records removed or edited with the coverage kept is damage.
+  const stated = whole.coverage as Record<string, unknown>;
+  const expected = coverageOf(stated.of as number, whole.memberships as StoredMemberships | undefined);
+  const same = (c: Record<string, unknown>): string => JSON.stringify([c.mapped, c.measured, c.unjudged ?? null, c.stale ?? null, c.unknownUnits ?? null, c.reason ?? null]);
+  if (same(stated) !== same(expected as unknown as Record<string, unknown>)) return "coverage (it does not follow from the memberships)";
   const v = whole.vocabulary as Record<string, unknown>;
   const term = (one: unknown): boolean =>
     hasFields(one, {
@@ -308,7 +313,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     // Which pairs are asked is decided by code alone (see narrow); a model is asked only about those.
     const units = unitsOf(graph, base.tree);
     const narrowed = narrow(units, vocabulary.terms, base.tree);
-    if (request.judge === undefined) held = reconcile(prior!, units, narrowed, vocabulary.terms);
+    if (request.judge === undefined) held = reconcile(prior!, units, narrowed, vocabulary.terms, base.tree);
     else {
       const maxPairs = deps.maxPairs ?? MAX_PAIRS;
       const outcome = await judgeMemberships({ pairs: narrowed.pairs, tree: base.tree, previous: new Map<string, MembershipRecord>((prior?.records ?? []).map((record) => [pairKey(record.unit, record.term), record])), client: request.judge, maxPairs });
@@ -358,6 +363,14 @@ const short = (commit: string): string => commit.slice(0, 7);
 const plural = (count: number, one: string, many = `${one}s`): string => `${count} ${count === 1 ? one : many}`;
 const MAX_UNREAD_SHOWN = 10;
 
+/**
+ * Code files whose members could not be looked at: text files no adapter reads, and unread files that are not Markdown or a
+ * manifest. A term that no read file maps to may have members in these, so it is "not known", never "no members".
+ */
+function codeFilesUnread(vocabulary: Vocabulary): number {
+  return vocabulary.notAnalysed + vocabulary.unread.filter((one) => !one.path.endsWith(".md") && basename(one.path) !== "package.json").length;
+}
+
 /** What setup tells the reviewer, one line each. An unknown status is never shown as a count of zero. */
 export function reportLines(result: SetupResult): string[] {
   const { stored } = result;
@@ -399,7 +412,7 @@ export function reportLines(result: SetupResult): string[] {
   if (vocabulary.unread.length > MAX_UNREAD_SHOWN) lines.push(`    and ${vocabulary.unread.length - MAX_UNREAD_SHOWN} more`);
   lines.push(`  not analysed: ${vocabulary.notAnalysed} text files in a language no adapter reads`);
   if (stored.pathsWithheld > 0) lines.push(`  paths withheld: ${stored.pathsWithheld} (a part of the path is shaped like a secret, so the path is not stored)`);
-  lines.push(...membershipLines(stored.memberships, stored.coverage, vocabulary.terms, result.judging, vocabulary.notAnalysed + vocabulary.unread.length));
+  lines.push(...membershipLines(stored.memberships, stored.coverage, vocabulary.terms, result.judging, vocabulary.notAnalysed + vocabulary.unread.length, codeFilesUnread(vocabulary)));
   return lines;
 }
 
