@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "vitest";
 import type { FileTree } from "../src/graph.ts";
 import type { JudgedSource } from "../src/jev/store.ts";
 import { serve } from "../src/server.ts";
-import { toyGate, toyThresholds } from "./jev-fixtures.ts";
+import { finishedJudged, toyGate, toyThresholds } from "./jev-fixtures.ts";
 import { judgeItems } from "../src/jev/store.ts";
 import { fakeClient } from "./jev-fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -44,7 +44,7 @@ test("without --judge /judged.json says so, holds no records, and the other docu
     status: "on",
     load: async () => [await judgeItems({ gate: toyGate, items: [{ key: "claim:0", about: { claim: 0 }, input: { claim: "a", text: "a" } }], thresholds: toyThresholds, client, base: "b", head: "h", cacheDir: dir })],
   });
-  const judged = (await (await get(on, "judged.json")).json()) as { status: string; sets: { records: { about: unknown; verdict: string }[] }[] };
+  const judged = (await finishedJudged(on.url)) as unknown as { status: string; sets: { records: { about: unknown; verdict: string }[] }[] };
   expect(judged.status).toBe("on");
   expect(judged.sets[0]!.records[0]).toMatchObject({ about: { claim: 0 }, verdict: "settled" });
   // The judged tier never creates or changes a node: every other document is the same with and without it.

@@ -4,7 +4,7 @@ import { claimRunner } from "./claim-source.ts";
 import type { JudgeSubject } from "./subject.ts";
 import { clientFor } from "./client.ts";
 import type { JevClient } from "./client.ts";
-import type { JudgedRun, JudgedSource } from "./store.ts";
+import type { JudgedRun, JudgedSource, JudgingEvents } from "./store.ts";
 
 /** What a gate's runner is given for one comparison. */
 export interface GateContext {
@@ -17,6 +17,8 @@ export interface GateContext {
   readonly headTree: FileTree;
   /** The comparison, its derived facts and the claims with their links. */
   readonly subject: JudgeSubject;
+  /** Told what is pending and what has been answered, as the run goes. */
+  readonly events?: JudgingEvents;
 }
 
 /**
@@ -39,7 +41,7 @@ export interface SourceRequest {
 
 /**
  * The server's judged source. Off (no --judge, or no key) it sends nothing and says why; on, it
- * runs each gate once, the first time /judged.json is built, and the store answers every later load.
+ * runs each gate once, in the background after the server listens, and the store answers every later load.
  */
 export function judgedSource(request: SourceRequest): JudgedSource {
   const { judge, env, baseTree, headTree, cacheDir, runners = GATE_RUNNERS } = request;
@@ -50,5 +52,5 @@ export function judgedSource(request: SourceRequest): JudgedSource {
   }
   const client = request.client ?? clientFor(true, env);
   const digests = { base: treeDigest(baseTree), head: treeDigest(headTree) };
-  return { status: "on", load: (subject) => Promise.all(runners.map((runner) => runner({ client, cacheDir, ...digests, baseTree, headTree, subject }))) };
+  return { status: "on", gates: runners.length, load: (subject, events) => Promise.all(runners.map((runner) => runner({ client, cacheDir, ...digests, baseTree, headTree, subject, ...(events === undefined ? {} : { events }) }))) };
 }

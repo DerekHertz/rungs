@@ -9,10 +9,12 @@ import { CLAIM_GATE_ID } from "./jev/claim-gate.ts";
  */
 export type JudgedMark =
   | { readonly kind: "judged"; readonly verdict: Verdict; readonly record: JudgedRecord }
-  | { readonly kind: "not judged"; readonly reason: string };
+  | { readonly kind: "not judged"; readonly reason: string }
+  /** The server is still asking Jev about this claim. */
+  | { readonly kind: "pending" };
 
 /** The word a mark reads as. */
-export const markWord = (mark: JudgedMark): string => (mark.kind === "judged" ? mark.verdict : "not judged");
+export const markWord = (mark: JudgedMark): string => (mark.kind === "judged" ? mark.verdict : mark.kind === "pending" ? "judging…" : "not judged");
 
 /**
  * One mark per claim, or null when there is no judged document to read (the page is then today's
@@ -27,14 +29,17 @@ export function claimMarks(document: JudgedDocument | null, claims: readonly { r
     if (set.question.id !== CLAIM_GATE_ID) continue;
     for (const record of set.records) if ("claim" in record.about) records.set(record.about.claim, record);
   }
+  const pending = new Set<number>();
+  if (document.status === "pending") for (const entry of document.pending) if (entry.gate === CLAIM_GATE_ID && "claim" in entry.about) pending.add(entry.about.claim);
   const failed = new Map<number, string>();
   for (const entry of document.notJudged) if (entry.gate === CLAIM_GATE_ID && "claim" in entry.about) failed.set(entry.about.claim, entry.reason);
   for (const claim of claims) {
     const record = records.get(claim.index);
     if (document.status === "off") marks.set(claim.index, { kind: "not judged", reason: document.reason });
     else if (record !== undefined) marks.set(claim.index, { kind: "judged", verdict: record.verdict, record });
+    else if (pending.has(claim.index)) marks.set(claim.index, { kind: "pending" });
     else if (claim.ids.length === 0) marks.set(claim.index, { kind: "not judged", reason: linked ? "no changed place is linked to this claim, so there is nothing to judge it against" : "claims are not linked to places (run with --link), so there is nothing to judge them against" });
-    else marks.set(claim.index, { kind: "not judged", reason: failed.get(claim.index) ?? "no answer was recorded for this claim" });
+    else marks.set(claim.index, { kind: "not judged", reason: failed.get(claim.index) ?? (document.status === "on" && document.runFailed !== undefined ? document.runFailed : "no answer was recorded for this claim") });
   }
   return marks;
 }
@@ -44,12 +49,14 @@ export interface MarkCounts {
   readonly flagged: number;
   readonly undecided: number;
   readonly notJudged: number;
+  readonly pending: number;
 }
 
 export function countMarks(marks: Iterable<JudgedMark>): MarkCounts {
-  const counts = { settled: 0, flagged: 0, undecided: 0, notJudged: 0 };
+  const counts = { settled: 0, flagged: 0, undecided: 0, notJudged: 0, pending: 0 };
   for (const mark of marks) {
-    if (mark.kind === "not judged") counts.notJudged++;
+    if (mark.kind === "pending") counts.pending++;
+    else if (mark.kind === "not judged") counts.notJudged++;
     else counts[mark.verdict]++;
   }
   return counts;
@@ -62,6 +69,7 @@ export function countsText(counts: MarkCounts): string {
     counts.flagged === 0 ? "" : `${counts.flagged} flagged`,
     counts.undecided === 0 ? "" : `${counts.undecided} undecided`,
     counts.notJudged === 0 ? "" : `${counts.notJudged} not judged`,
+    counts.pending === 0 ? "" : `${counts.pending} judging…`,
   ]
     .filter((part) => part !== "")
     .join(", ");

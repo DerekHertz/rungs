@@ -1,30 +1,19 @@
-import { CLAIM_GATE_ID, QUESTION_LABELS, describeThresholds } from "../jev/claim-gate.ts";
-import { NOT_MEASURED, rateText, ratesOf } from "../jev/rate.ts";
+import { QUESTION_LABELS, describeThresholds } from "../jev/claim-gate.ts";
+import { NOT_MEASURED, ratesOf } from "../jev/rate.ts";
 import type { GateRate } from "../jev/rate.ts";
 import type { JudgedDocument } from "../jev/judged-types.ts";
-import { claimMarks, costText, judgedSummary, markWord, percent } from "../judged-marks.ts";
+import { costText, markWord, percent } from "../judged-marks.ts";
+import { followJudging, updateOf } from "../judged-follow.ts";
+import type { Claim, JudgedUpdate, JudgedView } from "../judged-follow.ts";
+
+export type { JudgedUpdate, JudgedView } from "../judged-follow.ts";
 import type { JudgedMark } from "../judged-marks.ts";
 import { element } from "./review-panel.ts";
-
-/**
- * What the Claims row needs to draw judged marks. `marks` is null when there is no judged
- * document, and the row is then today's row. `rate` is the gate's measured rate of wrong passes
- * on its labelled cases, from the committed results; until it answers for a gate the detail says
- * the rate is not measured yet. `adopted` says whether the gate met its bar: a gate that did not,
- * or has no result, stays off, and its settled marks are drawn as not trusted.
- */
-export interface JudgedView {
-  readonly marks: ReadonlyMap<number, JudgedMark>;
-  /** The gate's measured rate of wrong passes, as one line of text, or undefined while none is measured. */
-  readonly rate?: (gate: string) => string | undefined;
-  /** True only when the gate's committed result meets its bar; false or undefined (not measured) otherwise. */
-  readonly adopted?: (gate: string) => boolean | undefined;
-}
 
 /** The word on a settled mark of a gate that is not adopted: it says what the classifier answered, and that nothing stands behind it yet. */
 export const UNADOPTED_WORD = "settled, gate not adopted";
 
-const GLYPH: Record<string, string> = { settled: "✓", flagged: "⚑", undecided: "?", "not judged": "–" };
+const GLYPH: Record<string, string> = { settled: "✓", flagged: "⚑", undecided: "?", "not judged": "–", "judging…": "…" };
 
 /**
  * The mark beside a claim. Drawn as a filled pill with a glyph and its word, apart from the
@@ -34,13 +23,13 @@ export function markButton(mark: JudgedMark, onClick: () => void, adopted: boole
   const word = markWord(mark);
   // A settled answer from a gate that has not met its bar must not read as trusted: it keeps the verdict and says so.
   const untrusted = mark.kind === "judged" && mark.verdict === "settled" && !adopted;
-  const button = element("button", `review-judged ${word.replace(" ", "-")}${untrusted ? " unadopted" : ""}`);
+  const button = element("button", `review-judged ${mark.kind === "pending" ? "judging" : word.replace(" ", "-")}${untrusted ? " unadopted" : ""}`);
   button.type = "button";
   const glyph = element("span", "", untrusted ? "\u25cb" : GLYPH[word]);
   glyph.setAttribute("aria-hidden", "true");
   button.append(glyph, element("span", "", untrusted ? UNADOPTED_WORD : word));
-  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but the claim gate has not met its bar and stays off, so this is not evidence" : ""}; click to see what it was shown` : mark.reason;
-  button.setAttribute("aria-label", mark.kind === "judged" ? `Judged ${word}${untrusted ? " by a gate that is not adopted" : ""}: show the check` : `Not judged: ${mark.reason}`);
+  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but the claim gate has not met its bar and stays off, so this is not evidence" : ""}; click to see what it was shown` : mark.kind === "pending" ? "Jev is still checking this claim" : mark.reason;
+  button.setAttribute("aria-label", mark.kind === "judged" ? `Judged ${word}${untrusted ? " by a gate that is not adopted" : ""}: show the check` : mark.kind === "pending" ? "Judging: Jev is still checking this claim" : `Not judged: ${mark.reason}`);
   button.addEventListener("click", onClick);
   return button;
 }
@@ -50,8 +39,8 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
   const detail = element("details", "judged-detail");
   detail.append(element("summary", "review-summary", `Jev's check: ${markWord(mark)}`));
   const body = element("div", "judged-body");
-  if (mark.kind === "not judged") {
-    body.append(element("p", "judged-line", `Not judged: ${mark.reason}`));
+  if (mark.kind !== "judged") {
+    body.append(element("p", "judged-line", mark.kind === "pending" ? "Jev is still checking this claim; the mark fills in when it answers." : `Not judged: ${mark.reason}`));
     detail.append(body);
     return detail;
   }
@@ -83,28 +72,30 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
   return detail;
 }
 
-/**
- * Reads /judged.json and gives the review panel its judged input: the marks, and the summary's
- * counts. A page that cannot read the document (an older server) is today's page.
- */
-export async function judgedInput(claims: readonly { readonly index: number; readonly ids: readonly string[] }[], linked: boolean): Promise<{ judged: JudgedView | null; judgedSummary: string }> {
-  let document: JudgedDocument | null = null;
+async function readJudged(): Promise<JudgedDocument | null> {
   try {
     const response = await fetch("/judged.json");
-    if (response.ok) document = (await response.json()) as JudgedDocument;
+    return response.ok ? ((await response.json()) as JudgedDocument) : null;
   } catch {
-    document = null;
+    return null;
   }
-  const marks = claimMarks(document, claims, linked);
-  if (marks === null) return { judged: null, judgedSummary: judgedSummary(document, marks) };
+}
+
+/**
+ * Reads /judged.json and gives the review panel its judged input: the marks, and the summary's
+ * counts. A page that cannot read the document (an older server) is today's page. While the
+ * server is still judging, the claims being asked read "judging…"; this polls (1s, easing out to
+ * 5s, stopping at the finished document) and hands each new state to `show`. Polling, not
+ * server-sent events: the existing server answers plain GETs from one document, and one document
+ * that is pending and then final needs no second channel, no open connection to close and no
+ * reconnect rule. If it cannot be read five times in a row, the marks still asked become "not judged".
+ */
+export async function judgedInput(claims: readonly Claim[], linked: boolean, show: (update: JudgedUpdate) => void): Promise<JudgedUpdate> {
+  const first = await readJudged();
   const rates = await gateRates();
-  const adopted = (gate: string): boolean => rates.get(gate)?.adopted === true;
-  const summary = judgedSummary(document, marks);
-  const settled = [...marks.values()].some((mark) => mark.kind === "judged" && mark.verdict === "settled");
-  return {
-    judged: { marks, rate: (gate) => { const rate = rates.get(gate); return rate === undefined ? undefined : rateText(rate); }, adopted },
-    judgedSummary: settled && !adopted(CLAIM_GATE_ID) ? `${summary} (claim gate not adopted)` : summary,
-  };
+  const update = (document: JudgedDocument | null): JudgedUpdate => updateOf(document, claims, linked, rates);
+  if (first?.status === "pending") void followJudging(first, readJudged, (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)), update, show);
+  return update(first);
 }
 
 /** Reads /gate-rates.json: the newest committed result of each gate. A page that cannot read it has no rates, and its gates read as not adopted. */

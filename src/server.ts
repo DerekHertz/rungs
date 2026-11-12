@@ -29,8 +29,9 @@ import { effectStepsOf, fileWhy } from "./defining.ts";
 import { risksOf } from "./risks.ts";
 import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
-import { judgedDocument } from "./jev/store.ts";
 import { gateRates } from "./jev/results.ts";
+import { beginJudging } from "./jev/live.ts";
+import type { Judging } from "./jev/live.ts";
 import { ownersOf } from "./jev/claim-source.ts";
 import type { JudgeSubject } from "./jev/subject.ts";
 import type { JudgedSource } from "./jev/store.ts";
@@ -253,10 +254,8 @@ export async function serve(
     })();
   }
 
-  if (judgeSubject !== undefined) {
-    const body = `${JSON.stringify(await judgedDocument(judged, judgeSubject), null, 2)}\n`;
-    resources.set("/judged.json", { contentType: "application/json; charset=utf-8", body });
-  }
+  // The judged tier answers from a run that starts after the server listens (see beginJudging).
+  let judging: Judging | undefined;
 
   if (tests !== undefined) {
     const body = `${JSON.stringify(observedDocument(tests, graph, treeDigest(tree)), null, 2)}\n`;
@@ -373,6 +372,13 @@ export async function serve(
       }
       return;
     }
+    if (url.pathname === "/judged.json" && judging !== undefined) {
+      judging.document().then(
+        (document) => response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(`${JSON.stringify(document, null, 2)}\n`),
+        (error: unknown) => failed(response, error),
+      );
+      return;
+    }
     if (url.pathname === "/source") {
       const text = sourceOf(url.searchParams.get("id"));
       if (text === undefined) response.writeHead(404).end();
@@ -397,6 +403,7 @@ export async function serve(
     server.listen(port, "127.0.0.1", resolve);
   });
 
+  if (judgeSubject !== undefined) judging = beginJudging(judged, judgeSubject);
   const address = server.address() as AddressInfo;
   return {
     comparison,

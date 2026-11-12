@@ -55,5 +55,11 @@ export type JudgedDocument = {
   readonly usd: number;
   /** Calls whose cost is unknown (shown as unknown, never as free). */
   readonly costUnknown: number;
-} & ({ readonly status: "off"; readonly reason: string } | { readonly status: "on" });
+} & (
+  | { readonly status: "off"; readonly reason: string }
+  /** `runFailed` is set when the whole run threw: every check without an answer then says so. */
+  | { readonly status: "on"; readonly runFailed?: string }
+  /** The server is listening and the calls are still out: `pending` names the checks not yet answered; `sets` and `notJudged` hold those that have been. */
+  | { readonly status: "pending"; readonly pending: readonly { readonly gate: string; readonly key: string; readonly about: About }[] }
+);
 
