@@ -42,16 +42,22 @@ export interface ReviewActions {
   tourOpen(): boolean;
   endTour(): void;
   clearOutline(): void;
+  /** The review element is unhidden: the page is now showing a review. */
+  shown(): void;
+  risksLoaded(risks: readonly RiskItem[]): void;
+  reviewDrawn(handle: ReviewHandle): void;
+  walkDrawn(walk: Walk): void;
 }
 
 /** Loads the claims, contracts, walkthrough and risks, then draws the review sidebar, the walkthrough and the opening view. */
-export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<{ review: ReviewHandle; walk: Walk; risks: readonly RiskItem[] }> {
+export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<void> {
   const { comparison, graph, testChanges, observed, observedRun, nodes, changed } = data;
   const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; sentences: { index: number; text: string }[]; context: { text: string }[]; link: LinkNote };
   const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
   const review = document.querySelector<HTMLElement>("#review")!;
   review.hidden = false;
+  on.shown();
   // The base functions are fetched only when there is a description to check against them.
   const baseFunctions = claims.description === null ? [] : ((await (await fetch("/base-functions.json")).json()) as { functions: BaseFunction[] }).functions;
   const claimed = claims.description === null ? null : unmentioned(comparison, graph, claims.description, linked, testChanges, baseFunctions);
@@ -59,6 +65,7 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
   const tour = (await (await fetch("/walkthrough.json")).json()) as { walkthrough: WalkNote; stops: Stop[] };
   const coverage = tourCoverage(tour.stops, comparison);
   const risks = ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks;
+  on.risksLoaded(risks);
   const reviewHandle = renderReview(review, {
     ...(await judgedInput(claims.claims, claims.link.status === "ok")),
     walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
@@ -82,8 +89,9 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
       on.pickPlaces(risk.ids);
     },
   });
+  on.reviewDrawn(reviewHandle);
 
-  const run = (await (await fetch("/run.json")).json()) as { repo: string | null };
+  const run =(await (await fetch("/run.json")).json()) as { repo: string | null };
   const host = document.querySelector<HTMLElement>("#walk")!;
   host.hidden = false;
   const walk = renderWalkthrough(host, {
@@ -104,6 +112,7 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
     },
     visit: on.visitStop,
   });
+  on.walkDrawn(walk);
   // The opening view: what is compared, and the failures and the tour one click away.
   const failing = observedRun?.failing.length ?? 0;
   review.prepend(
@@ -123,5 +132,4 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
       startTour: () => walk.step(1),
     }),
   );
-  return { review: reviewHandle, walk, risks };
 }

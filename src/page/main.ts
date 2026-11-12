@@ -754,8 +754,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 if (comparison !== null && testChanges !== null) {
-  viewState = firstView(true);
-  const set = await setUpReview(
+  await setUpReview(
     { comparison, graph: picture.graph, testChanges, observed, observedRun, nodes, changed },
     {
       pickClaim,
@@ -767,11 +766,20 @@ if (comparison !== null && testChanges !== null) {
       tourOpen: () => manual !== undefined,
       endTour,
       clearOutline,
+      shown: () => {
+        viewState = firstView(true);
+      },
+      risksLoaded: (loaded) => {
+        risks = loaded;
+      },
+      reviewDrawn: (handle) => {
+        reviewHandle = handle;
+      },
+      walkDrawn: (made) => {
+        walk = made;
+      },
     },
   );
-  reviewHandle = set.review;
-  walk = set.walk;
-  risks = set.risks;
 }
 
 /** Every file of the picture, the ones a move left behind included: the search reaches each, with or without a risk. */
