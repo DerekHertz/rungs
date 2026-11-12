@@ -12,7 +12,9 @@ import type { PullRequestName } from "../arrival.ts";
 import { coverageLine, observedAt, stopFacts, tourCoverage, walkSummary } from "../stops.ts";
 import type { WalkNote } from "../stops.ts";
 import type { Stop } from "../tour.ts";
+import { headline } from "../headline.ts";
 import { renderArrival } from "./arrival-panel.ts";
+import { renderHeadline } from "./headline-panel.ts";
 import { loadRows } from "./code-rows.ts";
 import { judgedInput } from "./judged-panel.ts";
 import type { JudgedUpdate } from "./judged-panel.ts";
@@ -121,6 +123,7 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
   // The opening view: what is compared, and the failures and the tour one click away.
   const failing = observedRun?.failing.length ?? 0;
   review.prepend(
+    renderHeadline(headline(comparison, testChanges, observed)),
     renderArrival({
       compared: comparedLine(run.repo, comparison.against),
       tests: failingEntry(observed === null ? "absent" : observed.status, failing),
