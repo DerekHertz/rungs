@@ -240,6 +240,7 @@ test("/test-changes.json is the derived list of what the change did to the tests
       markers: [],
       weakened: [],
       edited: [],
+      callbacks: [{ file: "test/a.test.mjs", base: [{ start: 3, end: 3, label: 'test("one")' }], head: [] }],
     });
   } finally {
     await server.close();

@@ -4,7 +4,8 @@ import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
 import { testChanges } from "../src/test-changes.ts";
 import { appears, unmentioned } from "../src/review.ts";
-import type { ReviewEntry } from "../src/review.ts";
+import type { BaseFunction, ReviewEntry } from "../src/review.ts";
+import { isCodeNode } from "../src/graph.ts";
 
 const fn = (name: string, body = 1): string => `export function ${name}() {\n  return ${body};\n}\n`;
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
@@ -14,6 +15,9 @@ function review(base: Record<string, string>, head: Record<string, string>, desc
   const comparison = compare(extract(tree(base)), headGraph);
   return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(linked as NodeId[]));
 }
+
+const baseFunctionsOf = (graph: ReturnType<typeof extract>): BaseFunction[] =>
+  graph.nodes.flatMap((node) => (isCodeNode(node) && node.level === "function" ? [{ id: node.id, path: node.path, range: node.range }] : []));
 
 const labels = (entries: readonly ReviewEntry[]): string[] => entries.map((entry) => entry.label);
 
@@ -363,7 +367,7 @@ const assertsTwo = "    expect(a).toBe(1);\n    expect(b).toBe(2);\n";
 function reviewTests(base: Record<string, string>, head: Record<string, string>, description: string) {
   const headGraph = extract(tree(head));
   const comparison = compare(extract(tree(base)), headGraph);
-  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(), testChanges(tree(base), tree(head), { places: true }));
+  return unmentioned(comparison, pictureOf(headGraph, comparison).graph, description, new Set(), testChanges(tree(base), tree(head), { places: true }), baseFunctionsOf(extract(tree(base))));
 }
 
 test("a renamed test is one ~ row under its new name, with the old name as detail", () => {
@@ -399,13 +403,14 @@ test("a removed test and an added one that are not paired stay two rows", () => 
   expect(rows.every((child) => child.level !== "function" || child.renamedFrom === undefined)).toBe(true);
 });
 
-test("a suite with the same title as a renamed test is not paired with it", () => {
+test("a suite with the same title as a renamed test stays its own row; the test still pairs by its kind", () => {
   const body = (title: string): string => `import { it, suite, expect } from "vitest";\nit("${title}", () => {\n  expect(a).toBe(1);\n${title === "old" ? "  expect(b).toBe(2);\n" : ""}});\n${title === "old" ? 'suite("old", () => {\n  setup();\n});\n' : ""}`;
   const entry = reviewTests({ "t.test.ts": body("old") }, { "t.test.ts": body("new") }, "").entries[0]!;
-  expect(entry.children.map((child) => child.label)).toContain('suite("old")');
-  // The name is shared by a suite and a test in the base, so testChanges gives no place for it: nothing is paired.
-  expect(entry.children.some((child) => child.level === "function" && child.renamedFrom !== undefined)).toBe(false);
-  expect(entry.children.map((child) => child.label)).toContain('it("old")');
+  const suiteRow = entry.children.find((child) => child.label === 'suite("old")');
+  expect(suiteRow?.level === "function" && [suiteRow.change, suiteRow.renamedFrom]).toEqual(["removed", undefined]);
+  const row = entry.children.find((child) => child.label === 'it("new")');
+  expect(row?.level === "function" && [row.renamedFrom, row.weakened]).toEqual(['it("old")', true]);
+  expect(entry.children.map((child) => child.label)).not.toContain('it("old")');
 });
 
 test.each(["xit", "fit", "xtest", "specify"])("a test written with %s keeps its renamed row", (callee) => {
