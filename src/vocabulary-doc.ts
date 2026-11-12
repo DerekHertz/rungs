@@ -119,19 +119,21 @@ function viewOf(unit: string, key: string, asked: ReadonlySet<string>, ctx: Ctx)
   for (const source of sources) {
     const said = ctx.live.get(pairKeyOf(unit, source));
     const judged = asked.has(source) ? judgedOf(unit, source, ctx) : undefined;
+    // A judged member a person said no to is not a judged member of this pair any more: it is not kept as the answer behind it, so no list or probability can bring it back.
     if (judged?.settled !== undefined) {
-      settled.push(judged.settled);
       if (said !== undefined && !said.belongs) away = true;
+      else settled.push(judged.settled);
     }
     if (said !== undefined) parts.push({ status: said.belongs ? "member" : "not a member", said });
     else if (judged !== undefined) parts.push({ status: judged.status, ...(judged.why === undefined ? {} : { why: judged.why }) });
   }
   if (parts.length === 0) return undefined;
   const best = settled.slice().sort((a, b) => Number(b.valid.ok) - Number(a.valid.ok) || b.probability - a.probability)[0];
-  const common = { ...(best === undefined ? {} : { settled: best }), away };
   const { status, corrected } = combine(direct, parts);
+  // A judged member is counted as corrected away only when the pair is not a member after all: another part of a merge that is a member keeps it.
+  const common = { ...(best === undefined ? {} : { settled: best }), away: status !== "member" && away };
   // On the pair itself, a person's word beats what it inherits from a merged term.
-  if (direct !== undefined) return { status, why: [], corrected: direct, ...common, away: away || (!direct.belongs && best !== undefined) };
+  if (direct !== undefined) return { status, why: [], corrected: direct, ...common, away: status !== "member" && (away || (!direct.belongs && best !== undefined)) };
   return { status, why: parts.flatMap((part) => (part.status === "stale" && part.why !== undefined ? [part.why] : [])), ...(corrected === undefined ? {} : { corrected }), ...common };
 }
 

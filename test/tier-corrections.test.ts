@@ -88,7 +88,7 @@ async function setup(): Promise<Setup> {
   if (made !== undefined) return made;
   const result = await setUp({ dir: repo(files), cacheDir: temp("streets-cache-"), judge: clientFor(), deps: { kindChoice: every } });
   const stored = result.stored as StoredVocabulary;
-  const termKey = (name: string): string => stored.vocabulary.terms.find((term) => term.name === name)?.key ?? `no term ${name}`;
+  const termKey = (name: string): string => stored.vocabulary.terms.find((term) => term.name === name)?.key ?? ((): never => { throw new Error(`no term ${name}`); })();
   const unitKey = (name: string): string => stored.memberships?.units.find((unit) => unit.name === name)?.key ?? `no unit ${name}`;
   return (made = { stored, termKey, unitKey });
 }
@@ -199,4 +199,58 @@ test("a correction that names a term or a function that is gone changes nothing 
   ]);
   expect(pick(tiering, editOrder, "src/orders/place.ts").percent).toBe(95);
   expect(stakesWhy(pick(tiering, editPayment, "src/payments/stripe.ts").why)).toMatch(/could cause harm in money in payments/);
+});
+
+/* The base of the comparison is not the tree setup read: chargeCard changed since, so its membership of payments is stale. */
+const movedBase: FileTree = new Map([...baseTree, ["src/payments/stripe.ts", "// Charges a card, now.\nexport function chargeCard(amount: number, more: number): void {\n  void amount;\n  void more;\n}\n"]]);
+
+function pickOn(tiering: Tiering, base: FileTree, edits: Record<string, string>, path: string) {
+  const head: FileTree = new Map([...base, ...Object.entries(edits)]);
+  const baseGraph = extract(base);
+  const graph = extract(head);
+  const comparison = compare(baseGraph, graph, { base, head });
+  return tierPicker({ tiering, comparison, baseGraph, graph, baseTree: base, tree: head })({ ids: [`file:${path}` as NodeId] });
+}
+
+test("a merged term with a part whose mapping is unknown is possible harm, never the other part's none", async () => {
+  const tiering = await tieringWith((s) => [{ ...stamp, kind: "merge", term: s.termKey("payments"), into: s.termKey("orders"), label: "payments into orders" }]);
+  const found = pickOn(tiering, movedBase, editOrder, "src/orders/place.ts");
+  expect(found.percent).toBe(99.9);
+  expect(stakesWhy(found.why)).not.toMatch(/judged none/);
+  expect(stakesWhy(found.why)).toMatch(/orders: .*not fully known/);
+});
+
+test("the same merge, in a chain: payments into a term that is merged into orders", async () => {
+  const tiering = await tieringWith((s) => [
+    { ...stamp, kind: "merge", term: s.termKey("payments"), into: s.termKey("Order flow"), label: "payments into order flow" },
+    { ...stamp, kind: "merge", term: s.termKey("Order flow"), into: s.termKey("orders"), label: "order flow into orders" },
+  ]);
+  const found = pickOn(tiering, movedBase, editOrder, "src/orders/place.ts");
+  expect(found.percent).toBe(99.9);
+  expect(stakesWhy(found.why)).not.toMatch(/judged none/);
+});
+
+test("a rename of the merged-away part does not hide its unknown", async () => {
+  const tiering = await tieringWith((s) => [
+    { ...stamp, kind: "merge", term: s.termKey("payments"), into: s.termKey("orders"), label: "payments into orders" },
+    { ...stamp, kind: "rename", term: s.termKey("payments"), name: "billing", label: "payments" },
+  ]);
+  const found = pickOn(tiering, movedBase, editOrder, "src/orders/place.ts");
+  expect(found.percent).toBe(99.9);
+  expect(stakesWhy(found.why)).not.toMatch(/judged none/);
+});
+
+test("a part with no mapped member at all, and nothing unknown, still says nothing, so the other part's none holds", async () => {
+  const tiering = await tieringWith((s) => [{ ...stamp, kind: "merge", term: s.termKey("Zebra crossing"), into: s.termKey("orders"), label: "zebra crossing into orders" }]);
+  expect(pick(tiering, editOrder, "src/orders/place.ts").percent).toBe(95);
+});
+
+test("a no on the merged-away term's only member leaves the function in no term", async () => {
+  const tiering = await tieringWith((s) => [
+    { ...stamp, kind: "member", unit: s.unitKey("chargeCard"), term: s.termKey("payments"), belongs: false, label: "chargeCard, term payments" },
+    { ...stamp, kind: "merge", term: s.termKey("payments"), into: s.termKey("orders"), label: "payments into orders" },
+  ]);
+  const found = pick(tiering, editPayment, "src/payments/stripe.ts");
+  expect(found.percent).toBe(99.9);
+  expect(stakesWhy(found.why)).toMatch(/chargeCard is mapped to no term/);
 });

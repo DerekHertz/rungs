@@ -125,7 +125,7 @@ function stakesLookup(vocabulary: VocabularyRead, baseGraph: Graph, baseTree: Fi
     const harms: string[] = [];
     const reasons: string[] = [];
     if (term === undefined) reasons.push("the term has no stored stakes");
-    else if (term.members === 0) reasons.push("the term has no mapped member");
+    else if (term.members === 0) reasons.push(term.unknown > 0 ? "a mapping of the term is not fully known" : "the term has no mapped member");
     else {
       // Every kind that may be judged now, not only the ones this term was asked at setup: a kind adopted since then was never asked of it, and that is "not judged", never "no".
       for (const id of stakes.kinds.asked) {
@@ -139,7 +139,8 @@ function stakesLookup(vocabulary: VocabularyRead, baseGraph: Graph, baseTree: Fi
       if (term.unknown > 0) reasons.push("a mapping of the term is not fully known");
     }
     const stakesOf: TermStakes = harms.length > 0 ? { status: "could cause", harms } : reasons.length > 0 ? { status: "possible", reason: listOf(reasons) } : { status: "none" };
-    return { stakes: stakesOf, empty: term === undefined || term.members === 0 };
+    // Empty means no code and nothing unknown: a term whose members are stale, not judged or cut may hold code, so it speaks, and so does a term nothing is stored for.
+    return { stakes: stakesOf, empty: term !== undefined && term.members === 0 && term.unknown === 0 };
   };
   const answered = new Map<string, TermStakes>();
   return {

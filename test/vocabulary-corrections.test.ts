@@ -172,3 +172,54 @@ test("a name that is shaped like a secret is withheld on the document, whoever w
   expect(doc.terms.find((term) => term.key === "order")!.confirmed).toEqual({ by: "withheld", at: stamp.at });
   expect(doc.terms.find((term) => term.key === "payment")!.name).toBe("withheld");
 });
+
+/* A person's no on one part of a merge: the detail, the summary, the file card and the count read it the same way. */
+const noCharge = member("src/payments/stripe.ts", "chargeCard", "payment", false);
+const mergePayment = (into: string): Correction => ({ ...stamp, kind: "merge", term: "payment", into, label: "payments" });
+
+test("a no on a term, then a merge of it into another: the merged term does not list the function, and the card and the summary agree", async () => {
+  const doc = build(withCorrections(await store(true), [noCharge, mergePayment("order")]));
+  const orders = doc.terms.find((term) => term.key === "order")!;
+  expect(orders.members.map((one) => one.name)).toEqual(["placeOrder"]);
+  expect(orders.summary).toEqual({ kind: "has members", why: "1 member" });
+  expect(orders.correctedAway).toBe(1);
+  expect(entry(doc, "src/payments/stripe.ts")).toMatchObject({ terms: [], units: { withTerm: 0, noTerm: 1 } });
+});
+
+test("a merge, then the no: the same answer in the other order", async () => {
+  const doc = build(withCorrections(await store(true), [mergePayment("order"), noCharge]));
+  expect(doc.terms.find((term) => term.key === "order")!.members.map((one) => one.name)).toEqual(["placeOrder"]);
+  expect(entry(doc, "src/payments/stripe.ts")!.terms).toEqual([]);
+});
+
+test("a no survives a chain of merges", async () => {
+  const chain: Correction[] = [noCharge, { ...stamp, kind: "merge", term: "payment provider", into: "payment", label: "payment providers" }, mergePayment("order")];
+  const doc = build(withCorrections(await store(true), chain));
+  expect(doc.terms.find((term) => term.key === "order")!.members.map((one) => one.name)).toEqual(["placeOrder"]);
+  expect(entry(doc, "src/payments/stripe.ts")!.terms).toEqual([]);
+});
+
+test("a merge undone by a confirm leaves the no where it was", async () => {
+  const doc = build(withCorrections(await store(true), [noCharge, mergePayment("order"), { ...stamp, kind: "confirm", term: "payment", label: "payments" }]));
+  expect(doc.terms.find((term) => term.key === "order")!.members.map((one) => one.name)).toEqual(["placeOrder"]);
+  expect(doc.terms.find((term) => term.key === "payment")!.members).toEqual([]);
+});
+
+test("a rename of the merged-away term does not bring the function back into the merged one", async () => {
+  const doc = build(withCorrections(await store(true), [noCharge, mergePayment("order"), { ...stamp, kind: "rename", term: "payment", name: "billing", label: "payments" }]));
+  expect(doc.terms.find((term) => term.key === "order")!.members.map((one) => one.name)).toEqual(["placeOrder"]);
+});
+
+test("a merged term whose part is stale says so: the unknown is not dropped by the merge", async () => {
+  const head = { ...files, "src/payments/stripe.ts": "// Charges a card.\nexport function chargeCard(amount: number, more: number): void {\n  void amount;\n  void more;\n}\n" };
+  const doc = build(withCorrections(await store(true), [mergePayment("order")]), head);
+  const orders = doc.terms.find((term) => term.key === "order")!;
+  expect(orders.summary.why).toContain("1 stale");
+  expect(entry(doc, "src/payments/stripe.ts")!.units).toMatchObject({ stale: 1, withTerm: 0 });
+});
+
+test("a no keyed on the function holds after the function changed and its term was merged", async () => {
+  const head = { ...files, "src/payments/stripe.ts": "// Charges a card.\nexport function chargeCard(amount: number, more: number): void {\n  void amount;\n  void more;\n}\n" };
+  const doc = build(withCorrections(await store(true), [noCharge, mergePayment("order")]), head);
+  expect(doc.terms.find((term) => term.key === "order")!.members.map((one) => one.name)).toEqual(["placeOrder"]);
+});
