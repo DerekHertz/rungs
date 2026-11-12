@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree } from "../src/graph.ts";
 import { GENERIC_PHRASES, GENERIC_WORDS, VOCABULARY_TABLE_VERSION } from "../src/vocabulary-table.ts";
-import { collectVocabulary, singular, wordsOf } from "../src/vocabulary.ts";
+import { collectVocabulary, keyOf, stem, wordsOf } from "../src/vocabulary.ts";
 import type { Term, Vocabulary } from "../src/vocabulary.ts";
 
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
@@ -11,12 +11,15 @@ const baseOf = (files: Record<string, string>) => {
   return { graph: extract(t), tree: t };
 };
 const lines = (...rows: string[]): string => rows.join("\n") + "\n";
-const termOf = (vocabulary: Vocabulary, key: string): Term => {
+const termOf = (vocabulary: Vocabulary, phrase: string): Term => {
+  const key = keyOf(phrase);
   const found = vocabulary.terms.find((term) => term.key === key);
   if (found === undefined) throw new Error(`no term "${key}" among ${vocabulary.terms.map((term) => term.key).join(", ")}`);
   return found;
 };
 const keys = (vocabulary: Vocabulary): string[] => vocabulary.terms.map((term) => term.key);
+/** What `keys` gives for these phrases, in order: keys are stems, so tests write phrases and compare through keyOf. */
+const want = (...phrases: string[]): string[] => phrases.map(keyOf).sort();
 
 // Fixture 1: a small library. One package, a README, a few modules, one test file, a generic folder.
 const library = {
@@ -62,7 +65,7 @@ test("a small library yields its headings, folders, exports, tests and descripti
   const vocabulary = collectVocabulary(baseOf(library));
   expect(vocabulary.status).toBe("found");
   expect(vocabulary.tableVersion).toBe(VOCABULARY_TABLE_VERSION);
-  expect(keys(vocabulary)).toEqual([
+  expect(keys(vocabulary)).toEqual(want(
     "config file",
     "error message",
     "friendly error message",
@@ -75,7 +78,7 @@ test("a small library yields its headings, folders, exports, tests and descripti
     "read a config file",
     "tinyparse",
     "trim line",
-  ]);
+  ));
   // Headings pin to their heading line, folders to their path (they have no lines).
   expect(termOf(vocabulary, "config file").pins).toEqual([
     { source: "heading", path: "README.md", range: { start: 5, end: 5 }, written: "Config files" },
@@ -104,16 +107,16 @@ test("a term most repositories would match is dropped by the written rule, and t
   expect(vocabulary.dropped).toEqual({
     count: 4,
     terms: [
-      { key: "license", rule: "generic" },
-      { key: "src", rule: "generic" },
-      { key: "test", rule: "generic" },
-      { key: "util", rule: "generic" },
+      { key: keyOf("license"), name: "License", rule: "generic" },
+      { key: "src", name: "src", rule: "generic" },
+      { key: "test", name: "test", rule: "generic" },
+      { key: keyOf("utils"), name: "utils", rule: "generic" },
     ],
   });
-  expect(keys(vocabulary)).not.toContain("util");
-  // The app's "util" folder is dropped too, and its one-letter constant "x" as too short to mean anything.
+  expect(keys(vocabulary)).not.toContain(keyOf("utils"));
+  // The app's "utils" folder is dropped too, and its one-letter constant "x" as too short to mean anything.
   const more = collectVocabulary(baseOf(app));
-  expect(more.dropped.terms).toEqual(expect.arrayContaining([{ key: "util", rule: "generic" }, { key: "x", rule: "short" }]));
+  expect(more.dropped.terms).toEqual(expect.arrayContaining([{ key: keyOf("utils"), name: "utils", rule: "generic" }, { key: "x", name: "x", rule: "short" }]));
   expect(more.dropped.count).toBe(more.dropped.terms.length);
 });
 
@@ -131,12 +134,12 @@ test("the same concept written four ways is one term, with every spelling and ev
   ]);
   // Each spelling's count decides the display name; a tie goes to the first in sorted order.
   expect(flow.name).toBe("Order flow");
-  expect(keys(vocabulary).filter((key) => key.includes("flow"))).toEqual(["order flow"]);
+  expect(keys(vocabulary).filter((key) => key.includes("flow"))).toEqual(want("order flow"));
 });
 
 test("an app with docs: nested docs, kebab-case folders and exports are read; vendored, hidden and generic things are counted, not read", () => {
   const vocabulary = collectVocabulary(baseOf(app));
-  expect(keys(vocabulary)).toEqual(expect.arrayContaining(["architecture", "payment provider", "payment", "charge card", "glossary", "checkout service", "shop"]));
+  expect(keys(vocabulary)).toEqual(expect.arrayContaining(want("architecture", "payment provider", "payment", "charge card", "glossary", "checkout service", "shop")));
   // The vendored folder and file and the hidden tooling folder give no term.
   expect(keys(vocabulary).some((key) => key.includes("vendor") || key.includes("github") || key.includes("workflow"))).toBe(false);
   expect(vocabulary.skipped.generated).toBeGreaterThanOrEqual(2);
@@ -157,7 +160,7 @@ test("a secret-shaped test title never becomes a term, and is counted as withhel
       "src/a.ts": "export const ghp_abcdefghijklmnopqrstuvwxyz0123456789 = 1;\nexport function real() {}\n",
     }),
   );
-  expect(keys(other)).toEqual(["real"]);
+  expect(keys(other)).toEqual(want("real"));
   expect(other.skipped.withheld).toBe(3);
 });
 
@@ -197,7 +200,7 @@ test("no base is unknown; a repository that wrote no term, with everything read,
   const bare = collectVocabulary(baseOf({ "README.md": "# Readme\n", "src/index.ts": "export const ab = 1;\n" }));
   expect(bare).toMatchObject({ status: "none", terms: [], unread: [], notAnalysed: 0 });
   // The words it wrote were dropped and counted: "readme" and "src" are generic, "ab" is too short.
-  expect(bare.dropped.terms.map((one) => one.key)).toEqual(["ab", "readme", "src"]);
+  expect(bare.dropped.terms.map((one) => one.key)).toEqual(want("ab", "readme", "src"));
 });
 
 test("the collector is pure: same input, same output; the input is untouched; the output is plain data", () => {
@@ -213,7 +216,7 @@ test("the collector is pure: same input, same output; the input is untouched; th
 
 test("stop words at either end are not part of a name, so a heading and an export of it merge", () => {
   const vocabulary = collectVocabulary(baseOf({ "A.md": "# The sandbox\n\n## How it works\n", "src/a.ts": "export function sandboxOf() {}\nexport function isTheSandbox() {}\n" }));
-  expect(keys(vocabulary)).toEqual(["sandbox", "work"]);
+  expect(keys(vocabulary)).toEqual(want("sandbox", "work"));
   expect(termOf(vocabulary, "sandbox").pins.map((pin) => pin.written)).toEqual(["The sandbox", "sandboxOf", "isTheSandbox"]);
   // A name made only of stop words is not a word.
   expect(collectVocabulary(baseOf({ "A.md": "# What is it\n" })).skipped.notAWord).toBe(1);
@@ -221,23 +224,133 @@ test("stop words at either end are not part of a name, so a heading and an expor
 
 test("names that are keys of Object.prototype are ordinary terms", () => {
   const vocabulary = collectVocabulary(baseOf({ "A.md": "# constructor\n\n## __proto__\n\n## toString\n" }));
-  expect(keys(vocabulary)).toEqual(["constructor", "proto", "string"]);
+  expect(keys(vocabulary)).toEqual(want("constructor", "proto", "string"));
 });
 
-test("words: case, plural and separators give one spelling; the table's lists are already singular", () => {
+test("words: case and separators give one spelling; the table's lists are plain lower-case words", () => {
   expect(wordsOf("reviewRounds")).toEqual(["review", "rounds"]);
   expect(wordsOf("REVIEW_ROUNDS")).toEqual(["review", "rounds"]);
   expect(wordsOf("review-rounds")).toEqual(["review", "rounds"]);
   expect(wordsOf("HTMLParser")).toEqual(["html", "parser"]);
   expect(wordsOf("sha256Digest")).toEqual(["sha", "256", "digest"]);
   expect(wordsOf("doesn't")).toEqual(["doesnt"]);
-  for (const [plural, one] of [["rounds", "round"], ["policies", "policy"], ["boxes", "box"], ["classes", "class"], ["cases", "case"], ["status", "status"], ["analysis", "analysis"], ["bus", "bus"], ["keys", "key"]]) expect(singular(plural!)).toBe(one);
-  for (const word of GENERIC_WORDS) expect(singular(word)).toBe(word);
-  for (const phrase of GENERIC_PHRASES) expect(phrase).toBe(wordsOf(phrase).map(singular).join(" "));
+  for (const word of GENERIC_WORDS) expect(word).toMatch(/^[a-z]+$/);
+  for (const phrase of GENERIC_PHRASES) expect(phrase).toMatch(/^[a-z]+(?: [a-z]+)+$/);
 });
 
 test("a package.json that starts with a byte order mark still gives its description", () => {
   const vocabulary = collectVocabulary(baseOf({ "package.json": '﻿{"description": "Lint changelogs"}\n' }));
   expect(termOf(vocabulary, "lint changelog").pins[0]).toMatchObject({ source: "package description", range: { start: 1, end: 1 } });
   expect(vocabulary.unread).toEqual([]);
+});
+
+// Round 1 of the Codex review of PR 276.
+
+test("a file that could hold words and was not read is counted, so no term is never a false none", () => {
+  // A binary file with a code name, and a test file in a language no adapter reads.
+  expect(collectVocabulary(baseOf({ "a.ts": "\0export function billing() {}" }))).toMatchObject({ status: "unknown", terms: [], unread: [{ path: "a.ts", reason: "binary" }] });
+  expect(collectVocabulary(baseOf({ "tests/billing.py": "def test_billing(): pass\n" }))).toMatchObject({ status: "unknown", terms: [], notAnalysed: 1 });
+  // A media file and a data file hold no code, so they do not make a repository unknown.
+  expect(collectVocabulary(baseOf({ "logo.png": "\0PNG", "rows.json": "[]\n" }))).toMatchObject({ status: "none", unread: [], notAnalysed: 0 });
+  expect(collectVocabulary(baseOf({ "test/fixtures/rows.json": "[]\n", "test/notes.md": "# Billing\n" })).notAnalysed).toBe(0);
+});
+
+test("an export alias is pinned to the line that writes it, and to no line when none does", () => {
+  const vocabulary = collectVocabulary(baseOf({ "a.ts": lines("export function local() {}", "export {", "  local as Invoice,", "};") }));
+  expect(termOf(vocabulary, "local").pins[0]!.range).toEqual({ start: 1, end: 1 });
+  expect(termOf(vocabulary, "invoice").pins).toEqual([{ source: "export", path: "a.ts", range: { start: 3, end: 3 }, written: "Invoice" }]);
+  // A name the text never shows is not given a line.
+  const hidden = collectVocabulary({ graph: extract(tree({ "a.ts": "function local() {}\nexport { local as Invoice };\n" })), tree: tree({ "a.ts": "function local() {}\nexport { local };\n" }) });
+  expect(termOf(hidden, "invoice").pins[0]!.range).toBeNull();
+});
+
+test("a re-exported name is a term, pinned to its re-export line", () => {
+  const vocabulary = collectVocabulary(baseOf({ "a.ts": lines('import "./x";', 'export { local as Invoice } from "./b";', 'export * as Ledger from "./c";', 'export { default } from "./d";'), "b.ts": "export function local() {}\n" }));
+  expect(termOf(vocabulary, "invoice").pins).toEqual([{ source: "export", path: "a.ts", range: { start: 2, end: 2 }, written: "Invoice" }]);
+  expect(termOf(vocabulary, "ledger").pins[0]).toMatchObject({ path: "a.ts", range: { start: 3, end: 3 } });
+  expect(keys(vocabulary)).not.toContain("default");
+});
+
+test("a folder that holds a package.json is a package, and its directory name is still a folder term", () => {
+  const vocabulary = collectVocabulary(baseOf({ "billing/package.json": '{"name": "b"}\n', "packages/ledger/package.json": "{}\n" }));
+  expect(termOf(vocabulary, "billing").pins).toEqual([{ source: "folder", path: "billing", range: null, written: "billing" }]);
+  expect(termOf(vocabulary, "ledger").pins[0]).toMatchObject({ source: "folder", path: "packages/ledger" });
+});
+
+test("a test title in a wrapped call is pinned to the line that writes it, and never to a sibling's", () => {
+  const vocabulary = collectVocabulary(
+    baseOf({
+      "test/a.test.ts": lines(
+        'import { describe, it } from "vitest";',
+        'describe("outer", () => {',
+        '  it("same", () => {});',
+        "  it(",
+        '    "same",',
+        "    {",
+        "      timeout: 1,",
+        "    },",
+        "    () => {},",
+        "  );",
+        "});",
+      ),
+    }),
+  );
+  expect(termOf(vocabulary, "same").pins.map((pin) => pin.range)).toEqual([{ start: 3, end: 3 }, { start: 5, end: 5 }]);
+  // Written with an escape the text does not show as the title: no line is guessed.
+  const escaped = collectVocabulary(baseOf({ "test/b.test.ts": lines('import { it } from "vitest";', 'it("say \\"billing\\"", () => {});') }));
+  expect(termOf(escaped, "say billing").pins[0]!.range).toBeNull();
+});
+
+test("the description is the top-level key, not the first one in nested JSON; a heading of several lines pins every line", () => {
+  const nested = lines("{", '  "custom": {', '    "description": "nested words"', "  },", '  "description": "Invoice processing"', "}");
+  const vocabulary = collectVocabulary(baseOf({ "package.json": nested }));
+  expect(termOf(vocabulary, "invoice processing").pins).toEqual([{ source: "package description", path: "package.json", range: { start: 5, end: 5 }, written: "Invoice processing" }]);
+  expect(keys(vocabulary).some((key) => key.includes("nested"))).toBe(false);
+  const oneLine = collectVocabulary(baseOf({ "package.json": '{"custom":{"description":"nested"},"description":"Invoice processing"}' }));
+  expect(termOf(oneLine, "invoice processing").pins[0]!.range).toEqual({ start: 1, end: 1 });
+  const setext = collectVocabulary(baseOf({ "A.md": lines("Invoice", "processing", "----------", "text", "", "Ledger", "======") }));
+  expect(termOf(setext, "invoice processing").pins[0]!.range).toEqual({ start: 1, end: 3 });
+  expect(termOf(setext, "ledger").pins[0]!.range).toEqual({ start: 6, end: 7 });
+});
+
+test("a plural and its singular merge: tested pairs", () => {
+  const pairs = [
+    ["cache", "caches"], ["status", "statuses"], ["box", "boxes"], ["class", "classes"], ["policy", "policies"], ["query", "queries"], ["case", "cases"],
+    ["branch", "branches"], ["quiz", "quizzes"], ["size", "sizes"], ["bus", "buses"], ["address", "addresses"], ["dish", "dishes"], ["day", "days"],
+    ["key", "keys"], ["database", "databases"], ["cookie", "cookies"], ["house", "houses"], ["tree", "trees"], ["type", "types"], ["use", "uses"],
+  ] as const;
+  for (const [one, many] of pairs) expect([one, stem(many)]).toEqual([one, stem(one)]);
+  // Different words stay different.
+  expect(stem("cache")).not.toBe(stem("cash"));
+  expect(stem("status")).not.toBe(stem("state"));
+  const vocabulary = collectVocabulary(baseOf({ "A.md": lines("# Cache", "", "# Caches", "", "# Status", "", "# Statuses") }));
+  expect(vocabulary.terms.map((term) => term.pins.length)).toEqual([2, 2]);
+  expect(vocabulary.tableVersion).toBeGreaterThan(1);
+});
+
+test("a test call with no callback is collected, and a title that is not a literal is counted, never silently absent", () => {
+  const vocabulary = collectVocabulary(
+    baseOf({
+      "test/a.test.ts": lines(
+        'import { it, test, describe } from "vitest";',
+        "const name = 'n';",
+        'test.todo("billing");',
+        "it.skip(",
+        "  'ledger entries',",
+        ");",
+        "it(name, () => {});",
+        "it.todo(`todo ${name}`);",
+        "describe.todo(name);",
+      ),
+    }),
+  );
+  expect(termOf(vocabulary, "billing").pins).toEqual([{ source: "test", path: "test/a.test.ts", range: { start: 3, end: 3 }, written: "billing" }]);
+  expect(termOf(vocabulary, "ledger entry").pins[0]!.range).toEqual({ start: 5, end: 5 });
+  expect(vocabulary.skipped.notLiteral).toBe(3);
+});
+
+test("a test title is a secret by its shape, not because the word withheld is in it", () => {
+  const vocabulary = collectVocabulary(baseOf({ "test/a.test.ts": lines('import { test } from "vitest";', 'test("withheld invoices", () => {});') }));
+  expect(termOf(vocabulary, "withheld invoice").pins[0]).toMatchObject({ source: "test", range: { start: 2, end: 2 } });
+  expect(vocabulary.skipped.withheld).toBe(0);
 });

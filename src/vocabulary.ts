@@ -1,12 +1,12 @@
 import { posix } from "node:path";
-import type { FileNode, LineRange, SectionNode } from "./graph.ts";
+import type { CodeNode, FileNode, LineRange, ModuleNode, NodeId, SectionNode } from "./graph.ts";
 import { isCodeNode } from "./graph.ts";
 import { splitLines } from "./lines.ts";
 import { roleOf } from "./extract/roles.ts";
-import { WITHHELD, looksSecret, promptName } from "./prompt-safe.ts";
+import { looksSecret } from "./prompt-safe.ts";
 import { isTestFile } from "./test-files.ts";
 import type { BaseSide } from "./standards.ts";
-import { GENERIC_PHRASES, GENERIC_WORDS, MAX_PHRASE_WORDS, MAX_WORD_CHARS, MIN_KEY_CHARS, STOP_WORDS, VOCABULARY_TABLE_VERSION } from "./vocabulary-table.ts";
+import { GENERIC_PHRASES, GENERIC_WORDS, MAX_PHRASE_WORDS, MAX_WORD_CHARS, MIN_KEY_CHARS, NON_CODE_EXTENSIONS, STOP_WORDS, VOCABULARY_TABLE_VERSION } from "./vocabulary-table.ts";
 
 export { VOCABULARY_TABLE_VERSION } from "./vocabulary-table.ts";
 
@@ -41,7 +41,7 @@ export interface TermPin {
 }
 
 export interface Term {
-  /** The concept: its words in lower case, singular, one space apart. Unique among terms. */
+  /** The concept: the stems (see `stem`) of its words, one space apart. It merges case, plural and separators, and is not always a word: show `name`. Unique among terms. */
   readonly key: string;
   /** The spelling used most, for display; ties go to the first in sorted order. */
   readonly name: string;
@@ -70,12 +70,12 @@ export interface Vocabulary {
   /** Sorted by key. */
   readonly terms: readonly Term[];
   /** Terms the rules removed: they are counted and named, never silently gone. Sorted by key. */
-  readonly dropped: { readonly count: number; readonly terms: readonly { readonly key: string; readonly rule: DropRule }[] };
+  readonly dropped: { readonly count: number; readonly terms: readonly { readonly key: string; /** The spelling used most, since a key is a stem. */ readonly name: string; readonly rule: DropRule }[] };
   /** Written phrases that were not made terms, by why. Counts of phrases as written, so one term written twice counts twice. */
   readonly skipped: {
     /** More than MAX_PHRASE_WORDS words. */
     readonly tooLong: number;
-    /** Shaped like a secret (looksSecret, promptName): never kept. */
+    /** Shaped like a secret (looksSecret on the text as written): never kept. */
     readonly withheld: number;
     /** No words, or a word longer than MAX_WORD_CHARS. */
     readonly notAWord: number;
@@ -83,21 +83,38 @@ export interface Vocabulary {
     readonly hiddenFolders: number;
     /** Files and folders whose role is "generated" (lockfiles, vendored, minified). */
     readonly generated: number;
+    /** Test calls whose title is not a string literal (a variable, a template with a hole): its words cannot be read. */
+    readonly notLiteral: number;
   };
   /** Files whose words could not be read, with why, sorted by path. */
   readonly unread: readonly Unread[];
-  /** Text files no language adapter reads and no role explains (a Python file): their exported names and tests are not collected. */
+  /** Text files no language adapter reads, in a role that could hold code (none, or tests: a Python file): their exported names and tests are not collected. */
   readonly notAnalysed: number;
   /** Why the status is "unknown", for display. */
   readonly reason?: string;
 }
 
-/** The singular of a word, by a few plain rules; a heuristic for merging plural and singular spellings, never a dictionary. */
-export function singular(word: string): string {
-  if (word.length <= 3 || /(?:ss|us|is)$/.test(word) || !word.endsWith("s")) return word;
-  if (/[^aeiou]ies$/.test(word)) return `${word.slice(0, -3)}y`;
-  if (/(?:ch|sh|x|z|ss)es$/.test(word)) return word.slice(0, -2);
-  return word.slice(0, -1);
+/**
+ * A word's stem: the same string for its singular and its plural, by a few plain rules. It is not
+ * always a word ("cache" and "caches" both give "cach"); a term's `key` is made of stems and its
+ * `name` is what is shown. A heuristic for merging spellings, never a dictionary.
+ *
+ * Plural first: -ies after a consonant, then -ches -shes -xes -sses -uses and -zzes lose "es"
+ * (caches, boxes, classes, statuses, quizzes), any other -s is dropped (cases, sizes, keys).
+ * Then -y after a consonant becomes -i (policy, policies) and a final silent -e goes (cache, case,
+ * size), so a singular with an -e meets its plural.
+ */
+export function stem(word: string): string {
+  let w = word;
+  if (w.length > 3 && w.endsWith("s") && !/(?:ss|us|is)$/.test(w)) {
+    if (/[^aeiou]ies$/.test(w)) w = `${w.slice(0, -3)}y`;
+    else if (/(?:ch|sh|x|ss|us)es$/.test(w)) w = w.slice(0, -2);
+    else if (/zzes$/.test(w)) w = w.slice(0, -3);
+    else w = w.slice(0, -1);
+  }
+  if (/[^aeiou]y$/.test(w)) w = `${w.slice(0, -1)}i`;
+  else if (w.length >= 3 && w.endsWith("e") && !w.endsWith("ee")) w = w.slice(0, -1);
+  return w;
 }
 
 const WORD = /\p{Lu}+(?=\p{Lu}\p{Ll})|\p{Lu}?\p{Ll}+|\p{Lu}+|\p{Lo}+|\p{N}+/gu;
@@ -107,9 +124,13 @@ export function wordsOf(written: string): string[] {
   return (written.replace(/['’]/g, "").match(WORD) ?? []).map((word) => word.toLowerCase());
 }
 
+/** The key a phrase is a term under: the stems of its words, one space apart. For looking a term up by what a person would write ("config file"). */
+export const keyOf = (phrase: string): string => wordsOf(phrase).map(stem).join(" ");
+
 const STOP_SET: ReadonlySet<string> = new Set(STOP_WORDS);
-const GENERIC_WORD_SET: ReadonlySet<string> = new Set(GENERIC_WORDS);
-const GENERIC_PHRASE_SET: ReadonlySet<string> = new Set(GENERIC_PHRASES);
+/** The table's generic words and phrases as keys are made: stemmed, so "utils" and "util" are both caught. */
+const GENERIC_WORD_SET: ReadonlySet<string> = new Set(GENERIC_WORDS.map(stem));
+const GENERIC_PHRASE_SET: ReadonlySet<string> = new Set(GENERIC_PHRASES.map(keyOf));
 
 /** The written text as it may be shown: letters, digits and "_ . $ / -" only. */
 const spelling = (written: string): string => written.replace(/[^\p{L}\p{N}_.$/ -]+/gu, " ").replace(/\s+/g, " ").trim();
@@ -118,7 +139,8 @@ const spelling = (written: string): string => written.replace(/[^\p{L}\p{N}_.$/ 
 const plainHeading = (heading: string): string => heading.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/<[^>]*>/g, "").replace(/[`*~]/g, "").trim();
 
 interface Builder {
-  readonly pins: Map<string, TermPin[]>;
+  /** By key; `longest` is the length of its longest spelling's words before stemming, which is what "too short" is judged on. */
+  readonly pins: Map<string, { longest: number; pins: TermPin[] }>;
   readonly skipped: { -readonly [K in keyof Vocabulary["skipped"]]: number };
 }
 
@@ -145,11 +167,14 @@ function add(into: Builder, written: string, where: Omit<TermPin, "written">): v
     into.skipped.tooLong++;
     return;
   }
-  const key = words.map(singular).join(" ");
+  const key = words.map(stem).join(" ");
   const pin: TermPin = { ...where, written: spelling(written) };
-  const list = into.pins.get(key);
-  if (list === undefined) into.pins.set(key, [pin]);
-  else list.push(pin);
+  const found = into.pins.get(key);
+  if (found === undefined) into.pins.set(key, { longest: words.join(" ").length, pins: [pin] });
+  else {
+    found.longest = Math.max(found.longest, words.join(" ").length);
+    found.pins.push(pin);
+  }
 }
 
 /** Cuts prose into chunks of words between stop words and punctuation: "a navigable visual system, for teams" gives "navigable visual system" and "teams". */
@@ -171,8 +196,12 @@ function chunks(prose: string): string[] {
   return found;
 }
 
-/** The title of a test runner's callback, read from the last segment of its qualified name, or undefined for any other name. */
-function testTitle(qualified: string): string | undefined {
+/**
+ * What a test runner's callback is called, read from the last segment of its qualified name: its
+ * title, "not literal" when the title is no string literal (`it() callback`), or undefined for any
+ * other name.
+ */
+function testTitle(qualified: string): { readonly title: string } | "not literal" | undefined {
   let last: string | undefined;
   let at = 0;
   while (at < qualified.length) {
@@ -195,24 +224,78 @@ function testTitle(qualified: string): string | undefined {
   }
   if (last === undefined) return undefined;
   try {
-    const call = /^(?:test|it|describe|suite|context|skip|only|todo)\(("(?:[^"\\]|\\.)*")\) callback$/.exec(JSON.parse(last) as string);
-    return call === null ? undefined : (JSON.parse(call[1]!) as string);
+    const call = /^(?:test|it|describe|suite|context|skip|only|todo)\((?:("(?:[^"\\]|\\.)*"))?\) callback$/.exec(JSON.parse(last) as string);
+    if (call === null) return undefined;
+    return call[1] === undefined ? "not literal" : { title: JSON.parse(call[1]) as string };
   } catch {
     return undefined;
   }
 }
 
+/** A test call with no callback (`test.todo("x")`, `it.skip("x")`): the graph has no node for it, so the text is read. */
+const BARE_TEST_CALL = /\b(?:test|it|describe|suite|context)\.(?:todo|skip|fails)\(\s*("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`$\\]*`)\s*,?\s*\)/g;
+/** The same with a title that is not a literal: a name, or a template with a hole. */
+const BARE_TEST_CALL_NOT_LITERAL = /\b(?:test|it|describe|suite|context)\.(?:todo|skip|fails)\(\s*(?:[^\s"'`(),]+|`[^`]*\$\{[^`]*`)\s*\)/g;
+
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The first line from `from` to `to` (1-based, both included) that `holds`, or null: no line is ever guessed. */
+function firstLine(lines: readonly string[], from: number, to: number, holds: (line: string) => boolean): number | null {
+  for (let at = Math.max(1, from); at <= Math.min(to, lines.length); at++) if (holds(lines[at - 1]!)) return at;
+  return null;
+}
+
+const oneLine = (line: number | null): LineRange | null => (line === null ? null : { start: line, end: line });
+
+/**
+ * The lines of the top-level `key` of a JSON object, from the key to the end of its value, or null
+ * when it has none. Read by walking the text, so a nested key of the same name is not taken for it.
+ */
+function topLevelKey(text: string, key: string): LineRange | null {
+  let depth = 0;
+  let line = 1;
+  let found: LineRange | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]!;
+    if (char === "\n") line++;
+    else if (char === "{" || char === "[") depth++;
+    else if (char === "}" || char === "]") depth--;
+    else if (char === '"') {
+      let end = i + 1;
+      while (end < text.length && text[end] !== '"') end += text[end] === "\\" ? 2 : 1;
+      const start = line;
+      if (depth === 1 && text.slice(i + 1, end) === key) {
+        let at = end + 1;
+        let now = line;
+        const skip = (): void => {
+          while (at < text.length && /\s/.test(text[at]!)) now += text[at++] === "\n" ? 1 : 0;
+        };
+        skip();
+        if (text[at] === ":") {
+          at++;
+          skip();
+          found = { start, end: now };
+        }
+      }
+      i = end;
+    }
+  }
+  return found;
+}
 
 /** Every term the repository's own words give, pinned, with what could not be read counted. `undefined` is a base that could not be read: unknown, never none. */
 export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
   const empty = { count: 0, terms: [] };
-  const skipped = { tooLong: 0, withheld: 0, notAWord: 0, hiddenFolders: 0, generated: 0 };
+  const skipped = { tooLong: 0, withheld: 0, notAWord: 0, hiddenFolders: 0, generated: 0, notLiteral: 0 };
   if (base === undefined) return { tableVersion: VOCABULARY_TABLE_VERSION, status: "unknown", terms: [], dropped: empty, skipped, unread: [], notAnalysed: 0, reason: "the base tree could not be read" };
 
   const into: Builder = { pins: new Map(), skipped };
   const files = new Map<string, FileNode>();
-  for (const node of base.graph.nodes) if (node.level === "file") files.set(node.path, node);
+  const byId = new Map<NodeId, ModuleNode>();
+  for (const node of base.graph.nodes) {
+    byId.set(node.id, node);
+    if (node.level === "file") files.set(node.path, node);
+  }
   const unread = new Map<string, string>();
   const linesCache = new Map<string, string[]>();
   const linesOf = (path: string): string[] => {
@@ -220,6 +303,7 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
     if (lines === undefined) linesCache.set(path, (lines = splitLines(base.tree.get(path) ?? "")));
     return lines;
   };
+  const nonCode: ReadonlySet<string> = new Set(NON_CODE_EXTENSIONS);
 
   // A file's words may be collected when it is in the graph and the tree, is text and is not generated. Why not is recorded once.
   const checked = new Map<string, boolean>();
@@ -230,9 +314,9 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
       let reason: string | undefined;
       if (file === undefined) reason = "missing from the graph";
       else if (!base.tree.has(path)) reason = "missing from the tree";
+      else if (file.role === "generated") skipped.generated++;
       else if (file.lines === null) reason = "binary";
       if (reason !== undefined) unread.set(path, reason);
-      else if (file?.role === "generated") skipped.generated++;
       ok = reason === undefined && file?.role !== "generated";
       checked.set(path, ok);
     }
@@ -245,55 +329,63 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
     return true;
   };
 
-  // Folders: a folder has a name and no lines.
+  // Every file that could hold words and was not read is counted, so a short list never reads as a complete one.
+  let notAnalysed = 0;
+  for (const file of files.values()) {
+    const extension = posix.extname(file.path).toLowerCase();
+    if (extension === ".md" || (file.lines === null && !nonCode.has(extension)) || file.analysis === "not fully read") canRead(file.path, file.analysis === "not fully read");
+    else if (file.analysis === "not analysed" && file.lines !== null && (file.role === null || file.role === "tests") && !nonCode.has(extension)) notAnalysed++;
+  }
+
+  // Folders and package directories: a folder has a name and no lines.
   for (const node of base.graph.nodes) {
-    if (node.level !== "folder") continue;
+    if (node.level !== "folder" && !(node.level === "package" && node.path !== "")) continue;
     if (node.path.split("/").some((segment) => segment.startsWith("."))) skipped.hiddenFolders++;
     else if (roleOf(`${node.path}/x`, false) === "generated") skipped.generated++;
     else add(into, node.name, { source: "folder", path: node.path, range: null });
   }
 
-  // Markdown headings, each pinned to its heading line (two, for an underlined one).
+  // Markdown headings, each pinned to every line of the heading: one for a "#" heading, the text and its underline for the other kind.
   const sectionsBy = new Map<string, SectionNode[]>();
   for (const section of base.graph.sections) sectionsBy.set(section.path, [...(sectionsBy.get(section.path) ?? []), section]);
-  // Every Markdown file is looked at, so one with no readable headings (binary, absent from the tree) is listed and not taken for one with none.
-  for (const path of files.keys()) if (posix.extname(path) === ".md") canRead(path, false);
   for (const [path, sections] of sectionsBy) {
     if (!canRead(path, false)) continue;
     const lines = linesOf(path);
     for (const section of sections) {
-      const first = lines[section.range.start - 1] ?? "";
-      const under = lines[section.range.start] ?? "";
-      const underlined = !/^\s{0,3}#/.test(first) && section.range.end > section.range.start && /^\s{0,3}(?:=+|-+)\s*$/.test(under);
-      add(into, plainHeading(section.heading), { source: "heading", path, range: { start: section.range.start, end: section.range.start + (underlined ? 1 : 0) } });
+      let end = section.range.start;
+      if (!/^\s{0,3}#/.test(lines[section.range.start - 1] ?? "")) {
+        for (let at = section.range.start + 1; at <= section.range.end && (lines[at - 1] ?? "").trim() !== ""; at++) {
+          if (/^\s{0,3}(?:=+|-+)\s*$/.test(lines[at - 1]!)) {
+            end = at;
+            break;
+          }
+        }
+      }
+      add(into, plainHeading(section.heading), { source: "heading", path, range: { start: section.range.start, end } });
     }
   }
 
-  // Exported names and test titles. A name is pinned to the first line of its declaration that holds it.
-  let notAnalysed = 0;
-  for (const file of files.values()) {
-    if (file.analysis === "not analysed" && file.role === null && file.lines !== null) notAnalysed++;
-    else if (file.analysis === "not fully read") canRead(file.path, true);
-  }
+  // Exported names and test titles. A name is pinned to a line that writes it, and to none when no line does.
+  const siblings = new Map<NodeId, CodeNode[]>();
+  for (const node of base.graph.nodes) if (isCodeNode(node)) siblings.set(node.parent, [...(siblings.get(node.parent) ?? []), node]);
   for (const node of base.graph.nodes) {
     if (!isCodeNode(node) || !canRead(node.path, true)) continue;
     const lines = linesOf(node.path);
     if (isTestFile(node.path)) {
-      const title = node.level === "function" ? testTitle(node.qualifiedName) : undefined;
-      if (title === undefined) continue;
-      if (promptName(node.qualifiedName).includes(WITHHELD)) {
-        skipped.withheld++;
+      const named = node.level === "function" ? testTitle(node.qualifiedName) : undefined;
+      if (named === undefined) continue;
+      if (named === "not literal") {
+        skipped.notLiteral++;
         continue;
       }
-      // The title is on the callback's line, or on one of the lines above it when the call is wrapped.
-      let line = node.range.start;
-      for (let at = node.range.start; at >= Math.max(1, node.range.start - 4); at--) {
-        if (lines[at - 1]?.includes(title) === true) {
-          line = at;
-          break;
-        }
-      }
-      add(into, title, { source: "test", path: node.path, range: { start: line, end: line } });
+      // The title is written between the end of the call's previous sibling and the callback, which a wrapped call puts lines apart.
+      const parent = byId.get(node.parent);
+      const opens = parent !== undefined && isCodeNode(parent) ? parent.range.start + 1 : 1;
+      let before = 0;
+      for (const other of siblings.get(node.parent) ?? []) if (other !== node && other.range.start < node.range.start && other.range.end <= node.range.start) before = Math.max(before, other.range.end + 1);
+      const quoted = ['"', "'", "`"].map((quote) => `${quote}${named.title}${quote}`);
+      const line = firstLine(lines, Math.min(Math.max(before, opens), node.range.start), node.range.start, (text) => quoted.some((one) => text.includes(one)));
+      add(into, named.title, { source: "test", path: node.path, range: oneLine(line) });
       continue;
     }
     if (!node.exported) continue;
@@ -301,26 +393,46 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
     if (node.exportedAs === undefined || node.exportedAs.includes("default") || node.exportedAs.includes("*")) names.add(node.name);
     for (const name of names) {
       const holds = new RegExp(`(?<![\\w$])${escapeRegExp(name)}(?![\\w$])`);
-      let line = node.range.start;
-      for (let at = node.range.start; at <= node.range.end; at++) {
-        if (holds.test(lines[at - 1] ?? "")) {
-          line = at;
-          break;
-        }
-      }
-      add(into, name, { source: "export", path: node.path, range: { start: line, end: line } });
+      const writes = (text: string): boolean => holds.test(text);
+      // The declared name is written in the declaration; an alias is written by the export statement, outside it.
+      const line = name === node.name ? firstLine(lines, node.range.start, node.range.end, writes) : (firstLine(lines, 1, node.range.start - 1, writes) ?? firstLine(lines, node.range.end + 1, lines.length, writes));
+      add(into, name, { source: "export", path: node.path, range: oneLine(line) });
     }
   }
-  // Exported interfaces and type aliases: the graph has their names and not their lines, so the text gives the line.
+  // Exported interfaces and type aliases, and re-exported names: the graph has their names and not their lines, so the text gives the line.
   for (const file of files.values()) {
     if (file.types === undefined || file.types.length === 0 || !canRead(file.path, true)) continue;
     const lines = linesOf(file.path);
     for (const type of file.types) {
-      if (type.kind === "re-export") continue;
+      if (type.kind === "re-export") {
+        if (type.name === "default") continue;
+        const holds = new RegExp(`(?<![\\w$])${escapeRegExp(type.name)}(?![\\w$])`);
+        const edge = base.graph.imports.find((one) => one.from === file.id && one.reexports !== undefined && one.reexports !== "star" && one.reexports.some((entry) => entry.as === type.name));
+        const line = firstLine(lines, edge?.range.start ?? 1, edge?.range.end ?? lines.length, (text) => holds.test(text));
+        add(into, type.name, { source: "export", path: file.path, range: oneLine(line) });
+        continue;
+      }
       const declared = new RegExp(`\\b(?:interface|type)\\s+${escapeRegExp(type.name)}(?![\\w$])`);
-      const at = lines.findIndex((line) => declared.test(line));
-      add(into, type.name, { source: "export", path: file.path, range: at === -1 ? null : { start: at + 1, end: at + 1 } });
+      add(into, type.name, { source: "export", path: file.path, range: oneLine(firstLine(lines, 1, lines.length, (text) => declared.test(text))) });
     }
+  }
+  // Test calls with no callback have no node: read from the text, and counted when the title is no literal.
+  for (const file of files.values()) {
+    if (!isTestFile(file.path) || file.analysis !== "analysed" || !canRead(file.path, true)) continue;
+    const text = base.tree.get(file.path)!;
+    const lineAt = (offset: number): number => text.slice(0, offset).split("\n").length;
+    for (const call of text.matchAll(BARE_TEST_CALL)) {
+      const literal = call[1]!;
+      let title: string | undefined;
+      try {
+        title = literal.startsWith('"') ? (JSON.parse(literal) as string) : literal.includes("\\") ? undefined : literal.slice(1, -1);
+      } catch {
+        title = undefined;
+      }
+      if (title === undefined) skipped.notLiteral++;
+      else add(into, title, { source: "test", path: file.path, range: oneLine(lineAt(call.index + call[0].indexOf(literal))) });
+    }
+    skipped.notLiteral += [...text.matchAll(BARE_TEST_CALL_NOT_LITERAL)].length;
   }
 
   // Package descriptions: prose, cut into chunks at stop words and punctuation.
@@ -342,8 +454,7 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
       continue;
     }
     if (typeof description !== "string") continue;
-    const at = linesOf(manifest.path).findIndex((line) => /"description"\s*:/.test(line));
-    const range = at === -1 ? null : { start: at + 1, end: at + 1 };
+    const range = topLevelKey(text, "description");
     for (const chunk of looksSecret(description) ? [description] : chunks(description)) add(into, chunk, { source: "package description", path: manifest.path, range });
   }
   // A Markdown file or manifest the tree holds and the graph lacks is not of the same base: unread, never skipped.
@@ -351,21 +462,18 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
 
   // Merge, then drop by the written rules.
   const terms: Term[] = [];
-  const dropped: { key: string; rule: DropRule }[] = [];
-  for (const [key, list] of [...into.pins].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+  const dropped: { key: string; name: string; rule: DropRule }[] = [];
+  for (const [key, { longest, pins: list }] of [...into.pins].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const words = key.split(" ");
-    const rule: DropRule | undefined = key.length < MIN_KEY_CHARS || words.every((word) => /^\p{N}+$/u.test(word)) ? "short" : GENERIC_PHRASE_SET.has(key) || words.every((word) => GENERIC_WORD_SET.has(word)) ? "generic" : undefined;
-    if (rule !== undefined) {
-      dropped.push({ key, rule });
-      continue;
-    }
+    const rule: DropRule | undefined = longest < MIN_KEY_CHARS || words.every((word) => /^\p{N}+$/u.test(word)) ? "short" : GENERIC_PHRASE_SET.has(key) || words.every((word) => GENERIC_WORD_SET.has(word)) ? "generic" : undefined;
     const pins = [...new Map(list.map((pin) => [`${pin.path}\0${pin.range?.start ?? ""}\0${pin.range?.end ?? ""}\0${pin.source}\0${pin.written}`, pin])).values()];
     pins.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0) || (a.range?.start ?? 0) - (b.range?.start ?? 0) || (a.source < b.source ? -1 : a.source > b.source ? 1 : 0) || (a.written < b.written ? -1 : a.written > b.written ? 1 : 0));
     const counts = new Map<string, number>();
     for (const pin of pins) counts.set(pin.written, (counts.get(pin.written) ?? 0) + 1);
     const spellings = [...counts.keys()].sort();
     const name = spellings.reduce((best, one) => (counts.get(one)! > counts.get(best)! ? one : best));
-    terms.push({ key, name, spellings, pins });
+    if (rule !== undefined) dropped.push({ key, name, rule });
+    else terms.push({ key, name, spellings, pins });
   }
 
   const unreadList = [...unread].map(([path, reason]) => ({ path, reason })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

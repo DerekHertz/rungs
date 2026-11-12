@@ -1,10 +1,10 @@
 /**
  * The written rules the vocabulary collector follows, as fixed tables. They are the same for every
  * repository and name no repository. Change a list, a limit, or the way words are split or merged
- * (see vocabulary.ts: `wordsOf`, `singular`) and raise VOCABULARY_TABLE_VERSION, so a stored
+ * (see vocabulary.ts: `wordsOf`, `stem`) and raise VOCABULARY_TABLE_VERSION, so a stored
  * vocabulary says which rules built it.
  */
-export const VOCABULARY_TABLE_VERSION = 1;
+export const VOCABULARY_TABLE_VERSION = 2;
 
 /** A phrase of more words than this is a sentence, not a term: it is skipped and counted. */
 export const MAX_PHRASE_WORDS = 5;
@@ -28,6 +28,17 @@ export const GENERIC_WORDS: readonly string[] = [
   // Sections nearly every README or doc has
   "readme", "license", "licence", "install", "installation", "usage", "overview", "introduction", "intro", "contributing", "contribution",
   "changelog", "faq", "todo", "note", "summary", "background", "doc", "documentation",
+];
+
+/**
+ * Extensions of files that hold no code a name could be taken from: media, fonts, archives and
+ * data. A binary file with any other name might have been code, so it is listed as unread; a text
+ * file with no language adapter and any other name is counted as not analysed.
+ */
+export const NON_CODE_EXTENSIONS: readonly string[] = [
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico", ".svg", ".pdf", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+  ".zip", ".gz", ".tgz", ".tar", ".7z", ".mp3", ".mp4", ".mov", ".wav", ".ogg", ".webm", ".wasm", ".map",
+  ".json", ".txt", ".snap", ".csv", ".lock", ".log",
 ];
 
 /** Whole phrases (as a term key) that are boilerplate though their words are not generic alone. */
