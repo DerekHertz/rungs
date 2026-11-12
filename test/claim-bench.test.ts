@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
+import { withholdSecrets } from "../src/jev/claim-source.ts";
+import { looksSecret, promptEffect } from "../src/prompt-safe.ts";
 import { parseCases } from "../src/jev/bench.ts";
 import { claimGate, MAX_STATE_CHARS } from "../src/jev/claim-gate.ts";
 import type { ClaimInput } from "../src/jev/claim-gate.ts";
@@ -80,7 +82,7 @@ test("the committed claim cases are the mix the issue asked for, each with its s
 
 const report = (over: Partial<ReportLike> = {}): ReportLike => ({
   gate: "claim",
-  version: "claim-v1",
+  version: "claim-v2",
   model: "jev-1.14.0",
   counts: { cases: 60, good: 20, broken: 27, cannotTell: 13, steering: 10 },
   wrongPasses: [],
@@ -172,4 +174,20 @@ test("in a checkout only the result committed at HEAD counts, never a newer or e
 test("a case keeps its source through the cases file", () => {
   const file = parseCases('{"gate":"g","cases":[{"id":"a","label":"good","input":1,"source":{"repo":"o/r","pr":3}}]}');
   expect(file.cases[0]!.source).toEqual({ repo: "o/r", pr: 3 });
+});
+
+test("no committed case's input holds a secret-shaped string or a full effect target: what is sent is already what the agents' prompts rule allows", () => {
+  const file = parseCases<ClaimInput>(readFileSync(new URL("../gates/claim/cases.json", import.meta.url), "utf8"));
+  for (const one of file.cases) {
+    for (const place of one.input.places) {
+      for (const line of [...place.lines, ...place.facts]) {
+        // Withholding changes nothing more: no quoted literal or token is left that looksSecret flags.
+        expect(withholdSecrets(line), `${one.id}: ${line}`).toBe(line);
+        const effect = /^(?:effect call (?:added|removed): | {2}effect (?:gained|lost) by [^:]*: )(.*)$/.exec(line);
+        if (effect !== null) expect(promptEffect(effect[1]!), `${one.id}: ${line}`).toBe(effect[1]);
+      }
+    }
+    const state = Object.values(claimGate.state(one.input)).slice(1).join("\n");
+    for (const token of state.split(/[^A-Za-z0-9+/_=.-]+/)) expect(looksSecret(token), `${one.id}: ${token}`).toBe(false);
+  }
 });

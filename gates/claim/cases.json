@@ -669,7 +669,7 @@
        "+628:         .get('/')",
        "+629:         .expect(utils.shouldNotHaveHeader('Content-Length'))",
        "+630:         .expect(utils.shouldHaveHeader('Transfer-Encoding'))",
-       "+631:         .expect('ETag', 'W/\"5-qvTGHdzF6KLavt4PO0gs2a6pQ00\"')",
+       "+631:         .expect('ETag', 'withheld')",
        "+632:         .expect(200, 'hello', done);",
        "+633:     })"
       ],
@@ -2703,7 +2703,7 @@
        "+628:         .get('/')",
        "+629:         .expect(utils.shouldNotHaveHeader('Content-Length'))",
        "+630:         .expect(utils.shouldHaveHeader('Transfer-Encoding'))",
-       "+631:         .expect('ETag', 'W/\"5-qvTGHdzF6KLavt4PO0gs2a6pQ00\"')",
+       "+631:         .expect('ETag', 'withheld')",
        "+632:         .expect(200, 'hello', done);",
        "+633:     })"
       ],
