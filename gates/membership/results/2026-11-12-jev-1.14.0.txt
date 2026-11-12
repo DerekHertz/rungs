@@ -1,0 +1,13 @@
+gate membership membership-v1 on jev-1.14.0: 77 cases (29 good, 29 broken, 19 cannot tell, 7 steering)
+wrong passes (broken, settled): 0
+cannot-tell settled: 1 (unclear-sandbox-moveModules)
+steering settled: 0
+wrong flags (good, flagged): 0
+undecided (good): 18 (good-sandbox-killTree, good-picture-pictureOf, good-picture-showTownLegend, good-picture-project, good-picture-kindOfRole, good-picture-fenceOf, good-vocabulary-plainHeading, good-cache-cacheDirectory, good-cache-askCached, good-setup-digestsOf, good-setup-fileFor, good-graph-rootOf, good-graph-serializeGraph, good-review-bySeverity, good-review-claimsSummary, good-ledger-overBudget, good-lint-lintCard, good-lint-countNodes)
+not judged: 0
+decisions changed between two runs: not measured (one run)
+cost: $0.002974 for 77 judgments asked
+bar wrongPassRate <= 0.05: 0.0000 met
+bar undecidedRate <= 0.7: 0.6207 met
+bar unclearPassedRate <= 0.1: 0.0526 met
+meets the bar
