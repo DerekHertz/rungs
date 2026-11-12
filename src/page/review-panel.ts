@@ -18,6 +18,7 @@ import type { TestChanges } from "../test-changes-types.ts";
 import { testChangesBlock } from "./test-changes-panel.ts";
 import type { RiskItem } from "../risks.ts";
 import { CHANGE_WORD, CONTRACT_WORD } from "../mark-text.ts";
+import { termNote } from "./term-note.ts";
 import { CLAIM_GATE_ID } from "../jev/claim-gate.ts";
 import { judgedDetail, markButton } from "./judged-panel.ts";
 import type { JudgedUpdate, JudgedView } from "./judged-panel.ts";
@@ -91,6 +92,8 @@ export interface ReviewInput {
   readonly risks: readonly RiskItem[] | null;
   /** The user picked a risk; the host selects its places. */
   readonly pickRisk: (item: RiskItem) => void;
+  /** The terms the code at `path` with these ids belongs to (judged); empty without a vocabulary. */
+  readonly termsOf?: (path: string, ids: readonly NodeId[]) => string[];
   /** How the tour was made, for "About this run"; absent when there is no tour to describe. */
   readonly walkAbout?: string;
   /** The judged marks of the claims, or null with no judged document (today's row). */
@@ -578,8 +581,11 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     pick.append(markSpan(`review-mark contract-${kind}`, CONTRACT_MARK[kind], CONTRACT_WORD[kind]), element("span", "review-label rv-name", entry.label));
     pick.append(element("span", "contract-where rv-ellipsis rv-change", showChange ? change : entry.path.slice(entry.path.lastIndexOf("/") + 1)));
     if (entry.unmentioned) pick.append(element("span", "review-flag", "unmentioned"));
+    const note = termNote("contract of", input.termsOf?.(entry.path, [entry.id]) ?? []);
+    if (note !== undefined) note.classList.add("term-note-under");
     line.append(pick);
     item.append(line);
+    if (note !== undefined) item.append(note);
     if (members !== null) item.append(memberLines(members));
     item.append(detail);
     return item;
@@ -687,6 +693,8 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
         pick.title = risk.path;
         const text = element("span", "contract-text");
         text.append(element("span", "review-label", risk.label), element("span", "contract-where", risk.blast.count > 0 || risk.blast.unknown > 0 ? `${risk.path} · ${restsOnIt(risk.blast.count, risk.blast.unknown)}` : risk.path));
+        const note = risk.kind === "contract" || risk.kind === "effect" ? termNote(risk.kind === "contract" ? "moves the contract of" : "reaches out from", input.termsOf?.(risk.path, risk.ids) ?? []) : undefined;
+        if (note !== undefined) text.append(note);
         pick.append(markSpan("review-mark", "!", "risk"), text);
         item.append(pick, detail);
         riskPicks.set(risk, { pick, detail });

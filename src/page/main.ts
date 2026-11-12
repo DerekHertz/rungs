@@ -35,6 +35,7 @@ import type { Neighbours } from "./file-why-panel.ts";
 import type { FileWhy } from "../defining.ts";
 import type { TestChanges } from "../test-changes-types.ts";
 import type { RiskItem } from "../risks.ts";
+import type { VocabularyDoc } from "../file-card.ts";
 import { NO_TEST_MARKS, testMarks } from "../test-marks.ts";
 import type { TestMark } from "../test-marks.ts";
 import type { ClaimRow, ReviewHandle, ReviewSnapshot } from "./review-panel.ts";
@@ -90,6 +91,8 @@ const picture = pictureOf(graph, comparison);
 /** The base's outside calls in removed files: the picture's graph restores the removed nodes but keeps only the head's edges. */
 const ghostEdges: readonly Edge[] = comparison === null ? [] : (await (await fetch("/ghost-edges.json")).json() as { edges: Edge[] }).edges;
 const testChanges = comparison === null ? null : ((await (await fetch("/test-changes.json")).json()) as TestChanges);
+/** The stored vocabulary read against this comparison (`streets setup`): the file card and the risk entries name terms from it. Null when it could not be fetched, which the card says. */
+const vocabulary: VocabularyDoc | null = comparison === null ? null : await fetch("/vocabulary.json").then((answer) => (answer.ok ? (answer.json() as Promise<VocabularyDoc>) : null), () => null);
 /** The test files the change weakened or edited, which the town flags and whose weakened tests' rooms are marked. */
 const marksOfTests = comparison === null || testChanges === null ? NO_TEST_MARKS : testMarks(testChanges);
 const observedResponse = await fetch("/observed.json");
@@ -425,22 +428,29 @@ async function showWhy(node: ModuleNode, ticket: number): Promise<FileWhy | unde
   return (await response.json()) as FileWhy;
 }
 
-function drawWhy(found: FileWhy): void {
+function drawWhy(found: FileWhy, file: ModuleNode): void {
   if (drawn === undefined) return;
-  renderFileWhy(whyPane, found, {
-    graph: picture.graph,
-    pickBlock: (block) => markLines(block.range),
-    pickNode: (id, marked) => {
-      const target = nodes.get(id);
-      // A block of the open file stays inside it, so its panel stays: its lines are marked.
-      if (target !== undefined && isCodeNode(target) && selected === `file:${target.path}`) markLines(marked ?? target.range);
-      else pickNode(id, marked);
+  const pickInside = (id: NodeId, marked?: LineRange): void => {
+    const target = nodes.get(id);
+    // A block of the open file stays inside it, so its panel stays: its lines are marked.
+    if (target !== undefined && isCodeNode(target) && selected === `file:${target.path}`) markLines(marked ?? target.range);
+    else pickNode(id, marked);
+  };
+  const kind = comparison?.changes.find((change) => change.node.id === file.id)?.kind;
+  renderFileWhy(
+    whyPane,
+    found,
+    {
+      graph: picture.graph,
+      pickBlock: (block) => markLines(block.range),
+      pickNode: pickInside,
+      neighbours: async (id) => {
+        const answer = await fetch(`/calls?id=${encodeURIComponent(id)}`);
+        return answer.ok ? ((await answer.json()) as Neighbours) : undefined;
+      },
     },
-    neighbours: async (id) => {
-      const answer = await fetch(`/calls?id=${encodeURIComponent(id)}`);
-      return answer.ok ? ((await answer.json()) as Neighbours) : undefined;
-    },
-  });
+    { doc: vocabulary, path: file.path, role: file.level === "file" ? (file.role ?? undefined) : undefined, kind, pickNode: pickInside },
+  );
   folds = collapseRows(drawn, (found.defining.length > 0 ? found.defining : found.other).map((block) => block.range));
 }
 
@@ -570,7 +580,7 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   if (ticket !== requested) return;
   selected = node.id;
   showSource(node, loaded);
-  if (why !== undefined) drawWhy(why);
+  if (why !== undefined) drawWhy(why, node);
   showOutline(node, pseudo);
   offerNarration(node);
   // A file opens on its first defining block when nothing else was asked for.
@@ -772,7 +782,7 @@ window.addEventListener("keydown", (event) => {
 let reviewSink: ReviewSink | undefined;
 if (comparison !== null && testChanges !== null) {
   reviewSink = await setUpReview(
-    { comparison, graph: picture.graph, testChanges, observed, observedRun, nodes, changed },
+    { comparison, graph: picture.graph, testChanges, observed, observedRun, nodes, changed, vocabulary },
     {
       pickClaim,
       pickEntry,

@@ -1,5 +1,7 @@
 import { activatable } from "./activatable.ts";
-import { count, definingHeading, effectStepsOf, restsOnIt, whyLine } from "../defining.ts";
+import { count, definingHeading, effectStepsOf, restsOnIt } from "../defining.ts";
+import { renderFileCard } from "./file-card-panel.ts";
+import type { CardActions } from "./file-card-panel.ts";
 import type { Block, CallList, CallRef, FileWhy, Step } from "../defining.ts";
 import type { Graph, LineRange, NodeId } from "../graph.ts";
 
@@ -144,18 +146,13 @@ function blockRow(block: Block, actions: WhyActions): HTMLElement {
 }
 
 /**
- * Draws the why-line and the block list into `pane`: defining blocks first, then the other
- * changed ones, with what is folded away named. Shown only for a file the comparison knows.
+ * Draws the file card (what it is and why to care: see ../file-card.ts) and the block list into
+ * `pane`: defining blocks first, then the other changed ones, with what is folded away named.
+ * Shown only for a file the comparison knows.
  */
-export function renderFileWhy(pane: HTMLElement, found: FileWhy, given: WhyActions): void {
+export function renderFileWhy(pane: HTMLElement, found: FileWhy, given: WhyActions, card: CardActions): void {
   const actions: WhyActions = { ...given, unknownCallers: found.why.unknownDependents > 0 };
-  const line = el("div", "why-line", whyLine(found));
-  pane.replaceChildren(line);
-  if (found.why.contracts.length + found.why.effects.length > 0) {
-    const facts = el("div", "why-facts");
-    for (const text of [...found.why.contracts, ...found.why.effects]) facts.append(el("div", "", text));
-    pane.append(facts);
-  }
+  pane.replaceChildren(renderFileCard(found, card));
   pane.append(el("div", "why-heading", definingHeading(found)));
   for (const block of found.defining) pane.append(blockRow(block, actions));
   if (found.other.length > 0) {

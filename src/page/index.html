@@ -955,7 +955,7 @@
       #why {
         flex: 0 1 auto;
         min-height: 0;
-        max-height: 38%;
+        max-height: 46%;
         overflow: auto;
         padding: 6px 10px;
         border-bottom: 1px solid #263140;
@@ -1038,6 +1038,90 @@
         color: #8a9bb0;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
+      }
+      .card {
+        padding-bottom: 4px;
+        border-bottom: 1px solid #1c2531;
+      }
+      .card-row {
+        padding: 2px 0;
+      }
+      .card-heading {
+        margin-top: 4px;
+        color: #8a9bb0;
+        text-transform: uppercase;
+        font-size: 0.85em;
+        overflow-wrap: anywhere;
+      }
+      .card-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 8px;
+        align-items: baseline;
+      }
+      .card-tier {
+        font-size: 0.75em;
+        padding: 0 5px;
+        border: 1px solid #5b6b7e;
+        color: #8a9bb0;
+        border-radius: 2px;
+      }
+      .card-tier.judged {
+        background: #3a4658;
+        border-color: #3a4658;
+        color: #d6deea;
+      }
+      .card-label {
+        color: #8a9bb0;
+      }
+      .card-text {
+        color: #d6dee8;
+        overflow-wrap: anywhere;
+      }
+      .card-note {
+        color: #e6b85c;
+        overflow-wrap: anywhere;
+      }
+      .card-term {
+        font: inherit;
+        color: #ffd84a;
+        background: #16202c;
+        border: 1px solid #2a3647;
+        border-radius: 2px;
+        padding: 0 6px;
+        cursor: pointer;
+      }
+      .card-term:hover {
+        border-color: #ffd84a;
+      }
+      .card-term-detail {
+        margin: 2px 0 4px 10px;
+        padding-left: 8px;
+        border-left: 2px solid #2a3647;
+      }
+      .card-pin {
+        display: block;
+        text-align: left;
+        font: inherit;
+        color: #8a9bb0;
+        background: none;
+        border: 0;
+        padding: 0;
+        overflow-wrap: anywhere;
+      }
+      .card-pin-open {
+        color: #8fb4d9;
+        cursor: pointer;
+      }
+      .card-pin-open:hover {
+        color: #e8edf2;
+      }
+      .term-note-under {
+        display: block;
+        padding-left: 24px;
+      }
+      .term-note em {
+        color: #ffd84a;
       }
       .why-heading {
         margin-top: 6px;

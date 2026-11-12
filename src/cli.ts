@@ -22,7 +22,7 @@ import type { Narrator, SnapshotInputs } from "./server.ts";
 import type { FileTree } from "./graph.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
-import { reportLines, setUp, vocabularyNotice } from "./setup.ts";
+import { readVocabulary, reportLines, setUp, vocabularyNotice } from "./setup.ts";
 import { clientFor } from "./jev/client.ts";
 import { judgedSource } from "./jev/source.ts";
 import type { Claim } from "./claims.ts";
@@ -204,7 +204,9 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
     : undefined;
   const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cache });
   if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
-  const inputs: SnapshotInputs = [against, description, link, walk, narrator, observed, from?.repo ?? basename(resolve(options.dir)), judged];
+  // What setup stored, read for the file card: nothing stored is said as nothing, never as an empty vocabulary.
+  const vocabulary = await readVocabulary(options.dir, cache);
+  const inputs: SnapshotInputs = [against, description, link, walk, narrator, observed, from?.repo ?? basename(resolve(options.dir)), judged, vocabulary];
   return { tree, base, inputs };
 }
 
