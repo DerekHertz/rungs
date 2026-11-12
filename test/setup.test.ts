@@ -50,6 +50,9 @@ function counting() {
   return { collect, graphOf, deps: { collect, graphOf } };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Loose = any;
+
 const keyOfTerm = (result: SetupResult): string[] => result.stored.vocabulary.terms.map((term) => term.key);
 
 test("the first setup stores the vocabulary in the cache, outside the repository, and leaves the repository alone", async () => {
@@ -251,6 +254,104 @@ test("a directory that is no repository, or a base that is no commit, is an erro
   await expect(setUp({ dir: temp("streets-plain-"), cacheDir })).rejects.toThrow(/not a git repository/);
   await expect(setUp({ dir: repo(files), cacheDir, ref: "nonesuch" })).rejects.toThrow(/unknown base "nonesuch"/);
   expect(existsSync(join(cacheDir, "vocabulary"))).toBe(false);
+});
+
+test("setup never runs a program the repository names: a smudge filter does not run", async () => {
+  const dir = temp("streets-filter-");
+  const marker = join(temp("streets-marker-"), "ran");
+  git(dir, "init", "--quiet", "--initial-branch=main");
+  git(dir, "config", "filter.run.clean", "cat");
+  git(dir, "config", "filter.run.smudge", `touch ${marker}; cat`);
+  git(dir, "config", "core.attributesFile", "/dev/null");
+  commit(dir, { ...files, ".gitattributes": "*.ts filter=run\n" });
+  rmSync(marker, { force: true });
+  const result = await setUp({ dir, cacheDir: temp("streets-cache-") });
+  expect(existsSync(marker)).toBe(false);
+  expect(keyOfTerm(result)).toContain(keyOf("place order"));
+  expect(result.stored.vocabulary.status).toBe("found");
+});
+
+test("files are read as git stores them: a Windows line ending stays one", async () => {
+  const result = await setUp({ dir: repo({ ...files, "docs/crlf.md": "# Return policy\r\n\r\ntext\r\n" }), cacheDir: temp("streets-cache-") });
+  const term = result.stored.vocabulary.terms.find((one) => one.key === keyOf("return policy"));
+  expect(term?.pins[0]).toMatchObject({ path: "docs/crlf.md", range: { start: 1, end: 1 } });
+});
+
+test.each([
+  ["dropped", (v: Loose) => delete v.vocabulary.dropped],
+  ["skipped", (v: Loose) => delete v.vocabulary.skipped.tooLong],
+  ["unread", (v: Loose) => (v.vocabulary.unread = [{ path: "a" }])],
+  ["notAnalysed", (v: Loose) => (v.vocabulary.notAnalysed = "3")],
+  ["a pin without its text", (v: Loose) => delete v.vocabulary.terms[0].pins[0].written],
+  ["a pin's range", (v: Loose) => (v.vocabulary.terms[0].pins[0].range = { start: 1 })],
+  ["a term's spellings", (v: Loose) => (v.vocabulary.terms[0].spellings = "x")],
+  ["a dropped term", (v: Loose) => (v.vocabulary.dropped.terms = [{ key: 1 }])],
+  ["unknown's reason", (v: Loose) => (v.vocabulary.reason = 5)],
+  ["coverage", (v: Loose) => delete v.coverage.of],
+  ["the repository name", (v: Loose) => delete v.repo],
+  ["a file digest", (v: Loose) => (v.files["package.json"] = 7)],
+])("a stored record missing %s is replaced, never trusted, and the report does not throw", async (_name, damage) => {
+  const dir = repo(files);
+  const cacheDir = temp("streets-cache-");
+  const first = await setUp({ dir, cacheDir });
+  const stored = JSON.parse(readFileSync(first.file, "utf8"));
+  damage(stored);
+  writeFileSync(first.file, JSON.stringify(stored));
+  expect(await vocabularyNotice(dir, cacheDir)).toMatch(/could not be read/);
+  const second = await setUp({ dir, cacheDir });
+  expect(second.work).toBe("replaced unreadable");
+  expect(() => reportLines(second)).not.toThrow();
+  expect(reportLines(second).join("\n")).toMatch(/could not be read/);
+  const third = await setUp({ dir, cacheDir });
+  expect(third.work).toBe("unchanged");
+  expect(() => reportLines(third)).not.toThrow();
+});
+
+test("paths named like properties of an object are digested and counted: __proto__, constructor, toString", async () => {
+  const dir = repo({ ...files, ["__proto__"]: "one\n", constructor: "two\n", toString: "three\n" });
+  const cacheDir = temp("streets-cache-");
+  const first = await setUp({ dir, cacheDir });
+  const stored = JSON.parse(readFileSync(first.file, "utf8"));
+  for (const name of ["__proto__", "constructor", "toString"]) expect(Object.hasOwn(stored.files, name)).toBe(true);
+  expect((await setUp({ dir, cacheDir })).work).toBe("unchanged");
+  git(dir, "rm", "--quiet", "constructor");
+  commit(dir, { ["__proto__"]: "one, edited\n", "src/new.ts": "export const fresh = 1;\n" });
+  const second = await setUp({ dir, cacheDir });
+  expect(second.files).toEqual({ added: 1, changed: 1, removed: 1 });
+  expect(Object.keys(JSON.parse(readFileSync(first.file, "utf8")).files)).toContain("__proto__");
+});
+
+test("a repository name or a base shaped like a secret is not stored, printed or used as the file name", async () => {
+  const secret = "ghp_1234567890abcdefABCDEF1234567890abcd";
+  const dir = join(temp("streets-parent-"), secret);
+  mkdirSync(dir);
+  git(dir, "init", "--quiet", "--initial-branch=main");
+  commit(dir, files);
+  git(dir, "branch", `feature/${secret}`);
+  const cacheDir = temp("streets-cache-");
+  const result = await setUp({ dir, cacheDir, ref: `feature/${secret}` });
+  expect(readdirSync(join(cacheDir, "vocabulary")).join()).not.toContain("ghp_");
+  expect(readdirSync(join(cacheDir, "vocabulary"))).toHaveLength(1);
+  const raw = readFileSync(result.file, "utf8");
+  expect(raw).not.toContain("1234567890abcdef");
+  expect(reportLines(result).join("\n")).not.toContain("1234567890abcdef");
+  expect(result.stored.repo).toMatch(/^withheld/);
+  expect(result.stored.base.ref).toMatch(/^withheld/);
+  expect((await setUp({ dir, cacheDir, ref: `feature/${secret}` })).work).toBe("unchanged");
+  await expect(setUp({ dir, cacheDir, ref: `nope/${secret}` })).rejects.toThrow(/unknown base "withheld:[0-9a-f]+"/);
+});
+
+test("compare's notice says older rules for an older extractor too", async () => {
+  const dir = repo(files);
+  const cacheDir = temp("streets-cache-");
+  const result = await setUp({ dir, cacheDir });
+  const stored = JSON.parse(readFileSync(result.file, "utf8"));
+  stored.extractorVersion = "0";
+  writeFileSync(result.file, JSON.stringify(stored));
+  expect(await vocabularyNotice(dir, cacheDir)).toMatch(/older rules.*extractor.*streets setup/);
+  stored.extractorVersion = "99999";
+  writeFileSync(result.file, JSON.stringify(stored));
+  expect(await vocabularyNotice(dir, cacheDir)).toMatch(/newer rules.*extractor.*streets setup/);
 });
 
 test("compare's notice says the vocabulary is missing, then says nothing once setup has run, and flags an old table", async () => {

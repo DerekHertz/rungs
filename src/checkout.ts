@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { lstat, mkdtemp, readFile, readlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
@@ -131,13 +131,49 @@ export async function readBase(dir: string, ref: string): Promise<Base> {
 
 /**
  * What `ref` itself holds, not the merge base `readBase` finds: the tip of a branch. For what is
- * stored once per repository rather than compared against a head.
+ * stored once per repository rather than compared against a head. The files are read from git's
+ * objects as they are stored: no checkout, so no smudge filter, attribute-driven conversion or
+ * other program the repository's configuration names ever runs.
  */
 export async function readRef(dir: string, ref: string): Promise<Base> {
   const prefix = await prefixOf(dir);
   const tip = await git(dir, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`]);
   if (tip === undefined) throw new BaseUnavailable("unknown-ref", `unknown base "${ref}": not a commit in ${dir}`);
-  return readCommit(dir, tip.trim(), prefix);
+  const commit = tip.trim();
+  const entries = await listCommit(dir, commit, prefix);
+  const blobs = await readBlobs(dir, entries.map((entry) => entry.sha));
+  const tree = new Map<string, string>();
+  for (const entry of entries) tree.set(entry.path, blobs.get(entry.sha)!);
+  return { commit, tree, executable: executableOf(entries, tree) };
+}
+
+const executableOf = (entries: readonly Entry[], tree: FileTree): ReadonlySet<string> => new Set(entries.filter((entry) => entry.executable && tree.has(entry.path)).map((entry) => entry.path));
+
+/** The text of each blob by its object name, from `git cat-file --batch`: the stored bytes, with no filter applied. */
+async function readBlobs(dir: string, shas: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(shas)];
+  const out = await new Promise<Buffer>((resolve, reject) => {
+    const child = spawn("git", [...SAFE, "cat-file", "--batch"], { cwd: dir, stdio: ["pipe", "pipe", "pipe"] });
+    const chunks: Buffer[] = [];
+    let err = "";
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => (err += chunk));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`cannot read the files of ${dir}: ${err.trim() || `git exited ${code}`}`))));
+    child.stdin.on("error", () => {});
+    child.stdin.end(unique.map((sha) => `${sha}\n`).join(""));
+  });
+  const blobs = new Map<string, string>();
+  let at = 0;
+  for (const sha of unique) {
+    const end = out.indexOf(0x0a, at);
+    const header = end < 0 ? [] : out.toString("utf8", at, end).split(" ");
+    if (header[0] !== sha || header[1] !== "blob") throw new Error(`cannot read the files of ${dir}: git has no file ${sha}`);
+    const size = Number(header[2]);
+    blobs.set(sha, out.toString("utf8", end + 1, end + 1 + size));
+    at = end + 1 + size + 1;
+  }
+  return blobs;
 }
 
 async function readCommit(dir: string, commit: string, prefix: string): Promise<Base> {
@@ -149,7 +185,7 @@ async function readCommit(dir: string, commit: string, prefix: string): Promise<
       if (text !== undefined) tree.set(entry.path, text);
     }
   });
-  return { commit, tree, executable: new Set(entries.filter((entry) => entry.executable && tree.has(entry.path)).map((entry) => entry.path)) };
+  return { commit, tree, executable: executableOf(entries, tree) };
 }
 
 interface Entry {
@@ -159,6 +195,8 @@ interface Entry {
   readonly full: string;
   /** Git's mode for the path is 100755. */
   readonly executable: boolean;
+  /** The blob's object name. */
+  readonly sha: string;
 }
 
 async function prefixOf(dir: string): Promise<string> {
@@ -217,10 +255,10 @@ async function listCommit(dir: string, commit: string, prefix: string): Promise<
   for (const record of listed.split("\0")) {
     const tab = record.indexOf("\t");
     if (tab < 0) continue;
-    const [mode, type] = record.slice(0, tab).split(" ");
+    const [mode, type, sha] = record.slice(0, tab).split(" ");
     if (type !== "blob") continue;
     const full = record.slice(tab + 1);
-    entries.push({ path: full.slice(prefix.length), full, executable: mode === "100755" });
+    entries.push({ path: full.slice(prefix.length), full, executable: mode === "100755", sha: sha! });
   }
   return entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }

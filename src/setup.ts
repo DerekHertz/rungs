@@ -98,7 +98,9 @@ async function repoIdentity(dir: string): Promise<Identity> {
   const prefix = await git(dir, ["rev-parse", "--show-prefix"]);
   if (common === undefined || prefix === undefined) throw new Error(`${dir} is not a git repository`);
   const gitDir = await realpath(resolve(dir, common));
-  const name = (basename(gitDir) === ".git" ? basename(dirname(gitDir)) : basename(gitDir)).replace(/[^\w.-]+/g, "_");
+  const called = basename(gitDir) === ".git" ? basename(dirname(gitDir)) : basename(gitDir);
+  // A name shaped like a secret is neither stored nor made a file name: the hash alone tells the repositories apart.
+  const name = looksSecret(called) ? "withheld" : called.replace(/[^\w.-]+/g, "_");
   const hash = createHash("sha256").update(JSON.stringify([gitDir, prefix])).digest("hex").slice(0, 12);
   return { name, key: `${name}-${hash}` };
 }
@@ -122,6 +124,53 @@ export function storedPath(path: string): string {
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isCount = (value: unknown): boolean => typeof value === "number" && Number.isInteger(value) && value >= 0;
+const isText = (value: unknown): boolean => typeof value === "string";
+const isList = (value: unknown, each: (one: unknown) => boolean): boolean => Array.isArray(value) && value.every(each);
+const hasFields = (value: unknown, fields: Readonly<Record<string, (field: unknown) => boolean>>): boolean =>
+  isRecord(value) && Object.entries(fields).every(([name, holds]) => holds(value[name]));
+const isRange = (value: unknown): boolean => value === null || hasFields(value, { start: isCount, end: isCount });
+
+const SKIPPED = ["tooLong", "withheld", "notAWord", "hiddenFolders", "generated", "notLiteral", "wildcard"];
+const SOURCES = ["heading", "folder", "export", "test", "package description"];
+
+/**
+ * The name of the first thing wrong with a stored record, or undefined when it is whole. Everything the report and the
+ * later steps read is checked, so a file edited or cut short is replaced and never half trusted.
+ */
+function problemWith(whole: Record<string, unknown>): string | undefined {
+  const checks: [string, boolean][] = [
+    ["repo", isText(whole.repo)],
+    ["tier", whole.tier === "derived"],
+    ["base", hasFields(whole.base, { ref: isText, commit: isText })],
+    ["extractorVersion", isText(whole.extractorVersion)],
+    ["files", isRecord(whole.files) && Object.values(whole.files).every(isText)],
+    ["pathsWithheld", isCount(whole.pathsWithheld)],
+    ["coverage", hasFields(whole.coverage, { of: isCount, mapped: (one) => one === 0, measured: (one) => one === false })],
+    ["vocabulary", isRecord(whole.vocabulary)],
+  ];
+  const failed = checks.find(([, ok]) => !ok);
+  if (failed !== undefined) return failed[0];
+  const v = whole.vocabulary as Record<string, unknown>;
+  const term = (one: unknown): boolean =>
+    hasFields(one, {
+      key: isText,
+      name: isText,
+      spellings: (field) => isList(field, isText),
+      pins: (pins) => isList(pins, (pin) => hasFields(pin, { source: (source) => typeof source === "string" && SOURCES.includes(source), path: isText, range: isRange, written: isText })),
+    });
+  const vocabulary: [string, boolean][] = [
+    ["vocabulary.tableVersion", isCount(v.tableVersion)],
+    ["vocabulary.status", v.status === "found" || v.status === "none" || v.status === "unknown"],
+    ["vocabulary.terms", isList(v.terms, term)],
+    ["vocabulary.dropped", hasFields(v.dropped, { count: isCount, terms: (terms) => isList(terms, (one) => hasFields(one, { key: isText, name: isText, rule: (rule) => rule === "short" || rule === "generic" })) })],
+    ["vocabulary.skipped", hasFields(v.skipped, Object.fromEntries(SKIPPED.map((name) => [name, isCount])))],
+    ["vocabulary.unread", isList(v.unread, (one) => hasFields(one, { path: isText, reason: isText }))],
+    ["vocabulary.notAnalysed", isCount(v.notAnalysed)],
+    ["vocabulary.reason", v.reason === undefined || isText(v.reason)],
+  ];
+  return vocabulary.find(([, ok]) => !ok)?.[0];
+}
 
 type Previous =
   | { readonly kind: "missing" }
@@ -144,38 +193,29 @@ async function readStored(file: string): Promise<Previous> {
   }
   if (!isRecord(whole)) return { kind: "unreadable", why: "it is not a JSON object" };
   if (whole.format !== FORMAT) return { kind: "unreadable", why: `it has format ${JSON.stringify(whole.format)}, not ${FORMAT}` };
-  const { vocabulary, files, base } = whole;
-  const shaped =
-    isRecord(vocabulary) &&
-    typeof vocabulary.tableVersion === "number" &&
-    (vocabulary.status === "found" || vocabulary.status === "none" || vocabulary.status === "unknown") &&
-    Array.isArray(vocabulary.terms) &&
-    isRecord(files) &&
-    Object.values(files).every((digest) => typeof digest === "string") &&
-    isRecord(base) &&
-    typeof base.commit === "string" &&
-    typeof base.ref === "string" &&
-    typeof whole.extractorVersion === "string" &&
-    isRecord(whole.coverage);
-  if (!shaped) return { kind: "unreadable", why: "it is not shaped as a vocabulary" };
+  const problem = problemWith(whole);
+  if (problem !== undefined) return { kind: "unreadable", why: `it is not shaped as a vocabulary: ${problem} is missing or wrong` };
   return { kind: "ok", stored: whole as unknown as StoredVocabulary, whole };
 }
 
-/** The base's files as stored: stored path to the digest of its text. */
-function digestsOf(tree: FileTree): Record<string, string> {
-  const files: Record<string, string> = {};
-  for (const path of [...tree.keys()].sort()) files[storedPath(path)] = digestOf(tree.get(path)!);
+/** The base's files as stored: stored path to the digest of its text. A Map, since a path may be named like a property of an object ("__proto__", "constructor"). */
+function digestsOf(tree: FileTree): Map<string, string> {
+  const files = new Map<string, string>();
+  for (const path of [...tree.keys()].sort()) files.set(storedPath(path), digestOf(tree.get(path)!));
   return files;
 }
 
-function countChanges(before: Readonly<Record<string, string>>, after: Readonly<Record<string, string>>): { added: number; changed: number; removed: number } {
+function countChanges(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): { added: number; changed: number; removed: number } {
   let added = 0;
   let changed = 0;
-  for (const [path, digest] of Object.entries(after)) {
-    if (!(path in before)) added++;
-    else if (before[path] !== digest) changed++;
+  let removed = 0;
+  for (const [path, digest] of after) {
+    const was = before.get(path);
+    if (was === undefined) added++;
+    else if (was !== digest) changed++;
   }
-  return { added, changed, removed: Object.keys(before).filter((path) => !(path in after)).length };
+  for (const path of before.keys()) if (!after.has(path)) removed++;
+  return { added, changed, removed };
 }
 
 /** The vocabulary with every path made storable: a term's pins and the unread list name no secret-shaped path. */
@@ -195,10 +235,16 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
   const { collect = collectVocabulary, graphOf = extract } = deps;
   const identity = await repoIdentity(dir);
   const file = fileFor(cacheDir, identity.key);
-  const ref = request.ref ?? (await defaultRef(dir));
-  const base = await readRef(dir, ref);
+  const asked = request.ref ?? (await defaultRef(dir));
+  // What is stored and printed names a ref shaped like a secret by a stand-in.
+  const ref = storedPath(asked);
+  const base = await readRef(dir, asked).catch((error: unknown) => {
+    if (error instanceof Error && ref !== asked) error.message = error.message.split(asked).join(ref);
+    throw error;
+  });
   const files = digestsOf(base.tree);
   const previous = await readStored(file);
+  const before = previous.kind === "ok" ? new Map(Object.entries(previous.stored.files)) : new Map<string, string>();
 
   let work: SetupWork = "first setup";
   let why: string | undefined;
@@ -215,7 +261,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
       work = "rules changed";
       why = `the extractor went from version ${stored.extractorVersion} to ${EXTRACTOR_VERSION}`;
     } else {
-      const changes = countChanges(stored.files, files);
+      const changes = countChanges(before, files);
       if (changes.added + changes.changed + changes.removed === 0) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
       work = "rebuilt";
     }
@@ -230,8 +276,8 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     repo: identity.name,
     base: { ref, commit: base.commit },
     extractorVersion: graph.extractorVersion,
-    files,
-    pathsWithheld: Object.keys(files).filter((path) => path.startsWith("withheld:")).length,
+    files: Object.fromEntries(files),
+    pathsWithheld: [...files.keys()].filter((path) => path.startsWith("withheld:")).length,
     coverage: { of: graph.nodes.filter((node) => node.level === "file" && node.analysis === "analysed").length, mapped: 0, measured: false },
     vocabulary: storable(vocabulary),
   };
@@ -251,7 +297,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     ref,
     stored,
     ...(why === undefined ? {} : { why }),
-    ...(previous.kind === "ok" ? { previousCommit: previous.stored.base.commit, ...(work === "rebuilt" ? { files: countChanges(previous.stored.files, files) } : {}) } : {}),
+    ...(previous.kind === "ok" ? { previousCommit: previous.stored.base.commit, ...(work === "rebuilt" ? { files: countChanges(before, files) } : {}) } : {}),
   };
 }
 
@@ -318,7 +364,9 @@ export async function vocabularyNotice(dir: string, cacheDir: string): Promise<s
   const previous = await readStored(fileFor(cacheDir, identity.key));
   if (previous.kind === "missing") return "no vocabulary for this repository, so the page speaks in files and not in terms: run `streets setup` to build one";
   if (previous.kind === "unreadable") return `the stored vocabulary could not be read (${previous.why}): run \`streets setup\` to build it again`;
-  const table = previous.stored.vocabulary.tableVersion;
-  if (table !== VOCABULARY_TABLE_VERSION) return `the stored vocabulary was built with ${table < VOCABULARY_TABLE_VERSION ? "older" : "newer"} rules (table ${table}, this version uses ${VOCABULARY_TABLE_VERSION}): run \`streets setup\` to build it again`;
-  return undefined;
+  const { tableVersion } = previous.stored.vocabulary;
+  const { extractorVersion } = previous.stored;
+  const rules = tableVersion !== VOCABULARY_TABLE_VERSION ? [tableVersion < VOCABULARY_TABLE_VERSION, `table ${tableVersion}, this version uses ${VOCABULARY_TABLE_VERSION}`] : extractorVersion !== EXTRACTOR_VERSION ? [Number(extractorVersion) < Number(EXTRACTOR_VERSION), `extractor ${extractorVersion}, this version uses ${EXTRACTOR_VERSION}`] : undefined;
+  if (rules === undefined) return undefined;
+  return `the stored vocabulary was built with ${rules[0] ? "older" : "newer"} rules (${rules[1]}): run \`streets setup\` to build it again`;
 }
