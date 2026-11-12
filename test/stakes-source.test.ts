@@ -5,7 +5,7 @@ import { effectSets } from "../src/effects.ts";
 import { HARM_CATALOGUE, HARM_CATALOGUE_VERSION, harmKind } from "../src/harm-catalogue.ts";
 import type { HarmKind } from "../src/harm-catalogue.ts";
 import { collectVocabulary } from "../src/vocabulary.ts";
-import { jevCost } from "../src/jev/client.ts";
+import { JevError, jevCost } from "../src/jev/client.ts";
 import type { JevClient, JevRequest, JevResponse } from "../src/jev/client.ts";
 import { judgeMemberships, narrow, unitsOf } from "../src/jev/membership-source.ts";
 import { memberships as buildMemberships } from "../src/memberships.ts";
@@ -13,6 +13,7 @@ import type { StoredMemberships } from "../src/memberships.ts";
 import { MAX_MEMBERS_SHOWN, MAX_MEMBER_LINES, STAKES_THRESHOLDS, stakesGate } from "../src/jev/stakes-gate.ts";
 import { MAX_STAKES_PAIRS, answerByCode, effectReader, judgeStakes, membersDigest, stakePairKey, stakesInputOf, termMembers } from "../src/jev/stakes-source.ts";
 import type { FactReader, TermMembers } from "../src/jev/stakes-source.ts";
+import { stakeStatus } from "../src/stakes.ts";
 import type { StakeRecord } from "../src/stakes.ts";
 
 const secret = "ghp_1234567890abcdefABCDEF1234567890abcd";
@@ -259,4 +260,62 @@ test("the default reader says yes for an effect a member's own calls make and ne
   expect(read("effects on the network", charge)).toBe(true);
   expect(read("effects on the network", place)).toBeUndefined();
   expect(read("dependency changes", charge)).toBeUndefined();
+});
+
+test("a no over some of a term's members is stored as incomplete: 7 members with 6 shown, and a member whose mapping is not known", async () => {
+  const many: Record<string, string> = { "docs/guide.md": "# Order flow\n\nHow an order moves.\n" };
+  for (let n = 0; n < MAX_MEMBERS_SHOWN + 1; n++) many[`src/orders/o${n}.ts`] = `function placeOrder${n}(): void {}\n`;
+  const world = await judged(many, () => 0.97);
+  const entry = [...world.members.values()].find((one) => one.term.name === "Order flow")!;
+  expect(entry.members).toHaveLength(MAX_MEMBERS_SHOWN + 1);
+  const out = await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: clientOf(() => answer(0.01)), kinds: [harmKind("privacy")!] });
+  const record = out.records.find((one) => one.term === entry.term.key)!;
+  expect(record).toMatchObject({ verdict: "settled", members: MAX_MEMBERS_SHOWN + 1, shownMembers: MAX_MEMBERS_SHOWN, complete: false });
+  expect(stakeStatus(record)).toBe("judged no over some members");
+  // A yes over some members stays a yes.
+  const yes = await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: clientOf(() => answer(0.99)), kinds: [harmKind("privacy")!] });
+  expect(stakeStatus(yes.records.find((one) => one.term === entry.term.key)!)).toBe("could cause");
+  // Fewer members than the cap, every mapping known: complete.
+  const small = await judged();
+  const whole = await judgeStakes({ terms: small.members, tree: small.tree, previous: new Map(), client: clientOf(() => answer(0.01)), kinds: [harmKind("privacy")!] });
+  expect(whole.records.every((one) => one.complete && stakeStatus(one) === "judged no")).toBe(true);
+
+  const world2 = read(shop);
+  const narrowed = narrow(world2.units, world2.terms, world2.tree);
+  const flaky = membershipClient((term, unit) => (term === "Order flow" && unit === "placeOrder" ? 0.97 : 0.03));
+  const outcome = await judgeMemberships({
+    pairs: narrowed.pairs,
+    tree: world2.tree,
+    previous: new Map(),
+    client: { model: "fake-1", ask: (request) => (/function cancelOrder/.test(request.state.code ?? "") && /Term: Order flow/.test(request.state.term ?? "") ? Promise.reject(new Error("down")) : flaky.ask(request)) },
+  });
+  const members = termMembers(buildMemberships(world2.units, narrowed, outcome, "fake-1"), world2.units, world2.terms);
+  const order = [...members.values()].find((one) => one.term.name === "Order flow")!;
+  expect(order.members).toHaveLength(1);
+  expect(order.unknown).toBeGreaterThan(0);
+  const partial = await judgeStakes({ terms: members, tree: world2.tree, previous: new Map(), client: clientOf(() => answer(0.01)), kinds: [harmKind("privacy")!] });
+  const one = partial.records.find((record) => record.term === order.term.key)!;
+  expect(one.complete).toBe(false);
+  expect(stakeStatus(one)).toBe("judged no over some members");
+});
+
+test("an answer already stored is not reused when its question id is not the stakes gate's", async () => {
+  const world = await judged();
+  const first = await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: clientOf(() => answer(0.03)) });
+  const previous = new Map<string, StakeRecord>(first.records.map((record) => [stakePairKey(record.term, record.kind), { ...record, question: { ...record.question, id: "membership" } }]));
+  const again = clientOf(() => answer(0.03));
+  const out = await judgeStakes({ terms: world.members, tree: world.tree, previous, client: again });
+  expect(out.reused).toBe(0);
+  expect(again.requests).toHaveLength(first.records.length);
+});
+
+test("a request that was sent and got no usage is cost unknown, a request that was never sent is not", async () => {
+  const world = await judged();
+  const total = withMembers(world.members).length * judgeKinds.length;
+  const timedOut = { model: "fake-1", ask: () => Promise.reject(new JevError("timeout", "Jev did not answer within 60s")) } satisfies JevClient;
+  const sent = await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: timedOut });
+  expect(sent.costUnknown).toBe(total);
+  expect(sent.usd).toBe(0);
+  const unsent = { model: "fake-1", ask: () => Promise.reject(new JevError("no-key", "no TYPESAFE_API_KEY in the environment")) } satisfies JevClient;
+  expect((await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: unsent })).costUnknown).toBe(0);
 });

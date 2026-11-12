@@ -297,6 +297,9 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
   const previous = await readStored(file);
   const before = previous.kind === "ok" ? new Map(Object.entries(previous.stored.files)) : new Map<string, string>();
 
+  // Which kinds of harm may be asked about is looked at on every run, the one that finds nothing to redo included.
+  let chosen: KindChoice | undefined;
+  const currentChoice = async (): Promise<KindChoice> => (chosen ??= deps.kindChoice ?? chosenKinds(await readKindsFile()));
   let work: SetupWork = "first setup";
   let why: string | undefined;
   if (previous.kind === "unreadable") {
@@ -314,8 +317,10 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     } else {
       const changes = countChanges(before, files);
       // Nothing to redo, and no model to ask: nothing is built or written.
-      // A catalogue, question or threshold change under stored stakes is work to do even then: they go stale.
-      if (changes.added + changes.changed + changes.removed === 0 && request.judge === undefined && (stored.stakes === undefined || stakesAreCurrent(stored.stakes))) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
+      // A catalogue, question or threshold change under stored stakes is work to do even then: they go stale. So is a
+      // change in which kinds may be asked about: a kind that is no longer adopted keeps no stake counted.
+      const stakesHold = stored.stakes === undefined || (stakesAreCurrent(stored.stakes) && JSON.stringify(stored.stakes.kinds) === JSON.stringify(await currentChoice()));
+      if (changes.added + changes.changed + changes.removed === 0 && request.judge === undefined && stakesHold) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
       work = changes.added + changes.changed + changes.removed === 0 ? "unchanged" : "rebuilt";
     }
   }
@@ -342,7 +347,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     // Stakes are judged over the memberships just made: a term's code is the functions mapped to it now.
     if (request.judge !== undefined || priorStakes !== undefined) {
       const entries = termMembers(held!, units, vocabulary.terms);
-      const choice = deps.kindChoice ?? chosenKinds(await readKindsFile());
+      const choice = await currentChoice();
       if (request.judge === undefined) heldStakes = reconcileStakes(priorStakes!, entries, base.tree, choice);
       else {
         const maxStakePairs = deps.maxStakePairs ?? MAX_STAKES_PAIRS;

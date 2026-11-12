@@ -1,11 +1,12 @@
 import { HARM_CATALOGUE_VERSION, harmKind } from "./harm-catalogue.ts";
+import { requestFor } from "./jev/gate.ts";
 import type { JevAnswer, JevRequest } from "./jev/client.ts";
 import type { Thresholds, Verdict } from "./jev/gate.ts";
 import type { FileTree } from "./graph.ts";
 import { answersCover } from "./jev/membership-gate.ts";
 import { termDigest } from "./jev/membership-source.ts";
 import { STAKES_THRESHOLDS, stakesGate } from "./jev/stakes-gate.ts";
-import { membersDigest, stakePairKey } from "./jev/stakes-source.ts";
+import { isComplete, membersDigest, stakePairKey } from "./jev/stakes-source.ts";
 import type { JudgeStakesOutcome, TermMembers } from "./jev/stakes-source.ts";
 import { hasFields, isAnswer, isCount, isList, isNumberMap, isRecord, isText } from "./memberships.ts";
 import type { Term } from "./vocabulary.ts";
@@ -37,6 +38,11 @@ export interface StakeRecord {
   /** How many members the term had, and how many of them were shown. */
   readonly members: number;
   readonly shownMembers: number;
+  /**
+   * Whether the answer covers all of the term's code: every mapped member was shown and no pair of the
+   * term was unknown. A no (settled) over less than that is a no over some members, never none.
+   */
+  readonly complete: boolean;
   readonly question: { readonly id: string; readonly version: string };
   /** The exact request Jev was sent. */
   readonly shown: JevRequest;
@@ -59,6 +65,8 @@ export interface DerivedStake {
   readonly catalogueVersion: number;
   readonly membersDigest: string;
   readonly members: number;
+  /** Whether every pair of the term was known: a no over some members is not none. */
+  readonly complete: boolean;
   readonly answer: "yes" | "no";
   /** The derived facts that gave the answer. */
   readonly facts: readonly string[];
@@ -133,7 +141,14 @@ function isConsistent(record: unknown): boolean {
   if (!isRecord(record) || !isRecord(record.shown) || !isRecord(record.shown.questions) || !isRecord(record.answers) || !isRecord(record.question) || !isNumberMap(record.thresholds)) return true;
   const names = Object.keys(record.shown.questions);
   if (names.length === 0 || !answersCover(record.answers as Record<string, JevAnswer>, names)) return false;
-  if (record.question.id !== stakesGate.id || record.question.version !== stakesGate.version) return true;
+  // Another gate's question is damage, not an old version: a stake is only ever the stakes gate's answer.
+  if (record.question.id !== stakesGate.id) return false;
+  if (record.question.version !== stakesGate.version) return true;
+  // For the current question and catalogue, what Jev was shown is the question of the record's own kind.
+  if (record.catalogueVersion === HARM_CATALOGUE_VERSION) {
+    if (typeof record.kind !== "string" || harmKind(record.kind) === undefined) return false;
+    if (JSON.stringify(record.shown.questions) !== JSON.stringify(requestFor(stakesGate, { kind: record.kind, term: { name: "", pins: [], omittedPins: 0 }, members: [], omittedMembers: 0 }).questions)) return false;
+  }
   return stakesGate.decide(record.answers as Record<string, JevAnswer>, record.thresholds as Thresholds) === record.verdict;
 }
 
@@ -163,6 +178,7 @@ export function problemWithStakes(value: unknown): string | undefined {
             termDigest: text,
             members: isCount,
             shownMembers: isCount,
+            complete: (complete) => typeof complete === "boolean",
             question: (question) => hasFields(question, { id: text, version: text }),
             shown: (shown) => hasFields(shown, { state: isRecord, questions: isRecord }),
             answers: (answers) => isRecord(answers) && Object.values(answers).every(isAnswer),
@@ -186,6 +202,7 @@ export function problemWithStakes(value: unknown): string | undefined {
             catalogueVersion: isCount,
             membersDigest: text,
             members: isCount,
+            complete: (complete) => typeof complete === "boolean",
             answer: (answer) => answer === "yes" || answer === "no",
             facts: (list) => isList(list, text),
             stale: (stale) => stale === undefined || text(stale),
@@ -198,7 +215,7 @@ export function problemWithStakes(value: unknown): string | undefined {
 
 /* ---- what a pair, a term and a kind are ---- */
 
-export type StakeStatus = "could cause" | "judged no" | "unclear" | "stale" | "not judged";
+export type StakeStatus = "could cause" | "judged no" | "judged no over some members" | "unclear" | "stale" | "not judged";
 
 /**
  * A record's status. A stale answer is never a yes, a no or unclear: it is stale. No record is
@@ -206,11 +223,12 @@ export type StakeStatus = "could cause" | "judged no" | "unclear" | "stale" | "n
  */
 export function stakeStatus(record: StakeRecord | DerivedStake | undefined): StakeStatus {
   if (record === undefined) return "not judged";
-  if (record.tier === "derived") return record.stale !== undefined ? "stale" : record.answer === "yes" ? "could cause" : "judged no";
+  if (record.tier === "derived") return record.stale !== undefined ? "stale" : record.answer === "yes" ? "could cause" : record.complete ? "judged no" : "judged no over some members";
   // A record that lacks a readable answer is unknown, never unclear (validation refuses to store one; this is the guard behind it).
   if (!answersCover(record.answers, Object.keys(record.shown.questions))) return "not judged";
   if (record.stale !== undefined) return "stale";
-  return record.verdict === "flagged" ? "could cause" : record.verdict === "settled" ? "judged no" : "unclear";
+  // A yes over some members stays a yes; a no over some members is not none: for what reads it, unknown.
+  return record.verdict === "flagged" ? "could cause" : record.verdict === "settled" ? (record.complete ? "judged no" : "judged no over some members") : "unclear";
 }
 
 const plural = (count: number, one: string, many = `${one}s`): string => `${count} ${count === 1 ? one : many}`;
@@ -218,12 +236,13 @@ const plural = (count: number, one: string, many = `${one}s`): string => `${coun
 interface KindCounts {
   couldCause: number;
   judgedNo: number;
+  judgedNoSome: number;
   unclear: number;
   stale: number;
   notJudged: number;
   cut: number;
 }
-const noCounts = (): KindCounts => ({ couldCause: 0, judgedNo: 0, unclear: 0, stale: 0, notJudged: 0, cut: 0 });
+const noCounts = (): KindCounts => ({ couldCause: 0, judgedNo: 0, judgedNoSome: 0, unclear: 0, stale: 0, notJudged: 0, cut: 0 });
 
 export interface StakesSummary {
   readonly terms: number;
@@ -240,13 +259,15 @@ export interface StakesSummary {
 
 /** Counts what the stored stakes say, from the terms and the records. */
 export function summarizeStakes(stored: StoredStakes): StakesSummary {
-  const records = new Map<string, StakeRecord | DerivedStake>([...stored.records, ...stored.derived].map((record) => [stakePairKey(record.term, record.kind), record]));
+  // Only kinds the run was allowed to ask are counted: an answer kept for a kind that is not adopted is not a stake.
+  const asked = new Set(stored.kinds.asked);
+  const records = new Map<string, StakeRecord | DerivedStake>([...stored.records, ...stored.derived].filter((record) => asked.has(record.kind)).map((record) => [stakePairKey(record.term, record.kind), record]));
   const byKind = new Map<string, KindCounts>(stored.kinds.asked.map((id) => [id, noCounts()]));
   const pairs = noCounts();
   let withMembers = 0;
   let incomplete = 0;
   const kept = new Map<string, (StakeRecord | DerivedStake)[]>();
-  for (const record of [...stored.records, ...stored.derived]) kept.set(record.term, [...(kept.get(record.term) ?? []), record]);
+  for (const record of [...stored.records, ...stored.derived].filter((one) => asked.has(one.kind))) kept.set(record.term, [...(kept.get(record.term) ?? []), record]);
   for (const term of stored.terms) {
     if (term.members === 0) {
       // A term with no current member has no stake; an answer kept from when it had one is stale, and counted as that.
@@ -261,7 +282,7 @@ export function summarizeStakes(stored: StoredStakes): StakesSummary {
     if (term.unknown > 0) incomplete += 1;
     for (const id of term.asked) {
       const status = stakeStatus(records.get(stakePairKey(term.key, id)));
-      const field = status === "could cause" ? "couldCause" : status === "judged no" ? "judgedNo" : status === "unclear" ? "unclear" : status === "stale" ? "stale" : "notJudged";
+      const field = status === "could cause" ? "couldCause" : status === "judged no" ? "judgedNo" : status === "judged no over some members" ? "judgedNoSome" : status === "unclear" ? "unclear" : status === "stale" ? "stale" : "notJudged";
       pairs[field] += 1;
       const kind = byKind.get(id);
       if (kind !== undefined) kind[field] += 1;
@@ -337,7 +358,9 @@ export function reconcileStakes(previous: StoredStakes, entries: ReadonlyMap<str
                     : undefined;
       const { stale, ...rest } = record;
       void stale;
-      return [(why === undefined ? rest : { ...rest, stale: why }) as T];
+      const unknown = entries.get(record.term)!.unknown;
+      const complete = record.tier === "judged" ? isComplete(record.members, record.shownMembers, unknown) : unknown === 0;
+      return [(why === undefined ? { ...rest, complete } : { ...rest, complete, stale: why }) as T];
     });
   const old = new Map(previous.terms.map((term) => [term.key, term]));
   return {
@@ -373,15 +396,16 @@ export function stakesLines(stored: StoredStakes | undefined, terms: readonly Pi
   lines.push(`    kinds judged: ${asked} of ${total}`);
   for (const one of stored.kinds.notJudged) lines.push(`    kind not judged: ${harmKind(one.id)?.name ?? one.id} (${one.reason})`);
   const { pairs } = summary;
-  lines.push(`    pairs: ${pairs.couldCause} could cause, ${pairs.judgedNo} judged no, ${pairs.unclear} unclear, ${pairs.stale} stale, ${pairs.notJudged} not judged, ${pairs.cut} left out by the cap of ${stored.limit.maxPairs} per run`);
+  lines.push(`    pairs: ${pairs.couldCause} could cause, ${pairs.judgedNo} judged no, ${pairs.judgedNoSome} judged no over some members, ${pairs.unclear} unclear, ${pairs.stale} stale, ${pairs.notJudged} not judged, ${pairs.cut} left out by the cap of ${stored.limit.maxPairs} per run`);
   if (note !== undefined) {
-    const cost = note.costUnknown > 0 ? `cost unknown for ${plural(note.costUnknown, "call")}${note.usd > 0 ? `, ${money(note.usd)} for the rest` : ""}` : `cost ${money(note.usd)}`;
+    // A request that was sent and got no usage may have been charged: it is never counted as $0.
+    const cost = note.costUnknown > 0 ? (note.usd > 0 ? `cost at least ${money(note.usd)} (${note.costUnknown} ${note.costUnknown === 1 ? "call's" : "calls'"} cost unknown)` : `cost unknown (${plural(note.costUnknown, "call")})`) : `cost ${money(note.usd)}`;
     lines.push(`    this run: ${note.asked} asked of Jev, ${note.reused} reused, ${note.notJudged} not judged${note.firstFailure === undefined ? "" : ` (${note.firstFailure})`}, ${note.overLimit} not asked: over the limit of ${note.maxPairs} pairs; ${cost}`);
   }
   for (const id of stored.kinds.asked) {
     const one = summary.byKind.get(id)!;
     const name = harmKind(id)?.name ?? id;
-    lines.push(`    ${name}: ${one.couldCause} could cause, ${one.judgedNo} judged no, ${one.unclear} unclear, ${one.stale} stale, ${one.notJudged} not judged${one.cut > 0 ? `, ${one.cut} left out by the cap` : ""}`);
+    lines.push(`    ${name}: ${one.couldCause} could cause, ${one.judgedNo} judged no, ${one.judgedNoSome} judged no over some members, ${one.unclear} unclear, ${one.stale} stale, ${one.notJudged} not judged${one.cut > 0 ? `, ${one.cut} left out by the cap` : ""}`);
   }
   const unknownNames = stored.terms.filter((term) => term.members === 0).map((term) => names.get(term.key) ?? term.key);
   if (unknownNames.length > 0 && unknownNames.length <= 5) lines.push(`    stakes unknown for: ${unknownNames.join(", ")}`);

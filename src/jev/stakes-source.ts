@@ -88,6 +88,13 @@ export function membersDigest(members: readonly MappedMember[]): string {
   return createHash("sha256").update(JSON.stringify(rows)).digest("hex").slice(0, 32);
 }
 
+/**
+ * Whether an answer covers all of a term's code: every mapped member was shown, and no pair of the term
+ * is unknown (a member whose mapping is stale, not judged or cut may exist). A "no" over less than that
+ * is a no over some members, never none.
+ */
+export const isComplete = (members: number, shown: number, unknown: number): boolean => shown >= members && unknown === 0;
+
 /** The key of one (term, kind) pair. A Map's key: term keys come from the repository. */
 export const stakePairKey = (term: string, kind: string): string => `${term}\0${kind}`;
 
@@ -224,7 +231,7 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
       if (kind.answer !== "code") continue;
       const answer = answerByCode(kind, entry.members, reader);
       if (answer === "unknown") notJudged.push({ term: entry.term.key, kind: kind.id, reason: "the derived facts could not answer it" });
-      else derived.push({ tier: "derived", term: entry.term.key, kind: kind.id, catalogueVersion, membersDigest: digests.get(entry.term.key)!.members, members: entry.members.length, answer, facts: [...kind.facts] });
+      else derived.push({ tier: "derived", term: entry.term.key, kind: kind.id, catalogueVersion, membersDigest: digests.get(entry.term.key)!.members, members: entry.members.length, complete: entry.unknown === 0, answer, facts: [...kind.facts] });
     }
   }
   interface Pair {
@@ -259,10 +266,12 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
       old.model === client.model &&
       JSON.stringify(old.shown) === JSON.stringify(shown) &&
       JSON.stringify(old.thresholds) === JSON.stringify(thresholds) &&
+      old.question.id === question.id &&
       old.question.version === question.version &&
       answersCover(old.answers, Object.keys(shown.questions))
     ) {
-      slots[index] = fresh(old);
+      // Whether the answer covers every member is a fact about the term now: a mapping that was not known may be now.
+      slots[index] = { ...fresh(old), complete: isComplete(old.members, old.shownMembers, entry.unknown) };
       reused += 1;
     } else toAsk.push(index);
   });
@@ -279,6 +288,8 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
       const judged = await judge(client, shown);
       if (judged.status === "not judged") {
         notJudged.push({ term: entry.term.key, kind: kind.id, reason: judged.reason });
+        // A request that was sent and got no usage may have been charged: its cost is unknown, never zero. One that was never sent cost nothing.
+        if (judged.kind !== "off" && judged.kind !== "no-key") costUnknown += 1;
         kept(index, judged.reason);
         continue;
       }
@@ -301,6 +312,7 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
         termDigest: now.term,
         members: entry.members.length,
         shownMembers: input.members.length,
+        complete: isComplete(entry.members.length, input.members.length, entry.unknown),
         question,
         shown,
         answers: judged.answers,
