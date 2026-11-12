@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { effectOf, rejectedTerms } from "./corrections.ts";
+import { EMPTY_ANSWER } from "./file-card.ts";
 import type { Correction } from "./corrections.ts";
 import type { Graph } from "./graph.ts";
 import type { Narrowed, Unit } from "./jev/membership-source.ts";
@@ -84,8 +85,10 @@ export interface StoredProposals {
   readonly usd: number | null;
   /** The coverage by the repository's own words that made the model be asked. */
   readonly basis: OwnCoverage;
-  /** The proposed terms, sorted by key. */
+  /** The proposed terms, sorted by key: what the model answered, and earlier ones a person's correction still names (see `namedByCorrections`). */
   readonly terms: readonly Term[];
+  /** How many terms the model's answer held once checked. Zero is an answer: the model was asked and proposed none. */
+  readonly answered: number;
   readonly dropped: ProposalDrops;
   /** How many code files the model was shown of how many there are. */
   readonly shown: { readonly files: number; readonly of: number };
@@ -264,7 +267,7 @@ export async function proposeTerms(request: ProposeRequest): Promise<{ readonly 
     const reply = await request.runner.run({ system: ask.system, prompt: ask.user, schema: SCHEMA, timeoutMs: request.timeoutMs ?? PROPOSE_TIMEOUT_MS });
     const { terms, dropped } = readProposals(reply.output, { shown: ask.shown, ownKeys: new Set(request.own.map((term) => term.key)), rejected: request.rejected });
     const usd = typeof reply.usd === "number" && Number.isFinite(reply.usd) && reply.usd >= 0 ? reply.usd : null;
-    return { ask, outcome: { status: "proposed", proposals: { tier: "claimed", model: reply.model, asked: ask.digest, usd, basis: request.coverage, terms, dropped, shown: { files: ask.filesShown, of: ask.filesOf } } } };
+    return { ask, outcome: { status: "proposed", proposals: { tier: "claimed", model: reply.model, asked: ask.digest, usd, basis: request.coverage, terms, answered: terms.length, dropped, shown: { files: ask.filesShown, of: ask.filesOf } } } };
   } catch (error) {
     return { ask, outcome: { status: "failed", why: oneLine(error instanceof Error ? error.message : "the model call failed").slice(0, 300) } };
   }
@@ -274,8 +277,8 @@ export async function proposeTerms(request: ProposeRequest): Promise<{ readonly 
 
 /** What this setup did about proposing, for the report. Not stored. */
 export type ProposingNote =
-  /** The repository's own words reach at least half of the code. `dropped` counts proposed terms from an earlier setup that are no longer kept. */
-  | { readonly status: "not needed"; readonly coverage: OwnCoverage; readonly dropped: number }
+  /** The repository's own words reach at least half of the code. `dropped` counts proposed terms from an earlier setup that are no longer kept; `kept` counts those a person's correction names, which stay. */
+  | { readonly status: "not needed"; readonly coverage: OwnCoverage; readonly dropped: number; readonly kept: number }
   /** Below half, and the reviewer did not pass `--propose`: nothing was sent to a model. */
   | { readonly status: "not asked"; readonly coverage: OwnCoverage }
   /** `asked` is false when the stored proposals were made from what the model would be shown now: nothing was sent. */
@@ -298,16 +301,38 @@ export interface SettleRequest {
 }
 
 /**
- * Decides, once per setup, what proposed terms are kept. Code decides whether to ask (see `needsFallback`). A person's removal is
- * kept for good: a rejected term is neither taken up from an answer nor asked about again. A model call that fails keeps what
- * was there and says it failed.
+ * The keys a person's corrections name, as the term or the target of a merge: every kind of correction counts, because every one
+ * is a person's word about that term (a removal, a merge either way, a rename, a confirm, a yes or no on a function).
+ */
+export function namedByCorrections(corrections: readonly Correction[]): Set<string> {
+  const named = new Set<string>();
+  for (const correction of corrections) {
+    named.add(correction.term);
+    if (correction.kind === "merge") named.add(correction.into);
+  }
+  return named;
+}
+
+/**
+ * Decides, once per setup, what proposed terms are kept. Code decides whether to ask (see `needsFallback`). THE RULE for a
+ * person's word: a proposed term that a correction names (see `namedByCorrections`) is never dropped out from under it, whatever
+ * the refresh does: a new answer that leaves it out, coverage that has risen, or a failed call. Its stored description stays until
+ * an answer proposes the same key again. A term no correction names is the model's to change. A person's removal is kept for
+ * good: a rejected term is neither taken up from an answer nor asked about again. A model call that fails keeps what was there
+ * and says it failed.
  */
 export async function settleProposals(request: SettleRequest): Promise<{ readonly proposals: StoredProposals | undefined; readonly note: ProposingNote }> {
   const { coverage, runner, prior, own, corrections } = request;
   const ownKeys = new Set(own.map((term) => term.key));
   // A proposed term whose key the repository now writes is the repository's, not a claim.
   const keep = (proposals: StoredProposals | undefined): StoredProposals | undefined => (proposals === undefined ? undefined : { ...proposals, terms: proposals.terms.filter((term) => !ownKeys.has(term.key)) });
-  if (!needsFallback(coverage)) return { proposals: undefined, note: { status: "not needed", coverage, dropped: prior?.terms.length ?? 0 } };
+  const named = namedByCorrections(corrections);
+  const retained = (terms: readonly Term[]): Term[] => (prior?.terms ?? []).filter((term) => named.has(term.key) && !ownKeys.has(term.key) && !terms.some((one) => one.key === term.key));
+  if (!needsFallback(coverage)) {
+    const kept = retained([]);
+    const proposals = prior === undefined || kept.length === 0 ? undefined : { ...prior, terms: kept };
+    return { proposals, note: { status: "not needed", coverage, dropped: (prior?.terms.length ?? 0) - kept.length, kept: kept.length } };
+  }
   if (runner === undefined) return { proposals: keep(prior), note: { status: "not asked", coverage } };
   const rejected = rejectedTerms(corrections);
   const names = effectOf(request.earlier, corrections).nameOf;
@@ -320,9 +345,7 @@ export async function settleProposals(request: SettleRequest): Promise<{ readonl
   }
   const { outcome } = await proposeTerms({ graph: request.graph, units: request.units, own, rejectedNames, runner, coverage, rejected, ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }) });
   if (outcome.status === "failed") return { proposals: keep(prior), note: { status: "failed", coverage, why: outcome.why, kept: keep(prior)?.terms.length ?? 0 } };
-  // A term a person removed is kept in the store, so the removal still has a term to apply to; it is never shown again.
-  const removed = (prior?.terms ?? []).filter((term) => rejected.has(term.key) && !ownKeys.has(term.key) && !outcome.proposals.terms.some((one) => one.key === term.key));
-  const proposals: StoredProposals = { ...outcome.proposals, terms: [...outcome.proposals.terms, ...removed].sort((a, b) => byText(a.key, b.key)) };
+  const proposals: StoredProposals = { ...outcome.proposals, terms: [...outcome.proposals.terms, ...retained(outcome.proposals.terms)].sort((a, b) => byText(a.key, b.key)) };
   return { proposals, note: { status: "proposed", coverage, asked: true, proposals } };
 }
 
@@ -340,7 +363,7 @@ export function proposalLines(note: ProposingNote | undefined, stored: StoredPro
     if (left.length > 0) lines.push(`    left out of the answer: ${left.join(", ")}`);
     if (proposals.shown.files < proposals.shown.of) lines.push(`    the model was shown ${proposals.shown.files} of ${plural(proposals.shown.of, "code file")}`);
   };
-  const held = (proposals: StoredProposals): string => `  proposed terms (claimed, not written in the repository): ${proposals.terms.length}, by ${proposals.model}; ${money(proposals.usd)}`;
+  const held = (proposals: StoredProposals): string => (proposals.answered === 0 ? `  ${EMPTY_ANSWER}, by ${proposals.model}; ${money(proposals.usd)}; the repository's own words reached ${proposals.basis.mapped} of ${plural(proposals.basis.of, "analysed file")}, under half${proposals.terms.length === 0 ? "" : `; ${plural(proposals.terms.length, "term")} proposed earlier stay, a person's correction names ${proposals.terms.length === 1 ? "it" : "them"}`}` : `  proposed terms (claimed, not written in the repository): ${proposals.terms.length}, by ${proposals.model}; ${money(proposals.usd)}`);
   if (note === undefined) {
     if (stored !== undefined) {
       lines.push(held(stored));
@@ -350,7 +373,7 @@ export function proposalLines(note: ProposingNote | undefined, stored: StoredPro
   }
   switch (note.status) {
     case "not needed":
-      lines.push(`  own-word coverage: ${share(note.coverage)}${note.coverage.of === 0 ? " (no analysed files)" : ": half or more, so no term is proposed"}${note.dropped > 0 ? `; ${plural(note.dropped, "term")} proposed earlier ${note.dropped === 1 ? "is" : "are"} no longer kept` : ""}`);
+      lines.push(`  own-word coverage: ${share(note.coverage)}${note.coverage.of === 0 ? " (no analysed files)" : ": half or more, so no term is proposed"}${note.dropped > 0 ? `; ${plural(note.dropped, "term")} proposed earlier ${note.dropped === 1 ? "is" : "are"} no longer kept` : ""}${note.kept > 0 ? `; ${plural(note.kept, "term")} proposed earlier ${note.kept === 1 ? "is" : "are"} kept because a person's correction names ${note.kept === 1 ? "it" : "them"}` : ""}`);
       break;
     case "not asked":
       lines.push(`  own-word coverage: ${share(note.coverage)}: under half, so a model can propose terms (run \`streets setup --propose\`; nothing was sent)`);
@@ -360,7 +383,7 @@ export function proposalLines(note: ProposingNote | undefined, stored: StoredPro
       }
       break;
     case "proposed":
-      lines.push(`  own-word coverage: ${share(note.coverage)}: under half, so a model proposed terms`);
+      lines.push(`  own-word coverage: ${share(note.coverage)}: under half, so ${note.proposals.answered === 0 ? "a model was asked and proposed no terms (an answer, not a failure: coverage stays low)" : "a model proposed terms"}`);
       lines.push(held(note.proposals));
       lines.push(note.asked ? "    this run: asked the model once" : "    this run: nothing sent, the model had already been asked about the same code and words");
       list(note.proposals);
@@ -386,6 +409,7 @@ export function problemWithProposals(value: unknown): string | undefined {
     ["usd", isRecord(value) && (value.usd === null || (typeof value.usd === "number" && Number.isFinite(value.usd) && value.usd >= 0))],
     ["basis", isRecord(value) && hasFields(value.basis, { of: isCount, mapped: isCount })],
     ["terms", isRecord(value) && isList(value.terms, term)],
+    ["answered", isRecord(value) && isCount(value.answered)],
     ["dropped", isRecord(value) && hasFields(value.dropped, Object.fromEntries(DROPS.map((name) => [name, isCount])))],
     ["shown", isRecord(value) && hasFields(value.shown, { files: isCount, of: isCount })],
   ];

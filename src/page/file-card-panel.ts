@@ -63,12 +63,13 @@ function termDetail(term: DocTerm, doc: VocabularyDoc, actions: CardActions): HT
   const done = [term.confirmed === undefined ? "" : `confirmed by ${term.confirmed.by} at ${term.confirmed.at}`, term.renamedFrom === undefined ? "" : `renamed from ${term.renamedFrom}`, term.mergedFrom === undefined ? "" : `merged in: ${term.mergedFrom.join(", ")}`].filter((part) => part !== "");
   if (done.length > 0) detail.append(el("div", "card-note", done.join("; ")));
   if (doc.certification !== undefined) detail.append(el("div", "card-note", `vocabulary ${certificationLine(doc.certification)}`));
-  if (term.proposed !== undefined) {
-    detail.append(el("div", "card-heading card-claimed", `Proposed by ${term.proposed.model} (claimed, not written in the repository)`));
-    detail.append(el("div", "card-pin", term.proposed.description));
-    detail.append(el("div", "card-pin", `files it named: ${term.proposed.files.join(", ")}`));
+  for (const part of term.proposed ?? []) {
+    detail.append(el("div", "card-heading card-claimed", `${part.name}: proposed by ${part.model} (claimed, not written in the repository)`));
+    detail.append(el("div", "card-pin", part.description));
+    detail.append(el("div", "card-pin", `files it named: ${part.files.join(", ")}`));
   }
-  detail.append(el("div", "card-heading", "Written in the repository (derived)"));
+  // A term made partly of a proposal has pins only for the parts the repository wrote, and says so.
+  detail.append(el("div", "card-heading", term.proposed === undefined ? "Written in the repository (derived)" : "Written in the repository (derived), by the parts the repository wrote"));
   if (term.pins.length === 0) detail.append(el("div", "card-pin", term.proposed === undefined ? "nowhere the store kept" : "nowhere: a model proposed this term"));
   for (const pin of term.pins) {
     const where = `${pin.source} · ${shownPath(pin.path)}${lines(pin.range)} · ${pin.written}`;

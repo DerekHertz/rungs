@@ -151,9 +151,9 @@ test("Jev is told a proposed term is not written in the repository, with the mod
 });
 
 test("a stored proposal that is not whole is named, and a proposed term the repository now writes is not repeated", () => {
-  const stored: StoredProposals = { tier: "claimed", model: "m", asked: "d", usd: null, basis: { of: 6, mapped: 1 }, terms: [{ key: "bill", name: "Bills", spellings: ["Bills"], pins: [], claimed: { description: "d", files: ["lib/a.js"] } }], dropped: { duplicate: 0, rejected: 0, unusable: 0, noFile: 0, unknownFiles: 0, overLimit: 0 }, shown: { files: 6, of: 6 } };
+  const stored: StoredProposals = { tier: "claimed", model: "m", asked: "d", usd: null, basis: { of: 6, mapped: 1 }, terms: [{ key: "bill", name: "Bills", spellings: ["Bills"], pins: [], claimed: { description: "d", files: ["lib/a.js"] } }], answered: 1, dropped: { duplicate: 0, rejected: 0, unusable: 0, noFile: 0, unknownFiles: 0, overLimit: 0 }, shown: { files: 6, of: 6 } };
   expect(problemWithProposals(stored)).toBeUndefined();
-  for (const [field, wrong] of [["tier", "judged"], ["usd", -1], ["usd", "1"], ["basis", { of: -1, mapped: 0 }], ["terms", [{ key: "x" }]], ["dropped", {}], ["shown", null]] as const) expect(problemWithProposals({ ...stored, [field]: wrong })).toBe(field);
+  for (const [field, wrong] of [["tier", "judged"], ["usd", -1], ["usd", "1"], ["basis", { of: -1, mapped: 0 }], ["terms", [{ key: "x" }]], ["answered", -1], ["dropped", {}], ["shown", null]] as const) expect(problemWithProposals({ ...stored, [field]: wrong })).toBe(field);
   const own = analyse({ "docs/a.md": "# Billing\n", "lib/a.js": fn("sendBill") }).vocabulary.terms;
   expect(withProposed(own, stored).filter((term) => term.key === "bill")).toHaveLength(1);
   expect(withProposed(own, undefined)).toBe(own);

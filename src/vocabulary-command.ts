@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import { certificationOf, certificationText, correctionsDigest, describeCorrection, effectOf, noLongerApply, vocabularyDigest } from "./corrections.ts";
 import type { Certification, Correction, Effect } from "./corrections.ts";
+import { EMPTY_ANSWER } from "./file-card.ts";
 import { looksSecret } from "./prompt-safe.ts";
 import { readStored, storeFile, termsOf, writeStored } from "./setup.ts";
 import type { StoredVocabulary } from "./setup.ts";
@@ -99,14 +100,21 @@ function findUnit(text: string, stored: StoredVocabulary): Found<{ readonly key:
   return { refused: `the store has not judged a function called "${shown(text)}": give a full key such as function:src/a.ts#a (the function's level, its path, #, its name)` };
 }
 
+/** The visible terms a model's word is part of: a model's proposal, or a term any part of which is one. */
+const proposedKeys = (stored: StoredVocabulary, effect: Effect): Set<string> => {
+  const claimed = new Set(termsOf(stored).filter((term) => term.claimed !== undefined).map((term) => term.key));
+  return new Set([...effect.visible.keys()].filter((key) => effect.sources(key).some((source) => claimed.has(source))));
+};
+
 const listLines = (stored: StoredVocabulary, effect: Effect, corrections: readonly Correction[]): string[] => {
   const { vocabulary } = stored;
   const lines = [`streets vocabulary: ${shown(stored.repo)}, built from ${shown(stored.base.ref)} at ${stored.base.commit.slice(0, 7)}`];
   const all = termsOf(stored);
-  const proposed = new Set(all.filter((term) => term.claimed !== undefined).map((term) => term.key));
+  const proposed = proposedKeys(stored, effect);
   lines.push(`  ${certificationText(certificationOf(all, corrections, stored.certification))}`);
   if (vocabulary.status === "unknown") lines.push(`  terms: unknown, which is not none and not zero: ${shown(vocabulary.reason ?? "something could not be read")}`);
-  else lines.push(`  terms: ${effect.visible.size} shown${all.length === effect.visible.size ? "" : ` of ${all.length}`}${proposed.size === 0 ? "" : `, ${proposed.size} of them proposed by ${shown(stored.proposals?.model ?? "a model")} (claimed)`}`);
+  else lines.push(`  terms: ${effect.visible.size} shown${all.length === effect.visible.size ? "" : ` of ${all.length}`}${proposed.size === 0 ? "" : `, ${proposed.size} of them proposed by ${shown(stored.proposals?.model ?? "a model")}, or including a part it proposed (claimed)`}`);
+  if (stored.proposals?.answered === 0) lines.push(`  ${EMPTY_ANSWER} (own words reached ${stored.proposals.basis.mapped} of ${stored.proposals.basis.of} files, under half)`);
   for (const term of effect.visible.values()) {
     const marks = [proposed.has(term.key) ? "proposed by a model (claimed)" : "", term.confirmed === undefined ? "" : `confirmed by ${shown(term.confirmed.by)} at ${term.confirmed.at}`, term.renamedFrom === undefined ? "" : `renamed from ${shown(term.renamedFrom)}`, term.mergedFrom === undefined ? "" : `merged in: ${term.mergedFrom.map(shown).join(", ")}`].filter((mark) => mark !== "");
     lines.push(`    ${shown(term.name)} (${shown(term.key)})${marks.length === 0 ? "" : `: ${marks.join("; ")}`}`);
@@ -167,7 +175,7 @@ export async function vocabularyCommand(argv: readonly string[], deps: CommandDe
     if (state.kind === "certified") return done(`already certified: ${certificationText(state)}`);
     const certification: Certification = { ...stamp, vocabulary: vocabularyDigest(termsOf(stored)), corrections: correctionsDigest(corrections) };
     await write({ certification });
-    const claimed = termsOf(stored).filter((term) => term.claimed !== undefined && effect.visible.has(term.key)).length;
+    const claimed = proposedKeys(stored, effect).size;
     return done(`certified by ${shown(stamp.by)} at ${stamp.at}: ${effect.visible.size} terms shown${claimed === 0 ? "" : ` (${claimed} proposed by a model, claimed, now vouched for by you)`}, ${corrections.length} corrections`);
   }
 

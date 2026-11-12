@@ -33,9 +33,9 @@ const doc = (over: Partial<VocabularyDoc>): VocabularyDoc => ({ tier: "derived",
 const units = { total: 1, withTerm: 1, notJudged: 0, stale: 0, noTerm: 0, noCandidate: 0 };
 
 test("a claimed term is a claimed chip with the words that say so, and the vocabulary says how many are proposed", () => {
-  const line = termsLine(doc({ proposed: { count: 2, model: "claude-sonnet-x" }, certification: { kind: "drafted" } }), { path: "a.js", terms: [{ key: "x", name: "Dates", probability: 0.97, claimed: true }, { key: "y", name: "Bills", probability: 0.95 }], units, members: [] });
+  const line = termsLine(doc({ proposed: { count: 2, model: "claude-sonnet-x", answered: 2, basis: { of: 6, mapped: 2 } }, certification: { kind: "drafted" } }), { path: "a.js", terms: [{ key: "x", name: "Dates", probability: 0.97, claimed: true }, { key: "y", name: "Bills", probability: 0.95 }], units, members: [] });
   expect(line.chips).toEqual([{ key: "x", name: "Dates", text: "Dates 97% (claimed term)", claimed: true }, { key: "y", name: "Bills", text: "Bills 95%" }]);
-  expect(line.note).toContain("2 terms are proposed by claude-sonnet-x (claimed), not written in the repository");
+  expect(line.note).toContain("2 terms are proposed by claude-sonnet-x, or include a part it proposed (claimed), not written in the repository");
   expect(line.note).toContain("vocabulary drafted: nobody has certified it");
 });
 
@@ -53,7 +53,7 @@ test("streets vocabulary list says which terms a model proposed, and certify say
   const ask: AgentRunner = { run: () => Promise.resolve({ output: { terms: [{ name: "Date arithmetic", description: "Days between dates.", files: ["lib/isoDay.js"] }] }, model: "claude-sonnet-x", usd: 0.01 }) };
   await setUp({ dir, cacheDir, propose: ask, deps: { kindChoice: { asked: [], notJudged: [] } } });
   const listed = await vocabularyCommand(["list", "--dir", dir], { cacheDir });
-  expect(listed.out.join("\n")).toContain("1 of them proposed by claude-sonnet-x (claimed)");
+  expect(listed.out.join("\n")).toContain("1 of them proposed by claude-sonnet-x, or including a part it proposed (claimed)");
   expect(listed.out.join("\n")).toContain("Date arithmetic (dat arithmetic): proposed by a model (claimed)");
   const certified = await vocabularyCommand(["certify", "--dir", dir, "--by", "Dana"], { cacheDir });
   expect(certified.out.join("\n")).toContain("1 proposed by a model, claimed, now vouched for by you");

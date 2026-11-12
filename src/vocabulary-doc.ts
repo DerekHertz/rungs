@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { certificationOf, combine, effectOf, noLongerApply, pairKeyOf, shownCertification, describeCorrection } from "./corrections.ts";
 import type { Effect, PairCorrection, Part } from "./corrections.ts";
 import { digestOf } from "./extract/extract.ts";
-import type { DocFile, DocMember, DocPin, DocStamp, DocTerm, DocTermRef, VocabularyDoc } from "./file-card.ts";
+import type { DocFile, DocMember, DocPin, DocProposal, DocStamp, DocTerm, DocTermRef, VocabularyDoc } from "./file-card.ts";
 import type { FileTree, Graph, NodeId } from "./graph.ts";
 import { yesOf } from "./jev/gate.ts";
 import { termDigest, unitsOf } from "./jev/membership-source.ts";
@@ -335,8 +335,14 @@ function termsOf(stored: StoredVocabulary, ctx: Ctx, head: FileTree, unread: Unr
   const unknowns: Unknowns = { newUnits, codeUnread: codeFilesUnread(vocabulary), headUnread: unread.size };
   const pins = new Map(Object.entries(stored.files));
   const termByKey = new Map(storedTerms(stored).map((term) => [term.key, term]));
+  /** The parts of a visible term that a model proposed, each with what it said and the files it named. */
+  const proposedParts = (key: string): DocProposal[] =>
+    effect.sources(key).flatMap((source) => {
+      const part = termByKey.get(source);
+      return part?.claimed === undefined ? [] : [{ name: shown(effect.nameOf(source)), description: shown(part.claimed.description), files: part.claimed.files.map(shown), model: stored.proposals?.model ?? "unknown" }];
+    });
   return [...effect.visible.values()].map((visible) => {
-    const claimed = ctx.claimed.has(visible.key) ? termByKey.get(visible.key)?.claimed : undefined;
+    const proposed = proposedParts(visible.key);
     const all = (members.get(visible.key) ?? []).sort(memberOrder);
     const left = all.slice(MAX_MEMBERS);
     const omitted = { current: left.filter((member) => member.state === "member").length, stale: left.filter((member) => member.state === "stale").length };
@@ -346,7 +352,7 @@ function termsOf(stored: StoredVocabulary, ctx: Ctx, head: FileTree, unread: Unr
       name: shown(visible.name),
       summary: memberships === undefined && (own?.member ?? 0) === 0 ? { kind: "not known" as const, why: "not judged" } : summaryOf(own, unknowns, facts.rules),
       pins: effect.sources(visible.key).flatMap((source) => pinsOf(termByKey.get(source)!, head, pins)),
-      ...(claimed === undefined ? {} : { proposed: { description: shown(claimed.description), files: claimed.files.map(shown), model: stored.proposals?.model ?? "unknown" } }),
+      ...(proposed.length === 0 ? {} : { proposed }),
       members: all.slice(0, MAX_MEMBERS),
       ...(left.length > 0 ? { membersOmitted: omitted } : {}),
       ...(visible.confirmed === undefined ? {} : { confirmed: stampOf(visible.confirmed) }),
@@ -392,8 +398,8 @@ export function vocabularyDocument(read: StoredRead | undefined, head: { readonl
     live,
     liveTerms,
     names: new Map([...effect.visible].map(([key, term]) => [key, shown(term.name)])),
-    // A term is claimed only while every part of it is a proposed one: merged with a term the repository wrote, it is not.
-    claimed: new Set([...effect.visible.keys()].filter((key) => effect.sources(key).every((source) => termByKey.get(source)?.claimed !== undefined))),
+    // A term is claimed when any part of it is a model's proposal: a model's word is never presented as written in the repository, whatever it is merged with.
+    claimed: new Set([...effect.visible.keys()].filter((key) => effect.sources(key).some((source) => termByKey.get(source)?.claimed !== undefined))),
   };
   return {
     tier: "derived",
@@ -405,7 +411,7 @@ export function vocabularyDocument(read: StoredRead | undefined, head: { readonl
     judged: stored.memberships !== undefined,
     ...(stored.memberships === undefined ? {} : { model: stored.memberships.model }),
     terms: termsOf(stored, ctx, head.tree, unread),
-    ...(ctx.claimed.size === 0 ? {} : { proposed: { count: ctx.claimed.size, model: stored.proposals?.model ?? "unknown" } }),
+    ...(stored.proposals === undefined ? {} : { proposed: { count: ctx.claimed.size, model: stored.proposals.model, answered: stored.proposals.answered, basis: stored.proposals.basis } }),
     certification: shownCertification(certificationOf(allTerms, corrections, stored.certification)),
     corrections: { count: corrections.length, noLongerApply: noLongerApply(effect, corrections, new Set(facts.headUnits.keys())).map((one) => ({ text: describeCorrection(one.correction), why: one.why, ...stampOf(one.correction) })) },
     withheldPaths: stored.pathsWithheld,
