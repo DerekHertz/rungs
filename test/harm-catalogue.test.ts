@@ -16,8 +16,8 @@ const SECURITY = [
   "misconfiguration",
   "vulnerable dependencies",
   "authentication",
-  "supply chain and build integrity",
-  "logging",
+  "software and data integrity failures",
+  "security logging and monitoring failures",
   "server-side request forgery",
 ];
 const OTHER = ["data loss or corruption", "privacy", "availability", "money", "compatibility for callers", "what users see"];
@@ -44,12 +44,32 @@ describe("the harm catalogue", () => {
     }
   });
 
+  test("no criterion exempts a case that a real harm also fits, and every no also says no safeguard changes", () => {
+    for (const kind of HARM_CATALOGUE) {
+      expect(kind.no, kind.id).not.toMatch(/harmless|rebuilt|rebuild|recoverable|offline|in the background/i);
+      expect(kind.no, `${kind.id}: a "no" is a change with no path to the harm and no change to a safeguard`).toMatch(/\b(?:changes (?:no|none|nothing)|no change)\b/i);
+    }
+    // A mitigation (an escaping function, an allow-list) that is written or changed is a yes.
+    expect(harmKind("injection")?.yes).toMatch(/escap/i);
+    expect(harmKind("server-side-request-forgery")?.yes).toMatch(/allow-list/i);
+    expect(harmKind("data-loss-or-corruption")?.yes).toMatch(/even if/i);
+    expect(harmKind("availability")?.yes).toMatch(/loop/i);
+  });
+
+  test("the integrity and logging kinds keep OWASP's scope", () => {
+    expect(harmKind("software-and-data-integrity-failures")?.yes).toMatch(/deserializ/i);
+    expect(harmKind("software-and-data-integrity-failures")?.yes).toMatch(/update/i);
+    expect(harmKind("security-logging-and-monitoring-failures")?.yes).toMatch(/alert/i);
+  });
+
   test("names no repository", () => {
     expect(serializeHarmCatalogue()).not.toMatch(/systems-to-streets|docviz|DerekHertz/i);
   });
 
   test("a kind says whether code answers it exactly or it needs judgement, and points at derived facts by name", () => {
-    expect(HARM_CATALOGUE.filter((kind) => kind.answer === "code").map((kind) => kind.name)).toEqual(["vulnerable dependencies"]);
+    // No kind is answered by code alone yet: a dependency change is exact, "vulnerable" is not, and a malformed manifest is unknown, never "no change".
+    expect(HARM_CATALOGUE.filter((kind) => kind.answer === "code")).toEqual([]);
+    expect(harmKind("vulnerable-dependencies")).toMatchObject({ answer: "judgement", facts: ["dependency changes"] });
     for (const kind of HARM_CATALOGUE) {
       expect(["code", "judgement"]).toContain(kind.answer);
       if (kind.answer === "code") expect(kind.facts.length, `${kind.id}: code answers it from a derived fact`).toBeGreaterThan(0);
