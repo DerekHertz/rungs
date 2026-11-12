@@ -159,7 +159,7 @@ export async function createSnapshot(
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
   walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
   narrator?: Narrator,
-  tests?: TestRun,
+  tests?: TestRun | (() => Promise<TestRun>),
   repo?: string,
   judged?: JudgedSource,
 ): Promise<Snapshot> {
@@ -185,7 +185,7 @@ export async function createSnapshot(
   const resources = new Map<string, Resource>([
     ["/", { contentType: "text/html; charset=utf-8", body: html }],
     ["/main.js", { contentType: "text/javascript; charset=utf-8", body: script }],
-    ["/run.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", repo: repo ?? null }, null, 2)}\n` }],
+    ["/run.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", repo: repo ?? null, tree: treeDigest(tree) }, null, 2)}\n` }],
     ["/gate-rates.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(await gateRates(), null, 2)}\n` }],
     ["/graph.json", { contentType: "application/json; charset=utf-8", body: serializeGraph(graph) }],
     ["/ways-in.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", waysIn: waysIn(tree, graph) }, null, 2)}\n` }],

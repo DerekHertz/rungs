@@ -16,7 +16,7 @@ export async function readObserved(): Promise<ObservedDocument | null> {
  * run ends, `ended` gets the document, and the page draws what it holds. Nothing is followed for
  * a document that is not `running`.
  */
-export function followTestRun(first: ObservedDocument | null, ended: (document: ObservedDocument) => void): void {
+export function followTestRun(pictureTree: string, first: ObservedDocument | null, ended: (document: ObservedDocument) => void): void {
   if (first?.status !== "running") return;
-  void followObserved(first, readObserved, (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)), ended);
+  void followObserved(pictureTree, readObserved, (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)), ended);
 }

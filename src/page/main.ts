@@ -20,6 +20,7 @@ import type { PullRequestName } from "../arrival.ts";
 import { setUpReview } from "./review-setup.ts";
 import type { ReviewSink } from "./review-setup.ts";
 import { followTestRun } from "./observed-live.ts";
+import { ofPicture } from "../observed-follow.ts";
 import { hoverFacts } from "./hover-facts.ts";
 import { showTownLegend } from "./legend-panel.ts";
 import { showTooltip } from "./tooltip-card.ts";
@@ -76,6 +77,8 @@ const findStatus = document.querySelector<HTMLElement>("#find-status")!;
 /** The width at and below which the page shows one view at a time. Keep it equal to the media query in index.html. */
 const narrowScreen = window.matchMedia("(max-width: 700px)");
 
+// The picture's tree identity, read before the graph: the test run is only ever attached to a picture of the same tree.
+const pictureTree = ((await (await fetch("/run.json")).json()) as { tree: string }).tree;
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
 const comparisonResponse = await fetch("/comparison.json");
 const comparison = comparisonResponse.ok
@@ -90,7 +93,7 @@ const testChanges = comparison === null ? null : ((await (await fetch("/test-cha
 /** The test files the change weakened or edited, which the town flags and whose weakened tests' rooms are marked. */
 const marksOfTests = comparison === null || testChanges === null ? NO_TEST_MARKS : testMarks(testChanges);
 const observedResponse = await fetch("/observed.json");
-let observed = observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null;
+let observed = ofPicture(observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null, pictureTree);
 let observedRun = observed?.status === "ran" && comparison !== null ? observedReport(observed, picture.graph, comparison) : null;
 // Ghosts are in the picture's graph, so the trail, flying and the source panel reach them too.
 const nodes = new Map<NodeId, ModuleNode>(picture.graph.nodes.map((node) => [node.id, node]));
@@ -806,7 +809,7 @@ showTown();
 void mountPicker(document.getElementById("pr-picker")!);
 
 // With tests asked for, the server listens before the run is done: the failing marks, the Tests row and the opening view fill in when it ends.
-followTestRun(observed, (document) => {
+followTestRun(pictureTree, observed, (document) => {
   observed = document;
   observedRun = document.status === "ran" && comparison !== null ? observedReport(document, picture.graph, comparison) : null;
   townView.setFailing(observedRun?.failingFiles ?? new Set());
