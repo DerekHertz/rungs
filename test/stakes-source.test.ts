@@ -11,7 +11,7 @@ import { judgeMemberships, narrow, unitsOf } from "../src/jev/membership-source.
 import { memberships as buildMemberships } from "../src/memberships.ts";
 import type { StoredMemberships } from "../src/memberships.ts";
 import { MAX_MEMBERS_SHOWN, MAX_MEMBER_LINES, STAKES_THRESHOLDS, stakesGate } from "../src/jev/stakes-gate.ts";
-import { MAX_STAKES_PAIRS, answerByCode, effectReader, judgeStakes, membersDigest, stakePairKey, stakesInputOf, termMembers } from "../src/jev/stakes-source.ts";
+import { MAX_STAKES_PAIRS, answerByCode, effectReader, judgeStakes, membersDigest, requestDigest, stakePairKey, stakesInputOf, termMembers } from "../src/jev/stakes-source.ts";
 import type { FactReader, TermMembers } from "../src/jev/stakes-source.ts";
 import { stakeStatus } from "../src/stakes.ts";
 import type { StakeRecord } from "../src/stakes.ts";
@@ -271,7 +271,7 @@ test("a no over some of a term's members is stored as incomplete: 7 members with
   const out = await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: clientOf(() => answer(0.01)), kinds: [harmKind("privacy")!] });
   const record = out.records.find((one) => one.term === entry.term.key)!;
   expect(record).toMatchObject({ verdict: "settled", members: MAX_MEMBERS_SHOWN + 1, shownMembers: MAX_MEMBERS_SHOWN, complete: false });
-  expect(stakeStatus(record)).toBe("judged no over some members");
+  expect(stakeStatus(record)).toBe("judged no over some of the code");
   // A yes over some members stays a yes.
   const yes = await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: clientOf(() => answer(0.99)), kinds: [harmKind("privacy")!] });
   expect(stakeStatus(yes.records.find((one) => one.term === entry.term.key)!)).toBe("could cause");
@@ -296,7 +296,7 @@ test("a no over some of a term's members is stored as incomplete: 7 members with
   const partial = await judgeStakes({ terms: members, tree: world2.tree, previous: new Map(), client: clientOf(() => answer(0.01)), kinds: [harmKind("privacy")!] });
   const one = partial.records.find((record) => record.term === order.term.key)!;
   expect(one.complete).toBe(false);
-  expect(stakeStatus(one)).toBe("judged no over some members");
+  expect(stakeStatus(one)).toBe("judged no over some of the code");
 });
 
 test("an answer already stored is not reused when its question id is not the stakes gate's", async () => {
@@ -318,4 +318,40 @@ test("a request that was sent and got no usage is cost unknown, a request that w
   expect(sent.usd).toBe(0);
   const unsent = { model: "fake-1", ask: () => Promise.reject(new JevError("no-key", "no TYPESAFE_API_KEY in the environment")) } satisfies JevClient;
   expect((await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: unsent })).costUnknown).toBe(0);
+});
+
+test("a no over code that was cut is a no over some of the code: by the line cap, the per-line character cap and the state budget", async () => {
+  const kinds = [harmKind("money")!];
+  const run = async (files: Record<string, string>) => {
+    const world = await judged(files, () => 0.97);
+    const out = await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: clientOf(() => answer(0.01)), kinds });
+    return out.records.find((one) => world.members.get(one.term)!.term.name === "Order flow")!;
+  };
+  const doc = { "docs/guide.md": "# Order flow\n\nHow an order moves.\n" };
+  // The line cap: a call after line 30 is not shown.
+  const tail = Array.from({ length: MAX_MEMBER_LINES + 5 }, (_, n) => `  const a${n} = ${n};`);
+  const lines = await run({ ...doc, "src/orders/o.ts": `function placeOrder(): void {\n${tail.join("\n")}\n  transferMoney();\n}\n` });
+  expect(lines).toMatchObject({ verdict: "settled", complete: false, shownMembers: 1, members: 1 });
+  expect(lines.cut.lines).toBeGreaterThan(0);
+  expect(stakeStatus(lines)).toBe("judged no over some of the code");
+  // The per-line cap: a long line is clipped.
+  const wide = await run({ ...doc, "src/orders/o.ts": `function placeOrder(): void {\n  const x = "${"y".repeat(400)}"; transferMoney();\n}\n` });
+  expect(wide.cut.clipped).toBeGreaterThan(0);
+  expect(wide.complete).toBe(false);
+  // The state budget: six members of nearly thirty full lines do not fit in the state.
+  const big: Record<string, string> = { ...doc };
+  for (let n = 0; n < MAX_MEMBERS_SHOWN; n++) big[`src/orders/o${n}.ts`] = `function placeOrder${n}(): void {\n${Array.from({ length: MAX_MEMBER_LINES - 2 }, (_, line) => `  const l${line} = "${"z".repeat(170)}";`).join("\n")}\n}\n`;
+  const budget = await run(big);
+  expect(budget.cut).toMatchObject({ lines: 0, clipped: 0, state: true });
+  expect(budget.complete).toBe(false);
+  // Nothing cut: complete.
+  const small = await run({ ...doc, "src/orders/o.ts": "function placeOrder(): void {}\n" });
+  expect(small).toMatchObject({ complete: true, cut: { lines: 0, clipped: 0, state: false } });
+});
+
+test("a record is keyed on the exact request: a digest of what was shown is stored", async () => {
+  const world = await judged();
+  const out = await judgeStakes({ terms: world.members, tree: world.tree, previous: new Map(), client: clientOf(() => answer(0.03)) });
+  for (const record of out.records) expect(record.requestDigest).toBe(requestDigest(record.shown));
+  expect(requestDigest({ state: { a: "x" }, questions: {} })).not.toBe(requestDigest({ state: { a: "y" }, questions: {} }));
 });

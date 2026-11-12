@@ -112,8 +112,8 @@ test("a term with no mapped member has no stakes: the report says unknown, never
 test("an unclear answer is reported as unclear, never as none; a confident yes as could cause; a confident no as judged no", async () => {
   const result = await setUp({ dir: repo(files), cacheDir: temp("streets-cache-"), judge: clientFor({ "payments | money": 0.5, "payments | privacy": 0.97 }), deps: deps() });
   const text = reportLines(result).join("\n");
-  expect(text).toMatch(/pairs: 1 could cause, \d+ judged no, 0 judged no over some members, 1 unclear, 0 stale, 0 not judged, 0 left out by the cap/);
-  expect(text).toMatch(/\n {4}money: 0 could cause, \d+ judged no, 0 judged no over some members, 1 unclear/);
+  expect(text).toMatch(/pairs: 1 could cause, \d+ judged no, 0 judged no over some of the code, 1 unclear, 0 stale, 0 not judged, 0 left out by the cap/);
+  expect(text).toMatch(/\n {4}money: 0 could cause, \d+ judged no, 0 judged no over some of the code, 1 unclear/);
   expect(text).toMatch(/\n {4}privacy: 1 could cause/);
 });
 
@@ -142,7 +142,7 @@ test("a call that fails leaves the pair not judged with why, never a no", async 
   expect(result.stored.stakes!.records).toEqual([]);
   expect(result.judgingStakes?.notJudged).toBeGreaterThan(0);
   const text = reportLines(result).join("\n");
-  expect(text).toMatch(/pairs: 0 could cause, 0 judged no, 0 judged no over some members, 0 unclear, 0 stale, \d+ not judged/);
+  expect(text).toMatch(/pairs: 0 could cause, 0 judged no, 0 judged no over some of the code, 0 unclear, 0 stale, \d+ not judged/);
   expect(text).toMatch(/Jev could not be reached/);
 });
 
@@ -173,7 +173,7 @@ test("a member that is no longer mapped changes the term's membership: the stake
   // Both mappings are stale (their functions changed), so neither term has a current member: unknown, with the old answers kept as stale.
   expect(stakes.terms.every((term) => term.members === 0)).toBe(true);
   expect(stakes.records.every((record) => record.stale !== undefined)).toBe(true);
-  expect(reportLines(result).join("\n")).toMatch(/pairs: 0 could cause, 0 judged no, 0 judged no over some members, 0 unclear, \d+ stale/);
+  expect(reportLines(result).join("\n")).toMatch(/pairs: 0 could cause, 0 judged no, 0 judged no over some of the code, 0 unclear, \d+ stale/);
 });
 
 test("a catalogue version bump marks every stake stale, even when nothing else changed and no model is asked", async () => {
@@ -268,8 +268,8 @@ test("a no over a term whose members are not all known is reported apart as a no
   expect(records.length).toBe(everyKind.asked.length);
   expect(records.every((record) => record.verdict === "settled" && record.complete === false)).toBe(true);
   const text = reportLines(result).join("\n");
-  expect(text).toMatch(new RegExp(`pairs: 0 could cause, ${everyKind.asked.length} judged no, ${everyKind.asked.length} judged no over some members,`));
-  expect(text).toMatch(/\n {4}money: 0 could cause, 1 judged no, 1 judged no over some members/);
+  expect(text).toMatch(new RegExp(`pairs: 0 could cause, ${everyKind.asked.length} judged no, ${everyKind.asked.length} judged no over some of the code,`));
+  expect(text).toMatch(/\n {4}money: 0 could cause, 1 judged no, 1 judged no over some of the code/);
 });
 
 test("adoption is looked at on every run: when it is withdrawn, an unchanged run keeps no stake counted for the kind and says it is not judged", async () => {
@@ -282,7 +282,7 @@ test("adoption is looked at on every run: when it is withdrawn, an unchanged run
   expect(stored(second.file).stakes!.records).toEqual([]);
   const text = reportLines(second).join("\n");
   expect(text).toMatch(/kinds judged: 0 of 16/);
-  expect(text).toMatch(/pairs: 0 could cause, 0 judged no, 0 judged no over some members, 0 unclear, 0 stale, 0 not judged/);
+  expect(text).toMatch(/pairs: 0 could cause, 0 judged no, 0 judged no over some of the code, 0 unclear, 0 stale, 0 not judged/);
   // A single kind withdrawn: only its records go.
   const third = await setUp({ dir, cacheDir, judge: clientFor(), deps: deps() });
   const less: KindChoice = { asked: everyKind.asked.filter((id) => id !== "money"), notJudged: [{ id: "money", reason: "missed the bench bar" }] };
@@ -318,4 +318,57 @@ test("a call that was sent and got no answer is cost unknown in the report, neve
   const text = reportLines(result).join("\n");
   expect(text).toMatch(/this run: \d+ asked of Jev.*cost unknown \(\d+ calls?\)/);
   expect(text).not.toMatch(/cost \$0\.000000/);
+});
+
+test("a change of what the classifier is shown that leaves the declaration alone, an effect from a changed import, makes the stake stale", async () => {
+  const before = { "docs/guide.md": "# Order flow\n\ntext\n", "src/orders/place.ts": 'import { run } from "./mock.js";\n\nexport function placeOrder(): void {\n  run("ls");\n}\n', "src/orders/mock.ts": "export function run(command: string): void {\n  void command;\n}\n" };
+  const dir = repo(before);
+  const cacheDir = temp("streets-cache-");
+  const first = await setUp({ dir, cacheDir, judge: clientFor(), deps: deps() });
+  expect(first.stored.stakes!.records.some((record) => record.term === "order")).toBe(true);
+  commit(dir, { "src/orders/place.ts": 'import { execSync as run } from "node:child_process";\n\nexport function placeOrder(): void {\n  run("ls");\n}\n' });
+  const second = await setUp({ dir, cacheDir, deps: deps() });
+  const order = second.stored.stakes!.records.filter((record) => record.term === "order");
+  // The declaration is the same text, so the mapping holds; what is shown beside the question for the kinds that name a process effect is not.
+  expect(order.find((record) => record.kind === "injection")!.stale).toBe("what the classifier is shown changed");
+  expect(order.find((record) => record.kind === "money")!.stale).toBeUndefined();
+});
+
+test("stored completeness and cut counts are checked against the members, not trusted: a record that says complete over a partial term is damage", async () => {
+  const dir = repo({ ...files, "src/payments/refund.ts": "export function refundCard(): void {}\n" });
+  const cacheDir = temp("streets-cache-");
+  const noCharge = clientFor({}, (request) => request.questions.belongs !== undefined && /^Term: payments$/m.test(request.state.term ?? "") && /chargeCard/.test(request.state.code ?? ""));
+  const first = await setUp({ dir, cacheDir, judge: noCharge, deps: deps() });
+  const original = readFileSync(first.file, "utf8");
+  const why = async (change: (record: Loose) => Loose, term = "payment"): Promise<string | undefined> => {
+    writeFileSync(first.file, original);
+    const edited = editable(first.file);
+    edited.stakes = { ...edited.stakes, records: edited.stakes.records.map((record: Loose) => (record.term === term && record.kind === "money" ? change(record) : record)) };
+    writeFileSync(first.file, JSON.stringify(edited));
+    const result = await setUp({ dir, cacheDir, deps: deps() });
+    return result.work === "replaced unreadable" ? result.why : undefined;
+  };
+  expect(await why((record) => ({ ...record, complete: true }))).toMatch(/stakes/);
+  expect(await why((record) => ({ ...record, cut: { ...record.cut, lines: 9 } }), "order")).toMatch(/stakes/);
+  expect(await why((record) => ({ ...record, requestDigest: "0".repeat(32) }))).toMatch(/stakes/);
+  expect(await why((record) => record)).toBeUndefined();
+});
+
+test("an unchanged run checks every record's question, thresholds and catalogue version, not only the file's top level", async () => {
+  const dir = repo(files);
+  const cacheDir = temp("streets-cache-");
+  const first = await setUp({ dir, cacheDir, judge: clientFor(), deps: deps() });
+  const original = readFileSync(first.file, "utf8");
+  const stale = async (change: (record: Loose) => Loose): Promise<string | undefined> => {
+    writeFileSync(first.file, original);
+    const edited = editable(first.file);
+    edited.stakes = { ...edited.stakes, records: edited.stakes.records.map((record: Loose, at: number) => (at === 0 ? change(record) : record)) };
+    writeFileSync(first.file, JSON.stringify(edited));
+    const result = await setUp({ dir, cacheDir, deps: deps() });
+    return result.stored.stakes!.records.find((record) => record.stale !== undefined)?.stale;
+  };
+  expect(await stale((record) => ({ ...record, question: { ...record.question, version: "stakes-v0" } }))).toBe("the question changed");
+  expect(await stale((record) => ({ ...record, thresholds: { harm: 0.9, none: 0.2 } }))).toBe("the thresholds changed");
+  expect(await stale((record) => ({ ...record, catalogueVersion: HARM_CATALOGUE_VERSION - 1 }))).toBe("the catalogue changed");
+  expect(await stale((record) => record)).toBeUndefined();
 });

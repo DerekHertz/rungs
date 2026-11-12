@@ -8,14 +8,14 @@ import { promptEffect } from "../prompt-safe.ts";
 import type { DerivedStake, StakeRecord } from "../stakes.ts";
 import type { Term } from "../vocabulary.ts";
 import { judge } from "./client.ts";
-import type { JevClient } from "./client.ts";
+import type { JevClient, JevRequest } from "./client.ts";
 import { requestFor, yesOf } from "./gate.ts";
 import type { Thresholds } from "./gate.ts";
 import { answersCover } from "./membership-gate.ts";
 import { pairKey, termDigest, termFacts, unitFacts } from "./membership-source.ts";
 import type { Unit } from "./membership-source.ts";
-import { MAX_EFFECTS, MAX_MEMBERS_SHOWN, MAX_MEMBER_LINES, STAKES_THRESHOLDS, stakesGate } from "./stakes-gate.ts";
-import type { MemberFacts, StakesInput } from "./stakes-gate.ts";
+import { MAX_EFFECTS, MAX_MEMBERS_SHOWN, MAX_MEMBER_LINES, STAKES_THRESHOLDS, cutOf, stakesGate } from "./stakes-gate.ts";
+import type { CutCounts, MemberFacts, StakesInput } from "./stakes-gate.ts";
 
 /*
  * What the stakes gate is given and how code picks it. Nothing here writes a graph fact: a stake is
@@ -89,11 +89,21 @@ export function membersDigest(members: readonly MappedMember[]): string {
 }
 
 /**
- * Whether an answer covers all of a term's code: every mapped member was shown, and no pair of the term
- * is unknown (a member whose mapping is stale, not judged or cut may exist). A "no" over less than that
- * is a no over some members, never none.
+ * Whether an answer covers all of a term's code: every mapped member was shown, no pair of the term
+ * is unknown (a member whose mapping is stale, not judged or cut may exist), and no line of a shown member
+ * was cut by the line cap, the per-line cap or the state budget. A "no" over less than that is a no over
+ * some of the code, never none.
  */
-export const isComplete = (members: number, shown: number, unknown: number): boolean => shown >= members && unknown === 0;
+export const isComplete = (members: number, shown: number, unknown: number, cut: CutCounts): boolean => shown >= members && unknown === 0 && cut.lines === 0 && cut.clipped === 0 && !cut.state;
+
+/** A digest of the exact request Jev is sent: the state and the questions. A stake is stale when what the classifier is shown changes, whatever the reason (the term's text, a member's effects, the caps). */
+export const requestDigest = (request: JevRequest): string => createHash("sha256").update(JSON.stringify({ state: request.state, questions: request.questions })).digest("hex").slice(0, 32);
+
+/** A digest of what a kind answered by code reads: each member's derived facts for the kind. An answer by code is stale when a fact it read changes, as when a member's effects do with its declaration the same. */
+export function factsDigest(kind: HarmKind, members: readonly { readonly unit: Unit }[], read: FactReader): string {
+  const rows = members.map((member) => [member.unit.key, kind.facts.map((fact) => read(fact, member.unit) ?? null)]).sort((a, b) => byText(a[0] as string, b[0] as string));
+  return createHash("sha256").update(JSON.stringify(rows)).digest("hex").slice(0, 32);
+}
 
 /** The key of one (term, kind) pair. A Map's key: term keys come from the repository. */
 export const stakePairKey = (term: string, kind: string): string => `${term}\0${kind}`;
@@ -231,7 +241,7 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
       if (kind.answer !== "code") continue;
       const answer = answerByCode(kind, entry.members, reader);
       if (answer === "unknown") notJudged.push({ term: entry.term.key, kind: kind.id, reason: "the derived facts could not answer it" });
-      else derived.push({ tier: "derived", term: entry.term.key, kind: kind.id, catalogueVersion, membersDigest: digests.get(entry.term.key)!.members, members: entry.members.length, complete: entry.unknown === 0, answer, facts: [...kind.facts] });
+      else derived.push({ tier: "derived", term: entry.term.key, kind: kind.id, catalogueVersion, membersDigest: digests.get(entry.term.key)!.members, members: entry.members.length, complete: entry.unknown === 0, factsDigest: factsDigest(kind, entry.members, reader), answer, facts: [...kind.facts] });
     }
   }
   interface Pair {
@@ -241,6 +251,7 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
   const pairs: Pair[] = asked.flatMap((entry) => kinds.filter((kind) => kind.answer === "judgement").map((kind) => ({ entry, kind })));
   const slots: (StakeRecord | undefined)[] = new Array<StakeRecord | undefined>(pairs.length);
   const toAsk: number[] = [];
+  const shownNow: JevRequest[] = [];
   let reused = 0;
   let usd = 0;
   let costUnknown = 0;
@@ -249,7 +260,16 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
     const old = previous.get(stakePairKey(entry.term.key, kind.id));
     if (old === undefined) return;
     const now = digests.get(entry.term.key)!;
-    const stale = old.catalogueVersion !== catalogueVersion ? "the catalogue changed" : old.membersDigest !== now.members ? "the term's members changed" : old.termDigest !== now.term ? "the term's definition changed" : `not judged again: ${why}`;
+    const stale =
+      old.catalogueVersion !== catalogueVersion
+        ? "the catalogue changed"
+        : old.membersDigest !== now.members
+          ? "the term's members changed"
+          : old.termDigest !== now.term
+            ? "the term's definition changed"
+            : old.requestDigest !== requestDigest(shownNow[index]!)
+              ? "what the classifier is shown changed"
+              : `not judged again: ${why}`;
     slots[index] = { ...old, stale };
   };
   // Answers that can be reused are separated first and do not use the per-run limit: only pairs that
@@ -257,7 +277,9 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
   pairs.forEach(({ entry, kind }, index) => {
     const old = previous.get(stakePairKey(entry.term.key, kind.id));
     const now = digests.get(entry.term.key)!;
-    const shown = requestFor(stakesGate, stakesInputOf({ kind, entry, tree, ...(effects === undefined ? {} : { effects }) }));
+    const input = stakesInputOf({ kind, entry, tree, ...(effects === undefined ? {} : { effects }) });
+    const shown = requestFor(stakesGate, input);
+    shownNow[index] = shown;
     if (
       old !== undefined &&
       old.catalogueVersion === catalogueVersion &&
@@ -271,7 +293,7 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
       answersCover(old.answers, Object.keys(shown.questions))
     ) {
       // Whether the answer covers every member is a fact about the term now: a mapping that was not known may be now.
-      slots[index] = { ...fresh(old), complete: isComplete(old.members, old.shownMembers, entry.unknown) };
+      slots[index] = { ...fresh(old), complete: isComplete(old.members, old.shownMembers, entry.unknown, old.cut) };
       reused += 1;
     } else toAsk.push(index);
   });
@@ -285,6 +307,7 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
       const { entry, kind } = pairs[index]!;
       const input = stakesInputOf({ kind, entry, tree, ...(effects === undefined ? {} : { effects }) });
       const shown = requestFor(stakesGate, input);
+      const cut = cutOf(input);
       const judged = await judge(client, shown);
       if (judged.status === "not judged") {
         notJudged.push({ term: entry.term.key, kind: kind.id, reason: judged.reason });
@@ -312,9 +335,11 @@ export async function judgeStakes(request: JudgeStakesRequest): Promise<JudgeSta
         termDigest: now.term,
         members: entry.members.length,
         shownMembers: input.members.length,
-        complete: isComplete(entry.members.length, input.members.length, entry.unknown),
+        complete: isComplete(entry.members.length, input.members.length, entry.unknown, cut),
+        cut,
         question,
         shown,
+        requestDigest: requestDigest(shown),
         answers: judged.answers,
         thresholds,
         verdict: stakesGate.decide(judged.answers, thresholds),

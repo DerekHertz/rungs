@@ -1,5 +1,6 @@
 import { harmKind } from "../harm-catalogue.ts";
 import type { JevAnswer, JevQuestion } from "./client.ts";
+import { MAX_LINE_CHARS } from "./claim-gate.ts";
 import { UNREADABLE, yesOf } from "./gate.ts";
 import type { Gate, Thresholds, Verdict } from "./gate.ts";
 import { codeText, cutTo, termText } from "./membership-gate.ts";
@@ -134,3 +135,28 @@ export const stakesGate: Gate<StakesInput> = {
     return harm >= (thresholds.harm ?? 0.9) ? "flagged" : "undecided";
   },
 };
+
+/** How much of the code the classifier was not shown. All zero and false: it was shown every line of every member it was shown. */
+export interface CutCounts {
+  /** Lines of a member's declaration left out by the cap of MAX_MEMBER_LINES. */
+  readonly lines: number;
+  /** Lines of a member (its code, its comment, its signature) clipped by the per-line cap. */
+  readonly clipped: number;
+  /** Whether the state was cut to fit its budget (of the whole state or of one member's share). */
+  readonly state: boolean;
+}
+
+/** The marker the state writes where it cut text to fit its budget. */
+const STATE_CUT = "[cut to fit the state budget";
+
+/** What was cut from the code the classifier is shown for one input, by each of the three caps. Counted from the input and the state it makes, never guessed. */
+export function cutOf(input: StakesInput): CutCounts {
+  const wasClipped = (text: string): boolean => text.length === MAX_LINE_CHARS + 3 && text.endsWith("...");
+  let lines = 0;
+  let clipped = 0;
+  for (const member of input.members) {
+    lines += member.cutLines;
+    clipped += [...member.code, ...member.doc, member.signature].filter(wasClipped).length;
+  }
+  return { lines, clipped, state: Object.values(stakesGate.state(input)).some((text) => text.includes(STATE_CUT)) };
+}

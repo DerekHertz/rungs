@@ -348,7 +348,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     if (request.judge !== undefined || priorStakes !== undefined) {
       const entries = termMembers(held!, units, vocabulary.terms);
       const choice = await currentChoice();
-      if (request.judge === undefined) heldStakes = reconcileStakes(priorStakes!, entries, base.tree, choice);
+      if (request.judge === undefined) heldStakes = reconcileStakes(priorStakes!, entries, base.tree, choice, effectSets(graph));
       else {
         const maxStakePairs = deps.maxStakePairs ?? MAX_STAKES_PAIRS;
         const outcome = await judgeStakes({
