@@ -260,3 +260,66 @@ test("a vocabulary of no terms or unknown terms keeps that status", async () => 
   const doc = build(asRead({ ...stored, vocabulary: { ...stored.vocabulary, status: "unknown", reason: "a file could not be read: x.ts", terms: [] } }), { "src/a.ts": "export const a = 1;\n" });
   expect(doc).toMatchObject({ termsStatus: "unknown", reason: "a file could not be read: x.ts" });
 });
+
+test("a file no adapter reads, or one that could not be read, is marked unread: its terms are not known, not 'no function'", async () => {
+  const head = { ...files, "src/worker.py": "def run():\n  pass\n", "src/broken.ts": "export function broken( {\n" };
+  const doc = build(asRead(await judgedStore()), head);
+  expect(entry(doc, "src/worker.py")).toMatchObject({ unread: "no adapter", terms: [], units: { total: 0 } });
+  expect(entry(doc, "src/broken.ts")).toMatchObject({ unread: "could not be read", terms: [], units: { total: 0 } });
+  expect(entry(doc, "src/orders/place.ts")!.unread).toBeUndefined();
+});
+
+test("a term with no members reads 'not known' while the head has a code file that could not be read, never 'no members'", async () => {
+  const stored = await judgedStore();
+  const providers = (doc: ReturnType<typeof build>) => doc.terms.find((term) => term.key === "payment provider")!;
+  expect(providers(build(asRead(stored), files)).summary.kind).toBe("no members");
+  const doc = build(asRead(stored), { ...files, "src/worker.py": "def run():\n  pass\n" });
+  expect(providers(doc).summary).toEqual({ kind: "not known", why: "1 code file in this tree could not be read" });
+  const broken = build(asRead(stored), { ...files, "src/broken.ts": "export function broken( {\n" });
+  expect(providers(broken).summary.why).toBe("1 code file in this tree could not be read");
+});
+
+test("a term whose judged member the head lost is 'not known', and says the member's file could not be read when it is unreadable", async () => {
+  const stored = await judgedStore();
+  const orders = (doc: ReturnType<typeof build>) => doc.terms.find((term) => term.key === "order")!;
+  const removed = { ...files };
+  delete removed["src/orders/place.ts"];
+  expect(orders(build(asRead(stored), removed)).summary).toEqual({ kind: "not known", why: "1 stored member not in this tree" });
+  const broken = build(asRead(stored), { ...files, "src/orders/place.ts": "export function placeOrder( {\n" });
+  expect(orders(broken).summary).toEqual({ kind: "not known", why: "1 stored member whose file could not be read, 1 code file in this tree could not be read" });
+});
+
+test("a stale file says why: the function changed, the term's definition changed, or the rules changed", async () => {
+  const stored = await judgedStore();
+  const edited = { ...files, "src/orders/place.ts": "export function placeOrder(): number {\n  return 2;\n}\n" };
+  expect(entry(build(asRead(stored), edited), "src/orders/place.ts")!.staleWhy).toEqual(["the function changed"]);
+  // A function whose only candidate is a term the head redefined: the function is unchanged, the term is what changed.
+  const withFlow = { ...files, "src/flow.ts": "export function flowStep(): void {}\n" };
+  const flowStored = await judgedStoreWith(withFlow, {});
+  const termChanged = { ...withFlow, "docs/guide.md": "# Order flow\n\nsomething else entirely\n\n## Payment providers\n\ntext\n" };
+  expect(entry(build(asRead(flowStored), termChanged), "src/flow.ts")).toMatchObject({ staleWhy: ["the term's definition changed"], units: { stale: 1 } });
+  const rules = build(asRead({ ...stored, extractorVersion: "0" }), files);
+  expect(entry(rules, "src/orders/place.ts")!.staleWhy).toEqual(["rules changed: run streets setup"]);
+});
+
+test("a capped member list counts what it leaves out by validity: stale ones listed last, and omitted current and stale counted apart", async () => {
+  const many: Record<string, string> = { ...files };
+  const extra: Record<string, number> = {};
+  for (let i = 0; i < 101; i++) {
+    many[`src/orders/o${i}.ts`] = `export function order${i}(): void {}\n`;
+    extra[`orders | order${i}`] = 0.95;
+  }
+  const stored = await judgedStoreWith(many, extra);
+  const orders = (doc: ReturnType<typeof build>) => doc.terms.find((term) => term.key === "order")!;
+  // 102 members, 100 of them changed in the head: the two current ones are listed first, and the two left out are stale.
+  const head = { ...many };
+  for (let i = 0; i < 100; i++) head[`src/orders/o${i}.ts`] = `export function order${i}(): number {\n  return ${i};\n}\n`;
+  const changed = orders(build(asRead(stored), head));
+  expect(changed.members).toHaveLength(100);
+  expect(changed.members.filter((member) => member.state === "member")).toHaveLength(2);
+  expect(changed.membersOmitted).toEqual({ current: 0, stale: 2 });
+  expect(changed.summary.why).toBe("2 members, 100 stale");
+  // None changed: all 102 are current, so what is left out is current.
+  const same = orders(build(asRead(stored), many));
+  expect(same.membersOmitted).toEqual({ current: 2, stale: 0 });
+});

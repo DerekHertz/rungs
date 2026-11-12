@@ -39,6 +39,10 @@ export interface DocFile {
     /** No term shares a word with it, by the narrowing rule (derived): nothing was asked of the classifier, so it is not "judged". */
     readonly noCandidate: number;
   };
+  /** Set for a file whose code is not read: no adapter reads its language, or it could not be read (a syntax error). Its terms are not known. */
+  readonly unread?: "no adapter" | "could not be read";
+  /** The distinct reasons the shared rule gave for its stale functions, sorted; absent when none is stale. */
+  readonly staleWhy?: readonly string[];
   /** The units with a current term, by node id, so an entry about one function can name its terms. */
   readonly members: readonly { readonly id: NodeId; readonly terms: readonly DocTermRef[] }[];
 }
@@ -76,8 +80,8 @@ export interface DocTerm {
   readonly summary: { readonly kind: "has members" | "no members" | "not known"; readonly why: string };
   readonly pins: readonly DocPin[];
   readonly members: readonly DocMember[];
-  /** Members left out of the list to keep the document short, counted and never dropped silently. */
-  readonly membersOmitted?: number;
+  /** Members left out of the list to keep the document short, counted by what they are (current or stale) and never dropped silently. The list puts current members first. */
+  readonly membersOmitted?: { readonly current: number; readonly stale: number };
 }
 
 /** `GET /vocabulary.json`: the stored vocabulary read against the head's tree. */
@@ -124,6 +128,15 @@ export interface TermsLine {
 const NO_VOCABULARY = "no vocabulary yet (run streets setup)";
 const UNITS = "functions, classes and constants";
 
+/** "N stale", with the reasons the shared rule gave in brackets when they are known. */
+const staleText = (stale: number, why: readonly string[] | undefined): string => (why === undefined || why.length === 0 ? `${stale} stale` : `${stale} stale (${why.join("; ")})`);
+
+/** What a capped member list leaves out: how many, and how many of those are current and how many stale. */
+export function omittedText(omitted: { readonly current: number; readonly stale: number }): string {
+  const parts = [omitted.current > 0 ? `${omitted.current} current` : "", omitted.stale > 0 ? `${omitted.stale} stale` : ""].filter((part) => part !== "");
+  return `and ${omitted.current + omitted.stale} more not listed (${parts.join(", ")})`;
+}
+
 /** The terms line of a file: its terms with their probabilities, or exactly why there are none to show. */
 export function termsLine(doc: VocabularyDoc | null | undefined, file: DocFile | undefined, unread = false): TermsLine {
   if (doc === null) return { chips: [], text: "vocabulary unavailable: the page could not load it" };
@@ -135,15 +148,17 @@ export function termsLine(doc: VocabularyDoc | null | undefined, file: DocFile |
   if (doc.terms.length === 0 && doc.termsStatus === "unknown") return say(`terms unknown: ${doc.reason ?? "something could not be read"}`);
   if (!doc.judged) return say("not judged (run streets setup --judge)");
   if (unread) return say("not judged: the file could not be read");
+  // No adapter, or a syntax error: its code is not read, so what its terms are is unknown, never "no function".
+  if (file?.unread !== undefined) return say(`this file's code is not read (${file.unread}): its terms are not known`);
   const units = file?.units;
   const chips = (file?.terms ?? []).map((term) => ({ key: term.key, name: term.name, text: `${term.name} ${percent(term.probability)}` }));
   const stale = units?.stale ?? 0;
   const notJudged = units?.notJudged ?? 0;
-  if (chips.length > 0) return say([notJudged > 0 ? `${notJudged} of ${units!.total} ${UNITS} not judged` : "", stale > 0 ? `${stale} stale` : ""].filter((part) => part !== "").join(", "), chips);
+  if (chips.length > 0) return say([notJudged > 0 ? `${notJudged} of ${units!.total} ${UNITS} not judged` : "", stale > 0 ? staleText(stale, file?.staleWhy) : ""].filter((part) => part !== "").join(", "), chips);
   if (units === undefined || units.total === 0) return say(`no function, class or constant in it to map to a term`);
   if (doc.rules !== undefined && stale > 0) return say("stale (rules changed: run streets setup)");
-  if (notJudged > 0) return say(stale > 0 ? `not judged, ${stale} stale` : "not judged");
-  if (stale > 0) return say("stale: the function changed since it was judged");
+  if (notJudged > 0) return say(stale > 0 ? `not judged, ${staleText(stale, file?.staleWhy)}` : "not judged");
+  if (stale > 0) return say(`stale: ${file?.staleWhy?.join("; ") ?? "the answer is out of date"}`);
   const { total, noTerm, noCandidate } = units;
   if (noTerm === 0) return say(total === 1 ? "no candidate term: no term shares a word with its function, class or constant" : `no candidate term: no term shares a word with any of its ${total} ${UNITS}`);
   if (noCandidate === 0) return say(total === 1 ? "no term: its function, class or constant was judged and is not mapped to one" : `no term: all ${total} ${UNITS} were judged and none is mapped to one`);

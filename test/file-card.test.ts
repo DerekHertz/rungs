@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Why } from "../src/defining.ts";
-import { fileCard, harmRow, percent, shownPath, termsLine, termsNaming } from "../src/file-card.ts";
+import { fileCard, harmRow, omittedText, percent, shownPath, termsLine, termsNaming } from "../src/file-card.ts";
 import type { DocFile, VocabularyDoc } from "../src/file-card.ts";
 import type { NodeId } from "../src/graph.ts";
 
@@ -51,7 +51,7 @@ test("terms of a file are chips with the probability, strongest first, with what
 
 test("a file with no term that has pairs not judged or stale says that, never 'no terms'", () => {
   expect(termsLine(doc(), file({ units: counts({ notJudged: 2 }) })).text).toBe("not judged");
-  expect(termsLine(doc(), file({ units: counts({ stale: 1 }) })).text).toBe("stale: the function changed since it was judged");
+  expect(termsLine(doc(), file({ units: counts({ stale: 1 }) })).text).toBe("stale: the answer is out of date");
   expect(termsLine(doc(), file({ units: counts({ notJudged: 1, stale: 1 }) })).text).toBe("not judged, 1 stale");
   expect(termsLine(doc(), file({ units: counts({ notJudged: 1 }) })).text).not.toContain("no term");
 });
@@ -73,6 +73,25 @@ test("a store built with other rules reads stale (rules changed), never a member
   const line = termsLine(doc({ rules: "table 2, this version uses 3" }), file({ units: counts({ total: 2, stale: 2 }) }));
   expect(line.text).toBe("stale (rules changed: run streets setup)");
   expect(line.chips).toEqual([]);
+});
+
+test("a file whose code is not read says its terms are not known, never that it has no function", () => {
+  expect(termsLine(doc(), file({ path: "worker.py", unread: "no adapter", units: counts({ total: 0 }) })).text).toBe("this file's code is not read (no adapter): its terms are not known");
+  expect(termsLine(doc(), file({ unread: "could not be read", units: counts({ total: 0 }) })).text).toBe("this file's code is not read (could not be read): its terms are not known");
+  expect(termsLine(doc(), file({ unread: "no adapter", units: counts({ total: 0 }) })).chips).toEqual([]);
+});
+
+test("a stale file says why, the actual reason the shared rule gave, and lists several neutrally", () => {
+  expect(termsLine(doc(), file({ units: counts({ stale: 1 }), staleWhy: ["the term's definition changed"] })).text).toBe("stale: the term's definition changed");
+  expect(termsLine(doc(), file({ units: counts({ stale: 2 }), staleWhy: ["the function changed", "the term's definition changed"] })).text).toBe("stale: the function changed; the term's definition changed");
+  expect(termsLine(doc(), file({ terms: [sandbox], units: counts({ withTerm: 1, stale: 1 }), staleWhy: ["the question changed"] })).text).toBe("1 stale (the question changed)");
+  expect(termsLine(doc(), file({ units: counts({ notJudged: 1, stale: 1 }), staleWhy: ["the function changed"] })).text).toBe("not judged, 1 stale (the function changed)");
+});
+
+test("members left out of a capped list are counted by what they are, current or stale, never all as members", () => {
+  expect(omittedText({ current: 0, stale: 1 })).toBe("and 1 more not listed (1 stale)");
+  expect(omittedText({ current: 1, stale: 2 })).toBe("and 3 more not listed (1 current, 2 stale)");
+  expect(omittedText({ current: 2, stale: 0 })).toBe("and 2 more not listed (2 current)");
 });
 
 test("a file that could not be read has its terms not judged", () => {

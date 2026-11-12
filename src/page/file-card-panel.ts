@@ -1,4 +1,4 @@
-import { fileCard, percent, shownPath } from "../file-card.ts";
+import { fileCard, omittedText, percent, shownPath } from "../file-card.ts";
 import type { CardLine, DocTerm, Stakes, VocabularyDoc } from "../file-card.ts";
 import type { FileWhy } from "../defining.ts";
 import type { LineRange, NodeId } from "../graph.ts";
@@ -73,7 +73,7 @@ function termDetail(term: DocTerm, doc: VocabularyDoc, actions: CardActions): HT
     const text = `${percent(member.probability)} ${member.level} ${member.name === null ? "withheld" : member.name} in ${shownPath(member.path)}${member.state === "stale" ? ` · stale: ${member.why ?? "out of date"}` : ""}`;
     detail.append(pointer(text, member.id, "not in this tree", () => actions.pickNode(member.id!)));
   }
-  if (term.membersOmitted !== undefined) detail.append(el("div", "card-pin", `and ${term.membersOmitted} more members not listed`));
+  if (term.membersOmitted !== undefined) detail.append(el("div", "card-pin", omittedText(term.membersOmitted)));
   if (doc.built !== undefined) detail.append(el("div", "card-note", `built from ${doc.built.ref} at ${doc.built.commit.slice(0, 7)}`));
   return detail;
 }
