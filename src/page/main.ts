@@ -18,10 +18,12 @@ import { insideOf, marksOf } from "../town-inside.ts";
 import { createTownInsideView } from "./town-inside-view.ts";
 import type { PullRequestName } from "../arrival.ts";
 import { setUpReview } from "./review-setup.ts";
+import type { ReviewSink } from "./review-setup.ts";
+import { followTestRun } from "./observed-live.ts";
 import { hoverFacts } from "./hover-facts.ts";
 import { showTownLegend } from "./legend-panel.ts";
 import { showTooltip } from "./tooltip-card.ts";
-import type { Lot } from "../town.ts";
+import type { Lot, Town } from "../town.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
 import { markFailedLine, renderFailure } from "./failure-panel.ts";
@@ -88,8 +90,8 @@ const testChanges = comparison === null ? null : ((await (await fetch("/test-cha
 /** The test files the change weakened or edited, which the town flags and whose weakened tests' rooms are marked. */
 const marksOfTests = comparison === null || testChanges === null ? NO_TEST_MARKS : testMarks(testChanges);
 const observedResponse = await fetch("/observed.json");
-const observed = observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null;
-const observedRun = observed?.status === "ran" && comparison !== null ? observedReport(observed, picture.graph, comparison) : null;
+let observed = observedResponse.ok ? ((await observedResponse.json()) as ObservedDocument) : null;
+let observedRun = observed?.status === "ran" && comparison !== null ? observedReport(observed, picture.graph, comparison) : null;
 // Ghosts are in the picture's graph, so the trail, flying and the source panel reach them too.
 const nodes = new Map<NodeId, ModuleNode>(picture.graph.nodes.map((node) => [node.id, node]));
 // A module removed from a file that stays has no place in the picture, but its base source is served.
@@ -175,7 +177,7 @@ const handlers: TownHandlers = {
 };
 const flagged = new Map<NodeId, TestMark>([...marksOfTests.files].map(([path, mark]) => [`file:${path}` as NodeId, mark] as const).filter(([id]) => nodes.has(id)));
 const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles, reaches, flagged);
-const hoverFor = hoverFacts({ nodes, ghostFiles, lots: () => lots, picture, importance, waysIn, reachedByWays, marks: marksOfTests, observedRun });
+const hoverFor = hoverFacts({ nodes, ghostFiles, lots: () => lots, picture, importance, waysIn, reachedByWays, marks: marksOfTests, observedRun: () => observedRun });
 const insideView = createTownInsideView(
     stage,
     {
@@ -253,6 +255,11 @@ function leaveInside(): void {
   showTrail();
 }
 
+let shownTown: Town | undefined;
+function drawLegend(): void {
+  if (shownTown !== undefined) showTownLegend(legend, shownTown, { comparison, observedRan: observed?.status === "ran", flagged, reaches });
+}
+
 function showTown(): void {
   insideFile = undefined;
   insideView.close();
@@ -267,7 +274,8 @@ function showTown(): void {
   const town = townOf(picture.graph, new Set(Object.keys(sheet.sizes)), comparison, waysIn, new Set(marksOfTests.files.keys()));
   lots = new Map(town.lots.map((lot) => [lot.id, lot]));
   townView.show(town);
-  showTownLegend(legend, town, { comparison, observedRan: observed?.status === "ran", flagged, reaches });
+  shownTown = town;
+  drawLegend();
   showTrail();
 }
 
@@ -755,8 +763,9 @@ window.addEventListener("keydown", (event) => {
   else if (event.key === "ArrowLeft") walk?.step(-1);
 });
 
+let reviewSink: ReviewSink | undefined;
 if (comparison !== null && testChanges !== null) {
-  await setUpReview(
+  reviewSink = await setUpReview(
     { comparison, graph: picture.graph, testChanges, observed, observedRun, nodes, changed },
     {
       pickClaim,
@@ -793,6 +802,15 @@ wireFind({ box: findBox, results: findResults, status: findStatus, files: fileHi
 paintViews();
 showTown();
 void mountPicker(document.getElementById("pr-picker")!);
+
+// With tests asked for, the server listens before the run is done: the failing marks, the Tests row and the opening view fill in when it ends.
+followTestRun(observed, (document) => {
+  observed = document;
+  observedRun = document.status === "ran" && comparison !== null ? observedReport(document, picture.graph, comparison) : null;
+  townView.setFailing(observedRun?.failingFiles ?? new Set());
+  drawLegend();
+  reviewSink?.observedEnded(document, observedRun);
+});
 
 /** A test function that failed in the run: what the runner gave of the failure, and the line its stack named marked in the source. */
 function showFailure(node: ModuleNode): void {

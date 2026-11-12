@@ -29,7 +29,7 @@ export interface JudgedUpdate {
 /** How long the page waits between reads of a pending /judged.json: from a second, easing out to five. */
 export const POLL_FIRST_MS = 1000;
 export const POLL_LAST_MS = 5000;
-const POLL_GIVE_UP = 5;
+export const POLL_GIVE_UP = 5;
 
 export type Claim = { readonly index: number; readonly ids: readonly string[] };
 

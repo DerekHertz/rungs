@@ -160,6 +160,8 @@ export interface ReviewHandle {
   restore(saved: ReviewSnapshot): void;
   /** Judging moved on: redraw the claims' marks in place and the Claims summary's counts. */
   setJudged(update: JudgedUpdate): void;
+  /** The test run that was still going has ended: redraw the Tests row, its summary and its note in place. */
+  setObserved(observed: ObservedInput): void;
 }
 
 /** The text of a target group: a literal in quotes, or exactly what is not known. */
@@ -686,7 +688,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
   // Tests
 
   function fillTests(body: HTMLElement): void {
-    if (input.observed !== null) body.append(...observedBody(input.observed, input.pickNode));
+    if (observedNow !== null) body.append(...observedBody(observedNow, input.pickNode));
     const changes = testChangesBlock(input.testChanges, input.pickNode);
     if (changes !== null) body.append(changes);
   }
@@ -703,7 +705,9 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
   }
 
   const result = input.unmentioned;
-  const tested = input.observed !== null || testChangesBlock(input.testChanges, input.pickNode) !== null;
+  // The run may still be going when the panel is drawn: setObserved swaps in the finished document.
+  let observedNow = input.observed;
+  const tested = observedNow !== null || testChangesBlock(input.testChanges, input.pickNode) !== null;
   const weakened = input.testChanges.deletedFiles.length + input.testChanges.removedTests.length + input.testChanges.markers.length + input.testChanges.weakened.length;
   const questions: Question[] = [
     {
@@ -733,16 +737,16 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
           {
             id: "tests" as const,
             name: "Tests",
-            tag: input.observed === null ? "derived" : "observed",
-            summary: testsSummary(input.observed?.document ?? null, weakened),
+            tag: observedNow === null ? "derived" : "observed",
+            summary: testsSummary(observedNow?.document ?? null, weakened),
             fill: fillTests,
-            ...(input.observed === null ? {} : { about: observedNote(input.observed.document) }),
+            ...(observedNow === null ? {} : { about: observedNote(observedNow.document) }),
           },
         ]
       : []),
   ];
 
-  const bodies = new Map<RowId, { section: HTMLElement; body: HTMLElement; button: HTMLButtonElement; chevron: HTMLElement; filled: boolean; fill: (body: HTMLElement) => void }>();
+  const bodies = new Map<RowId, { section: HTMLElement; body: HTMLElement; button: HTMLButtonElement; chevron: HTMLElement; filled: boolean; fill: (body: HTMLElement) => void; about?: (text: string) => void }>();
   const setOpen = (open: RowId): void => {
     openRow = open;
     for (const [id, found] of bodies) {
@@ -782,6 +786,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     body.id = bodyId;
     body.hidden = true;
     wrap.append(head);
+    let aboutText: ((text: string) => void) | undefined;
     if (question.about !== undefined) {
       const note = element("p", "rv-note", question.about);
       note.hidden = true;
@@ -796,13 +801,18 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       });
       head.append(info);
       wrap.append(note);
+      aboutText = (text) => {
+        note.textContent = text;
+        info.title = text;
+        button.title = text;
+      };
     }
     wrap.append(body);
     button.addEventListener("click", () => {
       remember(question.id);
       setOpen(question.id);
     });
-    bodies.set(question.id, { section: wrap, body, button, chevron, filled: false, fill: question.fill });
+    bodies.set(question.id, { section: wrap, body, button, chevron, filled: false, fill: question.fill, ...(aboutText === undefined ? {} : { about: aboutText }) });
     sections.push(wrap);
   }
 
@@ -825,13 +835,16 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     aboutBody.hidden = !aboutBody.hidden;
     aboutButton.setAttribute("aria-expanded", String(!aboutBody.hidden));
   });
-  const notes: [string, string][] = [
+  const aboutNotes = (): [string, string][] => [
     ["Claims", linkNote(input.link)],
     ...(input.walkAbout === undefined ? [] : ([["Walkthrough", input.walkAbout]] as [string, string][])),
     ["Unmentioned", "A change counts as mentioned when its path or name appears in the description (a dependency by its name); a Markdown section when its heading, or an enclosing heading, appears as a whole phrase, ignoring case. One only an agent links to the module or its file stays in the count as linked by the agent only; an agent's link to a folder covers none of its files. A lockfile change is listed under the dependency changes it follows. New calls out are direct calls to runtime built-ins only; calls through other modules are not followed yet."],
-    ...(input.observed === null ? [] : observedAbout(input.observed))
+    ...(observedNow === null ? [] : observedAbout(observedNow))
   ];
-  for (const [title, text] of notes) aboutBody.append(element("h3", "review-subtitle", title), element("p", "rv-note", text));
+  const fillAbout = (): void => {
+    aboutBody.replaceChildren(...aboutNotes().flatMap(([title, text]) => [element("h3", "review-subtitle", title), element("p", "rv-note", text)]));
+  };
+  fillAbout();
   about.append(aboutBody, aboutButton);
 
   host.replaceChildren(...sections, about);
@@ -865,6 +878,22 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
         span.textContent = text;
         span.title = text;
       }
+    },
+    setObserved(next) {
+      observedNow = next;
+      const summary = summaries.get("tests");
+      const text = testsSummary(next.document, weakened);
+      if (summary !== undefined) {
+        summary.textContent = text;
+        summary.title = text;
+      }
+      const row = bodies.get("tests");
+      row?.about?.(observedNote(next.document));
+      if (row?.filled === true) {
+        row.body.replaceChildren();
+        row.fill(row.body);
+      }
+      fillAbout();
     },
     snapshot: () => ({ open: openRow, active, scroll: scroller()?.scrollTop ?? 0 }),
     restore(saved) {

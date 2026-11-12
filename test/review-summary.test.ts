@@ -124,6 +124,8 @@ test("no description means unmentioned is not checked, never nothing", () => {
 test("the tests row says fail of total, or why there is no run", () => {
   const ran = { tier: "observed", tree: "t", status: "ran", counts: { pass: 187, fail: 23, skip: 0 } } as const;
   expect(testsSummary(ran as never, 0)).toBe("23 fail of 210");
+  expect(testsSummary({ tier: "observed", tree: "t", status: "running" }, 0)).toBe("running tests…");
+  expect(testsSummary({ tier: "observed", tree: "t", status: "stopped", why: "x" }, 0)).toBe("not run");
   expect(testsSummary({ ...ran, counts: { pass: 5, fail: 0, skip: 1 } } as never, 0)).toBe("5 pass · 1 skip");
   expect(testsSummary({ ...ran, counts: { pass: 0, fail: 0, skip: 10 } } as never, 0)).toBe("10 skip");
   expect(testsSummary({ tier: "observed", tree: "t", status: "refused", why: "x" }, 0)).toBe("not run");

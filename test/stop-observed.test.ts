@@ -122,3 +122,8 @@ test("a written run that did not give results shows its state and reason, claime
   expect(at(["file:test/api.test.ts"], ran({ written }))).toMatchObject({ writtenProblem: { status: "unreliable", why: "exit 0 with failures" } });
   expect(at(["file:src/api.ts"], ran({ written }))).not.toHaveProperty("writtenProblem");
 });
+
+test("while the run is under way a stop is running, not zero failures, and still lists what the PR did to the tests", () => {
+  const changes: TestChanges = { ...none, removedTests: [{ file: "test/api.test.ts", name: "gone" }] as never };
+  expect(at(["file:test/api.test.ts"], { tier: "observed", tree: "t", status: "running" }, changes)).toEqual({ status: "running", changes: ["test removed: gone"] });
+});

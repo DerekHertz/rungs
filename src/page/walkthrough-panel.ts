@@ -32,6 +32,8 @@ export interface Walk {
   step(by: 1 | -1): void;
   /** Close the tour without telling the host: the reviewer picked something else, and that pick stands. */
   end(): void;
+  /** The test run that was still going has ended: redraw the open stop's observed column. */
+  refreshObserved(): void;
 }
 
 const where = (range: LineRange): string => (range.start === range.end ? `line ${range.start}` : `lines ${range.start}-${range.end}`);
@@ -169,6 +171,11 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
       rows.push(element("p", "walk-observed", "this PR changed the tests here"));
       for (const change of observed.changes) rows.push(element("p", "walk-fact", change));
     };
+    if (observed.status === "running") {
+      rows.push(element("p", "walk-observed", "running tests…"), element("p", "review-empty", "Main's tests are still running; this fills in when the run ends."));
+      changes();
+      return rows;
+    }
     if (observed.status === "not run") {
       rows.push(element("p", "walk-observed", "not run"), element("p", "review-empty", "No test run is recorded for this stop."));
       changes();
@@ -179,7 +186,7 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
     rows.push(element("p", "review-summary observed-trust", EVIDENCE_LINE));
     if (observed.unsandboxed) rows.push(element("p", "review-warning", `Tests ${UNSANDBOXED_LINE}.`));
     if (observed.status !== "ran") {
-      rows.push(element("p", "review-warning", `Tests ${observed.status === "refused" || observed.status === "unsupported" ? "not run" : observed.status === "failed" ? "run failed" : "results unreliable"}: ${observed.why}.`));
+      rows.push(element("p", "review-warning", `Tests ${observed.status === "refused" || observed.status === "unsupported" || observed.status === "stopped" ? "not run" : observed.status === "failed" ? "run failed" : "results unreliable"}: ${observed.why}.`));
       changes();
       return rows;
     }
@@ -276,6 +283,10 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
   draw();
   return {
     step: (by) => go(Math.max(index + by, index === -1 ? -1 : 0)),
+    refreshObserved() {
+      const stop = stops[index];
+      if (stop !== undefined) observedBody.replaceChildren(...observedRows(input.observed(stop)));
+    },
     end() {
       if (index === -1) return;
       index = -1;

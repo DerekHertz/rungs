@@ -24,6 +24,7 @@ import type { Claim } from "./claims.ts";
 import type { Asked, LinkOutcome } from "./link.ts";
 import { observedDocument, treeDigest } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
+import type { ObservedDocument } from "./observed-types.ts";
 import { testChanges } from "./test-changes.ts";
 import { effectStepsOf, fileWhy } from "./defining.ts";
 import { risksOf } from "./risks.ts";
@@ -103,10 +104,8 @@ interface Resource {
  * Given `tests`, one run of the tree's tests, it also serves `GET /observed.json`: the run as an
  * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
  * apart from the graph and the comparison.
-
- * Given `tests`, one run of the tree's tests, it also serves `GET /observed.json`: the run as an
- * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
- * apart from the graph and the comparison.
+ * `tests` may be a function that starts the run: the server then listens at once, `/observed.json` is
+ * `running` until the run ends, and a run that throws leaves the tests `stopped` with why (never zero failures).
  *
  * Given `narrator` (and so `base`), narration is on offer: `GET /narrate.json` lists the
  * functions of "contracts moved" being narrated ahead of time, in the background after the server
@@ -138,7 +137,7 @@ export type SnapshotInputs = [
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
   walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
   narrator?: Narrator,
-  tests?: TestRun,
+  tests?: TestRun | (() => Promise<TestRun>),
   repo?: string,
   judged?: JudgedSource,
 ];
@@ -294,10 +293,12 @@ export async function createSnapshot(
   // The judged tier answers from a run that starts after the server listens (see beginJudging).
   let judging: Judging | undefined;
 
-  if (tests !== undefined) {
-    const body = `${JSON.stringify(observedDocument(tests, graph, treeDigest(tree)), null, 2)}\n`;
-    resources.set("/observed.json", { contentType: "application/json; charset=utf-8", body });
-  }
+  // The observed tier is served from the first moment tests are asked for: `running` until the run ends (see below).
+  const observedAs = (document: ObservedDocument): void => {
+    resources.set("/observed.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
+  };
+  if (typeof tests === "function") observedAs({ tier: "observed", tree: treeDigest(tree), status: "running" });
+  else if (tests !== undefined) observedAs(observedDocument(tests, graph, treeDigest(tree)));
 
   function sourceOf(id: string | null): string | undefined {
     const ghost = id === null ? undefined : removed.get(id as NodeId);
@@ -441,6 +442,13 @@ export async function createSnapshot(
     handle,
     begin() {
       if (judgeSubject !== undefined) judging = beginJudging(judged, judgeSubject);
+      // The run starts once the server listens; a run that throws leaves the server up and the tests stopped.
+      if (typeof tests === "function") {
+        Promise.resolve().then(tests).then(
+          (run) => observedAs(observedDocument(run, graph, treeDigest(tree))),
+          (error: unknown) => observedAs({ tier: "observed", tree: treeDigest(tree), status: "stopped", why: `the test run stopped: ${error instanceof Error ? error.message : String(error)}` }),
+        );
+      }
     },
   };
 }

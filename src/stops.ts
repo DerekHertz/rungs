@@ -28,7 +28,9 @@ export interface StopTest {
  */
 export type Observed =
   | { readonly status: "not run"; readonly changes: readonly string[] }
-  | { readonly status: "refused" | "unsupported" | "failed" | "unreliable"; readonly why: string; readonly unsandboxed: boolean; readonly changes: readonly string[] }
+  /** The run is still going: nothing is known yet, and nothing is counted as passing or failing. */
+  | { readonly status: "running"; readonly changes: readonly string[] }
+  | { readonly status: "refused" | "unsupported" | "stopped" | "failed" | "unreliable"; readonly why: string; readonly unsandboxed: boolean; readonly changes: readonly string[] }
   | {
       readonly status: "ran";
       readonly unsandboxed: boolean;
@@ -80,6 +82,7 @@ export function observedAt(stop: Stop, graph: Graph, comparison: Comparison, doc
   for (const test of testChanges.weakened) if (files.has(test.file)) changes.push(`${test.name} weakened: ${test.why}`);
 
   if (document === null) return { status: "not run", changes };
+  if (document.status === "running") return { status: "running", changes };
   if (!("sandbox" in document)) return { status: document.status, why: document.why, unsandboxed: false, changes };
   const unsandboxed = document.sandbox === "unsandboxed";
   if (document.status !== "ran") return { status: document.status, why: document.why, unsandboxed, changes };

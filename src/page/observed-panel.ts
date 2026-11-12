@@ -33,7 +33,8 @@ export function observedAbout(observed: ObservedInput): [string, string][] {
     const { pass, fail, skip } = document.counts;
     const where = document.sandbox === "bwrap" ? "in a sandbox with no network" : "unsandboxed";
     notes.push(["Tests", `${pass + fail + skip} of main's tests ran once against this PR's code with node --test ${where}, in ${document.seconds}s: ${fail} fail, ${pass} pass, ${skip} skip. ${observedNote(document)}`]);
-  } else if (document.status === "failed") notes.push(["Tests", `The node --test run failed after ${document.seconds}s: ${document.why}. ${observedNote(document)}`]);
+  } else if (document.status === "running") notes.push(["Tests", "Main's tests are running once against this PR's code; this fills in when the run ends."]);
+  else if (document.status === "failed") notes.push(["Tests", `The node --test run failed after ${document.seconds}s: ${document.why}. ${observedNote(document)}`]);
   else if (document.status === "unreliable") notes.push(["Tests", `${unreliableText(document)} ${observedNote(document)}`]);
   else notes.push(["Tests", `Tests not run: ${document.why}.`]);
   return notes;
@@ -43,6 +44,7 @@ export function observedAbout(observed: ObservedInput): [string, string][] {
 export function observedBody(observed: ObservedInput, pickNode: (id: NodeId) => void): HTMLElement[] {
   const { document, report } = observed;
   const out: HTMLElement[] = [];
+  if (document.status === "running") return [element("p", "review-empty", "running tests…")];
   if (document.status !== "ran" && document.status !== "failed" && document.status !== "unreliable") {
     out.push(element("p", "review-warning", `Tests not run: ${document.why}.`));
     return out;
