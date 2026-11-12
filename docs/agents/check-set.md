@@ -7,11 +7,15 @@ If Streets does not explain a small PR correctly, it will not explain a large on
 ## Running a check
 
 1. Clone the PR's repository into your scratch folder: `gh repo clone <owner>/<repo> <scratch>/check/<repo> -- --filter=blob:none`.
-2. From that clone, start the server with an empty cache of your own, so nothing is reused: `XDG_CACHE_HOME=<scratch>/check/cache node <your worktree>/src/cli.ts compare --pr <N> --port <your port> --no-open`. Add `--link --walkthrough` (and `--judge` once `streets setup --judge` has run in the same cache) for claims and judged checks.
+2. From that clone, start the server with an empty cache of your own, so nothing is reused: `XDG_CACHE_HOME=<scratch>/check/cache-<pass> node <your worktree>/src/cli.ts compare --pr <N> --port <your port> --no-open`. Add `--link --walkthrough` for claims and the tour. For judged checks use a second empty cache: run `streets setup --judge` in it, then `compare --pr <N> --judge --link --walkthrough`, so the judged pass does not reuse the plain pass's claims or tour.
 3. Drive the page with `playwright-core`, a dev dependency of this repo.
 4. Grade each line of the PR's expected picture as **matches**, **unknown where unknown is expected**, or **wrong**. An overclaim is wrong: a call, risk, contract or claim the picture states that the PR does not have, or "none" where the expected picture says unknown. Report every wrong line with its screenshot.
 
 Lines marked *(inferred)* came from reading the diff, not the whole file. When one turns out wrong, fix it here in the same PR and say so; never change an expected line to match what Streets shows without reading the code.
+
+## Runs
+
+- Run 1, 2026-11-12, tier 3 before its end-of-tier fixes: 27 lines match, 4 unknown as expected, 10 wrong, 2 gaps (43 lines). The lines above marked as corrected came from that run reading the full files.
 
 ## The set
 
@@ -29,7 +33,7 @@ Lines marked *(inferred)* came from reading the diff, not the whole file. When o
 `res.send()` skipped computing the body length when a `Transfer-Encoding` header was set, which also switched off ETags. The length is now always computed; only the `Content-Length` header stays conditional.
 
 - Files: `lib/response.js` altered (source); `test/res.send.js` altered (tests; one test added, none removed or weakened).
-- Calls out: none appear or disappear. *(inferred)* `res.send` also calls `res.end`; whether that is an effect is Streets' call, but it is unchanged either way.
+- Calls out: none appear or disappear. `res.send` also calls `this.end`, at two sites; whether that is an effect is Streets' call, but it is unchanged either way.
 - Contracts moved: none. The behaviour change is not a signature change.
 - Worry: nothing. A headline that invents risk is wrong.
 - Claims: "preserve ETag generation with a pre-existing Transfer-Encoding" is shown by the code and the new test. "Commit 18e5985b caused it" is history: not linked to code.
@@ -54,7 +58,7 @@ Two private copies of `setFormDataHeaders` become one module imported by both ca
 - Calls out: none appear or disappear. The adapter's existing network calls are untouched and must not read as new.
 - Contracts moved: a new default export (additive). The removed copies were private, so nothing moved on that side. Two new imports of the new module.
 - Worry: a behaviour change filed as a refactor. The adapter's copy lacked `|| {}`, so it is not a pure move.
-- Claims: the human summary says the function moves to `lib/helpers/setFormDataHeaders.js`; it went to `lib/core/`. That claim names no file in the change, and the real path is unmentioned by it. "No other behavior change" is contradicted by the next sentence. "946 passed" and "lint clean" are run claims, not linked to code.
+- Claims: the human summary says the function moves to `lib/helpers/setFormDataHeaders.js`; it went to `lib/core/`. The bot summary in the same description names `lib/core/`, so the two paths in the description disagree. The picture must not present `lib/helpers/` as part of the change. "No other behavior change" is contradicted by the next sentence. "946 passed" and "lint clean" are run claims, not linked to code.
 - Grade on the compare view; the whole-repo map of a 532-file repo is not the test.
 
 ### 4. functions-samples#1317: `execFile` instead of `exec`
@@ -74,16 +78,16 @@ ImageMagick's `convert` is now run with an argument array (`execFile`) instead o
 
 - Files: `lib/context.js` altered (source; `onerror` loses an `if`); `__tests__/application/respond.test.js` and `__tests__/context/onerror.test.js` altered (tests).
 - Tests: 3 removed, and they tested the removed behaviour. The picture shows them removed; it must not call the change test weakening without saying they go with their subject.
-- Calls out: none in source. The deleted tests held 3 `fs.createReadStream` calls, so a file-system call disappears from test code.
+- Calls out: none in source. The deleted tests held 4 `fs.createReadStream` calls, so file-system calls disappear from test code.
 - Contracts moved: none by signature. The behaviour change for one input is not derived and must not be claimed as known.
 - Worry: a breaking change with no docs or changelog in the diff.
-- Claims: "removes special ENOENT handling" is shown. "Breaks fs.createReadStream support" is a consequence, not shown. The replacement middleware lives only in the PR body. "Closes #1420" is external.
+- Claims: "removes special ENOENT handling" is the PR's title, and Streets reads only the description, so it is not expected as a claim. "Breaks fs.createReadStream support" is a consequence, not shown. The replacement middleware lives only in the PR body. "Closes #1420" is external.
 
 ### 6. cobra#2181: deprecated `ioutil` replaced (Go)
 
 `ioutil.TempDir`, `ioutil.TempFile` and `ioutil.Discard` become `os.MkdirTemp`, `os.CreateTemp` and `io.Discard` in four Go test files and three docs pages.
 
-- Files: four `.go` files are "not analysed": no functions, imports, contracts or calls are claimed for them. *(inferred)* Their role is tests if the role table matches `_test.go`, else none. The three `.md` files are analysed as docs, with changed sections.
+- Files: four `.go` files are "not analysed": no functions, imports, contracts or calls are claimed for them. Their role is none: the role table has no Go rule. The three `.md` files are analysed as docs, with changed sections.
 - Calls out: unknown for the Go files. "No calls" or "0 effects" is wrong. The radius of the change is qualified by the unread files or absent.
 - Claims: the only claim is the lint rule (SA1019), which nothing in the tree links: unlinked. All seven files are unmentioned by the description.
 - Unknown: everything about the Go files beyond changed lines.
