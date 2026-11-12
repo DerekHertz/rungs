@@ -34,8 +34,10 @@ export interface DocFile {
     readonly notJudged: number;
     /** Its answer is out of date: the function changed since it was judged. */
     readonly stale: number;
-    /** Every candidate was judged, and none belongs (or no term shares a word with it). */
+    /** Every candidate the narrowing rule picked has a current judgement, and none is mapped. */
     readonly noTerm: number;
+    /** No term shares a word with it, by the narrowing rule (derived): nothing was asked of the classifier, so it is not "judged". */
+    readonly noCandidate: number;
   };
   /** The units with a current term, by node id, so an entry about one function can name its terms. */
   readonly members: readonly { readonly id: NodeId; readonly terms: readonly DocTermRef[] }[];
@@ -48,8 +50,10 @@ export interface DocPin {
   readonly path: string | null;
   readonly range: LineRange | null;
   readonly written: string;
-  /** The head's file to open for it; absent when the head's text of that file is not the text the pin was read from, or the path was withheld. */
+  /** The head's file to open for it; present only when the head's file is the file the pin was read from (its digest equals the stored one). */
   readonly id?: NodeId;
+  /** Why it cannot be opened, when it cannot: "the file changed since setup", "the file is not in this tree" or "the path was withheld". Absent for a folder. */
+  readonly why?: string;
 }
 
 /** A function, class or constant judged a member of a term (judged), with how sure the classifier was. */
@@ -137,9 +141,13 @@ export function termsLine(doc: VocabularyDoc | null | undefined, file: DocFile |
   const notJudged = units?.notJudged ?? 0;
   if (chips.length > 0) return say([notJudged > 0 ? `${notJudged} of ${units!.total} ${UNITS} not judged` : "", stale > 0 ? `${stale} stale` : ""].filter((part) => part !== "").join(", "), chips);
   if (units === undefined || units.total === 0) return say(`no function, class or constant in it to map to a term`);
+  if (doc.rules !== undefined && stale > 0) return say("stale (rules changed: run streets setup)");
   if (notJudged > 0) return say(stale > 0 ? `not judged, ${stale} stale` : "not judged");
   if (stale > 0) return say("stale: the function changed since it was judged");
-  return say(units.total === 1 ? "no term: its function, class or constant was judged and is not mapped to one" : `no term: all ${units.total} ${UNITS} were judged and none is mapped to one`);
+  const { total, noTerm, noCandidate } = units;
+  if (noTerm === 0) return say(total === 1 ? "no candidate term: no term shares a word with its function, class or constant" : `no candidate term: no term shares a word with any of its ${total} ${UNITS}`);
+  if (noCandidate === 0) return say(total === 1 ? "no term: its function, class or constant was judged and is not mapped to one" : `no term: all ${total} ${UNITS} were judged and none is mapped to one`);
+  return say(`no term: ${noTerm} of ${total} ${UNITS} judged and none is mapped to one, ${noCandidate} with no candidate term`);
 }
 
 /** What a file's harm is, judged. Stakes are not built yet (#199): until they are, the card has no such row. */

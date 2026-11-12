@@ -63,7 +63,7 @@ function termDetail(term: DocTerm, doc: VocabularyDoc, actions: CardActions): HT
   if (term.pins.length === 0) detail.append(el("div", "card-pin", "nowhere the store kept"));
   for (const pin of term.pins) {
     const where = `${pin.source} · ${shownPath(pin.path)}${lines(pin.range)} · ${pin.written}`;
-    const reason = pin.path === null ? "the path was withheld" : "the file differs from the one this was read from, or is a folder";
+    const reason = pin.why ?? "a folder: it has no lines";
     detail.append(pointer(where, pin.id, reason, () => actions.pickNode(pin.id!, pin.range ?? undefined)));
   }
   detail.append(el("div", "card-heading", "Members (judged, belongs to the term)"));

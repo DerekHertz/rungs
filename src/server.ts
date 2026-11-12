@@ -262,7 +262,7 @@ export async function createSnapshot(
     const risks = `${JSON.stringify({ tier: "derived", risks: risksOf(comparison, baseGraph, graph, testChanges(readable?.baseTree ?? new Map(), readable?.headTree ?? tree), isTestFile) }, null, 2)}\n`;
     resources.set("/risks.json", { contentType: "application/json; charset=utf-8", body: risks });
     // The stored vocabulary read against the head: derived words with their lines, judged memberships, each labelled. The file card and the risk entries name terms from it.
-    resources.set("/vocabulary.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(vocabularyDocument(vocabulary, { graph, tree }, baseTree ?? new Map()), null, 2)}\n` });
+    resources.set("/vocabulary.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(vocabularyDocument(vocabulary, { graph, tree }), null, 2)}\n` });
   }
 
   const narrations = new Map<NodeId, Promise<NarratedDoc>>();

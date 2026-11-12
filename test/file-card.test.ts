@@ -5,7 +5,7 @@ import type { DocFile, VocabularyDoc } from "../src/file-card.ts";
 import type { NodeId } from "../src/graph.ts";
 
 const why = (over: Partial<Why> = {}): Why => ({ contracts: [], dependents: [], unknownDependents: 0, testReachUnknown: false, unread: false, effects: [], testReaches: [], isTest: false, ...over });
-const counts = (over: Partial<DocFile["units"]> = {}): DocFile["units"] => ({ total: 2, withTerm: 0, notJudged: 0, stale: 0, noTerm: 0, ...over });
+const counts = (over: Partial<DocFile["units"]> = {}): DocFile["units"] => ({ total: 2, withTerm: 0, notJudged: 0, stale: 0, noTerm: 0, noCandidate: 0, ...over });
 const file = (over: Partial<DocFile> = {}): DocFile => ({ path: "src/run.ts", terms: [], units: counts(), members: [], ...over });
 const doc = (over: Partial<VocabularyDoc> = {}): VocabularyDoc => ({ tier: "derived", state: "stored", terms: [], termsStatus: "found", judged: true, withheldPaths: 0, files: [], ...over });
 const sandbox = { key: "sandbox", name: "sandbox", probability: 0.977 };
@@ -60,6 +60,19 @@ test("only a file whose every function was judged says it has no term", () => {
   expect(termsLine(doc(), file({ units: counts({ total: 2, noTerm: 2 }) })).text).toBe("no term: all 2 functions, classes and constants were judged and none is mapped to one");
   expect(termsLine(doc(), file({ units: counts({ total: 0 }) })).text).toBe("no function, class or constant in it to map to a term");
   expect(termsLine(doc(), undefined).text).toBe("no function, class or constant in it to map to a term");
+});
+
+test("a function no term is a candidate for reads 'no candidate term', which the narrowing rule says, never 'judged'", () => {
+  expect(termsLine(doc(), file({ units: counts({ total: 1, noCandidate: 1 }) })).text).toBe("no candidate term: no term shares a word with its function, class or constant");
+  expect(termsLine(doc(), file({ units: counts({ total: 3, noCandidate: 3 }) })).text).toBe("no candidate term: no term shares a word with any of its 3 functions, classes and constants");
+  expect(termsLine(doc(), file({ units: counts({ total: 3, noTerm: 1, noCandidate: 2 }) })).text).toBe("no term: 1 of 3 functions, classes and constants judged and none is mapped to one, 2 with no candidate term");
+  expect(termsLine(doc(), file({ units: counts({ total: 2, noCandidate: 1, notJudged: 1 }) })).text).toBe("not judged");
+});
+
+test("a store built with other rules reads stale (rules changed), never a member and never 'no term'", () => {
+  const line = termsLine(doc({ rules: "table 2, this version uses 3" }), file({ units: counts({ total: 2, stale: 2 }) }));
+  expect(line.text).toBe("stale (rules changed: run streets setup)");
+  expect(line.chips).toEqual([]);
 });
 
 test("a file that could not be read has its terms not judged", () => {
