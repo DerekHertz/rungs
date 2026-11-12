@@ -12,9 +12,22 @@ export interface Entry {
 
 const plural = (count: number, one: string): string => `${count} ${count === 1 ? one : `${one}s`}`;
 
-/** "docviz against pr14-base at 31163ce (merge base)": the repository when known, then the comparison target. */
-export function comparedLine(repo: string | null, against: { readonly ref: string; readonly commit: string }): string {
-  return `${repo === null ? "" : `${repo} `}against ${against.ref} at ${against.commit.slice(0, 7)} (merge base)`;
+/** The pull request a run was opened from, as the page names it. */
+export interface PullRequestName {
+  readonly number: number;
+  readonly title: string;
+  /** The head commit. */
+  readonly head: string;
+}
+
+/**
+ * "docviz against pr14-base at 31163ce (merge base)": the repository when known, then the comparison target.
+ * For a pull request: "PR #14: title, head 9fdc980 against main at 31163ce (merge base)".
+ */
+export function comparedLine(repo: string | null, against: { readonly ref: string; readonly commit: string; readonly pr?: PullRequestName }): string {
+  const target = `against ${against.ref} at ${against.commit.slice(0, 7)} (merge base)`;
+  if (against.pr !== undefined) return `PR #${against.pr.number}: ${against.pr.title}, head ${against.pr.head.slice(0, 7)} ${target}`;
+  return `${repo === null ? "" : `${repo} `}${target}`;
 }
 
 /** The tests entry. `status` is the observed document's, or "absent" when the tests were not asked to run; `failing` counts the failures of a run. */

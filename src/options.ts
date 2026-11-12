@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: streets [dir] [--port <n>] [--no-open]\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]";
+export const USAGE = "usage: streets [dir] [--port <n>] [--no-open]\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]";
 
 export interface Options {
   readonly dir: string;
@@ -9,6 +9,8 @@ export interface Options {
   readonly open: boolean;
   /** Set by `streets compare <base>`: what to compare the checkout against. */
   readonly base: string | undefined;
+  /** Set by `--pr <n>`: compare this pull request's head against its base, with its body as the description. */
+  readonly pr: number | undefined;
   /** Set by `--description`: a file holding the change's description, or "-" for stdin. */
   readonly description: string | undefined;
   /** Set by `--link`: ask an agent to link each claim in the description to the modules it describes. */
@@ -42,6 +44,7 @@ export function parseOptions(argv: readonly string[]): Options | string {
         port: { type: "string", default: "0" },
         "no-open": { type: "boolean", default: false },
         description: { type: "string" },
+        pr: { type: "string" },
         link: { type: "boolean", default: false },
         relink: { type: "boolean", default: false },
         walkthrough: { type: "boolean", default: false },
@@ -57,13 +60,21 @@ export function parseOptions(argv: readonly string[]): Options | string {
     if (!Number.isInteger(port) || port < 0 || port > 65535) return `invalid port: ${values.port}`;
     const comparing = positionals[0] === "compare";
     const [base, ...rest] = comparing ? positionals.slice(1) : [undefined, ...positionals];
-    if (comparing && base === undefined) return "compare needs a base: streets compare <base> [dir]";
+    let pr: number | undefined;
+    if (values.pr !== undefined) {
+      pr = Number(values.pr);
+      if (!/^[1-9]\d*$/.test(values.pr) || !Number.isSafeInteger(pr)) return `invalid pull request number: ${values.pr}`;
+      if (!comparing) return "--pr needs compare: streets compare --pr <n>";
+      if (base !== undefined) return "--pr takes the base from the pull request and runs inside its repository: drop the base and directory, streets compare --pr <n>";
+      if (values.description !== undefined) return "--pr takes the description from the pull request: drop --description";
+    }
+    if (comparing && base === undefined && pr === undefined) return "compare needs a base: streets compare <base> [dir]";
     if (values.description !== undefined && !comparing) {
       return "--description needs compare: streets compare <base> --description <file>";
     }
     const link = values.link || values.relink;
     if (link && !comparing) return "--link needs compare: streets compare <base> --description <file> --link";
-    if (link && values.description === undefined) return "--link needs a description: streets compare <base> --description <file> --link";
+    if (link && values.description === undefined && pr === undefined) return "--link needs a description: streets compare <base> --description <file> --link";
     const walkthrough = values.walkthrough || values.rewalk;
     const tests = values["run-tests-unsandboxed"] ? "unsandboxed allowed" : values["run-tests"] ? "sandboxed" : "off";
     if (tests !== "off" && !comparing) return "--run-tests needs compare: streets compare <base> --run-tests";
@@ -72,7 +83,7 @@ export function parseOptions(argv: readonly string[]): Options | string {
     if (narrate && !comparing) return "--narrate needs compare: streets compare <base> --narrate";
     if (values.judge && !comparing) return "--judge needs compare: streets compare <base> --judge";
     if (rest.length > 1) return "expected at most one directory";
-    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate, judge: values.judge };
+    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, pr, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate, judge: values.judge };
   } catch (error) {
     return (error as Error).message;
   }
