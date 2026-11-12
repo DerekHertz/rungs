@@ -8,7 +8,7 @@ Steps for an agent building one PR from issues, then the review and merge that f
 2. Write a red test for each case first, then the fix.
 3. Run `npm test`, `npm run typecheck` and `npm run lint`, each once and cleanly, with no other vitest running. The check: `ps -eo pid=,args= | awk '$2=="node" && /vitest/'` prints nothing. Done when all three pass and you have their counts.
 4. For a page-visible change, run a browser check on a real pull request. From a checkout of docviz (`/home/dhertzell/docviz` on Derek's machine), start the server with `node <your worktree>/src/cli.ts compare --pr 14 --port <your port> --no-open`. Add `--link --walkthrough` for claims or the tour; both are cached. Drive the page with playwright-core, loaded with `createRequire("/home/dhertzell/docviz/package.json")`. Look at every screenshot you cite. Done when each changed view is on a screenshot you have looked at.
-5. Stop your servers with `scripts/stop-server.sh <port>`.
+5. Stop your servers with `scripts/stop-server.sh <port>`. Keep every scratch file (scripts, logs, screenshots, fixture repos) in one folder of your own, `<scratchpad>/issue-<N>/`, and when you report, delete everything in it except the screenshots you cite.
 6. Open one PR with "Closes #N" for each issue, the north star, and a before/after. Leave the merge to whoever reviews it.
 7. Report the PR URL, head sha, what changed, test counts, browser-check results with screenshot paths, and your doubts. Put proposed SPEC wording in the report; SPEC.md changes only when Derek adopts them.
 
@@ -28,3 +28,7 @@ Every PR gets a Codex review: `scripts/codex-review.sh <pr> <branch> <round> "<c
 ## Merge
 
 `scripts/merge-when-green.sh <pr> <sha>` waits for CI on that exact commit, then merges it with `--match-head-commit`.
+
+## Clean up
+
+After each merge, remove that builder's worktree and branch (`git worktree remove --force`, `git branch -D`) and its `issue-<N>/` scratch folder. A builder's files belong to it until its PR merges: while a PR is open, its folder, worktree and servers stay, even when they look idle. Run about two builders at a time; the machine is small.
