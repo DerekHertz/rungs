@@ -28,6 +28,8 @@ import { effectStepsOf, fileWhy } from "./defining.ts";
 import { risksOf } from "./risks.ts";
 import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
+import { judgedDocument } from "./jev/store.ts";
+import type { JudgedSource } from "./jev/store.ts";
 import type { NarrateRequest } from "./narrate.ts";
 
 /** Writes a function's narration; the seam the command line fills with the agent and tests fake. */
@@ -86,6 +88,10 @@ interface Resource {
  * and at the same time as the links: claimed too, in its own resource, with no stops when it
  * failed or was not asked for.
  *
+ * When comparing, `GET /judged.json` serves the classifier's answers (the judged tier) apart from every other
+ * document: from `judged`, which loads them once per comparison from the judged store, or, when judging is off, a
+ * document saying so with no records. It never changes the graph.
+ *
  * Given `tests`, one run of the tree's tests, it also serves `GET /observed.json`: the run as an
  * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
  * apart from the graph and the comparison.
@@ -111,6 +117,7 @@ export async function serve(
   narrator?: Narrator,
   tests?: TestRun,
   repo?: string,
+  judged?: JudgedSource,
 ): Promise<RunningServer> {
   const tree: FileTree = new Map(given);
   const graph = extract(tree);
@@ -224,6 +231,11 @@ export async function serve(
     void (async () => {
       for (let id = queue.shift(); id !== undefined; id = queue.shift()) await narrationOf(id, false, true);
     })();
+  }
+
+  if (comparison !== undefined) {
+    const body = `${JSON.stringify(await judgedDocument(judged), null, 2)}\n`;
+    resources.set("/judged.json", { contentType: "application/json; charset=utf-8", body });
   }
 
   if (tests !== undefined) {

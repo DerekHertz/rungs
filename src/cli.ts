@@ -17,6 +17,7 @@ import type { Narrator } from "./server.ts";
 import type { FileTree } from "./graph.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
+import { judgedSource } from "./jev/source.ts";
 import type { Claim } from "./claims.ts";
 import type { Comparison } from "./compare.ts";
 import type { Graph } from "./graph.ts";
@@ -160,7 +161,9 @@ try {
           return outcome;
         }
       : undefined;
-    const server = await serve(tree, options.port, against, description, link, walk, narrator, tests, basename(resolve(options.dir)));
+    const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cacheDirectory(process.env, homedir()) });
+    if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
+    const server = await serve(tree, options.port, against, description, link, walk, narrator, tests, basename(resolve(options.dir)), judged);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;
