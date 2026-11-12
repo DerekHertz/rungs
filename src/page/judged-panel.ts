@@ -6,6 +6,7 @@ import type { StandardsDocument } from "../standards-marks.ts";
 import { costText, markWord, percent } from "../judged-marks.ts";
 import { followJudging, updateOf } from "../judged-follow.ts";
 import { markTier, markTierWhy } from "../judged-fold.ts";
+import { kindOfMark, kindText } from "../kind-of-miss.ts";
 import type { Claim, JudgedUpdate, JudgedView } from "../judged-follow.ts";
 
 export type { JudgedUpdate, JudgedView } from "../judged-follow.ts";
@@ -31,8 +32,11 @@ export function markButton(mark: JudgedMark, onClick: () => void, adopted: boole
   glyph.setAttribute("aria-hidden", "true");
   const tier = markTier(mark);
   // The tier the item was picked sits on the mark, so a settled line reads "settled 99.9%" and the reason is one hover or click away.
-  button.append(glyph, element("span", "", untrusted ? UNADOPTED_WORD : word), ...(tier === "" ? [] : [element("span", "judged-tier", tier)]));
-  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but its gate has not met its bar and stays off, so this is not evidence" : ""}${tier === "" ? "" : `; ${markTierWhy(mark)}`}; click to see what it was shown` : mark.kind === "pending" ? "Jev is still checking this" : mark.reason;
+  // An item no gate settled carries its kind of miss on its mark, so the row can be read by kind; a settled item has none.
+  const miss = kindOfMark(mark);
+  const kind = miss === null ? [] : [element("span", `judged-kind ${miss.kind.replaceAll(" ", "-")}`, kindText(miss))];
+  button.append(glyph, element("span", "", untrusted ? UNADOPTED_WORD : word), ...(tier === "" ? [] : [element("span", "judged-tier", tier)]), ...kind);
+  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but its gate has not met its bar and stays off, so this is not evidence" : ""}${tier === "" ? "" : `; ${markTierWhy(mark)}`}${miss === null ? "" : `; ${kindText(miss)}: ${miss.why}`}; click to see what it was shown` : mark.kind === "pending" ? "Jev is still checking this" : mark.reason;
   button.setAttribute("aria-label", mark.kind === "judged" ? `Judged ${word}${untrusted ? " by a gate that is not adopted" : ""}: show the check` : mark.kind === "pending" ? "Judging: Jev is still checking this" : `Not judged: ${mark.reason}`);
   button.addEventListener("click", onClick);
   return button;
@@ -44,7 +48,7 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
   detail.append(element("summary", "review-summary", `Jev's check: ${markWord(mark)}`));
   const body = element("div", "judged-body");
   if (mark.kind !== "judged") {
-    body.append(element("p", "judged-line", mark.kind === "pending" ? "Jev is still checking this; the mark fills in when it answers." : `Not judged: ${mark.reason}`));
+    body.append(element("p", "judged-line", mark.kind === "pending" ? "Jev is still checking this; the mark fills in when it answers." : `Not judged: ${mark.reason}`), element("p", "judged-line judged-kind-why", "Kind of miss: kind unknown. Nothing has been answered about it, so code cannot tell what kind it is."));
     detail.append(body);
     return detail;
   }
@@ -58,6 +62,8 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
     else line.append(element("strong", "", `${label} no answer`));
     body.append(line);
   }
+  const miss = kindOfMark(mark);
+  if (miss !== null) body.append(element("p", "judged-line judged-kind-why", `Kind of miss: ${kindText(miss)}. ${miss.why[0]!.toUpperCase()}${miss.why.slice(1)}. Code decides the kind from the answers above; Jev is not asked again.`));
   if (record.pick !== undefined) body.append(element("p", "judged-line judged-tier-why", `${markTierWhy(mark)} (tier rule ${record.pick.rule}). The tier is how sure a check must be to settle this item; it is picked from the item's derived complexity and its stored stakes.`));
   body.append(element("p", "judged-line", describeGateThresholds(record.question.id, record.thresholds)));
   const unreadable = Object.values(record.answers).some((answer) => answer.type === "unreadable");
