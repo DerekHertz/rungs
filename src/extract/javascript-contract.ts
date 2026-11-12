@@ -455,13 +455,18 @@ function leaves(node: ts.Node, file: ts.SourceFile, out: string[]): void {
     out.push(...membersOf(node.members, file));
     return;
   }
+  if (ts.isTupleTypeNode(node)) {
+    out.push(...listOf(node.elements, "[", "]", file));
+    return;
+  }
   const children = node.getChildren(file);
   if (children.length === 0) {
     const text = node.getText(file);
     if (text !== "") out.push(text);
     return;
   }
-  for (const child of children) leaves(child, file, out);
+  // The `;` that ends a mapped type's body is layout, as it is in a type literal.
+  for (const child of children) if (!(ts.isMappedTypeNode(node) && child.kind === ts.SyntaxKind.SemicolonToken)) leaves(child, file, out);
 }
 
 const tokensOf = (node: ts.Node, file: ts.SourceFile): string[] => {
@@ -621,7 +626,7 @@ interface Local {
   readonly declarations: (ts.InterfaceDeclaration | ts.TypeAliasDeclaration)[];
 }
 
-/** Declarations sharing a name (interface merging) read as one member list. */
+/** Declarations sharing a name (interface merging) read as one member list; the extends clauses of all of them are one set. */
 function typeSignature(local: Local, file: ts.SourceFile): string {
   const [first] = local.declarations;
   const out: string[] = [];
@@ -629,7 +634,21 @@ function typeSignature(local: Local, file: ts.SourceFile): string {
   if (first !== undefined && ts.isTypeAliasDeclaration(first)) out.push("=", ...tokensOf(first.type, file));
   else {
     const interfaces = local.declarations.filter(ts.isInterfaceDeclaration);
-    for (const declaration of interfaces) for (const clause of declaration.heritageClauses ?? []) out.push(...tokensOf(clause, file));
+    // Which interfaces an interface extends is a set: how many clauses say so, and in what order, is layout.
+    const parents = new Map<string, string[]>();
+    for (const declaration of interfaces) {
+      for (const clause of declaration.heritageClauses ?? []) {
+        for (const parent of clause.types) {
+          const tokens = tokensOf(parent, file);
+          parents.set(renderSignature(tokens), tokens);
+        }
+      }
+    }
+    const sorted = [...parents.keys()].sort();
+    if (sorted.length > 0) {
+      out.push("extends");
+      sorted.forEach((key, index) => out.push(...(index === 0 ? [] : [","]), ...parents.get(key)!));
+    }
     out.push(...membersOf(interfaces.flatMap((declaration) => [...declaration.members]), file));
   }
   return renderSignature(out);
@@ -637,31 +656,78 @@ function typeSignature(local: Local, file: ts.SourceFile): string {
 
 const nameText = (name: ts.Node): string => (ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : name.getText());
 
-function scan(statements: readonly ts.Statement[], file: ts.SourceFile, prefix: string, ambient: boolean, found: Map<string, TypeContract>, implicit = false): void {
+/** A statement to read for contracts: `implicit` when it is exported without saying so (inside an ambient namespace), `ambient` when it sits in a declaration context. */
+interface Entry {
+  readonly statement: ts.Statement;
+  readonly implicit: boolean;
+  readonly ambient: boolean;
+}
+
+/** An import of a type, which a re-export of the name passes on without resolving it. */
+interface TypeImport {
+  readonly from: string;
+  readonly imported: string;
+  readonly typeOnly: boolean;
+}
+
+function typeImportsOf(statements: readonly ts.Statement[]): Map<string, TypeImport> {
+  const found = new Map<string, TypeImport>();
+  for (const statement of statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.importClause === undefined) continue;
+    const from = statement.moduleSpecifier.text;
+    const clause = statement.importClause;
+    const bindings = clause.namedBindings;
+    if (clause.name !== undefined) found.set(clause.name.text, { from, imported: "default", typeOnly: clause.isTypeOnly });
+    if (bindings !== undefined && ts.isNamespaceImport(bindings)) found.set(bindings.name.text, { from, imported: "*", typeOnly: clause.isTypeOnly });
+    else if (bindings !== undefined) {
+      for (const specifier of bindings.elements) found.set(specifier.name.text, { from, imported: nameText(specifier.propertyName ?? specifier.name), typeOnly: clause.isTypeOnly || specifier.isTypeOnly });
+    }
+  }
+  return found;
+}
+
+function scan(entries: readonly Entry[], file: ts.SourceFile, prefix: string, found: Map<string, TypeContract>, imports: ReadonlyMap<string, TypeImport> = new Map()): void {
   const locals = new Map<string, Local>();
   const names = new Map<string, string>();
-  const exportedAs = (statement: ts.Statement, local: string): void => {
-    if (hasModifier(statement, ts.SyntaxKind.DefaultKeyword)) names.set("default", local);
-    else if (implicit || hasModifier(statement, ts.SyntaxKind.ExportKeyword)) names.set(local, local);
-  };
-  for (const statement of statements) {
+  const typeOnlyNames = new Set<string>();
+  // Blocks of one namespace name merge into one: their contents are read together. A namespace
+  // is read when it is exported, or named by `export { N }`, `export = N` or `export default N`.
+  const spaces = new Map<string, { entries: Entry[]; direct: boolean }>();
+  const spaceExports: [prefix: string, local: string][] = [];
+  for (const { statement, implicit, ambient } of entries) {
+    const exportedAs = (local: string): void => {
+      if (hasModifier(statement, ts.SyntaxKind.DefaultKeyword)) names.set("default", local);
+      else if (implicit || hasModifier(statement, ts.SyntaxKind.ExportKeyword)) names.set(local, local);
+    };
     if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
       const name = statement.name.text;
       const local = locals.get(name) ?? { kind: ts.isInterfaceDeclaration(statement) ? "interface" : "type", declarations: [] };
       local.declarations.push(statement);
       locals.set(name, local);
-      if (hasModifier(statement, ts.SyntaxKind.ExportKeyword) || implicit) exportedAs(statement, name);
+      if (hasModifier(statement, ts.SyntaxKind.ExportKeyword) || implicit) exportedAs(name);
     } else if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name) && statement.body !== undefined) {
-      if (!implicit && !hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+      const space = spaces.get(statement.name.text) ?? { entries: [], direct: false };
+      if (implicit || hasModifier(statement, ts.SyntaxKind.ExportKeyword)) space.direct = true;
       const inside = ambient || hasModifier(statement, ts.SyntaxKind.DeclareKeyword);
-      scan(ts.isModuleBlock(statement.body) ? statement.body.statements : [statement.body as ts.Statement], file, `${prefix}${statement.name.text}.`, inside, found, inside || !ts.isModuleBlock(statement.body));
+      const body = statement.body;
+      const dotted = !ts.isModuleBlock(body);
+      for (const inner of ts.isModuleBlock(body) ? body.statements : [body as ts.Statement]) space.entries.push({ statement: inner, implicit: inside || dotted, ambient: inside });
+      spaces.set(statement.name.text, space);
     } else if (ts.isExportAssignment(statement) && ts.isIdentifier(statement.expression)) {
       names.set(statement.isExportEquals === true ? "export=" : "default", statement.expression.text);
+      // `export = N` makes the namespace the module, so its members are the file's own exports.
+      spaceExports.push([statement.isExportEquals === true ? "" : "default.", statement.expression.text]);
     } else if (ts.isExportDeclaration(statement)) {
       const clause = statement.exportClause;
       const from = statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : undefined;
       if (from === undefined) {
-        if (clause !== undefined && ts.isNamedExports(clause)) for (const element of clause.elements) names.set(nameText(element.name), nameText(element.propertyName ?? element.name));
+        if (clause !== undefined && ts.isNamedExports(clause)) {
+          for (const element of clause.elements) {
+            names.set(nameText(element.name), nameText(element.propertyName ?? element.name));
+            if (statement.isTypeOnly || element.isTypeOnly) typeOnlyNames.add(nameText(element.name));
+            spaceExports.push([`${nameText(element.name)}.`, nameText(element.propertyName ?? element.name)]);
+          }
+        }
       } else if (clause === undefined) found.set(`${prefix}* from "${from}"`, { name: `${prefix}* from "${from}"`, kind: "re-export", signature: "*" });
       else if (ts.isNamespaceExport(clause)) found.set(prefix + nameText(clause.name), { name: prefix + nameText(clause.name), kind: "re-export", signature: `* from "${from}"` });
       else for (const element of clause.elements) found.set(prefix + nameText(element.name), { name: prefix + nameText(element.name), kind: "re-export", signature: `${nameText(element.propertyName ?? element.name)} from "${from}"` });
@@ -670,17 +736,33 @@ function scan(statements: readonly ts.Statement[], file: ts.SourceFile, prefix: 
   for (const [exported, localName] of names) {
     const local = locals.get(localName);
     if (local !== undefined) found.set(prefix + exported, { name: prefix + exported, kind: local.kind, signature: typeSignature(local, file) });
+    else {
+      // A type imported here and exported again is passed on as written, as `export type { A } from` is.
+      const source = imports.get(localName);
+      if (source !== undefined && (source.typeOnly || typeOnlyNames.has(exported))) {
+        found.set(prefix + exported, { name: prefix + exported, kind: "re-export", signature: source.imported === "*" ? `* from "${source.from}"` : `${source.imported} from "${source.from}"` });
+      }
+    }
+  }
+  const read = (space: { entries: Entry[] }, namespacePrefix: string): void => scan(space.entries, file, namespacePrefix, found);
+  for (const [name, space] of spaces) if (space.direct) read(space, `${prefix}${name}.`);
+  for (const [exported, localName] of spaceExports) {
+    const space = spaces.get(localName);
+    if (space !== undefined) read(space, `${prefix}${exported}`);
   }
 }
 
 /**
  * The interfaces and type aliases a file exports, keyed by the name an importer uses ("default"
  * for a default export), sorted by name: `export` declarations, `export default X`, `export { X as Y }`,
- * the members of exported or ambient namespaces (named `Namespace.Name`), and re-exports from
- * another file, which read as `Name from "./file"` since their shape is not resolved here.
+ * the members of exported or ambient namespaces (named `Namespace.Name`, also when the namespace
+ * is exported by `export { N }` or `export default N`; `export = N` makes its members the file's own),
+ * and re-exports from another file, which read as `Name from "./file"` since their shape is not
+ * resolved here. Everything a global declaration file (one with no import or export) declares is public.
  */
 export function exportedTypes(file: ts.SourceFile): TypeContract[] {
   const found = new Map<string, TypeContract>();
-  scan(file.statements, file, "", file.isDeclarationFile, found);
+  const global = file.isDeclarationFile && !ts.isExternalModule(file);
+  scan(file.statements.map((statement) => ({ statement, implicit: global, ambient: file.isDeclarationFile })), file, "", found, typeImportsOf(file.statements));
   return [...found.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
