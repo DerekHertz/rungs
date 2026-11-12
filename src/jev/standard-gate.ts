@@ -3,6 +3,7 @@ import { yesOf, UNREADABLE } from "./gate.ts";
 import type { Gate, Thresholds, Verdict } from "./gate.ts";
 import type { JevAnswer } from "./client.ts";
 import { clearsTier, tierPercent } from "../tier-table.ts";
+import { MAX_LINE_CHARS } from "./claim-gate.ts";
 
 /**
  * The standard gate: does one changed hunk break one written rule. The rule is a section of a
@@ -33,6 +34,8 @@ export interface RuleFacts {
   readonly text: string;
   /** Characters of the section's text that were cut; 0 when it is whole. */
   readonly cutChars: number;
+  /** True when the rule's path, heading or an enclosing heading was clipped to a bound (it ends in "..." or "…"). */
+  readonly clipped: boolean;
   /** The folder the rule applies to ("" is the whole repository): a nested AGENTS.md applies to its own subtree only. */
   readonly scope: string;
   /** True when the change edited, moved or deleted the rule file (the text above is still the base's); null when unknown. */
@@ -53,6 +56,8 @@ export interface HunkFacts {
   readonly before: readonly string[];
   /** The head's side: "+12: text" added, " 11: text" unchanged. */
   readonly after: readonly string[];
+  /** True when a line of the hunk, or its path, was clipped to a bound (a source line ends in "..."). */
+  readonly clipped: boolean;
   /** Set when one run of changed lines was too long for one hunk and was split: this is part `number` of `of`, each part with its own lines of both sides. */
   readonly part?: { readonly number: number; readonly of: number };
 }
@@ -134,6 +139,29 @@ function side(name: string, path: string, range: LineRange | null, lines: readon
   return [`${name}: ${path} lines ${range.start}-${range.end}${split}`, ...shown.map((line) => `  ${line}`), ...(cut > 0 ? [`  [${cut} more lines were cut from this state; the first ${shown.length} are shown]`] : [])].join("\n");
 }
 
+/** The state for one input and what it left out, built together so the two cannot disagree. */
+function stateOf(input: StandardInput): { readonly state: Record<string, string>; readonly cut: string[] } {
+  const { rule, hunk } = input;
+  const cut: string[] = [];
+  if (rule.cutChars > 0) cut.push(`${rule.cutChars} characters of the rule were cut`);
+  if (rule.clipped) cut.push("the rule's path or heading was clipped");
+  if (hunk.clipped) cut.push(`a line or the path of the hunk was clipped to ${MAX_LINE_CHARS} characters`);
+  for (const [name, lines] of [["base", hunk.before], ["head", hunk.after]] as const) if (lines.length > MAX_HUNK_LINES) cut.push(`${lines.length - MAX_HUNK_LINES} more lines of the hunk's ${name} side were cut`);
+  const state: Record<string, string> = {
+    rule: ruleText(rule),
+    "before the change (base)": side("Base", hunk.path, hunk.base, hunk.before, "the file did not exist or had nothing here", hunk.part),
+    "after the change (head)": side("Head", hunk.path, hunk.head, hunk.after, "the file was removed or has nothing here", hunk.part),
+  };
+  let total = 0;
+  for (const [key, text] of Object.entries(state)) {
+    const room = Math.max(0, MAX_STATE_CHARS - total);
+    if (text.length > room) cut.push(`${key} was cut to fit the state budget`);
+    state[key] = text.length > room ? `${text.slice(0, room)}\n[cut to fit the state budget of ${MAX_STATE_CHARS} characters]` : text;
+    total += state[key]!.length;
+  }
+  return { state, cut };
+}
+
 export const standardGate: Gate<StandardInput> = {
   id: STANDARD_GATE_ID,
   version: "standard-v2",
@@ -156,20 +184,8 @@ export const standardGate: Gate<StandardInput> = {
       },
     },
   },
-  state(input) {
-    const state: Record<string, string> = {
-      rule: ruleText(input.rule),
-      "before the change (base)": side("Base", input.hunk.path, input.hunk.base, input.hunk.before, "the file did not exist or had nothing here", input.hunk.part),
-      "after the change (head)": side("Head", input.hunk.path, input.hunk.head, input.hunk.after, "the file was removed or has nothing here", input.hunk.part),
-    };
-    let total = 0;
-    for (const [key, text] of Object.entries(state)) {
-      const room = Math.max(0, MAX_STATE_CHARS - total);
-      state[key] = text.length > room ? `${text.slice(0, room)}\n[cut to fit the state budget of ${MAX_STATE_CHARS} characters]` : text;
-      total += state[key]!.length;
-    }
-    return state;
-  },
+  state: (input) => stateOf(input).state,
+  cut: (input) => stateOf(input).cut,
   decide(answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds): Verdict {
     const breaks = yesOf(answers, "breaks");
     if (breaks === undefined) return UNREADABLE;

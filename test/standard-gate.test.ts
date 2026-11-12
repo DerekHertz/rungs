@@ -8,8 +8,8 @@ const yes = (value: number): JevAnswer => ({ type: "yes-no", yes: value });
 const decide = (breaks: number, before?: number) => standardGate.decide({ breaks: yes(breaks), ...(before === undefined ? {} : { before: yes(before) }) }, STANDARD_THRESHOLDS);
 
 const input: StandardInput = {
-  rule: { path: "AGENTS.md", kind: "agent instructions", heading: "Tests", ancestors: ["Project"], lines: { start: 9, end: 11 }, text: "### Tests\nWrite the red test first.", cutChars: 0, scope: "", edited: false },
-  hunk: { path: "src/a.ts", label: "altered src/a.ts", base: { start: 1, end: 3 }, head: { start: 1, end: 4 }, before: [" 1: a", "-2: b", " 3: c"], after: [" 1: a", "+2: x", "+3: y", " 4: c"] },
+  rule: { path: "AGENTS.md", kind: "agent instructions", heading: "Tests", ancestors: ["Project"], lines: { start: 9, end: 11 }, text: "### Tests\nWrite the red test first.", cutChars: 0, clipped: false, scope: "", edited: false },
+  hunk: { path: "src/a.ts", label: "altered src/a.ts", base: { start: 1, end: 3 }, head: { start: 1, end: 4 }, before: [" 1: a", "-2: b", " 3: c"], after: [" 1: a", "+2: x", "+3: y", " 4: c"], clipped: false },
 };
 
 test("thresholds: settled needs breaks low; breaks high flags a new violation; one the base already had is not flagged and not settled", () => {

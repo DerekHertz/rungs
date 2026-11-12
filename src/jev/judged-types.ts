@@ -33,6 +33,8 @@ export interface JudgedRecord {
   /** The gate's thresholds, with the item's tier as a fraction in `tier` (0.999) when it had one: what a settle had to clear. */
   readonly thresholds: Thresholds;
   readonly verdict: Verdict;
+  /** What the gate left out of the evidence Jev was shown (clipped, cut or dropped), in words; empty when it was whole. Set from the gate's own counts whenever a record is made or read back, so a record is never read as whole by a guess. Absent only on a record from a gate that does not say. */
+  readonly cut?: readonly string[];
   /** The tier the item got from the reviewer's table, and why. Absent on a record written before tiers. Judged and derived facts, never a mark of its own: the verdict above is the only judged part. */
   readonly pick?: TierPick;
   /** The model version that answered. */

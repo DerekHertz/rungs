@@ -46,9 +46,13 @@ const URL_LITERAL = /^(?:[a-z][a-z0-9+.-]*:\/\/\S+|[\w-]+(?:\.[\w-]+)+(?::\d+)?[
 /** A URL with a scheme inside other text; it ends at a space, a quote or a bracket. */
 const BARE_URL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>()[\]{},;]+/gi;
 
-const clip = (text: string): string => (text.length > MAX_LINE_CHARS ? `${text.slice(0, MAX_LINE_CHARS)}...` : text);
-/** A line of source text (a signature, a contract, a changed line) as the gate is sent it. */
-export const safeClip = (text: string): string => clip(withholdSecrets(text));
+/** A line of source text as the gate is sent it, and whether it was clipped: the caller that builds evidence counts the clips, so a clipped line is never read as whole. */
+export function clipText(text: string): { readonly text: string; readonly clipped: boolean } {
+  const safe = withholdSecrets(text);
+  return safe.length > MAX_LINE_CHARS ? { text: `${safe.slice(0, MAX_LINE_CHARS)}...`, clipped: true } : { text: safe, clipped: false };
+}
+/** A line of source text (a signature, a contract, a changed line) as the gate is sent it. Use `clipText` where the evidence must say it was clipped. */
+export const safeClip = (text: string): string => clipText(text).text;
 
 /** What one linked file is shown as: derived facts from the comparison, and its changed lines from a line diff of the two trees. */
 function placeOf(id: NodeId, subject: JudgeSubject): PlaceFacts | undefined {
@@ -61,6 +65,13 @@ function placeOf(id: NodeId, subject: JudgeSubject): PlaceFacts | undefined {
   const basePath = change.kind === "moved" ? change.from.path : change.kind === "removed" ? change.node.path : path;
   const label = change.kind === "moved" ? `moved ${change.from.path} to ${path}` : `${change.kind} ${path}`;
 
+  // Every line and fact of the place goes through here, so the place says whether any was clipped (counting the ones past the caps too: those are cut as well).
+  let clipped = false;
+  const safeClip = (text: string): string => {
+    const found = clipText(text);
+    if (found.clipped) clipped = true;
+    return found.text;
+  };
   const facts: string[] = [];
   for (const other of comparison.changes) {
     if (other.node.path !== path || !isCodeNode(other.node)) continue;
@@ -85,22 +96,22 @@ function placeOf(id: NodeId, subject: JudgeSubject): PlaceFacts | undefined {
     facts.push(`effect call changed: ${promptEffect(changed.label)}${count}: ${[...changed.added.map((token) => `+ ${safeClip(token)}`), ...changed.removed.map((token) => `− ${safeClip(token)}`)].join(" ")}`);
   }
   const shownFacts = facts.slice(0, MAX_FACTS);
-  if (facts.length > shownFacts.length) shownFacts.push(`[${facts.length - shownFacts.length} more facts were cut]`);
+  const cutFacts = facts.length - shownFacts.length;
 
   const before = change.kind === "added" ? "" : baseTree.get(basePath);
   const after = change.kind === "removed" ? "" : headTree.get(path);
-  if (before === undefined || after === undefined) return { label, facts: shownFacts, lines: [], cutLines: 0, noLines: "the file's text is not in the tree" };
-  if (isBinary(before) || isBinary(after)) return { label, facts: shownFacts, lines: [], cutLines: 0, noLines: "binary file" };
+  if (before === undefined || after === undefined) return { label, facts: shownFacts, cutFacts, clipped, lines: [], cutLines: 0, noLines: "the file's text is not in the tree" };
+  if (isBinary(before) || isBinary(after)) return { label, facts: shownFacts, cutFacts, clipped, lines: [], cutLines: 0, noLines: "binary file" };
   let ops;
   try {
     ops = diffText(before, after);
   } catch {
     ops = undefined;
   }
-  if (ops === undefined) return { label, facts: shownFacts, lines: [], cutLines: 0, noLines: "too large to diff" };
+  if (ops === undefined) return { label, facts: shownFacts, cutFacts, clipped, lines: [], cutLines: 0, noLines: "too large to diff" };
   const changed = ops.flatMap((op) => (op.kind === "added" ? [`+${op.head}: ${safeClip(op.text)}`] : op.kind === "removed" ? [`-${op.base}: ${safeClip(op.text)}`] : []));
-  if (changed.length === 0) return { label, facts: shownFacts, lines: [], cutLines: 0, noLines: change.kind === "moved" ? "moved with no line changed" : "no line changed" };
-  return { label, facts: shownFacts, lines: changed.slice(0, MAX_CHANGED_LINES), cutLines: Math.max(0, changed.length - MAX_CHANGED_LINES) };
+  if (changed.length === 0) return { label, facts: shownFacts, cutFacts, clipped, lines: [], cutLines: 0, noLines: change.kind === "moved" ? "moved with no line changed" : "no line changed" };
+  return { label, facts: shownFacts, cutFacts, clipped, lines: changed.slice(0, MAX_CHANGED_LINES), cutLines: Math.max(0, changed.length - MAX_CHANGED_LINES) };
 }
 
 /** One item per claim that has links: its sentence, and the facts and changed lines of its linked places. Unlinked claims are not judged. */
