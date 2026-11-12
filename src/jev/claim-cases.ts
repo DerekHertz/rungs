@@ -1,5 +1,6 @@
 import { contractsMoved } from "../compare.ts";
 import { readableComparison } from "../readable.ts";
+import { collectStandards } from "../standards.ts";
 import type { FileTree, NodeId } from "../graph.ts";
 import type { ClaimInput } from "./claim-gate.ts";
 import { claimItems, ownersOf } from "./claim-source.ts";
@@ -27,6 +28,7 @@ export function claimInputFor(baseTree: FileTree, headTree: FileTree, claim: str
     headTree,
     head: ownersOf(graph),
     base: ownersOf(baseGraph),
+    standards: collectStandards({ graph: baseGraph, tree: baseTree }, headTree),
   };
   const item = claimItems(subject)[0];
   return item?.input ?? { claim, places: [], omittedPlaces: 0 };

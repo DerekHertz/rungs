@@ -3,7 +3,6 @@ import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { formatReport, loadCases, rescore, runBench } from "./jev/bench.ts";
 import type { BenchReport, SavedAnswer } from "./jev/bench.ts";
-import type { ClaimInput } from "./jev/claim-gate.ts";
 import { createJevClient } from "./jev/client.ts";
 import { BENCH_GATES, GATES_DIR, compareRuns } from "./jev/results.ts";
 
@@ -34,7 +33,7 @@ if (id === undefined || entry === undefined || (at !== -1 && rescoreFile === und
   process.exit(2);
 }
 const dir = join(GATES_DIR, id, "results");
-const file = await loadCases<ClaimInput>(join(GATES_DIR, id, "cases.json"));
+const file = await loadCases(join(GATES_DIR, id, "cases.json"));
 let report: BenchReport;
 if (rescoreFile !== undefined) {
   const previous = JSON.parse(await readFile(rescoreFile, "utf8")) as BenchReport;

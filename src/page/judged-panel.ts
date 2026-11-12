@@ -1,7 +1,8 @@
-import { QUESTION_LABELS, describeThresholds } from "../jev/claim-gate.ts";
-import { NOT_MEASURED, ratesOf } from "../jev/rate.ts";
+import { describeGateThresholds, questionLabel } from "../jev/gate-words.ts";
+import { notMeasured, ratesOf } from "../jev/rate.ts";
 import type { GateRate } from "../jev/rate.ts";
 import type { JudgedDocument } from "../jev/judged-types.ts";
+import type { StandardsDocument } from "../standards-marks.ts";
 import { costText, markWord, percent } from "../judged-marks.ts";
 import { followJudging, updateOf } from "../judged-follow.ts";
 import type { Claim, JudgedUpdate, JudgedView } from "../judged-follow.ts";
@@ -28,8 +29,8 @@ export function markButton(mark: JudgedMark, onClick: () => void, adopted: boole
   const glyph = element("span", "", untrusted ? "\u25cb" : GLYPH[word]);
   glyph.setAttribute("aria-hidden", "true");
   button.append(glyph, element("span", "", untrusted ? UNADOPTED_WORD : word));
-  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but the claim gate has not met its bar and stays off, so this is not evidence" : ""}; click to see what it was shown` : mark.kind === "pending" ? "Jev is still checking this claim" : mark.reason;
-  button.setAttribute("aria-label", mark.kind === "judged" ? `Judged ${word}${untrusted ? " by a gate that is not adopted" : ""}: show the check` : mark.kind === "pending" ? "Judging: Jev is still checking this claim" : `Not judged: ${mark.reason}`);
+  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but its gate has not met its bar and stays off, so this is not evidence" : ""}; click to see what it was shown` : mark.kind === "pending" ? "Jev is still checking this" : mark.reason;
+  button.setAttribute("aria-label", mark.kind === "judged" ? `Judged ${word}${untrusted ? " by a gate that is not adopted" : ""}: show the check` : mark.kind === "pending" ? "Judging: Jev is still checking this" : `Not judged: ${mark.reason}`);
   button.addEventListener("click", onClick);
   return button;
 }
@@ -40,7 +41,7 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
   detail.append(element("summary", "review-summary", `Jev's check: ${markWord(mark)}`));
   const body = element("div", "judged-body");
   if (mark.kind !== "judged") {
-    body.append(element("p", "judged-line", mark.kind === "pending" ? "Jev is still checking this claim; the mark fills in when it answers." : `Not judged: ${mark.reason}`));
+    body.append(element("p", "judged-line", mark.kind === "pending" ? "Jev is still checking this; the mark fills in when it answers." : `Not judged: ${mark.reason}`));
     detail.append(body);
     return detail;
   }
@@ -48,17 +49,17 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
   for (const name of Object.keys(record.shown.questions)) {
     const answer = record.answers[name];
     const line = element("p", "judged-line");
-    const label = QUESTION_LABELS[name] ?? name;
+    const label = questionLabel(record.question.id, name);
     if (answer?.type === "yes-no") line.append(element("strong", "", `${label} ${percent(answer.yes)} yes`), element("span", "judged-exact", ` (${answer.yes})`));
     else if (answer?.type === "unreadable") line.append(element("strong", "", `${label} unreadable`), element("span", "judged-exact", ` ${answer.why}; Jev returned ${answer.raw}`));
     else line.append(element("strong", "", `${label} no answer`));
     body.append(line);
   }
-  body.append(element("p", "judged-line", describeThresholds(record.thresholds)));
+  body.append(element("p", "judged-line", describeGateThresholds(record.question.id, record.thresholds)));
   const unreadable = Object.values(record.answers).some((answer) => answer.type === "unreadable");
-  body.append(element("p", "judged-line", `Verdict: ${record.verdict}${unreadable ? ", because an answer could not be read (an answer that cannot be read never settles a claim)" : ""}.`));
+  body.append(element("p", "judged-line", `Verdict: ${record.verdict}${unreadable ? ", because an answer could not be read (an answer that cannot be read never settles anything)" : ""}.`));
   body.append(element("p", "judged-line", `Model ${record.model} · question ${record.question.id} ${record.question.version} · ${costText(record)}`));
-  body.append(element("p", "judged-line", view.rate?.(record.question.id) ?? NOT_MEASURED));
+  body.append(element("p", "judged-line", view.rate?.(record.question.id) ?? notMeasured(record.question.id)));
   const shown = element("details", "judged-shown");
   shown.append(element("summary", "review-summary", "What Jev was shown"));
   for (const [name, question] of Object.entries(record.shown.questions)) {
@@ -93,9 +94,20 @@ async function readJudged(): Promise<JudgedDocument | null> {
 export async function judgedInput(claims: readonly Claim[], linked: boolean, show: (update: JudgedUpdate) => void): Promise<JudgedUpdate> {
   const first = await readJudged();
   const rates = await gateRates();
-  const update = (document: JudgedDocument | null): JudgedUpdate => updateOf(document, claims, linked, rates);
+  const standards = await readStandards();
+  const update = (document: JudgedDocument | null): JudgedUpdate => updateOf(document, claims, linked, rates, standards);
   if (first?.status === "pending") void followJudging(first, readJudged, (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)), update, show);
   return update(first);
+}
+
+/** Reads /standards.json: the base's written rules. A page that cannot read it (an older server, or no comparison) has no Standards row. */
+async function readStandards(): Promise<StandardsDocument | null> {
+  try {
+    const response = await fetch("/standards.json");
+    return response.ok ? ((await response.json()) as StandardsDocument) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Reads /gate-rates.json: the newest committed result of each gate. A page that cannot read it has no rates, and its gates read as not adopted. */

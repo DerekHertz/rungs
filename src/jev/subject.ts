@@ -1,5 +1,6 @@
 import type { Comparison, ContractMove } from "../compare.ts";
 import type { FileTree, NodeId } from "../graph.ts";
+import type { Standards } from "../standards.ts";
 
 /** Which file owns a node, and the node's own name, by node identity: ids are never taken apart by string. */
 export type Owners = ReadonlyMap<NodeId, { readonly path: string; readonly name: string }>;
@@ -23,4 +24,6 @@ export interface JudgeSubject {
   /** Owners of the head graph's nodes, and of the base graph's. */
   readonly head: Owners;
   readonly base: Owners;
+  /** The written rules of the base (see collectStandards): the standard gate's rules. */
+  readonly standards: Standards;
 }

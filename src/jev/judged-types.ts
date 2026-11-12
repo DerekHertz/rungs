@@ -1,4 +1,4 @@
-import type { NodeId } from "../graph.ts";
+import type { LineRange, NodeId } from "../graph.ts";
 import type { JevAnswer, JevRequest } from "./client.ts";
 import type { Thresholds, Verdict } from "./gate.ts";
 
@@ -11,8 +11,14 @@ import type { Thresholds, Verdict } from "./gate.ts";
  * no node, so it can never create or change one.
  */
 export type About =
-  | { readonly nodes: readonly NodeId[] }
+  | { readonly nodes: readonly NodeId[]; readonly standard?: StandardAbout }
   | { readonly claim: number };
+
+/** What a standard record is about besides the file node it attaches to: the rule (in the base) and the hunk (in the two trees). Plain text and numbers: no node. */
+export interface StandardAbout {
+  readonly rule: { readonly path: string; readonly heading: string; readonly ancestors: readonly string[]; readonly lines: LineRange; readonly edited: boolean | null };
+  readonly hunk: { readonly path: string; readonly base: LineRange | null; readonly head: LineRange | null };
+}
 
 export interface JudgedRecord {
   readonly tier: "judged";

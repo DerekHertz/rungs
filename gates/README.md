@@ -34,6 +34,13 @@ case stores the gate's input (the claim and each place's derived facts and chang
 a rendered state, so a change to the state's format re-renders every case. `source` records the
 repo, pull request and commits of the claim's words and of its changes, so a case can be re-checked.
 
+`gates/standard/` holds hand-built cases: `sources.json` lists named rules and, for each case, the
+base and head text of one changed file (a line array); `build.ts` writes `cases.json` through
+`standardInputFor`, which cuts the hunk and the rule with the code the page runs. A case's input
+is the gate's `StandardInput` (the rule from the base, and the hunk with its base side), so a
+change to the state's format re-renders every case, and a test checks that `cases.json` is what
+`build.ts` makes. A violation the base already had is labelled `cannot tell`.
+
 ## Cases
 
 - `label` is the truth: `good` (should be settled), `broken` (must not be settled) or
