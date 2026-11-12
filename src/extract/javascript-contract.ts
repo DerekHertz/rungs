@@ -656,9 +656,14 @@ function typeSignature(local: Local, file: ts.SourceFile): string {
 
 const nameText = (name: ts.Node): string => (ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : name.getText());
 
-/** A statement to read for contracts: `implicit` when it is exported without saying so (inside an ambient namespace), `ambient` when it sits in a declaration context. */
+/**
+ * A statement to read for contracts. `block` is the namespace body (or file) it was written in:
+ * what a block leaves unexported is local to it and never merges with another block's names.
+ * `implicit` is set when the block exports its members without saying so, `ambient` in a declaration context.
+ */
 interface Entry {
   readonly statement: ts.Statement;
+  readonly block: ts.Node;
   readonly implicit: boolean;
   readonly ambient: boolean;
 }
@@ -686,70 +691,90 @@ function typeImportsOf(statements: readonly ts.Statement[]): Map<string, TypeImp
   return found;
 }
 
+/** Whether a block says what it exports: an `export` modifier, an export list or an export assignment. In an ambient block that turns off implicit export of the rest. */
+const hasExplicitExport = (statements: readonly ts.Statement[]): boolean =>
+  statements.some((statement) => hasModifier(statement, ts.SyntaxKind.ExportKeyword) || ts.isExportDeclaration(statement) || ts.isExportAssignment(statement));
+
 function scan(entries: readonly Entry[], file: ts.SourceFile, prefix: string, found: Map<string, TypeContract>, imports: ReadonlyMap<string, TypeImport> = new Map()): void {
-  const locals = new Map<string, Local>();
-  const names = new Map<string, string>();
-  const typeOnlyNames = new Set<string>();
-  // Blocks of one namespace name merge into one: their contents are read together. A namespace
-  // is read when it is exported, or named by `export { N }`, `export = N` or `export default N`.
-  const spaces = new Map<string, { entries: Entry[]; direct: boolean }>();
-  const spaceExports: [prefix: string, local: string][] = [];
-  for (const { statement, implicit, ambient } of entries) {
-    const exportedAs = (local: string): void => {
-      if (hasModifier(statement, ts.SyntaxKind.DefaultKeyword)) names.set("default", local);
-      else if (implicit || hasModifier(statement, ts.SyntaxKind.ExportKeyword)) names.set(local, local);
-    };
-    if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
-      const name = statement.name.text;
-      const local = locals.get(name) ?? { kind: ts.isInterfaceDeclaration(statement) ? "interface" : "type", declarations: [] };
-      local.declarations.push(statement);
-      locals.set(name, local);
-      if (hasModifier(statement, ts.SyntaxKind.ExportKeyword) || implicit) exportedAs(name);
-    } else if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name) && statement.body !== undefined) {
-      const space = spaces.get(statement.name.text) ?? { entries: [], direct: false };
-      if (implicit || hasModifier(statement, ts.SyntaxKind.ExportKeyword)) space.direct = true;
-      const inside = ambient || hasModifier(statement, ts.SyntaxKind.DeclareKeyword);
-      const body = statement.body;
-      const dotted = !ts.isModuleBlock(body);
-      for (const inner of ts.isModuleBlock(body) ? body.statements : [body as ts.Statement]) space.entries.push({ statement: inner, implicit: inside || dotted, ambient: inside });
-      spaces.set(statement.name.text, space);
-    } else if (ts.isExportAssignment(statement) && ts.isIdentifier(statement.expression)) {
-      names.set(statement.isExportEquals === true ? "export=" : "default", statement.expression.text);
-      // `export = N` makes the namespace the module, so its members are the file's own exports.
-      spaceExports.push([statement.isExportEquals === true ? "" : "default.", statement.expression.text]);
-    } else if (ts.isExportDeclaration(statement)) {
-      const clause = statement.exportClause;
-      const from = statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : undefined;
-      if (from === undefined) {
-        if (clause !== undefined && ts.isNamedExports(clause)) {
-          for (const element of clause.elements) {
-            names.set(nameText(element.name), nameText(element.propertyName ?? element.name));
-            if (statement.isTypeOnly || element.isTypeOnly) typeOnlyNames.add(nameText(element.name));
-            spaceExports.push([`${nameText(element.name)}.`, nameText(element.propertyName ?? element.name)]);
+  // Each block is read on its own: its locals, what it exports and under which names. Only what a
+  // block exports joins the public names, where exported blocks of one namespace merge.
+  const blocks = new Map<ts.Node, Entry[]>();
+  for (const entry of entries) blocks.set(entry.block, [...(blocks.get(entry.block) ?? []), entry]);
+  const publicTypes = new Map<string, Local>();
+  const publicSpaces = new Map<string, Entry[]>();
+  const addSpace = (as: string, inner: readonly Entry[]): void => {
+    publicSpaces.set(as, [...(publicSpaces.get(as) ?? []), ...inner]);
+  };
+  for (const blockEntries of blocks.values()) {
+    const locals = new Map<string, Local>();
+    const names = new Map<string, string>();
+    const typeOnlyNames = new Set<string>();
+    const spaces = new Map<string, { entries: Entry[]; direct: boolean }>();
+    const spaceExports: [prefix: string, local: string][] = [];
+    for (const { statement, implicit, ambient } of blockEntries) {
+      const exportedAs = (local: string): void => {
+        if (hasModifier(statement, ts.SyntaxKind.DefaultKeyword)) names.set("default", local);
+        else if (implicit || hasModifier(statement, ts.SyntaxKind.ExportKeyword)) names.set(local, local);
+      };
+      if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+        const name = statement.name.text;
+        const local = locals.get(name) ?? { kind: ts.isInterfaceDeclaration(statement) ? "interface" : "type", declarations: [] };
+        local.declarations.push(statement);
+        locals.set(name, local);
+        if (hasModifier(statement, ts.SyntaxKind.ExportKeyword) || implicit) exportedAs(name);
+      } else if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name) && statement.body !== undefined) {
+        const space = spaces.get(statement.name.text) ?? { entries: [], direct: false };
+        if (implicit || hasModifier(statement, ts.SyntaxKind.ExportKeyword)) space.direct = true;
+        const inside = ambient || hasModifier(statement, ts.SyntaxKind.DeclareKeyword);
+        const body = statement.body;
+        const dotted = !ts.isModuleBlock(body);
+        const inner: readonly ts.Statement[] = ts.isModuleBlock(body) ? body.statements : [body as ts.Statement];
+        // An ambient block with an explicit export lists its exports; only without one is every member exported.
+        const everything = dotted || (inside && !hasExplicitExport(inner));
+        for (const member of inner) space.entries.push({ statement: member, block: statement, implicit: everything, ambient: inside });
+        spaces.set(statement.name.text, space);
+      } else if (ts.isExportAssignment(statement) && ts.isIdentifier(statement.expression)) {
+        names.set(statement.isExportEquals === true ? "export=" : "default", statement.expression.text);
+        // `export = N` makes the namespace the module, so its members are the file's own exports.
+        spaceExports.push([statement.isExportEquals === true ? "" : "default.", statement.expression.text]);
+      } else if (ts.isExportDeclaration(statement)) {
+        const clause = statement.exportClause;
+        const from = statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : undefined;
+        if (from === undefined) {
+          if (clause !== undefined && ts.isNamedExports(clause)) {
+            for (const element of clause.elements) {
+              names.set(nameText(element.name), nameText(element.propertyName ?? element.name));
+              if (statement.isTypeOnly || element.isTypeOnly) typeOnlyNames.add(nameText(element.name));
+              spaceExports.push([`${nameText(element.name)}.`, nameText(element.propertyName ?? element.name)]);
+            }
           }
-        }
-      } else if (clause === undefined) found.set(`${prefix}* from "${from}"`, { name: `${prefix}* from "${from}"`, kind: "re-export", signature: "*" });
-      else if (ts.isNamespaceExport(clause)) found.set(prefix + nameText(clause.name), { name: prefix + nameText(clause.name), kind: "re-export", signature: `* from "${from}"` });
-      else for (const element of clause.elements) found.set(prefix + nameText(element.name), { name: prefix + nameText(element.name), kind: "re-export", signature: `${nameText(element.propertyName ?? element.name)} from "${from}"` });
-    }
-  }
-  for (const [exported, localName] of names) {
-    const local = locals.get(localName);
-    if (local !== undefined) found.set(prefix + exported, { name: prefix + exported, kind: local.kind, signature: typeSignature(local, file) });
-    else {
-      // A type imported here and exported again is passed on as written, as `export type { A } from` is.
-      const source = imports.get(localName);
-      if (source !== undefined && (source.typeOnly || typeOnlyNames.has(exported))) {
-        found.set(prefix + exported, { name: prefix + exported, kind: "re-export", signature: source.imported === "*" ? `* from "${source.from}"` : `${source.imported} from "${source.from}"` });
+        } else if (clause === undefined) found.set(`${prefix}* from "${from}"`, { name: `${prefix}* from "${from}"`, kind: "re-export", signature: "*" });
+        else if (ts.isNamespaceExport(clause)) found.set(prefix + nameText(clause.name), { name: prefix + nameText(clause.name), kind: "re-export", signature: `* from "${from}"` });
+        else for (const element of clause.elements) found.set(prefix + nameText(element.name), { name: prefix + nameText(element.name), kind: "re-export", signature: `${nameText(element.propertyName ?? element.name)} from "${from}"` });
       }
     }
+    for (const [exported, localName] of names) {
+      const local = locals.get(localName);
+      if (local !== undefined) {
+        const merged = publicTypes.get(exported) ?? { kind: local.kind, declarations: [] };
+        for (const declaration of local.declarations) if (!merged.declarations.includes(declaration)) merged.declarations.push(declaration);
+        publicTypes.set(exported, merged);
+      } else {
+        // A type imported here and exported again is passed on as written, as `export type { A } from` is.
+        const source = imports.get(localName);
+        if (source !== undefined && (source.typeOnly || typeOnlyNames.has(exported))) {
+          found.set(prefix + exported, { name: prefix + exported, kind: "re-export", signature: source.imported === "*" ? `* from "${source.from}"` : `${source.imported} from "${source.from}"` });
+        }
+      }
+    }
+    for (const [name, space] of spaces) if (space.direct) addSpace(`${name}.`, space.entries);
+    for (const [exported, localName] of spaceExports) {
+      const space = spaces.get(localName);
+      if (space !== undefined) addSpace(exported, space.entries);
+    }
   }
-  const read = (space: { entries: Entry[] }, namespacePrefix: string): void => scan(space.entries, file, namespacePrefix, found);
-  for (const [name, space] of spaces) if (space.direct) read(space, `${prefix}${name}.`);
-  for (const [exported, localName] of spaceExports) {
-    const space = spaces.get(localName);
-    if (space !== undefined) read(space, `${prefix}${exported}`);
-  }
+  for (const [exported, local] of publicTypes) found.set(prefix + exported, { name: prefix + exported, kind: local.kind, signature: typeSignature(local, file) });
+  for (const [as, inner] of publicSpaces) scan(inner, file, `${prefix}${as}`, found);
 }
 
 /**
@@ -763,6 +788,6 @@ function scan(entries: readonly Entry[], file: ts.SourceFile, prefix: string, fo
 export function exportedTypes(file: ts.SourceFile): TypeContract[] {
   const found = new Map<string, TypeContract>();
   const global = file.isDeclarationFile && !ts.isExternalModule(file);
-  scan(file.statements.map((statement) => ({ statement, implicit: global, ambient: file.isDeclarationFile })), file, "", found, typeImportsOf(file.statements));
+  scan(file.statements.map((statement) => ({ statement, block: file, implicit: global, ambient: file.isDeclarationFile })), file, "", found, typeImportsOf(file.statements));
   return [...found.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }

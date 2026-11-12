@@ -75,6 +75,30 @@ test("reordering interface members stays a change (left as is)", () => {
   expect(one("export interface A { x: 1; y: 2 }\n", "export interface A { y: 2; x: 1 }\n")).toEqual(["changed A"]);
 });
 
+test("an unexported member of one block does not merge into the exported member of another", () => {
+  const base = "export namespace API { export interface A { x: 1 } }\nexport namespace API { interface A { y: 1 } }\n";
+  expect(one(base, base.replace("y: 1", "y: 2"))).toEqual([]);
+  expect(one(base, base.replace("x: 1", "x: 2"))).toEqual(["changed API.A"]);
+  // A nested namespace left unexported in one block is not the exported one of another.
+  const nested = "export namespace API { export namespace N { export interface A { x: 1 } } }\nexport namespace API { namespace N { export interface A { y: 1 } } }\n";
+  expect(one(nested, nested.replace("y: 1", "y: 2"))).toEqual([]);
+  expect(one(nested, nested.replace("x: 1", "x: 2"))).toEqual(["changed API.N.A"]);
+});
+
+test("an explicit export in an ambient namespace turns off implicit export of the rest", () => {
+  const list = (y: number) => `declare namespace API { interface A { x: 1 } interface B { y: ${y} } export { A }; }\nexport = API;\n`;
+  expect(one(list(1), list(2), "src/api.d.ts")).toEqual([]);
+  expect(one(list(1), list(1).replace("x: 1", "x: 2"), "src/api.d.ts")).toEqual(["changed A"]);
+  const modifier = (y: number) => `declare namespace API { export interface A { x: 1 } interface B { y: ${y} } }\nexport = API;\n`;
+  expect(one(modifier(1), modifier(2), "src/api.d.ts")).toEqual([]);
+  // Without any explicit export, everything is exported.
+  const plain = (y: number) => `declare namespace API { interface A { x: 1 } interface B { y: ${y} } }\nexport = API;\n`;
+  expect(one(plain(1), plain(2), "src/api.d.ts")).toEqual(["changed B"]);
+  // A file with an export is a module, not global.
+  const moduleFile = (y: number) => `export {};\ninterface A { y: ${y} }\n`;
+  expect(one(moduleFile(1), moduleFile(2), "src/api.d.ts")).toEqual([]);
+});
+
 test("a binary-marked code file goes through no language adapter", () => {
   const text = "//\0\nexport function f() { return 1; }\nfetch('x');\n";
   const graph = extract(tree({ ...pkg, "a.ts": text, "b.js": "\0module.exports = function g() {};\n" }));
