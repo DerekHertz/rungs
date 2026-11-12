@@ -13,4 +13,7 @@ describe("tooltipPosition", () => {
     const at = (x: number) => tooltipPosition({ x, y: 10 }, { width: 50, height: 20 }, view).left;
     expect(at(10)).not.toBe(at(300));
   });
+  test("never goes past the top or left edge, even when larger than the window", () => {
+    expect(tooltipPosition({ x: 500, y: 400 }, { width: 1200, height: 900 }, view)).toEqual({ left: 4, top: 4 });
+  });
 });

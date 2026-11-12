@@ -17,7 +17,7 @@ import { importanceOf, reachedFrom } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
 import { insideOf, marksOf } from "../town-inside.ts";
 import { createTownInsideView } from "./town-inside-view.ts";
-import { tooltipPosition } from "./tooltip.ts";
+import { showTooltip } from "./tooltip-card.ts";
 import type { Lot, Town } from "../town.ts";
 import type { ObservedDocument } from "../observed-types.ts";
 import { observedReport } from "../observed-report.ts";
@@ -141,10 +141,7 @@ const handlers: TownHandlers = {
       tooltip.style.display = "none";
       return;
     }
-    tooltip.textContent = facts.join("\n");
-    tooltip.style.display = "block";
-    tooltip.style.left = `${Math.min(at.x + 16, window.innerWidth - tooltip.offsetWidth - 4)}px`;
-    tooltip.style.top = `${Math.min(at.y + 16, window.innerHeight - tooltip.offsetHeight - 4)}px`;
+    showTooltip(tooltip, facts.join("\n"), at);
   },
   click(id, clicks) {
     if (clicks > 1) return;
@@ -197,11 +194,7 @@ const insideView = createTownInsideView(
           tooltip.style.display = "none";
           return;
         }
-        tooltip.textContent = text;
-        tooltip.style.display = "block";
-        const place = tooltipPosition(at, { width: tooltip.offsetWidth, height: tooltip.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
-        tooltip.style.left = `${place.left}px`;
-        tooltip.style.top = `${place.top}px`;
+        showTooltip(tooltip, text, at);
       },
     },
     sheet,
@@ -249,7 +242,7 @@ function testMarkFacts(file: FileNode): string[] {
 /** The tests of the file that failed when main's tests ran against this change. */
 function failingFacts(file: FileNode): string[] {
   const failed = (observedRun?.failing ?? []).filter((test) => test.file === file.path);
-  return failed.length === 0 ? [] : [`failing tests (observed): ${failed.map((test) => test.name).slice(0, 5).join("; ")}${failed.length > 5 ? ` and ${failed.length - 5} more` : ""}`];
+  return failed.length === 0 ? [] : [`failing tests (observed): ${failed.length}`, ...failed.slice(0, 5).map((test) => `· ${test.name}`), ...(failed.length > 5 ? [`· and ${failed.length - 5} more`] : [])];
 }
 
 /** In the town: what rests on the file (the count with its list), how the repo declares it a way in, and whether anything reaches it. */

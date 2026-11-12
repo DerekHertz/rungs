@@ -1473,7 +1473,12 @@
         padding: 4px 6px;
         background: #000d;
         color: #e8edf2;
-        white-space: pre;
+        /* A card, not a band: long lines wrap, and it may be as tall as the window so no fact is cut. */
+        max-width: min(460px, calc(100vw - 8px));
+        max-height: calc(100vh - 8px);
+        overflow: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
         display: none;
       }
 
