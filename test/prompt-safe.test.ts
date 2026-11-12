@@ -182,6 +182,13 @@ test("a test runner's plain title reaches the prompts, every other literal stays
   expect(narration).not.toContain("sk-proj");
 });
 
+test("a test title with brackets goes through the title rule; a real computed member still reads […]", () => {
+  expect(promptName(JSON.stringify(`it("${KEY}[case]") callback`))).toBe('it("…") callback');
+  expect(promptName(JSON.stringify('it("handles [empty] arrays") callback'))).toBe('it("handles [empty] arrays") callback');
+  expect(promptName(`C.${JSON.stringify('["it(\\"x\\") callback"]')}`)).toBe("C.[…]");
+  expect(promptName(`C.${JSON.stringify('[SECRET_KEY]')}`)).toBe("C.[…]");
+});
+
 test("a title's quotes are dropped, its backslashes withheld", () => {
   expect(promptName(JSON.stringify('it("say \\"(new)\\"") callback'))).toBe('it("say (new)") callback');
   expect(promptName(JSON.stringify('it("a\\\\b") callback'))).toBe('it("…") callback');
