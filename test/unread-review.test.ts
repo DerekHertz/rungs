@@ -64,7 +64,14 @@ describe("what a parse failure must not let a review say", () => {
     expect(line).not.toContain("code");
   });
 
-  const TEST_GOOD = 'import { test, expect } from "vitest";\ntest("works", () => {\n  expect(1).toBe(1);\n  expect(2).toBe(2);\n});\n';
+  test("the unread count and a test run still under way are both in the headline", () => {
+    const { comparison } = readableComparison(tree(GOOD), tree(BROKEN));
+    const line = headline(comparison, testChanges(new Map(), new Map()), { status: "running" });
+    expect(line).toContain("1 file could not be read");
+    expect(line).toContain("tests running…");
+  });
+
+  const TEST_GOOD ='import { test, expect } from "vitest";\ntest("works", () => {\n  expect(1).toBe(1);\n  expect(2).toBe(2);\n});\n';
   const TEST_BROKEN = 'import { test, expect } from "vitest";\ntest("works", () => {\n  expect(1).toBe(1;\n});\n';
 
   test("a test file that fails to parse gives no weakened or removed tests", () => {
