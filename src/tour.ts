@@ -4,11 +4,12 @@ import type { Claim } from "./claims.ts";
 import type { Comparison, ModuleChange } from "./compare.ts";
 import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
+import { PromptIds, nameable, promptBase, promptEffect } from "./prompt-safe.ts";
 import { promptSignature } from "./signature.ts";
 import type { CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached tours are not reused. */
-export const TOUR_PROMPT_VERSION = "tour-v1";
+export const TOUR_PROMPT_VERSION = "tour-v4";
 
 /**
  * A place a stop may point at: a changed file, or a changed class, method or top-level function
@@ -16,9 +17,11 @@ export const TOUR_PROMPT_VERSION = "tour-v1";
  */
 export interface Place {
   readonly id: NodeId;
+  /** The id the prompt shows for this place (see PromptIds): the id, unless it names a computed member or is very long. The agent's answers are mapped back from it. */
+  readonly promptId: string;
   /** The lines a sentence about this place may be anchored to: the node's own, a file's from 1; null for a binary file, which has no lines. */
   readonly range: LineRange | null;
-  /** Exactly what the prompt shows for this place: kind, id, lines, signature, new effects. No source text. */
+  /** Exactly what the prompt shows for this place: kind, prompt id, lines, signature, new effects (category and host or name only). No source text. */
   readonly line: string;
 }
 
@@ -49,13 +52,14 @@ export function placesOf(comparison: Comparison, graph: Graph): Place[] {
     listed.add(node.id);
   }
 
+  const ids = new PromptIds();
   const effectsAt = new Map<NodeId, string[]>();
   for (const change of comparison.effects) {
     if (change.kind !== "added") continue;
     let at: NodeId | null | undefined = change.edge.from;
     while (at !== null && at !== undefined && !listed.has(at)) at = nodes.get(at)?.parent;
     if (at === null || at === undefined) continue;
-    effectsAt.set(at, [...(effectsAt.get(at) ?? []), `    new effect: ${effectLabel(change.edge)} ${lines(change.edge.range)}`]);
+    effectsAt.set(at, [...(effectsAt.get(at) ?? []), `    new effect: ${promptEffect(effectLabel(change.edge))} ${lines(change.edge.range)}`]);
   }
 
   const out: Place[] = [];
@@ -64,16 +68,18 @@ export function placesOf(comparison: Comparison, graph: Graph): Place[] {
     if (file.level !== "file") continue;
     const range = file.lines === null ? null : { start: 1, end: Math.max(1, file.lines) };
     const code = file.role === "tests" || file.role === "docs" ? [] : (codeBy.get(file.path) ?? []);
-    out.push({ id: file.id, range, line: [`${change.kind} ${file.id} [${file.role ?? "no role"}] ${range === null ? "binary" : lines(range)}`, ...(effectsAt.get(file.id) ?? [])].join("\n") });
+    const fileId = ids.add(nameable(file));
+    out.push({ id: file.id, promptId: fileId, range, line: [`${change.kind} ${fileId} [${file.role ?? "no role"}] ${range === null ? "binary" : lines(range)}`, ...(effectsAt.get(file.id) ?? [])].join("\n") });
     for (const { change: inner, node } of [...code].sort((a, b) => a.node.range.start - b.node.range.start || byText(a.node.id, b.node.id))) {
       const was =
         inner.kind === "altered" && isCodeNode(inner.before) && inner.before.signature !== node.signature
           ? [`    was ${promptSignature(inner.before.signature)}`]
           : inner.kind === "moved"
-            ? [`    was ${inner.from.id}`]
+            ? [`    was ${promptBase(nameable(inner.from))}`]
             : [];
-      const first = `  ${inner.kind} ${node.id} ${lines(node.range)}${node.exported ? " exported" : ""} ${promptSignature(node.signature)}`;
-      out.push({ id: node.id, range: node.range, line: [first, ...was, ...(effectsAt.get(node.id) ?? [])].join("\n") });
+      const nodeId = ids.add(nameable(node));
+      const first = `  ${inner.kind} ${nodeId} ${lines(node.range)}${node.exported ? " exported" : ""} ${promptSignature(node.signature)}`;
+      out.push({ id: node.id, promptId: nodeId, range: node.range, line: [first, ...was, ...(effectsAt.get(node.id) ?? [])].join("\n") });
     }
   }
   return out;
@@ -111,7 +117,7 @@ export const TOUR_SCHEMA = {
 
 const SYSTEM = `You guide a reviewer through a pull request as an ordered tour of stops. Prompt version ${TOUR_PROMPT_VERSION}.
 
-You get numbered claims from the pull request's description, then the changed places. A changed file is "<change kind> <id> [<role>] L<first>-<last>". Indented under it are its changed classes, methods and top-level functions, each "<change kind> <id> L<first>-<last> [exported] <signature>", with "was <signature or id>" when the signature changed or the code moved, and "new effect: <resource> <API> <target> L<line>" for each new call that reaches outside the program. An id is a kind, a colon, a path and, for code, "#" and a name, for example "function:src/a.ts#run". You see no source code.
+You get numbered claims from the pull request's description, then the changed places. A changed file is "<change kind> <id> [<role>] L<first>-<last>". Indented under it are its changed classes, methods and top-level functions, each "<change kind> <id> L<first>-<last> [exported] <signature>", with "was <signature or id>" when the signature changed or the code moved, and "new effect: <resource> <API> <target> L<line>" for each new call that reaches outside the program; the target is a host, a command name or a file name, or "withheld" when it is not shown to you. An id is a kind, a colon, a path and, for code, "#" and a name, for example "function:src/a.ts#run"; a computed member is written "[…]", and a very long id is cut with "…". You see no source code.
 
 Return 6 to 20 stops in the order a reviewer should read them: entry points and exported contracts first, then what supports them, tests and docs last. Together the stops should cover the change; files that belong together share a stop.
 - ids: 1 to 8 ids the stop is about, copied exactly and whole from the list. Never invent an id.
@@ -160,7 +166,8 @@ const flat = (text: string): string => text.replace(/\s+/g, " ").trim();
 export function validateTour(output: unknown, claimCount: number, places: readonly Place[]): Tour {
   const given = (output as { stops?: unknown } | null)?.stops;
   if (!Array.isArray(given)) throw new Error("the agent's answer has no stops list");
-  const known = new Map(places.map((place) => [place.id, place.range] as const));
+  // The agent answers with the ids the prompt showed; they are mapped back to the real ones here, so the tour never holds an alias.
+  const shown = new Map(places.map((place) => [place.promptId, place] as const));
   const isInt = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value);
   const dropped = { stops: 0, ids: 0, claims: 0, sentences: 0 };
   const stops: Stop[] = [];
@@ -170,9 +177,10 @@ export function validateTour(output: unknown, claimCount: number, places: readon
       throw new Error("the agent's answer has a malformed stop");
     }
     const kept: NodeId[] = [];
-    for (const id of ids as NodeId[]) {
-      if (!known.has(id)) dropped.ids++;
-      else if (!kept.includes(id)) kept.push(id);
+    for (const given of ids as string[]) {
+      const place = shown.get(given);
+      if (place === undefined) dropped.ids++;
+      else if (!kept.includes(place.id)) kept.push(place.id);
     }
     const fulfils: number[] = [];
     for (const claim of claims as number[]) {
@@ -183,12 +191,34 @@ export function validateTour(output: unknown, claimCount: number, places: readon
     for (const item of narration as unknown[]) {
       const { text, id, start, end } = (item ?? {}) as { text?: unknown; id?: unknown; start?: unknown; end?: unknown };
       if (typeof text !== "string" || typeof id !== "string" || !isInt(start) || !isInt(end)) throw new Error("the agent's answer has a malformed sentence");
-      const within = kept.includes(id as NodeId) ? known.get(id as NodeId) : undefined;
+      const place = shown.get(id);
+      const within = place !== undefined && kept.includes(place.id) ? place.range : undefined;
       if (flat(text) === "" || within === undefined || within === null || start > end || start < within.start || end > within.end) dropped.sentences++;
-      else sentences.push({ text: flat(text), id: id as NodeId, range: { start, end } });
+      else sentences.push({ text: flat(text), id: place!.id, range: { start, end } });
     }
     if (kept.length === 0) dropped.stops++;
     else stops.push({ title: flat(title), ids: kept, claims: fulfils, sentences });
   }
   return { stops, dropped };
+}
+
+/**
+ * A tour as `validateTour` keeps it when asked with places whose ids are their prompt ids (see
+ * walkthrough): in the ids the prompt showed. This maps them to the ids of `places`, the present
+ * graph's, dropping any the places do not show. It runs on every load, cached or fresh.
+ */
+export function resolveTour(tour: Tour, places: readonly Place[]): Tour {
+  const real = new Map(places.map((place) => [place.promptId, place.id] as const));
+  const back = (shown: NodeId): NodeId | undefined => real.get(shown);
+  const stops: Stop[] = [];
+  for (const stop of tour.stops) {
+    const ids = stop.ids.flatMap((shown) => back(shown) ?? []);
+    if (ids.length === 0) continue;
+    const sentences = stop.sentences.flatMap((sentence) => {
+      const id = back(sentence.id);
+      return id === undefined ? [] : [{ ...sentence, id }];
+    });
+    stops.push({ ...stop, ids, sentences });
+  }
+  return { stops, dropped: tour.dropped };
 }

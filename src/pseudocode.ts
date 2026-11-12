@@ -1,5 +1,6 @@
 import ts from "typescript";
 import { effectLabel } from "./effects.ts";
+import { promptBase } from "./prompt-safe.ts";
 import { digestOf } from "./extract/extract.ts";
 import { effectSites } from "./extract/javascript-effects.ts";
 import { isAmbient, isCodeSyntax, programOver, scriptKind } from "./extract/javascript.ts";
@@ -280,7 +281,7 @@ class Outline {
         const child = this.nested.find((candidate) => candidate.range.start === at.start && candidate.range.end === at.end && candidate.digest === digest);
         if (child !== undefined) {
           this.nested.splice(this.nested.indexOf(child), 1);
-          found.push({ depth, kind: "function", text: `${child.level === "class" ? "class" : "function"} ${child.name}`, range: child.range, node: child.id });
+          found.push({ depth, kind: "function", text: `${child.level === "class" ? "class" : "function"} ${child.name}`, range: child.range, node: child.id, ...(promptBase(child) === child.id ? {} : { promptNode: promptBase(child) }) });
         }
         return;
       }

@@ -1,6 +1,12 @@
 import ts from "typescript";
+import { cap } from "./prompt-safe.ts";
 
 const WITHHELD = "(signature withheld)";
+
+/** The longest name, and the longest whole signature, a prompt shows (see cap in prompt-safe.ts). */
+const MAX_NAME_CHARS = 60;
+const MAX_SIGNATURE_CHARS = 400;
+const capNames = (text: string): string => cap(text.replace(/[\p{ID_Continue}$]{61,}/gu, (name) => cap(name, MAX_NAME_CHARS)), MAX_SIGNATURE_CHARS);
 
 /** Thrown for any syntax the allow-list below does not cover; the whole signature is then withheld. */
 class Withheld extends Error {}
@@ -159,7 +165,7 @@ function render(source: string): string | undefined {
  */
 export function promptSignature(signature: string): string {
   try {
-    return render(signature) ?? WITHHELD;
+    return capNames(render(signature) ?? WITHHELD);
   } catch (error) {
     if (error instanceof Withheld) return WITHHELD;
     throw error;

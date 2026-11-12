@@ -50,7 +50,7 @@ test("the places are every changed file with its range, and under source files t
     "    was (n: number)",
     "added file:src/git.ts [source] L1-11",
     "  added function:src/git.ts#head L2-5 exported (dir: string)",
-    '    new effect: process child_process execFileSync "git" L4',
+    '    new effect: process child_process execFileSync git L4',
     "  added class:src/git.ts#Repo L7-11 exported { open() }",
     "  added function:src/git.ts#Repo.open L8-10 ()",
     "removed file:src/gone.ts [source] L1-3",

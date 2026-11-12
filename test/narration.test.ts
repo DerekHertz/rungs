@@ -48,7 +48,7 @@ test("the prompt is the function's lines, signature and outline structure, never
       "1 if L4",
       "2   return L4",
       "3 return L5",
-      '4   effect L5 process child_process execFileSync "git"',
+      '4   effect L5 process child_process execFileSync git',
     ].join("\n"),
   );
   expect(outline.map((line) => line.text).join("\n")).toContain("SECRET_LITERAL");

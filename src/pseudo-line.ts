@@ -19,5 +19,7 @@ export interface PseudoLine {
   readonly text: string;
   readonly range: LineRange;
   readonly node?: NodeId;
+  /** Set with `node` only where the prompt shows another id than the node's own (a computed member name, a very long id): see promptBase. */
+  readonly promptNode?: string;
   readonly effect?: string;
 }

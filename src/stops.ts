@@ -3,6 +3,7 @@ import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
 import type { Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 import type { Outcome, ObservedDocument } from "./observed-types.ts";
+import { WITHHELD, promptTarget } from "./prompt-safe.ts";
 import { ROLLUP_OVER, effectChip, effectParts } from "./review.ts";
 import type { TestChanges } from "./test-changes-types.ts";
 import type { Stop, Tour } from "./tour.ts";
@@ -170,8 +171,10 @@ export function stopFacts(stop: Stop, comparison: Comparison, graph: Graph, move
   };
   const said = stop.sentences.map((sentence) => sentence.text).join("\n");
   const saysEffect = (label: string): boolean => {
-    const { name, literal } = effectParts(label);
-    return names(said, name) || (literal !== undefined && names(said, literal));
+    const { resource, name, literal } = effectParts(label);
+    // The agent was shown only the safe form of the target (a host, a command or a file name), so naming that counts too.
+    const shown = literal === undefined ? undefined : promptTarget(resource, literal);
+    return names(said, name) || (literal !== undefined && names(said, literal)) || (shown !== undefined && shown !== WITHHELD && (names(said, shown) || names(said, shown.replace(/^[a-z][a-z0-9+.-]*:\/\//i, ""))));
   };
 
   const inTests = (owner: NodeId): boolean => {
