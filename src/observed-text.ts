@@ -1,4 +1,4 @@
-import { EVIDENCE_LINE, UNSANDBOXED_LINE, UNSANDBOXED_SHARED_LINE } from "./observed-types.ts";
+import { EVIDENCE_LINE, UNSANDBOXED_LINE, UNSANDBOXED_SHARED_LINE, failuresText } from "./observed-types.ts";
 import { leftoverText } from "./leftover.ts";
 import type { Leftover } from "./leftover.ts";
 import type { ControlDocument, ObservedDocument } from "./observed-types.ts";
@@ -8,7 +8,8 @@ import { unreliableText } from "./observed-report.ts";
 export function controlText(control: ControlDocument): string {
   if (control.status !== "ran") return `No control run: ${control.why}. The failures are main's tests failing against this PR, not known to be this PR's doing.`;
   const { regression, environment, fixed } = control.counts;
-  return `The same tests also ran against main's own code, in ${control.seconds}s: ${regression} ${regression === 1 ? "regression" : "regressions"}, ${environment} environment (fail on main too), ${fixed} fixed.`;
+  const open = control.notComparedFailures > 0 ? `, ${failuresText(control.notComparedFailures)} not compared` : "";
+  return `The same tests also ran against main's own code, in ${control.seconds}s: ${regression} ${regression === 1 ? "regression" : "regressions"}, ${environment} environment (fail on main too), ${fixed} fixed${open}.`;
 }
 
 /** What was left running after the steps, as a sentence; a run in the sandbox has none to say. */

@@ -168,3 +168,13 @@ test("the empty state of new calls out never says none while an agent-only call 
   expect(noNewCallsText(1)).toBe("Every other new call out is mentioned.");
   expect(unmentionedSummary({ files: 0, calls: 0, agent: { files: 0, calls: 0, changed: 1 } })).toBe("1 effect changed linked by the agent only");
 });
+
+test("the tests row never says no regressions while a head failure is not compared", () => {
+  const counts = { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 1 };
+  const doc = { tier: "observed", tree: "t", status: "ran", counts: { pass: 0, fail: 1, skip: 0 }, control: { status: "ran", seconds: 1, counts, notComparedFailures: 1, baseOnly: [] } } as never;
+  expect(testsSummary(doc, 0)).toBe("no regression found, 1 failure not compared of 1");
+  expect(testsSummary(doc, 0)).not.toContain("no regressions");
+  // Tests not compared that did not fail keep their own count beside it.
+  const more = { ...(doc as object), control: { status: "ran", seconds: 1, counts: { ...counts, skipped: 2 }, notComparedFailures: 1, baseOnly: [] } } as never;
+  expect(testsSummary(more, 0)).toBe("no regression found, 1 failure not compared · 2 other not compared of 1");
+});

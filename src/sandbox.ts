@@ -62,6 +62,8 @@ export interface StepResult {
   /** Standard output and error as they arrived, cut at the run's output limit. */
   readonly output: string;
   readonly truncated: boolean;
+  /** Set when the step's output matched the request's `watch` pattern, wherever in it, cut or not. */
+  readonly watched?: true;
   /**
    * What the step left running behind it, found after it ended. Only a step outside bwrap can
    * leave anything, so a step in bwrap has none, which says nothing of "none found": that is a
@@ -131,6 +133,11 @@ export interface RunRequest {
    * the copy stays writable; the caller must then say its results are weaker.
    */
   readonly readOnlyWork?: boolean;
+  /**
+   * A pattern looked for in the output of every step in the copy as it arrives, before it is cut
+   * at `outputBytes`: a step whose output passes the limit still says it matched.
+   */
+  readonly watch?: RegExp;
   /** How leftover processes are found and ended outside bwrap; the host's /proc when absent. */
   readonly processes?: ProcessTable;
   readonly isolation: Isolation;
@@ -241,7 +248,7 @@ export async function runIsolated(request: RunRequest): Promise<Run> {
     const deadline = Date.now() + request.timeoutMs;
     const run = async (argv: readonly string[], room: Room): Promise<StepResult> => {
       const command = isolation.kind === "bwrap" ? [isolation.path, ...bwrapArgs(host, node, npm, room, pinned, request.readOnlyWork === true), "--", ...argv] : [...argv];
-      const { open, ...finished } = await runStep(command, host[room], deadline, request.outputBytes, isolation, root, room === "work" ? report : undefined, (spawned) => {
+      const { open, ...finished } = await runStep(command, host[room], deadline, request.outputBytes, isolation, root, room === "work" ? report : undefined, room === "work" ? request.watch : undefined, (spawned) => {
         child = spawned;
       });
       // In bwrap the namespace dies with the step. Outside it a process can leave the step's group.
@@ -322,6 +329,7 @@ function runStep(
   isolation: Isolation,
   root: string,
   report: { chunks: Buffer[]; bytes: number; readonly limit: number } | undefined,
+  watch: RegExp | undefined,
   started: (child: ReturnType<typeof spawn>) => void,
 ): Promise<StepResult & { readonly open: boolean }> {
   const [command, ...args] = argv;
@@ -338,7 +346,17 @@ function runStep(
     const chunks: Buffer[] = [];
     let kept = 0;
     let truncated = false;
-    const take = (chunk: Buffer) => {
+    // Each stream keeps its last characters, so a pattern split across two chunks is still seen.
+    let watched = false;
+    const carry = new Map<string, string>();
+    const look = (chunk: Buffer, stream: string) => {
+      if (watch === undefined || watched) return;
+      const window = (carry.get(stream) ?? "") + chunk.toString("utf8");
+      watched = watch.test(window);
+      carry.set(stream, window.slice(-WATCH_CARRY));
+    };
+    const take = (chunk: Buffer, stream: string) => {
+      look(chunk, stream);
       const room = limit - kept;
       if (chunk.length > room) truncated = true;
       if (room <= 0) return;
@@ -346,8 +364,8 @@ function runStep(
       chunks.push(part);
       kept += part.length;
     };
-    child.stdout?.on("data", take);
-    child.stderr?.on("data", take);
+    child.stdout?.on("data", (chunk: Buffer) => take(chunk, "out"));
+    child.stderr?.on("data", (chunk: Buffer) => take(chunk, "err"));
     // The step is over when it exits or is killed. A process it left behind may hold its output
     // open for ever, so the output gets a moment to close and is then let go.
     let timedOut = false;
@@ -376,7 +394,7 @@ function runStep(
         }
         closeSync(reported);
       }
-      resolve({ exitCode: timedOut ? null : exitCode, timedOut, ms: Date.now() - begun, output: Buffer.concat(chunks).toString("utf8"), truncated, open });
+      resolve({ exitCode: timedOut ? null : exitCode, timedOut, ms: Date.now() - begun, output: Buffer.concat(chunks).toString("utf8"), truncated, ...(watched ? { watched: true as const } : {}), open });
     };
     const over = () => {
       letGo ??= setTimeout(() => finish(true), OUTPUT_GRACE_MS);
@@ -434,6 +452,9 @@ async function unreadableNode(root: string): Promise<string> {
   }
   throw new Error("could not make an unreadable copy of node for the run");
 }
+
+/** How many characters of a stream are kept to join a watched pattern split across two chunks. */
+const WATCH_CARRY = 200;
 
 /** How long a finished step's output may stay open before the run stops waiting for it. */
 const OUTPUT_GRACE_MS = 1000;

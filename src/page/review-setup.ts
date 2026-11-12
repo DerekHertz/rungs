@@ -63,7 +63,7 @@ function testsEntry(document: ObservedDocument | null, run: ReturnType<typeof ob
   if (document.status === "running") return failingEntry("running", 0, { stage: document.stage });
   const failing = run?.failing.length ?? 0;
   if (run === null) return failingEntry(document.status, failing);
-  return run.control.status === "ran" ? failingEntry(document.status, failing, { others: run.others.length }) : failingEntry(document.status, failing, { noControl: "why" in run.control ? run.control.why : "" });
+  return run.control.status === "ran" ? failingEntry(document.status, failing, { others: run.others.length, uncompared: document.status === "ran" && document.control.status === "ran" ? document.control.notComparedFailures : 0 }) : failingEntry(document.status, failing, { noControl: "why" in run.control ? run.control.why : "" });
 }
 
 /** Loads the claims, contracts, walkthrough and risks, then draws the review sidebar, the walkthrough and the opening view. */

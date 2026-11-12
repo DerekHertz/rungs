@@ -53,7 +53,7 @@ export function observedBody(observed: ObservedInput, pickNode: (id: NodeId) => 
   if (report === null) return out;
 
   if (document.control.status !== "ran") out.push(element("p", "review-warning", controlText(document.control)));
-  out.push(element("h3", "review-subtitle", failingHeading(report.failing.length, document.control.status === "ran")));
+  out.push(element("h3", "review-subtitle", failingHeading(report.failing.length, document.control.status === "ran", document.control.status === "ran" ? document.control.notComparedFailures : 0)));
   out.push(list(report.failing.map((test) => failingRow(test, pickNode))));
   if (document.control.status === "ran") out.push(...otherResults(report, document.control, pickNode));
 

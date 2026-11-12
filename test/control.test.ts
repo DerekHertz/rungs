@@ -175,3 +175,12 @@ test("the document carries the reason beside the verdict, and the report lists t
   expect(report.failing).toEqual([]);
   expect(report.others).toEqual([expect.objectContaining({ name: "broke", verdict: "unclear", verdictWhy: READ_ONLY_REASON })]);
 });
+
+test("failures of the PR that were not compared are counted: skipped on main, one-sided, or unclear; passes and compared failures are not", () => {
+  const { verdicts, notComparedFailures } = classify(
+    [at(["fs"], "fail"), at(["fm"], "fail"), at(["fu"], "fail"), at(["ff"], "fail"), at(["fp"], "fail"), at(["ps"], "pass"), at(["pm"], "pass")],
+    [at(["fs"], "skip"), at(["fu"], "fail", EROFS), at(["ff"], "fail"), at(["fp"], "pass"), at(["ps"], "skip")],
+  );
+  expect(verdicts).toEqual(["skipped", "head only", "unclear", "environment", "regression", "skipped", "head only"]);
+  expect(notComparedFailures).toBe(3);
+});

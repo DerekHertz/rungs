@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { observedAbout, observedNote } from "../src/observed-text.ts";
+import { controlText, observedAbout, observedNote } from "../src/observed-text.ts";
 import type { Leftover } from "../src/leftover.ts";
 import type { ObservedDocument } from "../src/observed-types.ts";
 
@@ -73,4 +73,10 @@ test("an unsandboxed run says its results are weaker: one test can rewrite the f
 test("a sandboxed run says its tree was read-only and its scratch folder shared", () => {
   expect(observedAbout(ran("bwrap"))[0]?.[1]).toContain("the tree read-only");
   expect(observedAbout(ran("bwrap"))[0]?.[1]).toContain("one scratch folder");
+});
+
+test("the control run's line says how many failures were not compared, beside the regression count", () => {
+  const counts = { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 1 };
+  expect(controlText({ status: "ran", seconds: 1, counts, notComparedFailures: 1, baseOnly: [] })).toContain("1 failure not compared");
+  expect(controlText({ status: "ran", seconds: 1, counts, notComparedFailures: 0, baseOnly: [] })).not.toContain("not compared");
 });

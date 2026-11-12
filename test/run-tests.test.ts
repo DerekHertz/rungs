@@ -597,3 +597,11 @@ test("a control failure that has nothing to do with the read-only tree is still 
   const doc = document(await runTests(base, head, new Set(), bwrap, 60_000), head);
   expect(doc).toMatchObject({ status: "ran", control: { status: "ran", counts: { regression: 0, environment: 1, unclear: 0 } } });
 });
+
+test("a read-only file system error after more than 1 MiB of output is still seen: the control run's failures stay unclear, never environment", async () => {
+  const base = WRITES(`console.log("x".repeat(1100000)); try { writeFileSync("result.txt", "ok"); } catch (error) { console.log("saving failed:", error.code); throw new Error("could not save the result"); }`);
+  const head = new Map(base);
+  head.set("src/math.mjs", `export const add = (a, b) => a - b;\n`);
+  const doc = document(await runTests(base, head, new Set(), bwrap, 60_000), head);
+  expect(doc).toMatchObject({ status: "ran", control: { status: "ran", counts: { regression: 0, environment: 0, unclear: 1 }, notComparedFailures: 1 } });
+});

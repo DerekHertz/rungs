@@ -219,7 +219,7 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
       const total = pass + fail + skip;
       const { control } = observed;
       // With a control run the counts are the verdicts': a test skipped on a side, one-sided or named twice is not a pass.
-      const verdicts = control.status === "ran" ? verdictParts(control.counts) : [];
+      const verdicts = control.status === "ran" ? verdictParts(control.counts, control.notComparedFailures) : [];
       const failed = control.status !== "ran" ? `${fail} fail of ${total} (no control run)` : `${verdicts.join(" · ")} of ${total}`;
       run =
         total === 0

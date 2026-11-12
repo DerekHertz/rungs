@@ -772,3 +772,22 @@ test("unsandboxed: read-only work cannot be enforced, so the copy stays writable
   const run = await runIsolated({ tree: new Map([["src/code.mjs", "ORIGINAL"], ["forge.mjs", script]]), readOnlyWork: true, isolation: unsandboxed, steps: (places) => [{ argv: [places.node, "forge.mjs"] }], timeoutMs: 30_000, outputBytes: 1 << 16 });
   expect(run.steps[0]?.output.trim()).toBe("FORGED");
 });
+
+// A pattern in a step's output is seen as it arrives, so output cut at the limit cannot hide it.
+const watching = (script: string, watch?: RegExp) =>
+  runIsolated({ tree: new Map(), isolation: bwrap, steps: (places) => [{ argv: [places.node, "-e", script] }], ...(watch === undefined ? {} : { watch }), timeoutMs: 30_000, outputBytes: 1024 });
+
+test("a watched pattern after the output limit is still seen, and the output is cut", async () => {
+  const run = await watching(`process.stdout.write("x".repeat(5000)); process.stdout.write("then EROFS")`, /EROFS/);
+  expect(run.steps[0]).toMatchObject({ truncated: true, watched: true });
+  expect(run.steps[0]?.output).not.toContain("EROFS");
+});
+
+test("a watched pattern split across two writes is seen, and one that never appears is not", async () => {
+  const split = await watching(`process.stdout.write("read-only fi"); setTimeout(() => process.stdout.write("le system"), 150)`, /read-only file system/);
+  expect(split.steps[0]?.watched).toBe(true);
+  const absent = await watching(`process.stdout.write("fine")`, /EROFS/);
+  expect(absent.steps[0]).not.toHaveProperty("watched");
+  const unwatched = await watching(`process.stdout.write("EROFS")`);
+  expect(unwatched.steps[0]).not.toHaveProperty("watched");
+});

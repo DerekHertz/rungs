@@ -45,7 +45,7 @@ export function classify(
   head: readonly TestReport[],
   base: readonly TestReport[],
   baseTainted?: string,
-): { verdicts: Verdict[]; reasons: (string | undefined)[]; baseOnly: TestReport[]; counts: VerdictCounts } {
+): { verdicts: Verdict[]; reasons: (string | undefined)[]; baseOnly: TestReport[]; counts: VerdictCounts; notComparedFailures: number } {
   const headGroups = grouped(head);
   const baseGroups = grouped(base);
   // Files main ran with no failure in them: a head failure main has no report for is a regression of such a file.
@@ -54,6 +54,7 @@ export function classify(
   for (const report of base) if (report.outcome === "fail") baseFiles.delete(report.file);
   const counts: Record<Verdict, number> = { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 0 };
   const reasons: (string | undefined)[] = [];
+  let notComparedFailures = 0;
   const verdicts = head.map((report): Verdict => {
     const here = headGroups.get(key(report)) ?? [];
     const there = baseGroups.get(key(report)) ?? [];
@@ -71,10 +72,12 @@ export function classify(
       }
     }
     counts[verdict] += 1;
+    // A failure of the PR that main's run says nothing about is not cleared of being a regression.
+    if (report.outcome === "fail" && (verdict === "skipped" || verdict === "head only" || verdict === "unclear")) notComparedFailures += 1;
     reasons.push(why);
     return verdict;
   });
   const baseOnly = base.filter((report) => !headGroups.has(key(report)));
   counts["base only"] = baseOnly.length;
-  return { verdicts, reasons, baseOnly, counts };
+  return { verdicts, reasons, baseOnly, counts, notComparedFailures };
 }

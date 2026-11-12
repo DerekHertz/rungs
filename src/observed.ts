@@ -483,6 +483,7 @@ async function once(job: Job, isolation: Isolation, timeoutMs: number, registry:
       },
     ],
     report: true,
+    watch: READ_ONLY,
     timeoutMs,
     outputBytes: 1 << 20,
   });
@@ -490,8 +491,8 @@ async function once(job: Job, isolation: Isolation, timeoutMs: number, registry:
   const ran = [...(run.install === undefined ? [] : [run.install]), ...run.steps];
   const output = ran.map((step) => step.output).join("").slice(-OUTPUT_TAIL);
   const leftover = mergeLeftovers(ran.map((step) => step.leftover));
-  // The whole output is read, not its tail: the error may be anywhere in it.
-  const readOnly = READ_ONLY.test(ran.map((step) => step.output).join(""));
+  // Seen as the output arrived, so output cut at the limit cannot have hidden it.
+  const readOnly = ran.some((step) => step.watched === true);
   const found = { ...(leftover === undefined ? {} : { leftover }), ...(readOnly ? { readOnly: true as const } : {}) };
   const failed = (why: string): Once & { readonly seconds: number; readonly leftover?: Leftover; readonly readOnly?: true } => ({ status: "failed", why, output, seconds, ...found });
   const last = ran.at(-1);
@@ -746,7 +747,7 @@ function controlDocument(control: ControlRun | undefined, compared: ReturnType<t
   if (control.status !== "ran") return { status: control.status, why: control.why };
   if (compared === undefined) return { status: "stopped", why: "the control run was not compared" };
   const baseOnly = compared.baseOnly.map((report) => ({ file: report.file, name: report.path.join(" > "), outcome: report.outcome }));
-  return { status: "ran", seconds: control.seconds, counts: compared.counts, baseOnly };
+  return { status: "ran", seconds: control.seconds, counts: compared.counts, notComparedFailures: compared.notComparedFailures, baseOnly };
 }
 
 /**

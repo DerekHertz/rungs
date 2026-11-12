@@ -32,7 +32,7 @@ function testsPart(observed: ObservedDocument | null): string {
     const { control } = observed;
     let result = `main's tests: ${pass} passed`;
     if (fail > 0 && control.status !== "ran") result = `main's tests: ${fail} failed, ${pass} passed (no control run: ${control.why})`;
-    else if (control.status === "ran") result = `main's tests: ${[...verdictParts(control.counts), `${control.counts.passes} passed`].join(", ")}`;
+    else if (control.status === "ran") result = `main's tests: ${[...verdictParts(control.counts, control.notComparedFailures), `${control.counts.passes} passed`].join(", ")}`;
     return observed.sandbox === "unsandboxed" ? `${result} (ran without a sandbox)` : result;
   }
   if (observed.status === "running") return observed.stage === "control" ? runningText("control") : "tests running…";

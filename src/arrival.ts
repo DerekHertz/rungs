@@ -1,4 +1,4 @@
-import { runningText } from "./observed-types.ts";
+import { failuresText, runningText } from "./observed-types.ts";
 import type { WalkNote } from "./stops.ts";
 
 /** What the opening view says about the run: what is compared, and what a reviewer can open straight away. */
@@ -36,11 +36,13 @@ export function failingEntry(
   status: "ran" | "running" | "failed" | "unreliable" | "refused" | "unsupported" | "stopped" | "absent",
   failing: number,
   /** `stage`: which run is going. `noControl`: why the control run gave nothing, so `failing` is the head run's failures. `others`: the other results of a run with a control run (environment, fixed, skipped). */
-  how: { readonly stage?: "tests" | "control"; readonly noControl?: string; readonly others?: number } = {},
+  how: { readonly stage?: "tests" | "control"; readonly noControl?: string; readonly others?: number; readonly uncompared?: number } = {},
 ): Entry {
   if (status === "ran") {
     if (failing === 0) {
       const others = how.others ?? 0;
+      const uncompared = how.uncompared ?? 0;
+      if (uncompared > 0) return { label: `No regression found (${failuresText(uncompared)} not compared)`, enabled: true, note: "No failure is known to pass on main and fail with this PR, but some failures could not be compared with main's run. Opens them, with why, and the rest: environment failures, fixed tests and tests only one run reported." };
       return others > 0
         ? { label: `No regressions (${plural(others, "other result")})`, enabled: true, note: "No test passes on main and fails with this PR. Opens the rest: environment failures, fixed tests and tests only one run reported." }
         : { label: "No failing tests", enabled: false, note: "Main's tests ran against this PR and none failed." };
@@ -69,8 +71,9 @@ export function walkEntry(note: WalkNote, stops: number, coverage: { readonly co
 }
 
 /** The Failing list's heading: the count with where the results come from. */
-export function failingHeading(count: number, controlled = false): string {
+export function failingHeading(count: number, controlled = false, uncompared = 0): string {
   if (controlled) {
+    if (count === 0 && uncompared > 0) return `No regression found: ${failuresText(uncompared)} not compared with main`;
     if (count === 0) return "No regressions: no test passes on main and fails with this PR";
     return count === 1 ? "1 regression: a test that passes on main and fails with this PR" : `${count} regressions: tests that pass on main and fail with this PR`;
   }

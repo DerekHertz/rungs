@@ -62,3 +62,12 @@ test("the footer status is the stop count, and the diagnostics stay in the summa
   expect(walkStatus({ status: "off" }, 0)).toBe(walkSummary({ status: "off" }, 0));
   expect(walkSummary(ok, 11)).toContain("claude-opus-5-5");
 });
+
+test("the entry and the heading never say no regressions while a head failure is not compared", () => {
+  expect(failingEntry("ran", 0, { others: 1, uncompared: 1 })).toMatchObject({ label: "No regression found (1 failure not compared)", enabled: true });
+  expect(failingEntry("ran", 0, { others: 3, uncompared: 2 }).label).toBe("No regression found (2 failures not compared)");
+  expect(failingEntry("ran", 0, { others: 3, uncompared: 2 }).note).not.toMatch(/^No test passes on main and fails/);
+  expect(failingHeading(0, true, 1)).toBe("No regression found: 1 failure not compared with main");
+  expect(failingHeading(0, true, 3)).toBe("No regression found: 3 failures not compared with main");
+  expect(failingHeading(0, true)).toBe("No regressions: no test passes on main and fails with this PR");
+});

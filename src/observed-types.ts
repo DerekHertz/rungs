@@ -54,19 +54,27 @@ export const verdictText = (verdict: Verdict, why?: string): string => why ?? VE
 
 export type VerdictCounts = Readonly<Record<Verdict, number>>;
 
+/** "1 failure", "2 failures". */
+export const failuresText = (count: number): string => `${count} ${count === 1 ? "failure" : "failures"}`;
+
 /**
  * What a control run says of the head's tests, as the parts of a line: regressions (or "no regressions"
  * when something else is worth saying), environment, fixed, and the tests not compared (skipped on a
  * side, one-sided, or named twice). Empty when every test passed on both. `passes` counts only those.
+ * `notComparedFailures` are the PR's failures among the tests not compared: while there are any,
+ * "no regressions" is not said, only that none was found and how many failures were not compared.
  */
-export function verdictParts(counts: VerdictCounts): string[] {
+export function verdictParts(counts: VerdictCounts, notComparedFailures = 0): string[] {
   const notCompared = counts.skipped + counts["head only"] + counts.unclear + counts["base only"];
+  const uncertain = counts.regression === 0 && notComparedFailures > 0;
+  const rest = uncertain ? Math.max(0, notCompared - notComparedFailures) : notCompared;
   const others = [
     ...(counts.environment > 0 ? [`${counts.environment} environment`] : []),
     ...(counts.fixed > 0 ? [`${counts.fixed} fixed`] : []),
-    ...(notCompared > 0 ? [`${notCompared} not compared`] : []),
+    ...(rest > 0 ? [`${rest} ${uncertain ? "other " : ""}not compared`] : []),
   ];
   if (counts.regression > 0) return [`${counts.regression} ${counts.regression === 1 ? "regression" : "regressions"}`, ...others];
+  if (uncertain) return [`no regression found, ${failuresText(notComparedFailures)} not compared`, ...others];
   return others.length > 0 ? ["no regressions", ...others] : [];
 }
 
@@ -107,7 +115,14 @@ export interface BaseOnlyTest {
  * give results, `why` says so and the head run's failures stand, labelled "no control run".
  */
 export type ControlDocument =
-  | { readonly status: "ran"; readonly seconds: number; readonly counts: VerdictCounts; readonly baseOnly: readonly BaseOnlyTest[] }
+  | {
+      readonly status: "ran";
+      readonly seconds: number;
+      readonly counts: VerdictCounts;
+      /** The PR's failures that were not compared with main (skipped on main, one-sided, or unclear): never read as "no regressions". */
+      readonly notComparedFailures: number;
+      readonly baseOnly: readonly BaseOnlyTest[];
+    }
   | { readonly status: "failed" | "unreliable" | "refused" | "unsupported" | "stopped"; readonly why: string };
 
 export interface UnmatchedTest extends ObservedTest {
