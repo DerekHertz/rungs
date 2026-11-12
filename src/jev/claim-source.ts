@@ -2,21 +2,26 @@ import type { ContractMove } from "../compare.ts";
 import { effectLabel } from "../effects.ts";
 import { diffText } from "../diff.ts";
 import { isCodeNode } from "../graph.ts";
-import type { NodeId } from "../graph.ts";
+import type { Graph, NodeId } from "../graph.ts";
 import { isBinary } from "../lines.ts";
 import { CLAIM_THRESHOLDS, MAX_CHANGED_LINES, MAX_FACTS, MAX_LINE_CHARS, MAX_PLACES, claimGate } from "./claim-gate.ts";
 import type { ClaimInput, PlaceFacts } from "./claim-gate.ts";
 import type { GateContext, GateRunner } from "./source.ts";
 import { judgeItems } from "./store.ts";
 import type { Item } from "./store.ts";
-import type { JudgeSubject } from "./subject.ts";
+import type { JudgeSubject, Owners } from "./subject.ts";
 
-const pathOfId = (id: NodeId): string => id.slice(id.indexOf(":") + 1).split("#")[0]!;
+/** The owning file and name of every node of `graph`, read from the nodes themselves. */
+export function ownersOf(graph: Graph): Owners {
+  return new Map(graph.nodes.map((node) => [node.id, { path: node.path, name: isCodeNode(node) ? node.qualifiedName : "" }]));
+}
 const clip = (text: string): string => (text.length > MAX_LINE_CHARS ? `${text.slice(0, MAX_LINE_CHARS)}...` : text);
 
 /** What one linked file is shown as: derived facts from the comparison, and its changed lines from a line diff of the two trees. */
 function placeOf(id: NodeId, subject: JudgeSubject): PlaceFacts | undefined {
   const { comparison, contracts, baseTree, headTree } = subject;
+  const inHead = (id: NodeId, file: string): boolean => subject.head.get(id)?.path === file;
+  const inBase = (id: NodeId, file: string): boolean => subject.base.get(id)?.path === file;
   const change = comparison.changes.find((found) => found.node.id === id);
   if (change === undefined) return undefined;
   const path = change.node.path;
@@ -29,15 +34,22 @@ function placeOf(id: NodeId, subject: JudgeSubject): PlaceFacts | undefined {
     const signature = other.kind === "altered" && isCodeNode(other.before) && other.before.signature !== other.node.signature ? `: ${clip(other.before.signature)} -> ${clip(other.node.signature)}` : "";
     facts.push(`${other.kind} ${other.node.level} ${other.node.qualifiedName}${signature}`);
   }
-  const inFile = (move: ContractMove): boolean => pathOfId(move.id) === path || (move.from !== undefined && pathOfId(move.from) === basePath);
+  // A move names the head node (the base node for a removed one, the old id too for a moved one); the owning file comes from the graph's node.
+  const inFile = (move: ContractMove): boolean => inHead(move.id, path) || inBase(move.id, basePath) || (move.from !== undefined && inBase(move.from, basePath));
   for (const move of contracts.filter(inFile)) {
-    const name = move.type?.name ?? move.exportName ?? move.id.slice(move.id.lastIndexOf("#") + 1);
+    const name = move.type?.name ?? move.exportName ?? subject.head.get(move.id)?.name ?? subject.base.get(move.id)?.name ?? "";
     facts.push(`contract ${move.kind} ${name}: ${move.before === null ? "(none)" : clip(move.before)} -> ${move.after === null ? "(none)" : clip(move.after)}`);
     for (const effect of move.effects?.added ?? []) facts.push(`  effect gained by ${name}: ${effect}`);
     for (const effect of move.effects?.removed ?? []) facts.push(`  effect lost by ${name}: ${effect}`);
   }
   for (const effect of comparison.effects) {
-    if (pathOfId(effect.edge.from) === (effect.kind === "added" ? path : basePath)) facts.push(`effect call ${effect.kind}: ${effectLabel(effect.edge)}`);
+    if (effect.kind === "added" ? inHead(effect.edge.from, path) : inBase(effect.edge.from, basePath)) facts.push(`effect call ${effect.kind}: ${effectLabel(effect.edge)}`);
+  }
+  // Calls that stay but take other arguments, worded as the page words them: "+" what the head gained, "−" what it lost.
+  for (const changed of comparison.changedEffects) {
+    if (!inHead(changed.owner, path)) continue;
+    const count = changed.count > 1 ? ` x${changed.count}` : "";
+    facts.push(`effect call changed: ${changed.label}${count}: ${[...changed.added.map((token) => `+ ${token}`), ...changed.removed.map((token) => `− ${token}`)].join(" ")}`);
   }
   const shownFacts = facts.slice(0, MAX_FACTS);
   if (facts.length > shownFacts.length) shownFacts.push(`[${facts.length - shownFacts.length} more facts were cut]`);

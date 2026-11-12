@@ -29,6 +29,7 @@ import { risksOf } from "./risks.ts";
 import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
 import { judgedDocument } from "./jev/store.ts";
+import { ownersOf } from "./jev/claim-source.ts";
 import type { JudgeSubject } from "./jev/subject.ts";
 import type { JudgedSource } from "./jev/store.ts";
 import type { NarrateRequest } from "./narrate.ts";
@@ -192,6 +193,8 @@ export async function serve(
       claims: document.claims.map((row) => ({ index: row.index, text: row.sources.map((source) => source.text).join(" "), ids: row.ids })),
       baseTree: baseTree ?? new Map(),
       headTree: tree,
+      head: ownersOf(graph),
+      base: ownersOf(baseGraph),
     };
     const contracts = `${JSON.stringify({ tier: "derived", moves, effectsChanged: comparison.changedEffects }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });

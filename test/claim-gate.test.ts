@@ -7,7 +7,7 @@ import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
 import { CLAIM_THRESHOLDS, MAX_CHANGED_LINES, MAX_CLAIM_CHARS, MAX_FACTS, MAX_PLACES, MAX_STATE_CHARS, claimGate } from "../src/jev/claim-gate.ts";
 import type { ClaimInput } from "../src/jev/claim-gate.ts";
-import { claimItems } from "../src/jev/claim-source.ts";
+import { claimItems, ownersOf } from "../src/jev/claim-source.ts";
 import { requestFor } from "../src/jev/gate.ts";
 import { judgedSource } from "../src/jev/source.ts";
 import type { JudgedDocument, JudgedRecord } from "../src/jev/store.ts";
@@ -57,11 +57,11 @@ const head: FileTree = new Map([
   ["src/d.ts", `${Array.from({ length: 100 }, (_, index) => `export const n${index} = ${index};`).join("\n")}\n`],
 ]);
 
-function subjectOf(claims: JudgeSubject["claims"]): JudgeSubject {
-  const baseGraph = extract(base);
-  const graph = extract(head);
-  const comparison = compare(baseGraph, graph, { base, head });
-  return { comparison, contracts: contractsMoved(comparison, baseGraph, graph), claims, baseTree: base, headTree: head };
+function subjectOf(claims: JudgeSubject["claims"], trees: { base: FileTree; head: FileTree } = { base, head }): JudgeSubject {
+  const baseGraph = extract(trees.base);
+  const graph = extract(trees.head);
+  const comparison = compare(baseGraph, graph, { base: trees.base, head: trees.head });
+  return { comparison, contracts: contractsMoved(comparison, baseGraph, graph), claims, baseTree: trees.base, headTree: trees.head, head: ownersOf(graph), base: ownersOf(baseGraph) };
 }
 
 test("the state holds the claim, each linked place's derived facts and its changed lines, and unlinked claims are not judged", () => {
@@ -217,4 +217,27 @@ test("a call that succeeded with an unreadable answer is a judged record, undeci
   expect(record).toMatchObject({ key: "claim:0", verdict: "undecided", answers: { shown: { type: "yes-no", yes: 0.99 }, contradicted: { type: "unreadable", why: expect.any(String) } } });
   expect(document.notJudged).toEqual([]);
   expect(claimGate.decide({ shown: yes(0.99), contradicted: { type: "unreadable", why: "x", raw: "" } }, CLAIM_THRESHOLDS)).toBe("undecided");
+});
+
+const reset = (arg: string): FileTree =>
+  new Map([
+    ["package.json", "{}\n"],
+    ["src/a.ts", "export const a = 1;\n"],
+    ["src/a.ts#extra.ts", `import { execFileSync } from "node:child_process";\nexport function run() {\n  execFileSync(\n    "git",\n    ["reset", "${arg}"],\n  );\n}\n`],
+  ]);
+
+test("an effect whose arguments changed is a fact of its place, in the page's +/- wording", () => {
+  const trees = { base: reset("--soft"), head: reset("--hard") };
+  const state = claimGate.state(claimItems(subjectOf([{ index: 0, text: "reset is harder.", ids: ["file:src/a.ts#extra.ts" as NodeId] }], trees))[0]!.input);
+  expect(state["place 1"]).toMatch(/altered function run/);
+  expect(state["place 1"]).toMatch(/effect call changed: process child_process execFileSync "git".*\+ "--hard".*− "--soft"/);
+});
+
+test("facts are resolved to a file by node identity: a file whose name holds a # does not lend its facts to another file", () => {
+  const trees = { base: new Map(reset("--soft")).set("src/a.ts", "export const a = 0;\n"), head: reset("--hard") };
+  const claims = [{ index: 0, text: "a changed.", ids: ["file:src/a.ts" as NodeId] }, { index: 1, text: "extra changed.", ids: ["file:src/a.ts#extra.ts" as NodeId] }];
+  const [a, extra] = claimItems(subjectOf(claims, trees)).map((item) => claimGate.state(item.input)["place 1"]!);
+  expect(a).toMatch(/^altered src\/a\.ts/);
+  expect(a).not.toMatch(/effect|execFileSync|function run/);
+  expect(extra).toMatch(/effect call changed/);
 });

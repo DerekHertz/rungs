@@ -68,4 +68,6 @@ export const emptySubject: JudgeSubject = {
   claims: [],
   baseTree: new Map(),
   headTree: new Map(),
+  head: new Map(),
+  base: new Map(),
 };
