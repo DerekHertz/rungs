@@ -8,7 +8,7 @@ Coding agents now open pull requests of thousands of lines, and someone still ha
 
 *Systems to Streets drawing its own repository. A workshop is source, a lab is tests, a library is docs, a shed is config and build, a warehouse is generated and a hut is a file with no role. A building's size is the number of classes and functions in the file, and the stone it stands on is how much rests on it through imports.*
 
-**The target.** Run one command on a real agent-written change of 10,000 lines or more, and approve or reject it in 15 minutes without opening a diff. To decide, a reviewer needs three answers: what the change claims to do, what it touches that nobody mentioned, and which contracts moved. The test case is [a 14,370-line agent-written pull request](https://github.com/DerekHertz/docviz/pull/18).
+**The target.** Run one command on a real agent-written change of 10,000 lines or more, and approve or reject it in 15 minutes without opening a diff. To decide, a reviewer needs three answers: what the change claims to do, what it touches that nobody mentioned, and which contracts moved. It is checked first on [a set of small pull requests](docs/agents/check-set.md) that a person can read without it: if it cannot explain a small change correctly, it will not explain a large one.
 
 The name is the zoom: from the whole system, drawn as a town, down to the street and the building a change sits on. Each level is computed from the one below it: source, then a graph, then pseudocode, then logic, then the picture.
 
