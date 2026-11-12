@@ -8,7 +8,7 @@ import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "21";
+export const EXTRACTOR_VERSION = "22";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -20,6 +20,8 @@ export function extract(tree: FileTree): Graph {
 
   const filesByAdapter = new Map<LanguageAdapter, SourceFile[]>();
   for (const [path, text] of tree) {
+    // A file with a NUL has bytes, not lines: no adapter reads it, so it has no code nodes, contract or effects.
+    if (isBinary(text)) continue;
     const adapter = adapterFor(path);
     if (adapter === undefined) continue;
     const files = filesByAdapter.get(adapter) ?? [];
