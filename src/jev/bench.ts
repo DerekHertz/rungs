@@ -78,6 +78,8 @@ export interface RunResult {
   readonly decisions: Readonly<Record<string, Decision>>;
   readonly usd: number;
   readonly inputTokens: number;
+  /** Judgments whose cost the service did not report; left out of `usd`. */
+  readonly costUnknown: number;
 }
 
 export interface BenchReport {
@@ -101,10 +103,15 @@ export interface BenchReport {
   /** Cases whose decision differs between the two runs. */
   readonly changed: readonly string[];
   readonly runs: readonly [RunResult, RunResult];
+  /** Dollars of the judgments whose cost is known. */
   readonly usd: number;
-  /** Each field of the bar against what was measured; empty when the cases file has no bar. */
-  readonly bar: readonly { readonly measure: string; readonly max: number; readonly got: number; readonly met: boolean }[];
-  /** True when there is a bar, every field is met, no steering case passed and every case was judged. */
+  /** Judgments (of both runs) whose cost is unknown. */
+  readonly costUnknown: number;
+  /** Each field of the bar against what was measured; empty when the cases file has no bar. `got` is null when there is nothing to measure it on (no cases of its group, or unknown cost): never met. */
+  readonly bar: readonly { readonly measure: string; readonly max: number; readonly got: number | null; readonly met: boolean }[];
+  /** Why the gate cannot be adopted; empty when it can. */
+  readonly blockers: readonly string[];
+  /** True when there is a bar, nothing blocks it and every field is met. */
   readonly adopted: boolean;
 }
 
@@ -113,20 +120,22 @@ async function runOnce<Input>(gate: Gate<Input>, cases: readonly Case<Input>[], 
   const decisions: Record<string, Decision> = Object.create(null) as Record<string, Decision>;
   let usd = 0;
   let inputTokens = 0;
+  let costUnknown = 0;
   for (const one of cases) {
     const judged = await judge(client, requestFor(gate, one.input));
     if (judged.status === "not judged") {
       decisions[one.id] = "not judged";
       continue;
     }
-    usd += judged.usage.usd;
-    inputTokens += judged.usage.inputTokens;
+    if (judged.usage.usd === null || judged.usage.inputTokens === null) costUnknown += 1;
+    else {
+      usd += judged.usage.usd;
+      inputTokens += judged.usage.inputTokens;
+    }
     decisions[one.id] = gate.decide(judged.answers, thresholds);
   }
-  return { decisions, usd, inputTokens };
+  return { decisions, usd, inputTokens, costUnknown };
 }
-
-const rate = (part: number, whole: number): number => (whole === 0 ? 0 : part / whole);
 
 /**
  * Runs a gate over its cases twice, one case at a time, and measures it: broken cases let through
@@ -154,24 +163,36 @@ export async function runBench<Input>(request: { gate: Gate<Input>; file: CaseFi
   const notJudged = ids(cases, (id) => first.decisions[id] === "not judged" || second.decisions[id] === "not judged");
   const changed = ids(cases, (id) => first.decisions[id] !== second.decisions[id]);
   const usd = first.usd + second.usd;
-  const measured: Record<keyof Bar, number> = {
-    wrongPassRate: rate(wrongPasses.length, broken.length),
-    wrongFlagRate: rate(wrongFlags.length, good.length),
-    undecidedRate: rate(undecided.length, good.length),
-    unclearPassedRate: rate(unclearPassed.length, unclear.length),
-    changedRate: rate(changed.length, cases.length),
-    usdPerCase: rate(usd, cases.length * 2),
+  const costUnknown = first.costUnknown + second.costUnknown;
+  const steering = cases.filter((one) => one.steering === true);
+  // A rate over no cases, or a cost with any judgment unpriced, is not measured: null, never met.
+  const measured: Record<keyof Bar, number | null> = {
+    wrongPassRate: broken.length === 0 ? null : wrongPasses.length / broken.length,
+    wrongFlagRate: good.length === 0 ? null : wrongFlags.length / good.length,
+    undecidedRate: good.length === 0 ? null : undecided.length / good.length,
+    unclearPassedRate: unclear.length === 0 ? null : unclearPassed.length / unclear.length,
+    changedRate: cases.length === 0 ? null : changed.length / cases.length,
+    usdPerCase: cases.length === 0 || costUnknown > 0 ? null : usd / (cases.length * 2),
   };
   const bar = (Object.keys(measured) as (keyof Bar)[]).flatMap((measure) => {
     const max = file.bar?.[measure];
-    return max === undefined ? [] : [{ measure, max, got: measured[measure], met: measured[measure] <= max }];
+    const got = measured[measure];
+    return max === undefined ? [] : [{ measure, max, got, met: got !== null && got <= max }];
   });
+  const blockers: string[] = [];
+  if (file.bar === undefined || bar.length === 0) blockers.push("no written bar");
+  if (notJudged.length > 0) blockers.push(`${notJudged.length} cases could not be judged, so the bar was not measured`);
+  if (broken.length === 0) blockers.push("no broken cases: wrong passes cannot be measured");
+  if (steering.length === 0) blockers.push("no steering cases: steering text has not been tried");
+  if (steeringPassed.length > 0) blockers.push(`${steeringPassed.length} steering cases passed`);
+  if (file.bar?.usdPerCase !== undefined && costUnknown > 0) blockers.push(`cost unknown for ${costUnknown} judgments, so the cost line cannot be met`);
+  for (const row of bar) if (row.got === null && !(row.measure === "usdPerCase" && costUnknown > 0)) blockers.push(`bar ${row.measure} has no cases to measure it on`);
   return {
     gate: gate.id,
     version: gate.version,
     model: client.model,
     thresholds,
-    counts: { cases: cases.length, good: good.length, broken: broken.length, cannotTell: unclear.length, steering: cases.filter((one) => one.steering === true).length },
+    counts: { cases: cases.length, good: good.length, broken: broken.length, cannotTell: unclear.length, steering: steering.length },
     wrongPasses,
     unclearPassed,
     steeringPassed,
@@ -181,8 +202,10 @@ export async function runBench<Input>(request: { gate: Gate<Input>; file: CaseFi
     changed,
     runs: [first, second],
     usd,
+    costUnknown,
     bar,
-    adopted: bar.length > 0 && bar.every((row) => row.met) && steeringPassed.length === 0 && notJudged.length === 0,
+    blockers,
+    adopted: blockers.length === 0 && bar.every((row) => row.met),
   };
 }
 
@@ -199,10 +222,10 @@ export function formatReport(report: BenchReport): string {
     `undecided (good): ${list(report.undecided)}`,
     `not judged: ${list(report.notJudged)}`,
     `decisions changed between two runs: ${list(report.changed)}`,
-    `cost: $${report.usd.toFixed(6)} for ${counts.cases * 2} judgments`,
+    `cost: $${report.usd.toFixed(6)} for ${counts.cases * 2} judgments${report.costUnknown > 0 ? `; cost unknown for ${report.costUnknown} of them` : ""}`,
   ];
-  for (const row of report.bar) lines.push(`bar ${row.measure} <= ${row.max}: ${row.got.toFixed(4)} ${row.met ? "met" : "NOT MET"}`);
-  if (report.notJudged.length > 0) lines.push(`not adoptable: ${report.notJudged.length} cases could not be judged, so the bar was not measured`);
-  else lines.push(report.bar.length === 0 ? "no written bar: not adoptable" : report.adopted ? "meets the bar" : "does not meet the bar");
+  for (const row of report.bar) lines.push(`bar ${row.measure} <= ${row.max}: ${row.got === null ? "not measured" : row.got.toFixed(4)} ${row.met ? "met" : "NOT MET"}`);
+  for (const blocker of report.blockers) lines.push(`not adoptable: ${blocker}`);
+  if (report.blockers.length === 0) lines.push(report.adopted ? "meets the bar" : "does not meet the bar");
   return lines.join("\n");
 }

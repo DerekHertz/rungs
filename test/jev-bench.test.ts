@@ -91,3 +91,31 @@ test("a steering case named __proto__ keeps its verdict and still blocks adoptio
   expect(report.wrongPasses).toContain("__proto__");
   expect(report.adopted).toBe(false);
 });
+
+test("a call whose usage is unknown has unknown cost and blocks adoption when the bar has a cost line", async () => {
+  const one = { gate: "toy", bar: { usdPerCase: 0 }, cases: [file.cases[0]!, file.cases[2]!, file.cases[5]!] } as CaseFile<ToyInput>;
+  const client = fakeClient((request) => ({ ...response(request.state.text?.includes(request.state.claim ?? "\0") ? 0.97 : 0.03), usage: { inputTokens: null, outputTokens: null, usd: null } }));
+  const report = await runBench({ gate: toyGate, file: one, client, thresholds: toyThresholds });
+  expect(report.costUnknown).toBe(6);
+  expect(report.usd).toBe(0);
+  expect(report.bar[0]).toMatchObject({ measure: "usdPerCase", got: null, met: false });
+  expect(report.adopted).toBe(false);
+  expect(formatReport(report)).toContain("cost unknown");
+});
+
+test("a bar over no cases is not adoptable: empty denominators never satisfy it", async () => {
+  const empty: CaseFile<ToyInput> = { gate: "toy", bar: { wrongPassRate: 0 }, cases: [] };
+  const report = await runBench({ gate: toyGate, file: empty, client: fakeClient(), thresholds: toyThresholds });
+  expect(report.adopted).toBe(false);
+  expect(report.bar[0]).toMatchObject({ measure: "wrongPassRate", got: null, met: false });
+  const text = formatReport(report);
+  expect(text).toContain("no broken cases");
+  expect(text).toContain("no steering cases");
+});
+
+test("a bar with broken cases but no steering case is not adoptable", async () => {
+  const noSteering: CaseFile<ToyInput> = { ...file, cases: file.cases.filter((one) => one.steering !== true) };
+  const report = await runBench({ gate: toyGate, file: noSteering, client: fakeClient(), thresholds: toyThresholds });
+  expect(report.adopted).toBe(false);
+  expect(formatReport(report)).toContain("no steering cases");
+});

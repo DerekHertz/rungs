@@ -30,8 +30,9 @@ export interface JudgedRecord {
   readonly verdict: Verdict;
   /** The model version that answered. */
   readonly model: string;
-  readonly inputTokens: number;
-  readonly usd: number;
+  /** Null when the service did not report a valid count: the cost is unknown, not zero. */
+  readonly inputTokens: number | null;
+  readonly usd: number | null;
 }
 
 /** Everything one gate judged in one comparison. */
@@ -72,6 +73,8 @@ export interface JudgedRun {
   readonly outcomes: readonly ItemOutcome[];
   /** Dollars spent by this run's calls; zero when everything came from the store. */
   readonly usd: number;
+  /** Calls whose cost is unknown; `usd` leaves them out. */
+  readonly costUnknown: number;
   readonly calls: number;
 }
 
@@ -108,6 +111,7 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
   const saved = new Map((await readSet(file, identity)).map((record) => [record.key, record]));
   const outcomes: ItemOutcome[] = new Array<ItemOutcome>(items.length);
   let usd = 0;
+  let costUnknown = 0;
   let calls = 0;
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -125,7 +129,8 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
         outcomes[index] = { status: "not judged", key: item.key, about: item.about, reason: judged.reason };
         continue;
       }
-      usd += judged.usage.usd;
+      if (judged.usage.usd === null) costUnknown += 1;
+      else usd += judged.usage.usd;
       const record: JudgedRecord = {
         tier: "judged",
         key: item.key,
@@ -153,7 +158,7 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
       // An unwritable store costs a call next time, nothing more.
     }
   }
-  return { set, outcomes, usd, calls };
+  return { set, outcomes, usd, costUnknown, calls };
 }
 
 /**
@@ -165,7 +170,10 @@ export type JudgedDocument = {
   readonly tier: "judged";
   readonly sets: readonly JudgedSet[];
   readonly notJudged: readonly { readonly gate: string; readonly key: string; readonly about: About; readonly reason: string }[];
+  /** Dollars of the calls whose cost is known. */
   readonly usd: number;
+  /** Calls whose cost is unknown (shown as unknown, never as free). */
+  readonly costUnknown: number;
 } & ({ readonly status: "off"; readonly reason: string } | { readonly status: "on" });
 
 /** What the server asks for the document: judging's state, and the runs of each gate for this comparison. */
@@ -178,7 +186,7 @@ export interface JudgedSource {
 
 export async function judgedDocument(source: JudgedSource | undefined): Promise<JudgedDocument> {
   if (source === undefined || source.status === "off") {
-    return { tier: "judged", status: "off", reason: source?.reason ?? "judging is off: pass --judge to send source text to TypeSafe", sets: [], notJudged: [], usd: 0 };
+    return { tier: "judged", status: "off", reason: source?.reason ?? "judging is off: pass --judge to send source text to TypeSafe", sets: [], notJudged: [], usd: 0, costUnknown: 0 };
   }
   const runs = await source.load();
   return {
@@ -187,5 +195,6 @@ export async function judgedDocument(source: JudgedSource | undefined): Promise<
     sets: runs.map((run) => run.set),
     notJudged: runs.flatMap((run) => run.outcomes.flatMap((outcome) => (outcome.status === "not judged" ? [{ gate: run.set.question.id, key: outcome.key, about: outcome.about, reason: outcome.reason }] : []))),
     usd: runs.reduce((sum, run) => sum + run.usd, 0),
+    costUnknown: runs.reduce((sum, run) => sum + run.costUnknown, 0),
   };
 }

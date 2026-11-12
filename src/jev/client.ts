@@ -46,10 +46,11 @@ export type JevAnswer =
   | { readonly type: "choice"; readonly probabilities: Readonly<Record<string, number>>; readonly choice: string; readonly confidence: number | null };
 
 export interface JevUsage {
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  /** Dollars: input tokens at the published rate. */
-  readonly usd: number;
+  /** Null when the service's count is missing or not a non-negative integer: unknown, never zero. */
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  /** Dollars: input tokens at the published rate; null when `inputTokens` is unknown. */
+  readonly usd: number | null;
 }
 
 export interface JevResponse {
@@ -93,6 +94,8 @@ export interface ClientOptions {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isProbability = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+/** A token count, or null when it is not a non-negative integer. */
+const count = (value: unknown): number | null => (typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null);
 const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim().slice(0, 300);
 
 const WIRE_TYPE = { "yes-no": "noul", choice: "choice" } as const;
@@ -166,11 +169,11 @@ export function createJevClient(options: ClientOptions): JevClient {
       if (!response.ok) throw new JevError("http", oneLine(redact(`Jev ${response.status}: ${errorDetail(body)}`, key)), response.status);
       if (!isRecord(body)) throw new JevError("bad-response", "Jev's reply was not JSON");
       const usage = isRecord(body.usage) ? body.usage : {};
-      const inputTokens = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
-      const outputTokens = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+      const inputTokens = count(usage.input_tokens);
+      const outputTokens = count(usage.output_tokens);
       return {
         answers: parseAnswers(body.answers, request.questions),
-        usage: { inputTokens, outputTokens, usd: jevCost(inputTokens) },
+        usage: { inputTokens, outputTokens, usd: inputTokens === null ? null : jevCost(inputTokens) },
         model: typeof body.model === "string" ? body.model : model,
       };
     },

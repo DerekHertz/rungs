@@ -140,3 +140,13 @@ test("the key never reaches the served JSON, even when the service echoes it", a
   expect(text).not.toContain(key);
   expect(text).toContain("Jev 401: Invalid API key: [redacted]");
 });
+
+test("unknown usage is recorded and served as unknown cost, not zero", async () => {
+  const client = fakeClient(() => Promise.resolve({ ...response(0.97), usage: { inputTokens: null, outputTokens: null, usd: null } }));
+  const runner: GateRunner = (context) => judgeItems({ gate: toyGate, items, thresholds: toyThresholds, client: context.client, base: context.base, head: context.head, cacheDir: context.cacheDir });
+  const source = judgedSource({ judge: true, env: {}, baseTree: new Map([["a", "1"]]), headTree: new Map([["a", "2"]]), cacheDir: temp(), client, runners: [runner] });
+  const document = await judgedDocument(source);
+  expect(document.usd).toBe(0);
+  expect(document.costUnknown).toBe(2);
+  expect(document.sets[0]!.records.map((record) => [record.inputTokens, record.usd])).toEqual([[null, null], [null, null]]);
+});

@@ -114,3 +114,11 @@ test("a client that is not a JevError still reads not judged", async () => {
   expect(await judge(odd, request)).toMatchObject({ status: "not judged" });
   await expect(offClient("why").ask(request)).rejects.toBeInstanceOf(JevError);
 });
+
+test("usage that is not a non-negative integer stays unknown, never zero dollars", async () => {
+  for (const input_tokens of [null, undefined, "5", -1, 1.5, Number.NaN]) {
+    const { fetch } = fakeFetch(200, { ...good, usage: { input_tokens, output_tokens: 4 } });
+    const response = await createJevClient({ key: "k", fetch }).ask(request);
+    expect(response.usage).toMatchObject({ inputTokens: null, usd: null });
+  }
+});
