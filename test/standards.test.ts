@@ -110,6 +110,19 @@ test("nested agent files and any letter case are matched; a path named __proto__
   expect(found.rules.map((rule) => rule.path)).toEqual(["docs/Contributing.md", "packages/web/agents.md"]);
 });
 
+test("a rule file the graph holds but the tree lacks is unread, so the answer is unknown, never none", () => {
+  const graph = extract(tree({ "AGENTS.md": "# A\nrule\n" }));
+  expect(collectStandards({ graph, tree: tree({}) })).toMatchObject({ status: "unknown", rules: [], unread: ["AGENTS.md"] });
+  const both = tree({ "AGENTS.md": "# A\nrule\n", "CONTRIBUTING.md": "Be kind.\n" });
+  const some = collectStandards({ graph: extract(both), tree: tree({ "CONTRIBUTING.md": "Be kind.\n" }) });
+  expect(some).toMatchObject({ status: "found", unread: ["AGENTS.md"] });
+});
+
+test("a rule file the table names but the extractor reads no sections from (an uppercase extension) is unread, not skipped", () => {
+  const found = collectStandards(baseOf({ "AGENTS.MD": "# A\nrule\n" }));
+  expect(found).toMatchObject({ status: "unknown", rules: [], unread: ["AGENTS.MD"] });
+});
+
 test("a setext heading with no body, and a file of blank lines, are not rules", () => {
   const found = collectStandards(baseOf({ "CONTRIBUTING.md": "Title\n=====\n\n", "AGENTS.md": "\n\n" }));
   expect(found).toMatchObject({ status: "none", rules: [] });

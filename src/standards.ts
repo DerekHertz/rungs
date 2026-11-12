@@ -61,9 +61,9 @@ export interface BaseSide {
   readonly tree: FileTree;
 }
 
-/** The first table entry naming this path. A section exists only in a ".md" file, as the extractor reads it. */
+/** The first table entry naming this path. */
 function entryFor(path: string): StandardsEntry | undefined {
-  return posix.extname(path) === ".md" ? STANDARDS_TABLE.find((entry) => entry.path.test(path)) : undefined;
+  return STANDARDS_TABLE.find((entry) => entry.path.test(path));
 }
 
 /** A section's lines to its first nested heading, or its whole range when it has none. */
@@ -87,12 +87,15 @@ export function collectStandards(base: BaseSide | undefined, head?: FileTree): S
 
   const rules: Rule[] = [];
   const unread: string[] = [];
-  for (const path of [...base.tree.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+  // Paths from both sides: a file only the graph holds, or only the tree holds, is a mismatch, never "no rules".
+  const paths = new Set([...base.tree.keys(), ...files.keys()]);
+  for (const path of [...paths].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const entry = entryFor(path);
     if (entry === undefined) continue;
-    const text = base.tree.get(path)!;
-    // A binary file has bytes, not lines; a file the graph does not hold means the graph is not of this tree. Neither is "no rules".
-    if ((files.get(path)?.lines ?? null) === null) {
+    const text = base.tree.get(path);
+    // A binary file has bytes, not lines; a file in only one of graph and tree means they are not of the same base; the extractor
+    // reads sections only from ".md", so another spelling of the extension has none to list. None of these is "no rules".
+    if (text === undefined || (files.get(path)?.lines ?? null) === null || posix.extname(path) !== ".md") {
       unread.push(path);
       continue;
     }
