@@ -16,6 +16,9 @@ type Ref =
 
 const MAX_DEPTH = 4;
 
+/** The objects an assignment onto which replaces a global; `global` is Node's name for `globalThis`. */
+const ASSIGNABLE_GLOBALS: readonly string[] = [...GLOBAL_OBJECTS, "global"];
+
 /** The global `require`, or one made by `createRequire`: either takes a module name and loads it. */
 const REQUIRE: Ref = { kind: "member", module: null, name: "require" };
 
@@ -102,6 +105,34 @@ class Resolver {
     if (!ts.isArrayLiteralExpression(init)) return undefined;
     const symbol = this.checker.getSymbolAtLocation(node);
     return symbol !== undefined && this.onlyRead(symbol, declaration.name) ? this.elements(init.elements, depth + 1, topLevel) : undefined;
+  }
+
+  private reassigned: Set<string> | undefined;
+
+  /**
+   * True when a call of this catalog entry is a call of a global this file assigns to somewhere:
+   * `globalThis.fetch = ...`, and the same through `window`, `global` and `self`. The call may
+   * then reach the replacement and not the built-in, which the file alone cannot say.
+   */
+  isReassignedGlobal(entry: EffectEntry): boolean {
+    if (entry.module !== null) return false;
+    if (this.reassigned === undefined) {
+      const found = new Set<string>();
+      const visit = (node: ts.Node): void => {
+        if (ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) {
+          const target = unwrap(node.left);
+          const name = ts.isPropertyAccessExpression(target) ? target.name.text : ts.isElementAccessExpression(target) ? stringOf(unwrap(target.argumentExpression)) : undefined;
+          const object = ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target) ? unwrap(target.expression) : undefined;
+          if (name !== undefined && object !== undefined && ts.isIdentifier(object) && ASSIGNABLE_GLOBALS.includes(object.text) && this.declarationsOf(object).length === 0) found.add(name);
+          // A bare `fetch = ...` with no declaration of the name replaces the global the same way.
+          if (ts.isIdentifier(target) && this.declarationsOf(target).length === 0 && !this.declaredElsewhere(target)) found.add(target.text);
+        }
+        node.forEachChild(visit);
+      };
+      visit(this.file);
+      this.reassigned = found;
+    }
+    return this.reassigned.has(entry.name);
   }
 
   private references: Map<ts.Symbol, ts.Identifier[]> | undefined;
@@ -191,10 +222,10 @@ class Resolver {
   private call(node: ts.CallExpression, depth: number): Ref | undefined {
     const callee = unwrap(node.expression);
     const [first] = node.arguments;
-    // An undeclared name is a leaf, so looking it up costs no depth: a chain of const aliases
-    // reaches as far as it did when `require` was matched by name.
-    const leaf = ts.isIdentifier(callee) && this.declarationsOf(callee).length === 0;
-    const resolver = this.resolve(callee, leaf ? depth : depth + 1);
+    // The callee is a smaller expression than the call, so looking it up costs no depth: a chain
+    // of const aliases reaches as far as it did when `require` was matched by name, and
+    // `const require = createRequire(import.meta.url)` costs the one step its binding takes.
+    const resolver = this.resolve(callee, depth);
     if (resolver?.kind === "member" && resolver.module === "module" && resolver.name === "createRequire") return REQUIRE;
     if (resolver?.kind === "member" && resolver.module === null && resolver.name === "require") {
       const specifier = stringOf(first);
@@ -213,19 +244,14 @@ class Resolver {
   // global there, not in scope here.
   private declarationsOf(identifier: ts.Identifier): ts.Declaration[] {
     const symbol = this.checker.getSymbolAtLocation(identifier);
-    return (symbol?.declarations ?? []).filter((declaration) => declaration.getSourceFile() === this.file);
+    return (symbol?.declarations ?? []).filter((declaration) => declaration.getSourceFile() === this.file && !isPropertyAssignmentDeclaration(declaration));
   }
 
   // A script's `const fetch = ...` is a real declaration this file sees; only property
   // assignments onto a global object (`globalThis.fetch = ...`) leave the global a global.
   private declaredElsewhere(identifier: ts.Identifier): boolean {
     const declarations = this.checker.getSymbolAtLocation(identifier)?.declarations ?? [];
-    return declarations.some(
-      (declaration) =>
-        !ts.isBinaryExpression(declaration) &&
-        !ts.isPropertyAccessExpression(declaration) &&
-        !ts.isElementAccessExpression(declaration),
-    );
+    return declarations.some((declaration) => !isPropertyAssignmentDeclaration(declaration));
   }
 
   private identifier(node: ts.Identifier, depth: number): Ref | undefined {
@@ -281,6 +307,10 @@ class Resolver {
     return specifier === undefined ? undefined : moduleName(specifier);
   }
 }
+
+/** What the checker declares for `globalThis.fetch = ...`, for both names in it: a write onto an object, not a declaration of the name. */
+const isPropertyAssignmentDeclaration = (declaration: ts.Declaration): boolean =>
+  ts.isBinaryExpression(declaration) || ts.isPropertyAccessExpression(declaration) || ts.isElementAccessExpression(declaration) || ts.isIdentifier(declaration);
 
 function isConst(declaration: ts.VariableDeclaration): boolean {
   return (ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) !== 0;
@@ -338,6 +368,7 @@ export function effectSites(file: ts.SourceFile, checker: ts.TypeChecker): Effec
           operation: effectKey(entry),
           target: targetOf(node, entry.target),
           args: resolver.elements(node.arguments ?? [], 0, true),
+          ...(resolver.isReassignedGlobal(entry) ? { globalReassigned: true as const } : {}),
           start: node.getStart(file),
           end: node.end,
         });

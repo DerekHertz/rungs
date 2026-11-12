@@ -193,6 +193,12 @@ export interface EffectEdge {
   readonly target: EffectTarget;
   /** Every argument of the call, in order. */
   readonly args: readonly EffectArg[];
+  /**
+   * Set when the same file assigns to this global (`globalThis.fetch = ...`, also `window`,
+   * `global`, `self`): the call may reach the replacement and not the built-in. The edge stays,
+   * since the file might not replace it on every path; this says what is not known.
+   */
+  readonly globalReassigned?: true;
   readonly range: LineRange;
 }
 
@@ -361,6 +367,7 @@ export function canonicalEdge(edge: Edge): object {
     operation: edge.operation,
     target: edge.target,
     args: edge.args,
+    ...(edge.globalReassigned === true ? { globalReassigned: true } : {}),
     range: { start: edge.range.start, end: edge.range.end },
   };
 }

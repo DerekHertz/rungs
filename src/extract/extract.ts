@@ -8,7 +8,7 @@ import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "20";
+export const EXTRACTOR_VERSION = "21";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -251,6 +251,7 @@ function effectEdges(path: string, text: string, sites: readonly EffectSite[], s
       operation: site.operation,
       target: site.target,
       args: site.args,
+      ...(site.globalReassigned === true ? { globalReassigned: true as const } : {}),
       range: lineRangeOf(starts, site.start, site.end),
     };
   });

@@ -41,6 +41,8 @@ export interface EffectSite {
   readonly operation: string;
   readonly target: EffectTarget;
   readonly args: readonly EffectArg[];
+  /** The file assigns to this global somewhere, so the call may not reach the built-in. */
+  readonly globalReassigned?: true;
   /** The whole call expression, end exclusive. */
   readonly start: number;
   readonly end: number;
