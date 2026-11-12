@@ -68,10 +68,9 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
   const risks = ((await (await fetch("/risks.json")).json()) as { risks: RiskItem[] }).risks;
   on.risksLoaded(risks);
   // Judging may answer before the panel is drawn: the latest update waits for the handle.
-  let handle: ReviewHandle | undefined;
-  let waiting: JudgedUpdate | undefined;
+  const drawn: { handle?: ReviewHandle; waiting?: JudgedUpdate } = {};
   const reviewHandle = renderReview(review, {
-    ...(await judgedInput(claims.claims, claims.link.status === "ok", (update) => (handle === undefined ? (waiting = update) : handle.setJudged(update)))),
+    ...(await judgedInput(claims.claims, claims.link.status === "ok", (update) => (drawn.handle === undefined ? (drawn.waiting = update) : drawn.handle.setJudged(update)))),
     walkAbout: tour.walkthrough.status === "ok" ? `${walkSummary(tour.walkthrough, tour.stops.length)} ${coverageLine(coverage)}` : walkSummary(tour.walkthrough, tour.stops.length),
     description: claims.description,
     claims: claims.claims,
@@ -93,8 +92,8 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
       on.pickPlaces(risk.ids);
     },
   });
-  handle = reviewHandle;
-  if (waiting !== undefined) handle.setJudged(waiting);
+  drawn.handle = reviewHandle;
+  if (drawn.waiting !== undefined) reviewHandle.setJudged(drawn.waiting);
   on.reviewDrawn(reviewHandle);
 
   const run =(await (await fetch("/run.json")).json()) as { repo: string | null };
