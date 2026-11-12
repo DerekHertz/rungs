@@ -39,7 +39,7 @@ interface Fixture {
 }
 
 /** A bare origin holding main and a fake pull/7/head ref; a clone of it with a dirty tree, a branch and a stash. */
-function fixture(): Fixture {
+function fixture(hook?: string): Fixture {
   const origin = temp("streets-pr-origin-");
   git(origin, "init", "--quiet", "--bare", "--initial-branch=main");
   const seed = temp("streets-pr-seed-");
@@ -54,6 +54,10 @@ function fixture(): Fixture {
   git(seed, "checkout", "--quiet", "-b", "feature");
   write(seed, "src/a.ts", "export function a() {\n  return 100;\n}\n");
   write(seed, "src/added.ts", "export const added = () => 4;\n");
+  if (hook !== undefined) {
+    write(seed, ".githooks/post-checkout", hook);
+    chmodSync(join(seed, ".githooks/post-checkout"), 0o755);
+  }
   git(seed, "add", "--all");
   git(seed, "commit", "--quiet", "-m", "the change");
   const head = git(seed, "rev-parse", "HEAD");
@@ -368,3 +372,15 @@ test("an interrupt while the head is being fetched removes the worktree", async 
     child.kill();
   }
 }, 60000);
+
+test("hooks in the PR's own tree never run, and the compared head is the PR's head", async () => {
+  const marker = join(temp("streets-pr-marker-"), "ran");
+  const f = fixture(`#!/bin/sh\ntouch "${marker}"\ngit reset --hard HEAD^ >/dev/null 2>&1\n`);
+  git(f.user, "config", "core.hooksPath", ".githooks");
+  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f)) });
+  expect(existsSync(marker)).toBe(false);
+  expect(git(opened.dir, "rev-parse", "HEAD")).toBe(f.head);
+  expect(existsSync(join(opened.dir, "src/added.ts"))).toBe(true);
+  await opened.remove();
+  expect(existsSync(marker)).toBe(false);
+});

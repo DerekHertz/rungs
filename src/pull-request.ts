@@ -19,6 +19,9 @@ export interface Runners {
   readonly git: Runner;
 }
 
+/** Config for every git command that touches the scratch worktree. */
+const SAFE = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"];
+
 const run =
   (program: string): Runner =>
   async (args, cwd) => (await execFileAsync(program, [...args], { cwd, maxBuffer: 1 << 28 })).stdout;
@@ -184,7 +187,10 @@ async function sweepStale(root: string, top: string, git: Runner): Promise<void>
  */
 export async function openPullRequest(options: OpenOptions): Promise<OpenedPullRequest> {
   const { number, cwd, cacheDir } = options;
-  const { gh, git } = options.runners ?? systemRunners;
+  const runners = options.runners ?? systemRunners;
+  const { gh } = runners;
+  // The PR's files are untrusted: no hook configured by the user (core.hooksPath=.githooks in the PR's own tree, say) or fsmonitor may run in any command here.
+  const git: Runner = (args, where) => runners.git([...SAFE, ...args], where);
   let top: string;
   try {
     top = (await git(["rev-parse", "--show-toplevel"], cwd)).trim();
@@ -228,9 +234,9 @@ export async function openPullRequest(options: OpenOptions): Promise<OpenedPullR
   const removeSync = (): void => {
     if (finished) return;
     finished = true;
-    spawnSync("git", removeArgs, { cwd: top, stdio: "ignore" });
+    spawnSync("git", [...SAFE, ...removeArgs], { cwd: top, stdio: "ignore" });
     rmSync(dir, { recursive: true, force: true });
-    spawnSync("git", ["worktree", "prune"], { cwd: top, stdio: "ignore" });
+    spawnSync("git", [...SAFE, "worktree", "prune"], { cwd: top, stdio: "ignore" });
   };
   options.register?.(removeSync);
   try {
@@ -252,7 +258,10 @@ export async function openPullRequest(options: OpenOptions): Promise<OpenedPullR
     }
     try {
       await git(["checkout", "--quiet", "--detach", head], dir);
+      const now = (await git(["rev-parse", "--verify", "HEAD^{commit}"], dir)).trim();
+      if (now !== headOid) throw new PullRequestUnavailable(`the scratch checkout of pull request #${number} is at ${now.slice(0, 7)}, not its head ${headOid.slice(0, 7)}`);
     } catch (error) {
+      if (error instanceof PullRequestUnavailable) throw error;
       throw new PullRequestUnavailable(`cannot check out the head of pull request #${number}: ${stderrOf(error) || (error as Error).message}`);
     }
     let baseTip: string;
