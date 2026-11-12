@@ -15,7 +15,7 @@ Lines marked *(inferred)* came from reading the diff, not the whole file. When o
 
 ## Runs
 
-- Run 1, 2026-11-12, tier 3 before its end-of-tier fixes: 27 lines match, 4 unknown as expected, 10 wrong, 2 gaps (43 lines). The lines above marked as corrected came from that run reading the full files.
+- Run 1, 2026-11-12, tier 3 before its end-of-tier fixes: 27 lines match, 4 unknown as expected, 10 wrong, 2 gaps (43 lines). Five expected lines below were corrected after that run read the full files; none was changed to match what Streets showed.
 
 ## The set
 
