@@ -7,14 +7,15 @@
  },
  "cases": [
   {
-   "id": "good-chalk-688",
-   "label": "good",
-   "note": "a claim of the description, with its own change",
+   "id": "false-chalk-688-all-checks",
+   "formerId": "good-chalk-688",
+   "label": "broken",
+   "note": "false as written: the PR's own tests and readme say --color=256 and --color=16m take precedence over a numeric FORCE_COLOR, so it does not override all other checks (relabelled from good after review)",
    "source": {
     "claim": {
      "repo": "chalk/chalk",
      "pr": 688,
-     "how": "from the pull request description"
+     "how": "a claim of the description, true except that it says \"all other\" checks; relabelled broken"
     },
     "changes": {
      "repo": "chalk/chalk",

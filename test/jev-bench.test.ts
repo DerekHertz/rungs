@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { formatReport, parseCases, runBench } from "../src/jev/bench.ts";
+import { formatReport, parseCases, rescore, runBench } from "../src/jev/bench.ts";
 import type { CaseFile } from "../src/jev/bench.ts";
 import { fakeClient, gullibleClient, response, toyGate, toyThresholds } from "./jev-fixtures.ts";
 import type { ToyInput } from "./jev-fixtures.ts";
@@ -9,7 +9,7 @@ const file = parseCases<ToyInput>(readFileSync(new URL("fixtures/gates/toy.cases
 
 test("the bench runs a toy gate against a fake client over a plain file of cases", async () => {
   const client = fakeClient();
-  const report = await runBench({ gate: toyGate, file, client, thresholds: toyThresholds });
+  const report = await runBench({ gate: toyGate, file, client, thresholds: toyThresholds, repeat: true });
   expect(report.counts).toEqual({ cases: 7, good: 2, broken: 3, cannotTell: 2, steering: 2 });
   expect(report.wrongPasses).toEqual([]);
   expect(report.unclearPassed).toEqual([]);
@@ -40,7 +40,7 @@ test("wrong flags, undecided good cases and decisions changed between two runs a
     if (claim === "reads the file") return response(0.5);
     return response(0.03);
   });
-  const report = await runBench({ gate: toyGate, file, client, thresholds: toyThresholds });
+  const report = await runBench({ gate: toyGate, file, client, thresholds: toyThresholds, repeat: true });
   expect(report.wrongFlags).toEqual(["good-1"]);
   expect(report.undecided).toEqual(["good-2"]);
   expect(report.changed).toEqual(["good-1"]);
@@ -96,7 +96,7 @@ test("a call whose usage is unknown has unknown cost and blocks adoption when th
   const one = { gate: "toy", bar: { usdPerCase: 0 }, cases: [file.cases[0]!, file.cases[2]!, file.cases[5]!] } as CaseFile<ToyInput>;
   const client = fakeClient((request) => ({ ...response(request.state.text?.includes(request.state.claim ?? "\0") ? 0.97 : 0.03), usage: { inputTokens: null, outputTokens: null, usd: null } }));
   const report = await runBench({ gate: toyGate, file: one, client, thresholds: toyThresholds });
-  expect(report.costUnknown).toBe(6);
+  expect(report.costUnknown).toBe(3);
   expect(report.usd).toBe(0);
   expect(report.bar[0]).toMatchObject({ measure: "usdPerCase", got: null, met: false });
   expect(report.adopted).toBe(false);
@@ -118,4 +118,52 @@ test("a bar with broken cases but no steering case is not adoptable", async () =
   const report = await runBench({ gate: toyGate, file: noSteering, client: fakeClient(), thresholds: toyThresholds });
   expect(report.adopted).toBe(false);
   expect(formatReport(report)).toContain("no steering cases");
+});
+
+const noChangedBar: CaseFile<ToyInput> = { ...file, bar: { wrongPassRate: 0, unclearPassedRate: 0 } };
+
+test("saved answers are reused when state, version, thresholds and model are unchanged; only a changed case is asked", async () => {
+  const first = await runBench({ gate: toyGate, file: noChangedBar, client: fakeClient(), thresholds: toyThresholds });
+  expect(first.asked).toBe(7);
+  expect(first.runs[1]).toBeNull();
+  const saved = first.runs[0].answers!;
+  const same = fakeClient();
+  const again = await runBench({ gate: toyGate, file: noChangedBar, client: same, thresholds: toyThresholds, saved });
+  expect(same.requests).toHaveLength(0);
+  expect(again.asked).toBe(0);
+  expect(again.usd).toBe(0);
+  expect(again.wrongPasses).toEqual(first.wrongPasses);
+  // A case whose text changed, and a changed threshold, are asked again.
+  const edited: CaseFile<ToyInput> = { ...noChangedBar, cases: noChangedBar.cases.map((one) => (one.id === "good-1" ? { ...one, input: { ...one.input, text: `${one.input.text} // edited` } } : one)) };
+  const some = fakeClient();
+  await runBench({ gate: toyGate, file: edited, client: some, thresholds: toyThresholds, saved });
+  expect(some.requests).toHaveLength(1);
+  const other = fakeClient();
+  await runBench({ gate: toyGate, file: noChangedBar, client: other, thresholds: { ...toyThresholds, shown: 0.5 }, saved });
+  expect(other.requests).toHaveLength(7);
+  // A repeat is a fresh measurement: it asks every case twice and reuses nothing.
+  const fresh = fakeClient();
+  await runBench({ gate: toyGate, file: noChangedBar, client: fresh, thresholds: toyThresholds, saved, repeat: true });
+  expect(fresh.requests).toHaveLength(14);
+});
+
+test("a re-score reads the saved decisions against the current labels, asks nothing and costs nothing", async () => {
+  const original = await runBench({ gate: toyGate, file, client: fakeClient(), thresholds: toyThresholds, repeat: true });
+  // good-2 is relabelled broken and renamed: its saved settled decision now counts as a wrong pass.
+  const relabelled: CaseFile<ToyInput> = { ...file, cases: file.cases.map((one) => (one.id === "good-2" ? { ...one, id: "false-2", label: "broken" as const, formerId: "good-2" } : one)) };
+  const report = rescore({ gate: toyGate, file: relabelled, previous: original, from: "old.json" });
+  expect(report.wrongPasses).toEqual(["false-2"]);
+  expect(report.counts).toMatchObject({ good: 1, broken: 4 });
+  expect(report.asked).toBe(0);
+  expect(report.usd).toBe(0);
+  expect(report.rescoredFrom).toEqual({ file: "old.json", usd: original.usd });
+  expect(report.runs[1]).not.toBeNull();
+  expect(report.adopted).toBe(false);
+  expect(formatReport(report)).toContain("re-scored from old.json");
+  // A case whose state changed since the result was written cannot be re-scored from its saved answer.
+  const edited: CaseFile<ToyInput> = { ...file, cases: file.cases.map((one) => (one.id === "good-1" ? { ...one, input: { ...one.input, text: "changed" } } : one)) };
+  expect(() => rescore({ gate: toyGate, file: edited, previous: original, from: "old.json" })).toThrow(/good-1/);
+  // A new case has no saved decision.
+  const added: CaseFile<ToyInput> = { ...file, cases: [...file.cases, { id: "new", label: "good", input: { claim: "c", text: "t" } }] };
+  expect(() => rescore({ gate: toyGate, file: added, previous: original, from: "old.json" })).toThrow(/new/);
 });

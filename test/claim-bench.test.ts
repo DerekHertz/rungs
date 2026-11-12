@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +9,7 @@ import type { ClaimInput } from "../src/jev/claim-gate.ts";
 import { claimInputFor } from "../src/jev/claim-cases.ts";
 import { NOT_MEASURED, rateOf, rateText, ratesOf } from "../src/jev/rate.ts";
 import type { ReportLike } from "../src/jev/rate.ts";
-import { gateRates } from "../src/jev/results.ts";
+import { compareRuns, gateRates } from "../src/jev/results.ts";
 import { serve } from "../src/server.ts";
 import type { FileTree } from "../src/graph.ts";
 
@@ -51,9 +52,9 @@ test("the committed claim cases are the mix the issue asked for, each with its s
   const { cases } = file;
   expect(cases).toHaveLength(60);
   const count = (keep: (id: string) => boolean): number => cases.filter((one) => keep(one.id)).length;
-  expect(cases.filter((one) => one.label === "good")).toHaveLength(20);
+  expect(cases.filter((one) => one.label === "good")).toHaveLength(19);
   expect(count((id) => id.startsWith("mismatch-"))).toBe(10);
-  expect(count((id) => id.startsWith("false-"))).toBe(10);
+  expect(count((id) => id.startsWith("false-"))).toBe(11);
   expect(count((id) => id.startsWith("cannot-"))).toBe(10);
   const steering = cases.filter((one) => one.steering === true);
   expect(steering).toHaveLength(10);
@@ -136,6 +137,36 @@ test("the server serves the committed rates beside the other documents", async (
   expect(body.tier).toBe("measured");
   // The claim gate's committed result is there once the bench has been run and committed.
   for (const [id, rate] of Object.entries(body.gates)) expect(rate.gate).toBe(id);
+});
+
+test("repeat runs of one day are ordered by number, so -10 is newer than -9", async () => {
+  const names = ["2026-11-11-jev-1.14.0-10", "2026-11-11-jev-1.14.0-9", "2026-11-11-jev-1.14.0", "2026-11-12-jev-1.14.0", "2026-11-11-jev-1.14.0-2"];
+  expect([...names].sort(compareRuns)).toEqual(["2026-11-11-jev-1.14.0", "2026-11-11-jev-1.14.0-2", "2026-11-11-jev-1.14.0-9", "2026-11-11-jev-1.14.0-10", "2026-11-12-jev-1.14.0"]);
+  const dir = scratch();
+  mkdirSync(join(dir, "claim", "results"), { recursive: true });
+  for (const n of ["9", "10"]) writeFileSync(join(dir, "claim", "results", `2026-11-11-m-${n}.json`), JSON.stringify(report({ adopted: n === "10" })));
+  expect((await gateRates(dir)).gates.claim).toMatchObject({ run: "2026-11-11-m-10", adopted: true });
+});
+
+test("in a checkout only the result committed at HEAD counts, never a newer or edited copy", async () => {
+  const dir = scratch();
+  const vcs = (cwd: string, ...args: string[]): void => void execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, stdio: "ignore" });
+  vcs(dir, "init", "-q");
+  const results = join(dir, "gates", "claim", "results");
+  mkdirSync(results, { recursive: true });
+  writeFileSync(join(results, "2026-11-10-m.json"), JSON.stringify(report({ adopted: false, wrongPasses: ["a"] })));
+  vcs(dir, "add", "-A");
+  vcs(dir, "commit", "-q", "-m", "result");
+  // A newer untracked passing run, and an edit of the committed one: neither is the committed result.
+  writeFileSync(join(results, "2026-11-11-m.json"), JSON.stringify(report({ adopted: true })));
+  writeFileSync(join(results, "2026-11-10-m.json"), JSON.stringify(report({ adopted: true })));
+  expect((await gateRates(join(dir, "gates"))).gates.claim).toMatchObject({ run: "2026-11-10-m", adopted: false, wrongPasses: 1 });
+  // A checkout with no commit has no committed result.
+  const empty = scratch();
+  vcs(empty, "init", "-q");
+  mkdirSync(join(empty, "claim", "results"), { recursive: true });
+  writeFileSync(join(empty, "claim", "results", "2026-11-11-m.json"), JSON.stringify(report()));
+  expect((await gateRates(empty)).gates).toEqual({});
 });
 
 test("a case keeps its source through the cases file", () => {

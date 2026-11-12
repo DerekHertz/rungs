@@ -17,7 +17,12 @@ gates/<id>/
 undecided, decisions changed between the two runs, and cost.
 
 `npm run bench -- <gate>` runs it against the real Jev (needs `TYPESAFE_API_KEY`) and writes the
-result into `results/`. The newest result of each gate is what the page shows beside the gate's
+result into `results/`. It runs once and reuses a saved answer (kept in the result) for any case
+whose state, question version, thresholds and model are unchanged, so only what changed is asked.
+`--repeat` is the fresh measurement: every case twice, for "changed between runs", on the first
+live run of a new question version or model. A changed label needs no call: `--rescore <results
+file>` scores that file's saved decisions against the current labels and writes a new result that
+says where it was re-scored from (a renamed case carries its old id in `formerId`). The newest result of each gate is what the page shows beside the gate's
 marks (`/gate-rates.json`): adopted only if it met the bar; otherwise the gate stays off and its
 settled marks are drawn as not trusted. A new run is committed with its cases; thresholds are never
 tuned on the cases they are scored on.

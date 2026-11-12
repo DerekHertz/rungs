@@ -38,6 +38,7 @@ interface ChangeSource {
 interface SourceCase {
   readonly id: string;
   readonly label: string;
+  readonly formerId?: string;
   readonly steering?: boolean;
   readonly note?: string;
   readonly claim: string;
@@ -94,6 +95,7 @@ for (const one of sources.cases) {
   if (input.places.length === 0) throw new Error(`${one.id}: no changed place is linked`);
   cases.push({
     id: one.id,
+    ...(one.formerId === undefined ? {} : { formerId: one.formerId }),
     label: one.label,
     ...(one.steering === true ? { steering: true } : {}),
     ...(one.note === undefined ? {} : { note: one.note }),
