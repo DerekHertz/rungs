@@ -70,6 +70,8 @@ export interface TownHandlers {
 
 export interface TownView {
   show(town: Town): void;
+  /** The files whose tests failed, once a run that was still going ends: their pennants appear, and the camera and the selection stay. */
+  setFailing(files: ReadonlySet<NodeId>): void;
   /** `reach` is what the selected thing (a file, class or function) reaches: lines run from its building to those harbour structures. */
   select(id: NodeId | undefined, reach?: Reach): void;
   /** Outlines these buildings together; `chosen` lights those resources' structures and outlines them in its colour. */
@@ -141,7 +143,7 @@ interface Camera {
   cy: number;
 }
 
-export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, failing: ReadonlySet<NodeId> = new Set(), reaches: ReadonlyMap<NodeId, Reach> = new Map(), testFiles: ReadonlyMap<NodeId, TestMark> = new Map()): TownView {
+export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet: Sheet, initialFailing: ReadonlySet<NodeId> = new Set(), reaches: ReadonlyMap<NodeId, Reach> = new Map(), testFiles: ReadonlyMap<NodeId, TestMark> = new Map()): TownView {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none";
   canvas.setAttribute("role", "img");
@@ -163,6 +165,8 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
   let hovered: Pick | undefined;
   /** The block the camera was last sent to: its name is shown first and at any zoom. */
   let focused: NodeId | undefined;
+  let failing = initialFailing;
+  let rebuild: (() => void) | undefined;
   let dirty = true;
   let dpr = 1;
 
@@ -756,36 +760,40 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
     show(next) {
       town = next;
       calls = callsOut(next.lots, reaches);
-      const marks = (lot: Lot): Thing[] => {
-        const mark = (part: Part, sprite: string, X: number, Y: number, bias: number, Z = 0): Thing => ({ kind: "lot", lot, part, sprite, X, Y, Z, key: X - Y + bias });
-        return [
-          ...(lot.plinth === undefined ? [] : [mark("plinth", lot.plinth, lot.X, lot.Y, -0.05)]),
-          mark("building", lot.sprite, lot.X, lot.Y, 0, lot.raise),
-          ...(lot.overlay === null ? [] : [mark("scaffold", lot.overlay, lot.X, lot.Y, 0.01, lot.raise)]),
-          ...(lot.gate ? [mark("gate", "gate", lot.X, lot.Y - GATE_FRONT, 0)] : []),
-          ...(lot.crane ? [mark("crane", "crane", lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, -0.2)] : []),
-          ...(calls.has(lot.id) && sheet.sizes["mast-call"] !== undefined ? [mark("call-mast", "mast-call", lot.X + CALL_AT.X, lot.Y + CALL_AT.Y, 0.2, lot.raise)] : []),
-          ...(failing.has(lot.id) && sheet.sizes["flag-failing"] !== undefined ? [mark("flag", "flag-failing", lot.X + FLAG_AT.X, lot.Y + FLAG_AT.Y, 0.2, lot.raise)] : []),
-          ...(testFiles.has(lot.id) && sheet.sizes[TEST_FLAG[testFiles.get(lot.id)!]] !== undefined ? [mark("test-flag", TEST_FLAG[testFiles.get(lot.id)!], lot.X + TEST_AT.X, lot.Y + TEST_AT.Y, 0.2, lot.raise)] : []),
-          ...(lot.movedTo === null ? [] : [mark("moved-sign", "sign-moved", lot.X + MOVED_SIGN_AT.X, lot.Y + MOVED_SIGN_AT.Y, 0)]),
-        ];
+      // Kept so a run that ends later can redraw the pennants without moving the camera or the selection.
+      rebuild = () => {
+        const marks = (lot: Lot): Thing[] => {
+          const mark = (part: Part, sprite: string, X: number, Y: number, bias: number, Z = 0): Thing => ({ kind: "lot", lot, part, sprite, X, Y, Z, key: X - Y + bias });
+          return [
+            ...(lot.plinth === undefined ? [] : [mark("plinth", lot.plinth, lot.X, lot.Y, -0.05)]),
+            mark("building", lot.sprite, lot.X, lot.Y, 0, lot.raise),
+            ...(lot.overlay === null ? [] : [mark("scaffold", lot.overlay, lot.X, lot.Y, 0.01, lot.raise)]),
+            ...(lot.gate ? [mark("gate", "gate", lot.X, lot.Y - GATE_FRONT, 0)] : []),
+            ...(lot.crane ? [mark("crane", "crane", lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, -0.2)] : []),
+            ...(calls.has(lot.id) && sheet.sizes["mast-call"] !== undefined ? [mark("call-mast", "mast-call", lot.X + CALL_AT.X, lot.Y + CALL_AT.Y, 0.2, lot.raise)] : []),
+            ...(failing.has(lot.id) && sheet.sizes["flag-failing"] !== undefined ? [mark("flag", "flag-failing", lot.X + FLAG_AT.X, lot.Y + FLAG_AT.Y, 0.2, lot.raise)] : []),
+            ...(testFiles.has(lot.id) && sheet.sizes[TEST_FLAG[testFiles.get(lot.id)!]] !== undefined ? [mark("test-flag", TEST_FLAG[testFiles.get(lot.id)!], lot.X + TEST_AT.X, lot.Y + TEST_AT.Y, 0.2, lot.raise)] : []),
+            ...(lot.movedTo === null ? [] : [mark("moved-sign", "sign-moved", lot.X + MOVED_SIGN_AT.X, lot.Y + MOVED_SIGN_AT.Y, 0)]),
+          ];
+        };
+        const fences = (block: Block): Thing[] =>
+          block.fence === null
+            ? []
+            : [...block.fence.posts.map((post) => ({ sprite: post.sprite, X: post.X, Y: post.Y })), { sprite: "sign", X: block.fence.sign.X, Y: block.fence.sign.Y }].map(
+                (mark): Thing => ({ kind: "mark", ...mark, Z: 0, key: mark.X - mark.Y }),
+              );
+        things = [
+          ...next.lots.flatMap(marks),
+          ...allBlocks(next).flatMap(fences),
+          ...next.piers.map((pier): Thing => ({ kind: "pier", pier, sprite: pier.sprite, X: pier.X, Y: pier.Y, Z: 0, key: pier.X - pier.Y })),
+        ]
+          .map((thing, index) => ({ thing, index }))
+          .sort((a, b) => a.thing.key - b.thing.key || a.index - b.index)
+          .map((entry) => entry.thing);
+        buildingOf.clear();
+        for (const thing of things) if (thing.kind === "lot" && thing.part === "building") buildingOf.set(thing.lot, thing);
       };
-      const fences = (block: Block): Thing[] =>
-        block.fence === null
-          ? []
-          : [...block.fence.posts.map((post) => ({ sprite: post.sprite, X: post.X, Y: post.Y })), { sprite: "sign", X: block.fence.sign.X, Y: block.fence.sign.Y }].map(
-              (mark): Thing => ({ kind: "mark", ...mark, Z: 0, key: mark.X - mark.Y }),
-            );
-      things = [
-        ...next.lots.flatMap(marks),
-        ...allBlocks(next).flatMap(fences),
-        ...next.piers.map((pier): Thing => ({ kind: "pier", pier, sprite: pier.sprite, X: pier.X, Y: pier.Y, Z: 0, key: pier.X - pier.Y })),
-      ]
-        .map((thing, index) => ({ thing, index }))
-        .sort((a, b) => a.thing.key - b.thing.key || a.index - b.index)
-        .map((entry) => entry.thing);
-      buildingOf.clear();
-      for (const thing of things) if (thing.kind === "lot" && thing.part === "building") buildingOf.set(thing.lot, thing);
+      rebuild();
       const shore = next.coast.map(([X, Y]) => project(X, Y));
       const wide = next.piers.length > 0 ? project(next.quay.X + 9.5, 0).x : -Infinity;
       bounds = {
@@ -803,6 +811,11 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       chosen = new Set();
       resize();
       camera = fitCamera();
+      dirty = true;
+    },
+    setFailing(files) {
+      failing = files;
+      rebuild?.();
       dirty = true;
     },
     select(id, reach) {

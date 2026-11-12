@@ -52,9 +52,16 @@ export interface ReviewActions {
   walkDrawn(walk: Walk): void;
 }
 
+/** What the page tells the review when the test run that was still going ends. */
+export interface ReviewSink {
+  observedEnded(document: ObservedDocument, run: ReturnType<typeof observedReport> | null): void;
+}
+
 /** Loads the claims, contracts, walkthrough and risks, then draws the review sidebar, the walkthrough and the opening view. */
-export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<void> {
-  const { comparison, graph, testChanges, observed, observedRun, nodes, changed } = data;
+export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<ReviewSink> {
+  const { comparison, graph, testChanges, observedRun, nodes, changed } = data;
+  // The run may still be going: the review and the walkthrough read the document as it is when they draw, and again when it ends.
+  let observed = data.observed;
   const claims = (await (await fetch("/claims.json")).json()) as { description: string | null; claims: ClaimRow[]; sentences: { index: number; text: string }[]; context: { text: string }[]; link: LinkNote };
   const linked = new Set(claims.claims.flatMap((claim) => claim.ids as NodeId[]));
   const { moves } = (await (await fetch("/contracts.json")).json()) as { moves: ContractMove[] };
@@ -122,23 +129,34 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
   on.walkDrawn(walk);
   // The opening view: what is compared, and the failures and the tour one click away.
   const failing = observedRun?.failing.length ?? 0;
-  const line = headline(comparison, testChanges, observed);
-  showHeadline(line, headlineTitle(line, observed));
-  review.prepend(
-    renderArrival({
-      compared: comparedLine(run.repo, comparison.against),
-      tests: failingEntry(observed === null ? "absent" : observed.status, failing),
-      tour: walkEntry(tour.walkthrough, tour.stops.length, coverage),
-      openTests: () => {
-        // Going to the failing tests is a pick of the reviewer's own: it ends the tour and leaves its selection behind.
-        if (on.tourOpen()) {
-          on.endTour();
-          reviewHandle.selectRisk(undefined);
-          on.clearOutline();
-        }
-        void reviewHandle.openTests();
-      },
-      startTour: () => walk.step(1),
-    }),
-  );
+  const drawHeadline = (document: ObservedDocument | null): void => {
+    const line = headline(comparison, testChanges, document);
+    showHeadline(line, headlineTitle(line, document));
+  };
+  drawHeadline(observed);
+  const arrival = renderArrival({
+    compared: comparedLine(run.repo, comparison.against),
+    tests: failingEntry(observed === null ? "absent" : observed.status, failing),
+    tour: walkEntry(tour.walkthrough, tour.stops.length, coverage),
+    openTests: () => {
+      // Going to the failing tests is a pick of the reviewer's own: it ends the tour and leaves its selection behind.
+      if (on.tourOpen()) {
+        on.endTour();
+        reviewHandle.selectRisk(undefined);
+        on.clearOutline();
+      }
+      void reviewHandle.openTests();
+    },
+    startTour: () => walk.step(1),
+  });
+  review.prepend(arrival.element);
+  return {
+    observedEnded(document, run) {
+      observed = document;
+      drawHeadline(document);
+      reviewHandle.setObserved({ document, report: run });
+      arrival.setTests(failingEntry(document.status, run?.failing.length ?? 0));
+      walk.refreshObserved();
+    },
+  };
 }

@@ -72,9 +72,13 @@ export type WrittenDocument = {
  * left as it was; a result no single test function matches, or from a file the change edited or
  * deleted, is listed in `unmatched` with why. `deleted` and `edited` name the base test files the
  * change deleted or edited, whose base versions ran. `written` is what the change's own tests did.
+ * While the run is under way the document is `running` and holds nothing else; the page reads it again until it is not.
  */
 export type ObservedDocument = { readonly tier: "observed"; readonly tree: string } & (
-  | { readonly status: "refused" | "unsupported"; readonly why: string }
+  /** The server is listening and the run is still going: no count, no failure, no result yet. Unknown, never zero. */
+  | { readonly status: "running" }
+  /** `stopped`: the run itself threw, so no test ran; the server stays up and `why` says what happened. */
+  | { readonly status: "refused" | "unsupported" | "stopped"; readonly why: string }
   | {
       readonly status: "failed";
       readonly why: string;

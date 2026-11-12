@@ -245,6 +245,16 @@ async function startedUrl(child: ReturnType<typeof spawn>): Promise<{ url: strin
   return { url, stderr: () => err };
 }
 
+/** The server listens before the tests finish: /observed.json is "running" until they do. */
+async function observedWhenDone(url: string): Promise<{ status: string }> {
+  for (let tries = 0; tries < 600; tries++) {
+    const document = (await (await fetch(new URL("observed.json", url))).json()) as { status: string };
+    if (document.status !== "running") return document;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("the test run never finished");
+}
+
 const NODE_TEST = `{"type":"module","scripts":{"test":"node --test"}}\n`;
 
 const TWO_TESTS = 'import { test } from "node:test";\ntest("one", () => {});\ntest("two", () => { throw new Error("no"); });\n';
@@ -256,11 +266,11 @@ test("--run-tests runs main's tests against the head once in the sandbox, says h
   const child = spawn("node", [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests"], { cwd: dir });
   try {
     const { url, stderr } = await startedUrl(child);
+    const observed = await observedWhenDone(url);
     expect(stderr()).toMatch(/^streets: running the base's tests once against the head's code in a bwrap sandbox with no network \(up to 10 minutes\)$/m);
     expect(stderr()).toMatch(/^streets: ran 2 tests with node --test in bwrap in [\d.]+s: 1 pass, 1 fail, 0 skip$/m);
     expect(stderr()).toMatch(/^streets: tests written by this PR \(1 files, claimed, not evidence\): 0 of 1 failed$/m);
     expect(stderr()).toContain("streets: Evidence against mistakes, not against a hostile author: the PR's code runs inside each test.");
-    const observed = await (await fetch(new URL("observed.json", url))).json();
     expect(observed).toMatchObject({ status: "ran", sandbox: "bwrap", counts: { pass: 1, fail: 1, skip: 0 }, written: { tier: "claimed", files: ["b.test.mjs"] } });
   } finally {
     child.kill();
@@ -272,9 +282,10 @@ test("--run-tests-unsandboxed with no sandbox warns that the results are as trus
   const child = spawn(process.execPath, [cli, "compare", "main", "--no-open", "--port", "0", "--run-tests-unsandboxed"], { cwd: dir, env: { PATH: bareBin() } });
   try {
     const { url, stderr } = await startedUrl(child);
+    const observed = await observedWhenDone(url);
     expect(stderr()).toMatch(/^streets: running the base's tests once against the head's code WITHOUT a sandbox: .*as trustworthy as the PR's author/m);
     expect(stderr()).toMatch(/^streets: ran 1 tests with node --test in unsandboxed in [\d.]+s: 1 pass, 0 fail, 0 skip \(ran without a sandbox: as trustworthy as the PR's author\)$/m);
-    expect(await (await fetch(new URL("observed.json", url))).json()).toMatchObject({ status: "ran", sandbox: "unsandboxed" });
+    expect(observed).toMatchObject({ status: "ran", sandbox: "unsandboxed" });
   } finally {
     child.kill();
   }
@@ -288,9 +299,10 @@ test("--run-tests with no sandbox refuses, says so, and still serves the compari
   });
   try {
     const { url, stderr } = await startedUrl(child);
+    const observed = await observedWhenDone(url);
     const why = "no sandbox to run the tests in (bwrap is not on PATH); --run-tests-unsandboxed runs them anyway";
     expect(stderr()).toMatch(`streets: tests not run: ${why}`);
-    expect(await (await fetch(new URL("observed.json", url))).json()).toMatchObject({ status: "refused", why });
+    expect(observed).toMatchObject({ status: "refused", why });
   } finally {
     child.kill();
   }

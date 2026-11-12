@@ -17,7 +17,8 @@ export interface HoverFactsInput {
   readonly waysIn: readonly WayIn[];
   readonly reachedByWays: ReadonlySet<NodeId>;
   readonly marks: TestMarks;
-  readonly observedRun: ReturnType<typeof observedReport> | null;
+  /** A function, because the run may end after the page is drawn. */
+  readonly observedRun: () => ReturnType<typeof observedReport> | null;
 }
 
 /** The lines the hover card shows for a building: the path, what the change did, its role, importance, failures and size. */
@@ -51,7 +52,7 @@ export function hoverFacts({ nodes, ghostFiles, lots, picture, importance, waysI
 
   /** The tests of the file that failed when main's tests ran against this change. */
   function failingFacts(file: FileNode): string[] {
-    const failed = (observedRun?.failing ?? []).filter((test) => test.file === file.path);
+    const failed = (observedRun()?.failing ?? []).filter((test) => test.file === file.path);
     return failed.length === 0 ? [] : [`failing tests (observed): ${failed.length}`, ...failed.slice(0, 5).map((test) => `· ${test.name}`), ...(failed.length > 5 ? [`· and ${failed.length - 5} more`] : [])];
   }
 

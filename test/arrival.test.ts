@@ -5,6 +5,11 @@ import { walkStatus, walkSummary } from "../src/stops.ts";
 const dropped = { stops: 0, ids: 0, claims: 0, sentences: 1 };
 const ok = { status: "ok", model: "claude-opus-5-5", promptVersion: "tour-v1", dropped, cached: true } as const;
 
+test("while the tests run the entry says so and is not a count of failures", () => {
+  expect(failingEntry("running", 0)).toMatchObject({ label: "running tests…", enabled: false });
+  expect(failingEntry("stopped", 0)).toMatchObject({ label: "Tests not run", enabled: false });
+});
+
 test("the compared line names the repository and the comparison target, and holds without a repository", () => {
   expect(comparedLine("docviz", { ref: "pr14-base", commit: "31163ce".padEnd(40, "0") })).toBe("docviz against pr14-base at 31163ce (merge base)");
   expect(comparedLine(null, { ref: "main", commit: "abcdef0123" })).toBe("against main at abcdef0 (merge base)");

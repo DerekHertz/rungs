@@ -202,7 +202,8 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
   const changes = weakened > 0 ? `${weakened} weakened${observed === null ? " or removed" : ""}` : "";
   let run = "";
   if (observed !== null) {
-    if (observed.status === "ran") {
+    if (observed.status === "running") run = "running tests…";
+    else if (observed.status === "ran") {
       const { pass, fail, skip } = observed.counts;
       const total = pass + fail + skip;
       run = total === 0 ? "no results" : fail > 0 ? `${fail} fail of ${total}` : [pass > 0 ? `${pass} pass` : "", skip > 0 ? `${skip} skip` : ""].filter((part) => part !== "").join(" · ");

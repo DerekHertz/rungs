@@ -143,7 +143,7 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
         return outcome;
       }
     : undefined;
-  const observed = tests === "off" ? undefined : await observeTests(dir, base.tree, tree, tests === "unsandboxed allowed");
+  const observed = tests === "off" ? undefined : () => observeTests(dir, base.tree, tree, tests === "unsandboxed allowed");
   const walk = options.walkthrough
     ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
         const places = placesOf(comparison, graph);
