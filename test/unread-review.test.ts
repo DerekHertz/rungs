@@ -66,7 +66,7 @@ describe("what a parse failure must not let a review say", () => {
 
   test("the unread count and a test run still under way are both in the headline", () => {
     const { comparison } = readableComparison(tree(GOOD), tree(BROKEN));
-    const line = headline(comparison, testChanges(new Map(), new Map()), { status: "running" });
+    const line = headline(comparison, testChanges(new Map(), new Map()), { tier: "observed", tree: "t", status: "running" });
     expect(line).toContain("1 file could not be read");
     expect(line).toContain("tests running…");
   });
