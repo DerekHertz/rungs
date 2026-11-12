@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: streets [dir] [--link] [--walkthrough] [--port <n>] [--no-open]   (no PR: lists the open PRs to pick from, through gh)\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets setup [dir] [--base <ref>]   (builds and stores the repository's vocabulary from its base; default: the default branch)";
+export const USAGE = "usage: streets [dir] [--link] [--walkthrough] [--port <n>] [--no-open]   (no PR: lists the open PRs to pick from, through gh)\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets setup [dir] [--base <ref>] [--judge]   (builds and stores the repository's vocabulary from its base; default: the default branch; --judge maps code to terms with Jev)";
 
 export interface Options {
   readonly dir: string;
@@ -84,7 +84,7 @@ export function parseOptions(argv: readonly string[]): Options | string {
     if (tests !== "off" && !comparing) return "--run-tests needs compare: streets compare <base> --run-tests (a PR picked from the list never runs tests: streets compare --pr <n> --run-tests)";
     const narrate = values.narrate || values.renarrate;
     if (narrate && !comparing) return "--narrate needs compare: streets compare <base> --narrate";
-    if (values.judge && !comparing) return "--judge needs compare: streets compare <base> --judge";
+    if (values.judge && !comparing && !setup) return "--judge needs compare or setup: streets compare <base> --judge, streets setup --judge";
     if (setup && link) return "--link needs compare: streets compare <base> --description <file> --link";
     if (setup && walkthrough) return "--walkthrough needs compare: streets compare <base> --walkthrough";
     if (rest.length > 1) return "expected at most one directory";

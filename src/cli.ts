@@ -23,6 +23,7 @@ import type { FileTree } from "./graph.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
 import { reportLines, setUp, vocabularyNotice } from "./setup.ts";
+import { clientFor } from "./jev/client.ts";
 import { judgedSource } from "./jev/source.ts";
 import type { Claim } from "./claims.ts";
 import type { Comparison } from "./compare.ts";
@@ -210,7 +211,11 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
 if (options.setup) {
   // The vocabulary is stored once per repository and no page is served, so the process ends here.
   try {
-    for (const line of reportLines(await setUp({ dir: options.dir, cacheDir: cache, ...(options.base === undefined ? {} : { ref: options.base }) }))) console.log(line);
+    // Judging sends source text to TypeSafe, so it runs only when asked for, and only with a key in the environment.
+    const key = process.env.TYPESAFE_API_KEY;
+    const judging = options.judge && key !== undefined && key !== "";
+    if (options.judge && !judging) console.error("streets: no TYPESAFE_API_KEY in the environment: nothing sent, no code is mapped to a term");
+    for (const line of reportLines(await setUp({ dir: options.dir, cacheDir: cache, ...(options.base === undefined ? {} : { ref: options.base }), ...(judging ? { judge: clientFor(true, process.env) } : {}) }))) console.log(line);
     process.exit(0);
   } catch (error) {
     console.error(`streets: ${(error as Error).message}`);

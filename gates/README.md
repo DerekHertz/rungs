@@ -41,6 +41,17 @@ is the gate's `StandardInput` (the rule from the base, and the hunk with its bas
 change to the state's format re-renders every case, and a test checks that `cases.json` is what
 `build.ts` makes. A violation the base already had is labelled `cannot tell`.
 
+`gates/membership/` holds the membership edge's cases: `sources.json` lists terms (a doc section
+each, with the phrase to look up), code (one function with the comment above it and the path it was
+written at) and cases (a label, a term, a function), all with the text inline; `build.ts` writes
+`cases.json` through `membershipInputFor`, the code `streets setup --judge` runs to cut a term and a
+function. A case's input is the gate's `MembershipInput` (the term with where it is written, and the
+function with its comment and code), so a change to the state's format re-renders every case, and a
+test checks that `cases.json` is what `build.ts` makes. For this gate a verdict means: settled is
+mapped, flagged is a confident no, undecided is the middle band (unmapped, never rounded up). Real
+cases are text copied from this repository at one commit; hand-built cases are written for the bench
+(none is copied from a private repository).
+
 ## Cases
 
 - `label` is the truth: `good` (should be settled), `broken` (must not be settled) or

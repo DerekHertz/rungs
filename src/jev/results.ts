@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { claimGate, CLAIM_THRESHOLDS } from "./claim-gate.ts";
+import { MEMBERSHIP_THRESHOLDS, membershipGate } from "./membership-gate.ts";
 import { standardGate, STANDARD_THRESHOLDS } from "./standard-gate.ts";
 import type { Gate, Thresholds } from "./gate.ts";
 import { rateOf } from "./rate.ts";
@@ -14,6 +15,7 @@ const run = promisify(execFile);
 export const BENCH_GATES: Readonly<Record<string, { readonly gate: Gate<unknown>; readonly thresholds: Thresholds }>> = {
   claim: { gate: claimGate, thresholds: CLAIM_THRESHOLDS },
   standard: { gate: standardGate, thresholds: STANDARD_THRESHOLDS },
+  membership: { gate: membershipGate, thresholds: MEMBERSHIP_THRESHOLDS },
 };
 
 /** The folder of gates, `gates/` at the repository root. */

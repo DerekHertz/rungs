@@ -214,7 +214,7 @@ test("the report gives counts, what was dropped, skipped, unread and not analyse
   expect(text).toContain("docs/broken.ts");
   expect(text).toMatch(/not analysed: 1/);
   expect(text).toMatch(/coverage: 0 of \d+ analysed files map to a term/);
-  expect(text).toMatch(/memberships/);
+  expect(text).toContain("streets setup --judge");
   expect(text).toContain(result.file);
 });
 
