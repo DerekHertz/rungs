@@ -1,5 +1,6 @@
 import { execFile, spawnSync } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -97,7 +98,6 @@ const field = (value: unknown, name: string, number: number): string => {
   if (typeof value !== "string") throw new PullRequestUnavailable(`gh gave pull request #${number} no ${name}`);
   return value;
 };
-
 export interface OpenOptions {
   readonly number: number;
   /** A folder inside the user's repository. */
@@ -107,12 +107,80 @@ export interface OpenOptions {
   readonly runners?: Runners;
   /** Distinguishes two runs at once; derived from the process by default. */
   readonly token?: string;
+  /**
+   * Called before the scratch worktree is created, with the function that removes it however far
+   * the run got, so a signal or exit at any later moment can clean up.
+   */
+  readonly register?: (removeSync: () => void) => void;
+}
+
+/** "github.com/o/r" from an https, ssh or local-path remote URL, so two spellings of one repository compare equal. */
+export function repositoryKey(url: string): string {
+  return url
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+    .replace(/^[^@/]+@/, "")
+    .replace(/^([^/:]+):(?!\/)/, "$1/")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "")
+    .replace(/^\/+/, "")
+    .toLowerCase();
+}
+
+/** What to fetch from: a remote of the user's that is the repository gh resolved, else that repository's own URL. */
+async function sourceOf(prUrl: string, number: number, top: string, git: Runner): Promise<string> {
+  const repoUrl = prUrl.replace(new RegExp(`/pull/${number}/?$`), "");
+  const wanted = repositoryKey(repoUrl);
+  let listing = "";
+  try {
+    listing = await git(["remote", "-v"], top);
+  } catch {
+    // No remotes to match: fetch from the URL.
+  }
+  for (const line of listing.split("\n")) {
+    const [name, url, kind] = line.split(/\s+/);
+    if (name !== undefined && url !== undefined && kind === "(fetch)" && repositoryKey(url) === wanted) return name;
+  }
+  return repoUrl;
+}
+
+/** Pull-request scratch worktrees left by a process that no longer runs (killed, power loss). */
+async function sweepStale(root: string, top: string, git: Runner): Promise<void> {
+  let names: string[];
+  try {
+    names = await readdir(root);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const pid = /^pr-\d+-(\d+)-/.exec(name)?.[1];
+    if (pid === undefined) continue;
+    try {
+      process.kill(Number(pid), 0);
+      continue;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EPERM") continue;
+    }
+    const stale = join(root, name);
+    try {
+      await git(["worktree", "remove", "--force", stale], top);
+    } catch {
+      // Not this repository's, or already half gone: the folder goes either way.
+    }
+    await rm(stale, { recursive: true, force: true });
+  }
+  try {
+    await git(["worktree", "prune"], top);
+  } catch {
+    // Nothing more to do.
+  }
 }
 
 /**
  * Opens a pull request for review without touching the user's working tree, index, branch or
- * stash: the PR is read with `gh`, its head and its base are fetched from origin into the object
- * store, and the head is checked out in a detached scratch worktree.
+ * stash: the PR is read with `gh`, its head and its base are fetched from the repository gh
+ * resolved (checked against the commits gh names) into the object store, and the head is checked
+ * out in a detached scratch worktree.
  */
 export async function openPullRequest(options: OpenOptions): Promise<OpenedPullRequest> {
   const { number, cwd, cacheDir } = options;
@@ -128,24 +196,29 @@ export async function openPullRequest(options: OpenOptions): Promise<OpenedPullR
   const baseRef = field(view.baseRefName, "base branch", number);
   const state = field(view.state, "state", number);
   const url = field(view.url, "url", number);
+  const sha = (value: unknown): string | undefined => (typeof value === "string" && /^[0-9a-f]{40}$/.test(value) ? value : undefined);
+  const headOid = sha(view.headRefOid);
+  if (headOid === undefined) throw new PullRequestUnavailable(`gh gave pull request #${number} no head commit`);
   // A merged PR's base branch has moved on to include it, so from the branch's tip the merge base is the head itself and nothing differs; the base the PR was reviewed against is GitHub's baseRefOid.
-  const fixedBase = state !== "OPEN" && typeof view.baseRefOid === "string" && /^[0-9a-f]{40}$/.test(view.baseRefOid) ? view.baseRefOid : undefined;
+  const fixedBase = state === "OPEN" ? undefined : sha(view.baseRefOid);
   const body = typeof view.body === "string" ? view.body : "";
   const note = state === "OPEN" ? undefined : `pull request #${number} is ${state.toLowerCase()}, not open; comparing it against the base it had`;
 
   const root = join(cacheDir, "pull-requests");
   const dir = join(root, `pr-${number}-${options.token ?? `${process.pid}-${Date.now().toString(36)}`}`);
   await mkdir(root, { recursive: true });
-  let added = false;
+  await sweepStale(root, top, git);
+  let finished = false;
   const removeArgs = ["worktree", "remove", "--force", dir];
   const remove = async (): Promise<void> => {
-    if (!added) return;
-    added = false;
+    if (finished) return;
+    finished = true;
     try {
       await git(removeArgs, top);
     } catch {
-      // Already gone, or the folder is: prune below drops the entry either way.
+      // Never made, or already gone: the folder and the entry are dropped below either way.
     }
+    await rm(dir, { recursive: true, force: true });
     try {
       await git(["worktree", "prune"], top);
     } catch {
@@ -153,32 +226,44 @@ export async function openPullRequest(options: OpenOptions): Promise<OpenedPullR
     }
   };
   const removeSync = (): void => {
-    if (!added) return;
-    added = false;
+    if (finished) return;
+    finished = true;
     spawnSync("git", removeArgs, { cwd: top, stdio: "ignore" });
+    rmSync(dir, { recursive: true, force: true });
     spawnSync("git", ["worktree", "prune"], { cwd: top, stdio: "ignore" });
   };
+  options.register?.(removeSync);
   try {
+    const source = await sourceOf(url, number, top, git);
     try {
       await git(["worktree", "add", "--detach", "--no-checkout", dir], top);
     } catch (error) {
       throw new PullRequestUnavailable(`cannot make a scratch worktree for pull request #${number}: ${stderrOf(error) || (error as Error).message}`);
     }
-    added = true;
     let head: string;
     try {
-      await git(["fetch", "--quiet", "origin", `pull/${number}/head`], dir);
+      await git(["fetch", "--quiet", source, `pull/${number}/head`], dir);
       head = (await git(["rev-parse", "--verify", "FETCH_HEAD^{commit}"], dir)).trim();
+    } catch (error) {
+      throw new PullRequestUnavailable(`cannot fetch the head of pull request #${number} from ${source} (pull/${number}/head): ${stderrOf(error) || (error as Error).message}`);
+    }
+    if (head !== headOid) {
+      throw new PullRequestUnavailable(`${source} has pull/${number}/head at ${head.slice(0, 7)} but gh says pull request #${number} is at ${headOid.slice(0, 7)}: another repository's pull request, or it just moved; run again`);
+    }
+    try {
       await git(["checkout", "--quiet", "--detach", head], dir);
     } catch (error) {
-      throw new PullRequestUnavailable(`cannot fetch the head of pull request #${number} from origin (pull/${number}/head): ${stderrOf(error) || (error as Error).message}`);
+      throw new PullRequestUnavailable(`cannot check out the head of pull request #${number}: ${stderrOf(error) || (error as Error).message}`);
     }
     let baseTip: string;
     try {
-      await git(["fetch", "--quiet", "origin", fixedBase ?? baseRef], dir);
+      await git(["fetch", "--quiet", source, fixedBase ?? baseRef], dir);
       baseTip = (await git(["rev-parse", "--verify", "FETCH_HEAD^{commit}"], dir)).trim();
     } catch (error) {
-      throw new PullRequestUnavailable(`cannot fetch the base ${fixedBase === undefined ? `"${baseRef}"` : fixedBase.slice(0, 7)} of pull request #${number} from origin: ${stderrOf(error) || (error as Error).message}`);
+      throw new PullRequestUnavailable(`cannot fetch the base ${fixedBase === undefined ? `"${baseRef}"` : fixedBase.slice(0, 7)} of pull request #${number} from ${source}: ${stderrOf(error) || (error as Error).message}`);
+    }
+    if (fixedBase !== undefined && baseTip !== fixedBase) {
+      throw new PullRequestUnavailable(`${source} gave ${baseTip.slice(0, 7)} for the base of pull request #${number}, not the ${fixedBase.slice(0, 7)} gh names`);
     }
     const repo = top.split(/[\\/]/).filter((part) => part !== "").pop() ?? top;
     return { dir, baseTip, baseRef, pr: { number, title, url, head, state }, description: body, repo, note, remove, removeSync };

@@ -88,17 +88,19 @@ if (typeof options === "string") {
 
 /** The scratch worktree of `--pr`, removed however this process ends. */
 let opened: OpenedPullRequest | undefined;
+/** Registered before the worktree exists, so an interrupt at any moment of opening still removes it. */
+let cleanup: (() => void) | undefined;
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(signal, () => {
-    opened?.removeSync();
+    cleanup?.();
     process.exit(128 + { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 }[signal]);
   });
 }
-process.on("exit", () => opened?.removeSync());
+process.on("exit", () => cleanup?.());
 
 try {
   if (options.pr !== undefined) {
-    opened = await openPullRequest({ number: options.pr, cwd: options.dir, cacheDir: cacheDirectory(process.env, homedir()) });
+    opened = await openPullRequest({ number: options.pr, cwd: options.dir, cacheDir: cacheDirectory(process.env, homedir()), register: (removeSync) => (cleanup = removeSync) });
     if (opened.note !== undefined) console.error(`streets: ${opened.note}`);
   }
   const dir = opened?.dir ?? options.dir;
@@ -200,6 +202,6 @@ try {
   }
 } catch (error) {
   console.error(`streets: ${(error as Error).message}`);
-  opened?.removeSync();
+  cleanup?.();
   process.exit(1);
 }

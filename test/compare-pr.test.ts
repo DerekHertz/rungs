@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
 import { comparedLine } from "../src/arrival.ts";
 import { parseOptions } from "../src/options.ts";
-import { openPullRequest, systemRunners } from "../src/pull-request.ts";
+import { openPullRequest, repositoryKey, systemRunners } from "../src/pull-request.ts";
 import type { Runners } from "../src/pull-request.ts";
 
 const cli = new URL("../src/cli.ts", import.meta.url).pathname;
@@ -82,8 +82,8 @@ function snapshot(dir: string): string {
   return [git(dir, "status", "--porcelain=v2", "--branch"), git(dir, "rev-parse", "HEAD"), git(dir, "stash", "list"), git(dir, "diff", "HEAD"), git(dir, "branch", "--list")].join("\n--\n");
 }
 
-const view = (over: Record<string, unknown> = {}): string =>
-  JSON.stringify({ number: 7, title: "Change a", url: "https://github.com/o/r/pull/7", headRefOid: "x", baseRefName: "main", body: "## Claims\n\n- a returns 100\n", state: "OPEN", ...over });
+const view = (f: Fixture, over: Record<string, unknown> = {}): string =>
+  JSON.stringify({ number: 7, title: "Change a", url: `file://${f.origin}/pull/7`, headRefOid: f.head, baseRefName: "main", body: "## Claims\n\n- a returns 100\n", state: "OPEN", ...over });
 const runners = (ghOut: string | Error): Runners => ({
   git: systemRunners.git,
   gh: async () => {
@@ -98,7 +98,7 @@ test("opens the head in a scratch worktree under the cache and leaves the user's
   const f = fixture();
   const before = snapshot(f.user);
   const listBefore = worktrees(f.user);
-  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view()) });
+  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f)) });
   expect(opened.dir.startsWith(join(f.cache, "pull-requests"))).toBe(true);
   expect(git(opened.dir, "rev-parse", "HEAD")).toBe(f.head);
   expect(opened.pr).toMatchObject({ number: 7, title: "Change a", head: f.head, state: "OPEN" });
@@ -118,7 +118,7 @@ test("opens the head in a scratch worktree under the cache and leaves the user's
 test("removeSync, as a dying process calls it, removes the worktree too", async () => {
   const f = fixture();
   const listBefore = worktrees(f.user);
-  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view()) });
+  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f)) });
   expect(worktrees(f.user)).not.toBe(listBefore);
   opened.removeSync();
   expect(existsSync(opened.dir)).toBe(false);
@@ -128,7 +128,7 @@ test("removeSync, as a dying process calls it, removes the worktree too", async 
 test("a closed or merged pull request still opens against the base it had, with a note saying so", async () => {
   const f = fixture();
   for (const state of ["MERGED", "CLOSED"]) {
-    const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view({ state, baseRefOid: f.origBase })) });
+    const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f, { state, baseRefOid: f.origBase })) });
     expect(opened.note).toBe(`pull request #7 is ${state.toLowerCase()}, not open; comparing it against the base it had`);
     expect(opened.baseTip).toBe(f.origBase);
     await opened.remove();
@@ -137,7 +137,7 @@ test("a closed or merged pull request still opens against the base it had, with 
 
 test("a long multi-line title is cut to one bounded line", async () => {
   const f = fixture();
-  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view({ title: `a\n${"b".repeat(500)}` })) });
+  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f, { title: `a\n${"b".repeat(500)}` })) });
   expect(opened.pr.title).not.toContain("\n");
   expect(opened.pr.title.length).toBeLessThanOrEqual(120);
   await opened.remove();
@@ -164,8 +164,8 @@ test("a head that cannot be fetched says so and removes its scratch worktree", a
   const f = fixture();
   const before = snapshot(f.user);
   const listBefore = worktrees(f.user);
-  const failed = await openPullRequest({ number: 8, cwd: f.user, cacheDir: f.cache, runners: runners(view({ number: 8 })) }).catch((e: Error) => e);
-  expect((failed as Error).message).toMatch(/cannot fetch the head of pull request #8 from origin \(pull\/8\/head\)/);
+  const failed = await openPullRequest({ number: 8, cwd: f.user, cacheDir: f.cache, runners: runners(view(f, { number: 8, url: `file://${f.origin}/pull/8` })) }).catch((e: Error) => e);
+  expect((failed as Error).message).toMatch(/cannot fetch the head of pull request #8 from \S+ \(pull\/8\/head\)/);
   expect((failed as Error).message).not.toContain("\n");
   expect(worktrees(f.user)).toBe(listBefore);
   expect(readdirSync(join(f.cache, "pull-requests"))).toEqual([]);
@@ -175,13 +175,14 @@ test("a head that cannot be fetched says so and removes its scratch worktree", a
 test("a base that cannot be fetched says so and cleans up", async () => {
   const f = fixture();
   const listBefore = worktrees(f.user);
-  const failed = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view({ baseRefName: "nope" })) }).catch((e: Error) => e);
+  const failed = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f, { baseRefName: "nope" })) }).catch((e: Error) => e);
   expect((failed as Error).message).toMatch(/cannot fetch the base "nope"/);
   expect(worktrees(f.user)).toBe(listBefore);
 });
 
 test("outside a repository is a one-line error", async () => {
-  const failed = await openPullRequest({ number: 7, cwd: temp("streets-pr-none-"), cacheDir: temp("streets-pr-cache-"), runners: runners(view()) }).catch((e: Error) => e);
+  const f = fixture();
+  const failed = await openPullRequest({ number: 7, cwd: temp("streets-pr-none-"), cacheDir: temp("streets-pr-cache-"), runners: runners(view(f)) }).catch((e: Error) => e);
   expect((failed as Error).message).toMatch(/is not a git repository/);
 });
 
@@ -213,7 +214,7 @@ function fakeGh(json: string): string {
 
 test("the command serves the PR page, names the PR, and removes its worktree when interrupted", async () => {
   const f = fixture();
-  const bin = fakeGh(view());
+  const bin = fakeGh(view(f));
   const before = snapshot(f.user);
   const listBefore = worktrees(f.user);
   const child = spawn("node", [cli, "compare", "--pr", "7", "--no-open", "--port", "0"], {
@@ -252,7 +253,7 @@ test("the command serves the PR page, names the PR, and removes its worktree whe
 
 test("the command's error exits 1 with one line and no worktree left", async () => {
   const f = fixture();
-  const bin = fakeGh(view({ number: 8 }));
+  const bin = fakeGh(view(f, { number: 8, url: `file://${f.origin}/pull/8` }));
   const listBefore = worktrees(f.user);
   const child = spawn("node", [cli, "compare", "--pr", "8", "--no-open"], { cwd: f.user, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, XDG_CACHE_HOME: f.cache } });
   let err = "";
@@ -262,4 +263,108 @@ test("the command's error exits 1 with one line and no worktree left", async () 
   expect(err.trim().split("\n")).toHaveLength(1);
   expect(err).toContain("cannot fetch the head of pull request #8");
   expect(worktrees(f.user)).toBe(listBefore);
+}, 60000);
+
+/** A second bare repository with its own main and its own, unrelated, pull/7/head. */
+function upstream(): { dir: string; head: string } {
+  const dir = temp("streets-pr-upstream-");
+  git(dir, "init", "--quiet", "--bare", "--initial-branch=main");
+  const seed = temp("streets-pr-useed-");
+  git(seed, "init", "--quiet", "--initial-branch=main");
+  write(seed, "other.ts", "export const other = 1;\n");
+  git(seed, "add", "--all");
+  git(seed, "commit", "--quiet", "-m", "upstream base");
+  git(seed, "remote", "add", "origin", dir);
+  git(seed, "push", "--quiet", "origin", "main");
+  git(seed, "checkout", "--quiet", "-b", "pr");
+  write(seed, "other.ts", "export const other = 2;\n");
+  git(seed, "commit", "--quiet", "-am", "upstream change");
+  git(seed, "push", "--quiet", "origin", "pr:refs/pull/7/head");
+  return { dir, head: git(seed, "rev-parse", "HEAD") };
+}
+
+test("fetches from the repository gh resolved, not from origin, when they differ", async () => {
+  const f = fixture();
+  const up = upstream();
+  const before = snapshot(f.user);
+  const answer = view(f, { url: `file://${up.dir}/pull/7`, headRefOid: up.head });
+  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(answer) });
+  expect(opened.pr.head).toBe(up.head);
+  expect(existsSync(join(opened.dir, "other.ts"))).toBe(true);
+  expect(existsSync(join(opened.dir, "src/added.ts"))).toBe(false);
+  await opened.remove();
+  expect(snapshot(f.user)).toBe(before);
+});
+
+test("a remote of the user's that is the gh-resolved repository is used by name", async () => {
+  const f = fixture();
+  const up = upstream();
+  git(f.user, "remote", "add", "upstream", up.dir);
+  const answer = view(f, { url: `file://${up.dir}/pull/7`, headRefOid: up.head });
+  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(answer) });
+  expect(opened.pr.head).toBe(up.head);
+  await opened.remove();
+});
+
+test("a fetched head that is not the commit gh names fails in one line and cleans up", async () => {
+  const f = fixture();
+  const up = upstream();
+  const listBefore = worktrees(f.user);
+  const failed = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f, { headRefOid: up.head })) }).catch((e: Error) => e);
+  expect((failed as Error).message).toMatch(/but gh says pull request #7 is at/);
+  expect((failed as Error).message).not.toContain("\n");
+  expect(worktrees(f.user)).toBe(listBefore);
+  expect(readdirSync(join(f.cache, "pull-requests"))).toEqual([]);
+});
+
+test("a merged PR's base that does not match the oid gh names fails", async () => {
+  const f = fixture();
+  const failed = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f, { state: "MERGED", baseRefOid: "0".repeat(40) })) }).catch((e: Error) => e);
+  expect((failed as Error).message).toMatch(/cannot fetch the base 0000000/);
+});
+
+test("repositoryKey makes https, ssh and path spellings of one repository equal", () => {
+  const keys = ["https://github.com/O/r.git", "git@github.com:o/r.git", "ssh://git@github.com/o/r", "https://github.com/o/r/"].map(repositoryKey);
+  expect(new Set(keys).size).toBe(1);
+  expect(repositoryKey("/tmp/x/up.git")).toBe(repositoryKey("file:///tmp/x/up"));
+});
+
+test("scratch worktrees left by a process that is gone are swept on the next run", async () => {
+  const f = fixture();
+  const root = join(f.cache, "pull-requests");
+  mkdirSync(root, { recursive: true });
+  const stale = join(root, "pr-9-999999999-abc");
+  git(f.user, "worktree", "add", "--detach", "--quiet", stale);
+  expect(worktrees(f.user)).toContain(stale);
+  const opened = await openPullRequest({ number: 7, cwd: f.user, cacheDir: f.cache, runners: runners(view(f)) });
+  expect(existsSync(stale)).toBe(false);
+  expect(worktrees(f.user)).not.toContain(stale);
+  await opened.remove();
+});
+
+test("an interrupt while the head is being fetched removes the worktree", async () => {
+  const f = fixture();
+  const bin = fakeGh(view(f));
+  const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  write(bin, "git", `#!/bin/sh\ncase "$*" in *fetch*) sleep 5;; esac\nexec ${realGit} "$@"\n`);
+  chmodSync(join(bin, "git"), 0o755);
+  const listBefore = worktrees(f.user);
+  const child = spawn("node", [cli, "compare", "--pr", "7", "--no-open", "--port", "0"], {
+    cwd: f.user,
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, XDG_CACHE_HOME: f.cache },
+  });
+  try {
+    const deadline = Date.now() + 20000;
+    while (worktrees(f.user) === listBefore && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    expect(worktrees(f.user)).not.toBe(listBefore);
+    const code = await new Promise<number | null>((resolve) => {
+      child.on("exit", resolve);
+      child.kill("SIGINT");
+    });
+    expect(code).toBe(130);
+    expect(worktrees(f.user)).toBe(listBefore);
+    expect(readdirSync(join(f.cache, "systems-to-streets", "pull-requests"))).toEqual([]);
+  } finally {
+    child.kill();
+  }
 }, 60000);
