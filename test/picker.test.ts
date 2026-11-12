@@ -8,7 +8,7 @@ import type { RunningPicker } from "../src/picker.ts";
 import type { OpenedPullRequest, Runner } from "../src/pull-request.ts";
 import { systemRunners } from "../src/pull-request.ts";
 import { createSnapshot } from "../src/server.ts";
-import { cleanup, failure, fixture, snapshot, temp, view, worktrees, write } from "./pr-fixture.ts";
+import { cleanup, failure, fixture, git, snapshot, temp, view, worktrees, write } from "./pr-fixture.ts";
 import type { Fixture } from "./pr-fixture.ts";
 
 afterAll(cleanup);
@@ -353,4 +353,57 @@ test("the current PR is called no longer open only when gh says so or the list w
   // gh cannot say: unknown, never "no longer open".
   const broken: Gh = { head: f.head, viewCalls: 0, listCalls: 0, listOther: true };
   expect(await openOf(broken, 1, () => (broken.failView = failure("HTTP 502")))).toEqual({ open: null, truncated: true });
+});
+
+test("a fork's core.fsmonitor script never runs, on a pick or on compare --pr", async () => {
+  const marker = join(temp("streets-fsm-marker-"), "ran");
+  const f = fixture(undefined, `#!/bin/sh\ntouch "${marker}"\nprintf 'x\\0'\n`);
+  git(f.user, "config", "core.fsmonitor", ".githooks/watch");
+  git(f.user, "config", "core.hooksPath", ".githooks");
+  const env = { PATH: `${fakeGh(f)}:${process.env.PATH ?? ""}`, XDG_CACHE_HOME: f.cache };
+  const compared = await startCli(["compare", "--pr", "7"], f.user, env);
+  try {
+    expect((await fetch(`${compared.url}comparison.json`)).status).toBe(200);
+  } finally {
+    await compared.stop();
+  }
+  expect(existsSync(marker)).toBe(false);
+  const picker = await startCli([], f.user, env);
+  try {
+    const picked = await fetch(`${picker.url}pull-request?number=7`, { method: "POST", headers: { origin: picker.url.replace(/\/$/, "") } });
+    expect(picked.status).toBe(200);
+  } finally {
+    await picker.stop();
+  }
+  expect(existsSync(marker)).toBe(false);
+}, 90000);
+
+test("reading a checkout or a base never runs the repository's fsmonitor or hooks", async () => {
+  const marker = join(temp("streets-fsm-marker-"), "ran");
+  const f = fixture(undefined, `#!/bin/sh\ntouch "${marker}"\nprintf 'x\\0'\n`);
+  write(f.user, ".githooks/watch", `#!/bin/sh\ntouch "${marker}"\nprintf 'x\\0'\n`);
+  chmodSync(join(f.user, ".githooks/watch"), 0o755);
+  git(f.user, "config", "core.fsmonitor", ".githooks/watch");
+  await readCheckout(f.user);
+  await readBase(f.user, "origin/main");
+  expect(existsSync(marker)).toBe(false);
+});
+
+test("a stale tab's head check and reload are refused with 409, while a deliberate new pick goes through", async () => {
+  const f = fixture();
+  const picker = await start(f, { head: f.head, viewCalls: 0, listCalls: 0, listOther: false }, { headTtlMs: 0 });
+  try {
+    await post(picker, "pull-request?number=7");
+    const old = (await fetch(`${picker.url}graph.json`)).headers.get("x-snapshot");
+    await post(picker, "pull-request?reload=1");
+    expect((await fetch(`${picker.url}pull-request-head.json?gen=${old}`)).status).toBe(409);
+    expect((await post(picker, `pull-request?reload=1&gen=${old}`)).status).toBe(409);
+    const current = (await fetch(`${picker.url}graph.json`)).headers.get("x-snapshot");
+    expect((await fetch(`${picker.url}pull-request-head.json?gen=${current}`)).status).toBe(200);
+    expect((await post(picker, `pull-request?reload=1&gen=${current}`)).status).toBe(200);
+    // A pick the user made on purpose goes through whatever picture their tab held.
+    expect((await post(picker, `pull-request?number=7&gen=${old}`)).status).toBe(200);
+  } finally {
+    await picker.close();
+  }
 });

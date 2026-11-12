@@ -36,7 +36,7 @@ export interface Fixture {
 }
 
 /** A bare origin holding main and a fake pull/7/head ref; a clone of it with a dirty tree, a branch and a stash. */
-export function fixture(hook?: string): Fixture {
+export function fixture(hook?: string, watch?: string): Fixture {
   const origin = temp("streets-pr-origin-");
   git(origin, "init", "--quiet", "--bare", "--initial-branch=main");
   const seed = temp("streets-pr-seed-");
@@ -51,6 +51,10 @@ export function fixture(hook?: string): Fixture {
   git(seed, "checkout", "--quiet", "-b", "feature");
   write(seed, "src/a.ts", "export function a() {\n  return 100;\n}\n");
   write(seed, "src/added.ts", "export const added = () => 4;\n");
+  if (watch !== undefined) {
+    write(seed, ".githooks/watch", watch);
+    chmodSync(join(seed, ".githooks/watch"), 0o755);
+  }
   if (hook !== undefined) {
     write(seed, ".githooks/post-checkout", hook);
     chmodSync(join(seed, ".githooks/post-checkout"), 0o755);

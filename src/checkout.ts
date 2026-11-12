@@ -7,6 +7,13 @@ import type { FileTree } from "./graph.ts";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Config for every git command here. The tree may be a pull request's: its repository config can name an fsmonitor script
+ * or a hooks folder that lives in the PR's own files, and neither may run.
+ */
+const SAFE = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"];
+const gitFile = (args: readonly string[], options: { cwd: string; maxBuffer: number; env?: NodeJS.ProcessEnv }) => execFileAsync("git", [...SAFE, ...args], { ...options, encoding: "utf8" });
+
 export async function readCheckout(dir: string): Promise<FileTree> {
   const listed = await listFiles(dir);
   const paths = [...new Set(listed.split("\0").filter((path) => path !== ""))].sort();
@@ -31,7 +38,7 @@ export async function readCheckout(dir: string): Promise<FileTree> {
 async function listFiles(dir: string): Promise<string> {
   try {
     const args = ["ls-files", "-z", "--cached", "--others", "--exclude-standard"];
-    return (await execFileAsync("git", args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
+    return (await gitFile(args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr?.trim();
     throw new Error(`cannot list the files of ${dir}: ${stderr || (error as Error).message}`, {
@@ -169,7 +176,7 @@ async function mergeBase(dir: string, ref: string): Promise<string> {
 
 async function git(dir: string, args: string[]): Promise<string | undefined> {
   try {
-    return (await execFileAsync("git", args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
+    return (await gitFile(args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
   } catch (error) {
     if (typeof (error as { code?: unknown }).code === "number") return undefined;
     throw error;
@@ -181,7 +188,7 @@ async function listCommit(dir: string, commit: string, prefix: string): Promise<
   let listed: string;
   try {
     const args = ["ls-tree", "-r", "-z", "--full-name", commit];
-    listed = (await execFileAsync("git", args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
+    listed = (await gitFile(args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr?.trim();
     throw new Error(`cannot list the files of ${commit} in ${dir}: ${stderr || (error as Error).message}`, {
@@ -231,7 +238,7 @@ async function gitOrFail(
   input?: string,
 ): Promise<string> {
   try {
-    const child = execFileAsync("git", args, { cwd: dir, env, maxBuffer: 1 << 30 });
+    const child = gitFile(args, { cwd: dir, env, maxBuffer: 1 << 30 });
     if (input !== undefined) child.child.stdin?.end(input);
     return (await child).stdout;
   } catch (error) {

@@ -4,7 +4,8 @@
  * when the server says 409 (the picture changed under it) or answers from another one, so a tab
  * never mixes two pull requests' answers. A server that sends no header is left alone.
  */
-const PICKER_PATHS = new Set(["/pull-requests.json", "/pull-request", "/pull-request-head.json"]);
+// The list is about the repository, not a picture. The head check and the reload carry gen: a stale tab reloads itself.
+const PICKER_PATHS = new Set(["/pull-requests.json"]);
 let gen: string | null = null;
 const original = window.fetch.bind(window);
 const never = new Promise<Response>(() => {});

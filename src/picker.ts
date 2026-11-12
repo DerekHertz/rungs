@@ -89,7 +89,8 @@ function parseList(out: string): Listed[] | undefined {
  *
  * `GET /pull-requests.json` is `{status: "ok", prs, truncated, current}` or, when gh cannot answer,
  * `{status: "unavailable", why}` with no list: an unknown list is never an empty one.
- * Every other answer carries `x-snapshot`, the picture it belongs to; a request with `gen=` naming another one is 409.
+ * Every other answer carries `x-snapshot`, the picture it belongs to; a request with `gen=` naming another one is 409, and so are
+ * the head check and a reload (but not a new pick) from a tab holding an older picture.
  * `GET /pull-request-head.json` asks gh whether the current PR's head moved: `moved` is null when
  * gh could not say. gh is asked at most once per window.
  */
@@ -162,7 +163,7 @@ export async function servePicker(options: PickerOptions): Promise<RunningPicker
   };
 
   async function pick(number: number): Promise<{ status: number; body: Record<string, unknown> }> {
-    if (picking) return { status: 409, body: { ok: false, why: "another pick is still running: wait for it" } };
+    if (picking) return { status: 423, body: { ok: false, why: "another pick is still running: wait for it" } };
     picking = true;
     let opened: OpenedPullRequest | undefined;
     try {
@@ -210,8 +211,11 @@ export async function servePicker(options: PickerOptions): Promise<RunningPicker
       void listing().then((body) => send(response, 200, body));
       return;
     }
+    const named = url.searchParams.get("gen");
+    const stale = named !== null && named !== String(generation);
     if (url.pathname === "/pull-request-head.json") {
-      if (current === undefined) response.writeHead(404).end();
+      if (stale) response.writeHead(409).end();
+      else if (current === undefined) response.writeHead(404).end();
       else void headOf(current.opened).then((body) => send(response, 200, body));
       return;
     }
@@ -227,6 +231,8 @@ export async function servePicker(options: PickerOptions): Promise<RunningPicker
     const asked = url.searchParams.get("number");
     let number: number | undefined;
     if (url.searchParams.get("reload") === "1") {
+      // A tab showing an older picture must not reload another one: it reloads itself. A deliberate new pick (number=) goes through.
+      if (stale) return void response.writeHead(409).end();
       if (current === undefined) return void send(response, 409, { ok: false, why: "no pull request is picked: pick one first" });
       number = current.opened.pr.number;
     } else if (asked !== null && /^[1-9]\d{0,8}$/.test(asked)) number = Number(asked);
