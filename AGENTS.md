@@ -23,4 +23,4 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created when
 
 **North star.** Every issue names the north-star question it moves: claims, unmentioned, contracts moved, or base map. Work that moves none waits behind work that does.
 
-**Review rounds.** A finding that would make the picture or a review answer wrong blocks a merge. Edge cases found after the second review round become issues instead of more rounds.
+**Review rounds.** A finding that would make the picture or a review answer wrong blocks a merge. Every other finding becomes an issue for a later tier, not more work in this one. Tiers are built as stacked PRs with a review queue; see `docs/agents/building.md`.
