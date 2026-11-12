@@ -7,7 +7,7 @@ import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
 import { CLAIM_THRESHOLDS, MAX_CHANGED_LINES, MAX_CLAIM_CHARS, MAX_FACTS, MAX_PLACES, MAX_STATE_CHARS, claimGate } from "../src/jev/claim-gate.ts";
 import type { ClaimInput } from "../src/jev/claim-gate.ts";
-import { claimItems, ownersOf } from "../src/jev/claim-source.ts";
+import { claimItems, ownersOf, withholdSecrets } from "../src/jev/claim-source.ts";
 import { requestFor } from "../src/jev/gate.ts";
 import { judgedSource } from "../src/jev/source.ts";
 import type { JudgedRecord } from "../src/jev/store.ts";
@@ -281,4 +281,23 @@ test("a bare secret-shaped token in a changed line, and in a removed line, is wi
 
 test("the claim question version moved, so records and bench fingerprints of the old input are not reused", () => {
   expect(claimGate.version).toBe("claim-v2");
+});
+
+test("a URL in a changed line, quoted or bare, reaches the gate as scheme and host only; no path, query or user info", () => {
+  const place = placeFor('export function load() {\n  // see https://bob:pw@docs.example.com/guide?token=abc123#top for the rules\n  return fetch("https://api.example.com/v1/users?token=abc123&user=bob");\n}\n');
+  const text = place.lines.join("\n");
+  expect(text).toContain('return fetch("https://api.example.com");');
+  expect(text).toContain("// see https://docs.example.com for the rules");
+  expect(JSON.stringify(place)).not.toMatch(/token|abc123|users|bob|guide/);
+});
+
+test("a quoted URL without a scheme, and one in a signature, is reduced to its host too", () => {
+  expect(withholdSecrets("const u = 'api.example.com/v1/users?token=abc123';")).toBe("const u = 'https://api.example.com';");
+  expect(withholdSecrets("export function f(url = 'https://x.example/a?k=v'): void")).toBe("export function f(url = 'https://x.example'): void");
+});
+
+test("a name that holds a secret-shaped literal reaches the facts withheld: a class method written as a quoted name", () => {
+  const place = placeFor(`export class C {\n  ["${AKIA}"]() {\n    return 1;\n  }\n}\n`);
+  expect(JSON.stringify(place)).not.toContain(AKIA);
+  expect(place.facts.some((fact) => fact.startsWith("added "))).toBe(true);
 });

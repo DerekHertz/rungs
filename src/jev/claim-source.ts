@@ -4,7 +4,7 @@ import { diffText } from "../diff.ts";
 import { isCodeNode } from "../graph.ts";
 import type { Graph, NodeId } from "../graph.ts";
 import { isBinary } from "../lines.ts";
-import { WITHHELD, looksSecret, promptEffect } from "../prompt-safe.ts";
+import { WITHHELD, looksSecret, promptEffect, promptName, promptTarget } from "../prompt-safe.ts";
 import { CLAIM_THRESHOLDS, MAX_CHANGED_LINES, MAX_FACTS, MAX_LINE_CHARS, MAX_PLACES, claimGate } from "./claim-gate.ts";
 import type { ClaimInput, PlaceFacts } from "./claim-gate.ts";
 import type { GateContext, GateRunner } from "./source.ts";
@@ -28,9 +28,22 @@ const TOKEN = /[A-Za-z0-9+/_=.-]*[A-Za-z0-9+/_=-]/g;
  * since the gate needs it. Withholding comes before any clipping, so a cut cannot leave half a key.
  */
 export function withholdSecrets(text: string): string {
-  const quoted = text.replace(QUOTED, (literal) => (looksSecret(literal.slice(1, -1)) ? `${literal[0]}${WITHHELD}${literal[0]}` : literal));
-  return quoted.replace(TOKEN, (token) => (looksSecret(token) ? WITHHELD : token));
+  const quoted = text.replace(QUOTED, (literal) => {
+    const inner = literal.slice(1, -1);
+    const mark = literal[0]!;
+    if (URL_LITERAL.test(inner)) return `${mark}${hostOnly(inner)}${mark}`;
+    return looksSecret(inner) ? `${mark}${WITHHELD}${mark}` : literal;
+  });
+  const urls = quoted.replace(BARE_URL, (url) => hostOnly(url));
+  return urls.replace(TOKEN, (token) => (looksSecret(token) ? WITHHELD : token));
 }
+
+/** A URL as an agent's prompt shows an effect target: scheme and host only, or "withheld". */
+const hostOnly = (url: string): string => promptTarget("network", url);
+/** A quoted literal that is a whole URL: with a scheme, or a dotted host followed by a path, query or fragment. */
+const URL_LITERAL = /^(?:[a-z][a-z0-9+.-]*:\/\/\S+|[\w-]+(?:\.[\w-]+)+(?::\d+)?[/?#]\S*)$/i;
+/** A URL with a scheme inside other text; it ends at a space, a quote or a bracket. */
+const BARE_URL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>()[\]{},;]+/gi;
 
 const clip = (text: string): string => (text.length > MAX_LINE_CHARS ? `${text.slice(0, MAX_LINE_CHARS)}...` : text);
 /** A line of source text (a signature, a contract, a changed line) as the gate is sent it. */
@@ -51,12 +64,12 @@ function placeOf(id: NodeId, subject: JudgeSubject): PlaceFacts | undefined {
   for (const other of comparison.changes) {
     if (other.node.path !== path || !isCodeNode(other.node)) continue;
     const signature = other.kind === "altered" && isCodeNode(other.before) && other.before.signature !== other.node.signature ? `: ${safeClip(other.before.signature)} -> ${safeClip(other.node.signature)}` : "";
-    facts.push(`${other.kind} ${other.node.level} ${other.node.qualifiedName}${signature}`);
+    facts.push(`${other.kind} ${other.node.level} ${promptName(other.node.qualifiedName)}${signature}`);
   }
   // A move names the head node (the base node for a removed one, the old id too for a moved one); the owning file comes from the graph's node.
   const inFile = (move: ContractMove): boolean => inHead(move.id, path) || inBase(move.id, basePath) || (move.from !== undefined && inBase(move.from, basePath));
   for (const move of contracts.filter(inFile)) {
-    const name = move.type?.name ?? move.exportName ?? subject.head.get(move.id)?.name ?? subject.base.get(move.id)?.name ?? "";
+    const name = promptName(move.type?.name ?? move.exportName ?? subject.head.get(move.id)?.name ?? subject.base.get(move.id)?.name ?? "");
     facts.push(`contract ${move.kind} ${name}: ${move.before === null ? "(none)" : safeClip(move.before)} -> ${move.after === null ? "(none)" : safeClip(move.after)}`);
     for (const effect of move.effects?.added ?? []) facts.push(`  effect gained by ${name}: ${promptEffect(effect)}`);
     for (const effect of move.effects?.removed ?? []) facts.push(`  effect lost by ${name}: ${promptEffect(effect)}`);
