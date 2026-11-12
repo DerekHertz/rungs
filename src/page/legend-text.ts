@@ -18,7 +18,9 @@ export function harbourText(town: Town): string {
 
 export function plinthText(town: Town): string {
   const unread = unreadIn(town);
-  const said = unread === 0 ? "" : ` · ${files(unread)} could not be read, so their imports are unknown`;
+  const marked = town.lots.filter((lot) => lot.plinthAtLeast > 0).length;
+  const dashed = marked === 0 ? "" : `; a dashed white outline on a stone (or on the ground, where none) marks ${files(marked)} drawn as at least this tall: a file that could not be read may import them, and how much taller is unknown`;
+  const said = unread === 0 ? "" : ` · ${files(unread)} could not be read, so their imports are unknown${dashed}`;
   return (
     (town.importance.most === 0
       ? "plinth: the stone a building stands on is as tall as the files resting on it through imports; no file has any here"
