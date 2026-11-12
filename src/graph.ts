@@ -41,6 +41,8 @@ export interface TypeContract {
   readonly name: string;
   readonly kind: "interface" | "type" | "re-export";
   readonly signature: string;
+  /** Set for a member of an `export =` namespace: the module is the namespace, so any importer of the file may use it. */
+  readonly exportEquals?: true;
 }
 
 export interface FileNode extends NodeBase {

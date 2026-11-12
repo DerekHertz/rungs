@@ -3,6 +3,9 @@ import { compare, contractsMoved, pictureOf } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree } from "../src/graph.ts";
 import { contractsReport, unmentioned, unmentionedIds } from "../src/review.ts";
+import { risksOf } from "../src/risks.ts";
+import { testChanges } from "../src/test-changes.ts";
+import { isTestFile } from "../src/test-files.ts";
 
 const tree = (files: Record<string, string>): FileTree => new Map(Object.entries(files));
 const pkg = { "package.json": "{}\n" };
@@ -97,6 +100,17 @@ test("an explicit export in an ambient namespace turns off implicit export of th
   // A file with an export is a module, not global.
   const moduleFile = (y: number) => `export {};\ninterface A { y: ${y} }\n`;
   expect(one(moduleFile(1), moduleFile(2), "src/api.d.ts")).toEqual([]);
+});
+
+test("a contract from an `export =` namespace reaches every importer of the file", () => {
+  const use = { "src/consumer.ts": "import type API from './api';\nexport const a: API.A = { x: 1 };\n" };
+  const base = tree({ ...pkg, ...use, "src/api.d.ts": "declare namespace API { interface A { x: 1 } }\nexport = API;\n" });
+  const head = tree({ ...pkg, ...use, "src/api.d.ts": "declare namespace API { interface A { x: 2 } }\nexport = API;\n" });
+  const [baseGraph, headGraph] = [extract(base), extract(head)];
+  const items = risksOf(compare(baseGraph, headGraph, { base, head }), baseGraph, headGraph, testChanges(base, head), isTestFile);
+  const contract = items.filter((item) => item.kind === "contract");
+  expect(contract).toHaveLength(1);
+  expect(contract[0]!.blast.files).toEqual(["src/consumer.ts"]);
 });
 
 test("a binary-marked code file goes through no language adapter", () => {

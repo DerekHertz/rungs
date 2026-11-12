@@ -118,7 +118,7 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
         ? [move.exportName]
         : move.type === undefined
         ? exportNamesOf([headNodes.get(move.id), was].filter((found) => found !== undefined))
-        : move.type.name.includes("* from") || move.type.name.includes("export=")
+        : move.type.name.includes("* from") || move.type.name.includes("export=") || [headNodes.get(move.id), baseNodes.get(move.id)].some((file) => file?.level === "file" && file.types?.some((type) => type.name === move.type!.name && type.exportEquals === true))
           ? "all"
           : [...new Set([move.type.name, move.type.name.split(".")[0]!])];
     const summary = move.kind === "changed" && move.type === undefined && isCodeNode(node) && node.level === "function" && move.before !== null && move.after !== null ? signatureSummary(move.before, move.after) : null;

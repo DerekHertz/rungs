@@ -695,7 +695,7 @@ function typeImportsOf(statements: readonly ts.Statement[]): Map<string, TypeImp
 const hasExplicitExport = (statements: readonly ts.Statement[]): boolean =>
   statements.some((statement) => hasModifier(statement, ts.SyntaxKind.ExportKeyword) || ts.isExportDeclaration(statement) || ts.isExportAssignment(statement));
 
-function scan(entries: readonly Entry[], file: ts.SourceFile, prefix: string, found: Map<string, TypeContract>, imports: ReadonlyMap<string, TypeImport> = new Map()): void {
+function scan(entries: readonly Entry[], file: ts.SourceFile, prefix: string, found: Map<string, TypeContract>, imports: ReadonlyMap<string, TypeImport> = new Map(), exportEquals = false): void {
   // Each block is read on its own: its locals, what it exports and under which names. Only what a
   // block exports joins the public names, where exported blocks of one namespace merge.
   const blocks = new Map<ts.Node, Entry[]>();
@@ -773,8 +773,8 @@ function scan(entries: readonly Entry[], file: ts.SourceFile, prefix: string, fo
       if (space !== undefined) addSpace(exported, space.entries);
     }
   }
-  for (const [exported, local] of publicTypes) found.set(prefix + exported, { name: prefix + exported, kind: local.kind, signature: typeSignature(local, file) });
-  for (const [as, inner] of publicSpaces) scan(inner, file, `${prefix}${as}`, found);
+  for (const [exported, local] of publicTypes) found.set(prefix + exported, { name: prefix + exported, kind: local.kind, signature: typeSignature(local, file), ...(exportEquals ? { exportEquals: true as const } : {}) });
+  for (const [as, inner] of publicSpaces) scan(inner, file, `${prefix}${as}`, found, new Map(), exportEquals || as === "");
 }
 
 /**
