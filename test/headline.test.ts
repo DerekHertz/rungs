@@ -39,6 +39,8 @@ test("failing, unfinished and unreliable runs are said as what they are, and no 
   expect(headline(none, noTests, doc("failed"))).toContain("tests did not finish");
   expect(headline(none, noTests, doc("unreliable"))).toContain("test results unreliable");
   expect(headline(none, noTests, doc("refused"))).toContain("tests not run");
+  expect(headline(none, noTests, { tier: "observed", tree: "t", status: "running" })).toContain("tests running…");
+  expect(headline(none, noTests, { tier: "observed", tree: "t", status: "stopped", why: "x" })).toContain("tests not run: x");
 });
 
 test("a change of only dependencies is not said to change no code", () => {

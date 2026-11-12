@@ -21,6 +21,11 @@ export async function followObserved(first: ObservedDocument, read: () => Promis
       return;
     }
     failures = 0;
+    // A server restarted on the same port may now serve another tree: its results are never attached to this picture.
+    if (document.tree !== first.tree) {
+      show({ tier: "observed", tree: first.tree, status: "stopped", why: "the server now serves another tree" });
+      return;
+    }
     if (document.status !== "running") {
       show(document);
       return;

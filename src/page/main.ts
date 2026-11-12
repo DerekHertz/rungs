@@ -550,6 +550,8 @@ async function select(node: ModuleNode, ticket: number, outline: NodeId = node.i
   rememberOpener();
   if (node.id === selected) {
     markLines(marked);
+    // The failure of a test already open may have come in since (the run ended), or be asked for again from the failure list.
+    showFailure(node);
     // A narrow screen on the town or the list asked for what is already open.
     setView({ type: "opened" });
     return;
@@ -810,6 +812,9 @@ followTestRun(observed, (document) => {
   townView.setFailing(observedRun?.failingFiles ?? new Set());
   drawLegend();
   reviewSink?.observedEnded(document, observedRun);
+  // A test that is already selected gets its failure now.
+  const open = selected === undefined ? undefined : nodes.get(selected);
+  if (open !== undefined) showFailure(open);
 });
 
 /** A test function that failed in the run: what the runner gave of the failure, and the line its stack named marked in the source. */

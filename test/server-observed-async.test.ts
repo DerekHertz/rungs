@@ -72,6 +72,14 @@ test("a run that throws leaves the server up and the tests not run, with the rea
   expect((await fetch(server.url)).status).toBe(200);
 });
 
+test("a runner that throws before it returns a promise is stopped with the reason, and serve does not reject", async () => {
+  const server = await open(() => {
+    throw new Error("threw at once");
+  });
+  expect(await finished(server)).toMatchObject({ status: "stopped", why: "the test run stopped: threw at once" });
+  expect((await fetch(server.url)).status).toBe(200);
+});
+
 test("a run handed in finished is served as it was, with no running phase", async () => {
   const server = await open(run);
   expect(await observed(server)).toMatchObject({ status: "ran" });

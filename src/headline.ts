@@ -32,6 +32,8 @@ function testsPart(observed: ObservedDocument | null): string {
     const result = fail === 0 ? `main's tests: ${pass} passed` : `main's tests: ${fail} failed, ${pass} passed`;
     return observed.sandbox === "unsandboxed" ? `${result} (ran without a sandbox)` : result;
   }
+  if (observed.status === "running") return "tests running…";
+  if (observed.status === "stopped") return `tests not run: ${observed.why}`;
   if (observed.status === "failed") return "tests did not finish";
   if (observed.status === "unreliable") return "test results unreliable";
   return "tests not run";
