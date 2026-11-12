@@ -96,8 +96,8 @@ test("a certification is checked whole", () => {
 });
 
 /*
- * The rule: a vocabulary is certified when its certification records the terms (key and name) and
- * the corrections exactly as they are now. Any added correction, or any change in the terms, breaks
+ * The rule: a vocabulary is certified when its certification records the terms (key, name, where written or
+ * what a model said of them) and the corrections exactly as they are now, and nothing is incomplete (certify-completeness.test.ts). Any added correction, or any change in the terms, breaks
  * the match. A change in the corrections alone means drafted again; a change in the terms alone
  * (setup rebuilt them) is said as "certified ..., vocabulary changed since", never as plain certified.
  */

@@ -4,7 +4,8 @@ import { copyFile, mkdir, readFile, realpath, rename, rm, writeFile } from "node
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { readRef } from "./checkout.ts";
-import { certificationOf, certificationText, describeCorrection, effectOf, noLongerApply, problemWithCertification, problemWithCorrections } from "./corrections.ts";
+import { certificationOfStored } from "./certification.ts";
+import { certificationText, describeCorrection, effectOf, noLongerApply, problemWithCertification, problemWithCorrections } from "./corrections.ts";
 import type { Certification, Correction, Inapplicable } from "./corrections.ts";
 import type { RefBase } from "./checkout.ts";
 import { EXTRACTOR_VERSION, digestOf, extract } from "./extract/extract.ts";
@@ -556,7 +557,7 @@ export function reportLines(result: SetupResult): string[] {
     lines.push(`  corrections: ${plural(corrections.length, "correction")} kept${result.corrections === undefined ? "" : `, ${gone.length} no longer apply`}`);
     for (const one of gone) lines.push(`    no longer applies: ${describeCorrection(one.correction)} (${one.why})`);
   }
-  lines.push(`  vocabulary: ${certificationText(certificationOf(terms, corrections, stored.certification))}`);
+  lines.push(`  vocabulary: ${certificationText(certificationOfStored(stored))}`);
   return lines;
 }
 

@@ -1,5 +1,6 @@
 import { basename } from "node:path";
-import { certificationOf, combine, effectOf, noLongerApply, pairKeyOf, shownCertification, describeCorrection } from "./corrections.ts";
+import { certificationOfStored } from "./certification.ts";
+import { combine, effectOf, noLongerApply, pairKeyOf, shownCertification, describeCorrection } from "./corrections.ts";
 import type { Effect, PairCorrection, Part } from "./corrections.ts";
 import { digestOf } from "./extract/extract.ts";
 import type { DocFile, DocMember, DocPin, DocProposal, DocStamp, DocTerm, DocTermRef, VocabularyDoc } from "./file-card.ts";
@@ -412,7 +413,7 @@ export function vocabularyDocument(read: StoredRead | undefined, head: { readonl
     ...(stored.memberships === undefined ? {} : { model: stored.memberships.model }),
     terms: termsOf(stored, ctx, head.tree, unread),
     ...(stored.proposals === undefined ? {} : { proposed: { count: ctx.claimed.size, model: stored.proposals.model, answered: stored.proposals.answered, basis: stored.proposals.basis } }),
-    certification: shownCertification(certificationOf(allTerms, corrections, stored.certification)),
+    certification: shownCertification(certificationOfStored(stored, [...unread.keys()].sort(byText))),
     corrections: { count: corrections.length, noLongerApply: noLongerApply(effect, corrections, new Set(facts.headUnits.keys())).map((one) => ({ text: describeCorrection(one.correction), why: one.why, ...stampOf(one.correction) })) },
     withheldPaths: stored.pathsWithheld,
     files: filesOf(units, ctx, stored.memberships, unread),
