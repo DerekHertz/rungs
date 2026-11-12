@@ -12,12 +12,12 @@ import { tierPercent } from "./tier-table.ts";
  * There is no extra Jev call: the answers a gate already recorded say it, so a record is classified
  * when it is read and nothing is stored that could go stale. No node imports: the page reads this.
  *
- * A kind is named only where Jev leans to it, at the gate's own flag line (50%): a probability in the
+ * A kind is named only where Jev leans to it, at the gate's own flag line (50%) or by a strict majority: a probability in the
  * middle band, between a gate's settle limit and that line, is Jev being unsure, and code cannot make
  * a kind of it.
  *
  *   contradicted       a claim the gate flagged (contradicted at the flag line or above)
- *   ungrounded         a claim more likely not shown than shown (shown at or under 1 - the flag line),
+ *   ungrounded         a claim more likely not shown than shown (shown under half: at exactly half it is a tie, so unknown),
  *                      when what Jev was shown was whole
  *   breaks a standard  a hunk the gate flagged, or one the base already broke that the changed lines
  *                      break at the flag line or above (not new, and says so)
@@ -42,19 +42,15 @@ const unknown = (why: string): KindOfMiss => ({ kind: "unknown", why });
 export const kindText = (found: KindOfMiss): string => (found.kind === "unknown" ? "kind unknown" : found.kind);
 
 /**
- * What the state a record was judged on left out, in words, or undefined when it was whole. "Not shown" and "nothing wrong
- * found" are claims about absence: over evidence that was cut, left out or not available they say nothing, so they are unknown.
- * A breach or a contradiction that was seen is seen however much else was cut. The markers are the ones the gates write into
- * their state (claim-gate.ts, standard-gate.ts); a test builds real states from the gates so a change there fails here.
+ * What the evidence a record was judged on left out, in words, or undefined when it was whole. "Not shown" and "nothing wrong
+ * found" are claims about absence: over evidence that was cut, clipped, left out or not available they say nothing, so they are
+ * unknown. A breach or a contradiction that was seen is seen however much else was cut. This reads only the record's `cut`, which
+ * the gate sets from its own counts (Gate.cut); it never reads the state's text. A record with no `cut` does not say, so it is
+ * read as cut.
  */
-export function cutOf(state: Readonly<Record<string, string>>): string | undefined {
-  const texts = Object.entries(state);
-  if (texts.some(([key]) => key === "omitted")) return "some linked places were left out of what Jev was shown";
-  const found = (pattern: RegExp): boolean => texts.some(([, text]) => pattern.test(text));
-  if (found(/more changed lines were cut from this state|\[place cut to fit/)) return "some changed lines were cut from what Jev was shown";
-  if (found(/changed lines: none shown \((?!(?:moved with )?no line changed\))/)) return "the changed lines of a place were not available to Jev";
-  if (found(/\[cut: \d+ more characters of the rule|more lines were cut from this state|\[cut to fit the state budget/)) return "part of the rule or the lines was cut from what Jev was shown";
-  return undefined;
+export function cutOf(record: JudgedRecord): string | undefined {
+  if (record.cut === undefined) return "the record does not say whether anything was left out of what Jev was shown";
+  return record.cut.length === 0 ? undefined : `what Jev was shown was cut (${record.cut.join("; ")})`;
 }
 
 /** The kind of one judged record, or null when its verdict is settled (no miss). */
@@ -83,9 +79,9 @@ function claimKind(record: JudgedRecord): KindOfMiss {
   const contradicted = yesOf(answers, "contradicted")!;
   const note = `shown ${pct(shown)}, contradicted ${pct(contradicted)}`;
   if (record.verdict === "flagged") return { kind: "contradicted", why: `the gate flagged it: ${note}` };
-  const cut = cutOf(record.shown.state);
-  // More likely not shown than shown: the gate has no flag for it, so it is the same line the gate flags a contradiction at.
-  if (1 - shown >= (thresholds.flag ?? 0.5)) return cut === undefined ? { kind: "ungrounded", why: `it is more likely not shown than shown (${note})` } : unknown(`it is more likely not shown than shown (${note}), but ${cut}, so it cannot be told that it is ungrounded`);
+  const cut = cutOf(record);
+  // More likely not shown than shown: a strict majority. At exactly half it is a tie, and a tie is Jev being unsure.
+  if (shown < 0.5) return cut === undefined ? { kind: "ungrounded", why: `it is more likely not shown than shown (${note})` } : unknown(`it is more likely not shown than shown (${note}), but ${cut}, so it cannot be told that it is ungrounded`);
   if (shown < (thresholds.shown ?? 0.9) || contradicted > (thresholds.contradicted ?? 0.1)) return unknown(`Jev is not sure either way (${note}): between the settle limit and the flag line, so no kind can be named`);
   return heldByTier(record.thresholds, note, cut);
 }
@@ -103,7 +99,7 @@ function standardKind(record: JudgedRecord): KindOfMiss {
   if (breaks > (thresholds.clear ?? 0.1)) return unknown(`Jev is not sure the changed lines break the rule (${pct(breaks)}): between the settle limit and the flag line, so no kind can be named`);
   if (before === undefined) return unknown(`the changed lines look clean (${pct(breaks)}), but the base's answer is missing, so it cannot be settled`);
   if (already) return unknown(`the changed lines look clean (${pct(breaks)}), but the base's lines already broke the rule, so they may only have moved the breach`);
-  return heldByTier(thresholds, `the changed lines break the rule at ${pct(breaks)}`, cutOf(record.shown.state));
+  return heldByTier(thresholds, `the changed lines break the rule at ${pct(breaks)}`, cutOf(record));
 }
 
 /** Every answer passes the gate's own limits and the verdict is still not settled: only a tier can have held it, or the record is not one the gate would write. */

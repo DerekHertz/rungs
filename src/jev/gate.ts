@@ -29,6 +29,12 @@ export interface Gate<Input> {
   questionsFor?(input: Input): Readonly<Record<string, JevQuestion>>;
   /** What Jev is shown for one input: named pieces of text, all data. */
   state(input: Input): Readonly<Record<string, string>>;
+  /**
+   * What `state` left out of one input, in words, empty when Jev was shown all of it. Whatever clips, truncates or
+   * drops evidence says so here from its own counts, never from the state's text, so a reader that must know whether
+   * "nothing wrong found" was said over whole evidence reads this and nothing else.
+   */
+  cut?(input: Input): readonly string[];
   /** Settled, flagged or undecided from the probabilities and the thresholds. */
   decide(answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds): Verdict;
 }

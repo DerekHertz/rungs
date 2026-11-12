@@ -68,6 +68,14 @@ export interface JudgedRun {
 
 const PARALLEL = 4;
 
+/** The record with what the gate says it left out of this input's evidence: the same request has the same cuts, so a record read back, or written before cuts were recorded, gets them from its input. */
+function withCut<Input>(gate: Gate<Input>, input: Input, record: JudgedRecord): JudgedRecord {
+  const { cut: was, ...rest } = record;
+  void was;
+  const cut = gate.cut?.(input);
+  return cut === undefined ? rest : { ...rest, cut };
+}
+
 /** A record on file with the thresholds, tier and verdict of this comparison's item: the answers are its own. */
 function recordOf(known: JudgedRecord, thresholds: Thresholds, pick: TierPick | undefined, verdict: JudgedRecord["verdict"]): JudgedRecord {
   const { pick: was, ...rest } = known;
@@ -116,7 +124,7 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
       // threshold is decided again here, from the answers on file, with no call.
       const own = item.thresholds ?? thresholds;
       const same = JSON.stringify(known.thresholds) === JSON.stringify(own) && JSON.stringify(known.pick) === JSON.stringify(item.pick);
-      outcomes[index] = { status: "judged", record: same ? known : recordOf(known, own, item.pick, gate.decide(known.answers, own)), cached: true };
+      outcomes[index] = { status: "judged", record: withCut(gate, item.input, same ? known : recordOf(known, own, item.pick, gate.decide(known.answers, own))), cached: true };
     } else asked.push(index);
   });
   events?.plan(identity, outcomes.filter((outcome) => outcome !== undefined), asked.map((index) => ({ key: items[index]!.key, about: items[index]!.about })));
@@ -135,7 +143,7 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
       }
       if (judged.usage.usd === null) costUnknown += 1;
       else usd += judged.usage.usd;
-      const record: JudgedRecord = {
+      const record: JudgedRecord = withCut(gate, item.input, {
         tier: "judged",
         key: item.key,
         about: item.about,
@@ -148,7 +156,7 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
         model: judged.model,
         inputTokens: judged.usage.inputTokens,
         usd: judged.usage.usd,
-      };
+      });
       outcomes[index] = { status: "judged", record, cached: false };
       events?.outcome(gate.id, outcomes[index]!);
     }

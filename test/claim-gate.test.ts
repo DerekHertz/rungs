@@ -94,7 +94,7 @@ test("the state is bounded: changed lines are capped per place and places per cl
   const text = claimGate.state(added.input)["place 1"]!;
   expect(text).toContain(`[${100 - MAX_CHANGED_LINES} more changed lines were cut from this state; the first ${MAX_CHANGED_LINES} are shown]`);
   expect(text.split("\n").length).toBeLessThan(MAX_FACTS + MAX_CHANGED_LINES + 10);
-  const many: ClaimInput = { claim: "x", places: Array.from({ length: MAX_PLACES }, () => ({ label: "altered f", facts: [], lines: [], cutLines: 0 })), omittedPlaces: 3 };
+  const many: ClaimInput = { claim: "x", places: Array.from({ length: MAX_PLACES }, () => ({ label: "altered f", facts: [], cutFacts: 0, clipped: false, lines: [], cutLines: 0 })), omittedPlaces: 3 };
   expect(claimGate.state(many).omitted).toMatch(/3 more linked places were left out/);
 });
 
@@ -195,7 +195,7 @@ test("the claim text is capped and the whole state has a budget; each cut is not
   const state = claimGate.state({ claim: huge, places: [], omittedPlaces: 0 });
   expect(state.claim!.length).toBeLessThan(MAX_CLAIM_CHARS + 200);
   expect(state.claim).toMatch(/\[claim cut to the first 2000 characters of 1000000\]$/);
-  const wide = { label: "altered f", facts: [], lines: Array.from({ length: MAX_CHANGED_LINES }, () => "+1: " + "y".repeat(200)), cutLines: 0 };
+  const wide = { label: "altered f", facts: [], cutFacts: 0, clipped: false, lines: Array.from({ length: MAX_CHANGED_LINES }, () => "+1: " + "y".repeat(200)), cutLines: 0 };
   const total = (input: ClaimInput) => Object.values(claimGate.state(input)).reduce((sum, text) => sum + text.length, 0);
   const many: ClaimInput = { claim: huge, places: Array.from({ length: MAX_PLACES }, () => wide), omittedPlaces: 0 };
   expect(total(many)).toBeLessThanOrEqual(MAX_STATE_CHARS + 400);

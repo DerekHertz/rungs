@@ -30,6 +30,8 @@
      {
       "label": "altered readme.md",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": true,
       "lines": [
        "-147: Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, use the environment variable `FORCE_COLOR=1` (level 1), `FORCE_COLOR=2` (...",
        "+147: Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, use the environment variable `FORCE_COLOR=1` (level 1), `FORCE_COLOR=2` (...",
@@ -44,6 +46,8 @@
        "altered function _supportsColor",
        "altered function envForceColor"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-46: \treturn env.FORCE_COLOR.length === 0 ? 1 : Math.min(Number.parseInt(env.FORCE_COLOR, 10), 3);",
        "+46: \tif (env.FORCE_COLOR.length === 0) {",
@@ -68,6 +72,8 @@
      {
       "label": "added test/_force-color-fixture.js",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {supportsColor} from '../source/index.js';",
        "+2: ",
@@ -93,6 +99,8 @@
        "added function test(\"the `--color=256` and `--co…` flags take precedence over a numeric `FORCE_COLOR`\") callback",
        "added function detectLevel"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {fileURLToPath} from 'node:url';",
        "+2: import test from 'ava';",
@@ -187,6 +195,8 @@
        "altered function stringEncaseCRLFWithFirstIndex",
        "altered function stringReplaceAll"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-12: \t\treturnValue += string.substr(endIndex, index - endIndex) + substring + replacer;",
        "+12: \t\treturnValue += string.slice(endIndex, index) + substring + replacer;",
@@ -224,6 +234,8 @@
       "facts": [
        "altered function createBuilder"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-142: \t// `__proto__` is used because we must return a function, but there is",
        "+142: \t// We alter the prototype because we must return a function, but there is",
@@ -263,6 +275,8 @@
        "altered function Command.getOptionValueSourceWithGlobals",
        "altered function Command.getOptionValueSourceWithGlobals.\"forEach() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-978:       if (cmd.getOptionValueSource(key) !== undefined) {",
        "+978:       if (Object.hasOwn(cmd._optionValueSources, key)) {"
@@ -278,6 +292,8 @@
        "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback",
        "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback.\"action() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-103:   test('when same named option in sub and program then source is defined by global', () => {",
        "+103:   test('when same named option used in sub CLI and program default value then source is defined by global', () => {",
@@ -329,6 +345,8 @@
        "altered class Help",
        "altered function Help.visibleOptions"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-92:           cmd.createOption(helpOption.long, helpOption.description),",
        "+92:           cmd",
@@ -348,6 +366,8 @@
        "added function describe(\"Command.optionsGroup\") callback.test(\"when help long flag conflicts then help option keeps its group\") callback",
        "added function describe(\"Command.optionsGroup\") callback.test(\"when help short flag conflicts then help option keeps its group\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+118:   test('when help short flag conflicts then help option keeps its group', () => {",
        "+119:     const program = new Command();",
@@ -403,6 +423,8 @@
        "altered function incrementNodeInspectorPort",
        "altered function incrementNodeInspectorPort.\"map() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+2725:   //",
        "+2726:   // Host can be an IP literal encapsulated within square brackets (e.g. [::1]),",
@@ -435,6 +457,8 @@
        "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1] then bump port\") callback",
        "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1]:100 then bump port\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+75:   test('when --inspect=[::1] then bump port', (t) => {",
        "+76:     const { spawnSpy } = makeSpies(t);",
@@ -487,6 +511,8 @@
        "altered function incrementNodeInspectorPort",
        "altered function incrementNodeInspectorPort.\"map() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+2723:   //  --inspect-wait[=[host:]port]",
        "-2732:     if ((match = arg.match(/^(--inspect(-brk)?)$/)) !== null) {",
@@ -508,6 +534,8 @@
        "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect-wait=1.2.3.4:100 then bump port\") callback",
        "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect-wait=100 then bump port\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+111:   test('when --inspect-wait then bump port', (t) => {",
        "+112:     const { spawnSpy } = makeSpies(t);",
@@ -582,6 +610,8 @@
        "added function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"map() callback\"",
        "altered function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"test() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+345:     const envvars = testCases.map(([envvar]) => envvar);",
        "+346:     let holdEnv;",
@@ -634,6 +664,8 @@
       "facts": [
        "altered function send"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-165:   // Because Content-Length and Transfer-Encoding can't be present in the response headers together,",
        "-166:   // Content-Length should be added only if there is no Transfer-Encoding header",
@@ -656,6 +688,8 @@
        "added function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback.it(\"should still generate an ETag\") callback",
        "added function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback.it(\"should still generate an ETag\") callback.\"use() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+619: ",
        "+620:     it('should still generate an ETag', function(done){",
@@ -704,6 +738,8 @@
       "facts": [
        "altered function host"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-427:     val = val.substring(0, val.indexOf(',')).trimRight()",
        "+427:     val = val.substring(0, val.indexOf(',')).trimEnd()"
@@ -737,6 +773,8 @@
      {
       "label": "altered History.md",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": true,
       "lines": [
        "+12: * Allow conditional revalidation for QUERY requests. `req.fresh` previously only validated freshness for GET and HEAD requests, so QUERY responses never returned 304 despite a matching validator. Sinc...",
        "+13: ",
@@ -756,6 +794,8 @@
       "facts": [
        "altered function \"defineGetter() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-474:   // GET or HEAD for weak freshness validation only",
        "-475:   if ('GET' !== method && 'HEAD' !== method) return false;",
@@ -774,6 +814,8 @@
        "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback",
        "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback.\"use() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+5: var shouldSkipQuery = require('./support/utils').shouldSkipQuery",
        "+48:       .expect(200, 'false', done);",
@@ -845,6 +887,8 @@
       "facts": [
        "altered function getInstanceDecorator"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-41:   if (typeof this[name] === 'function') {",
        "-42:     return this[name].bind(this)",
@@ -867,6 +911,8 @@
        "added function test(\"getDecorator should evaluate a getter once\") callback.\"after() callback\"",
        "added function test(\"getDecorator should evaluate a getter once\") callback.getter"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1331: ",
        "+1332: test('getDecorator should evaluate a getter once', async t => {",
@@ -929,6 +975,8 @@
       "facts": [
        "altered function \"Reply.prototype.header\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+287:   } else if (key === 'set-cookie' && Array.isArray(value)) {",
        "+288:     // Copy the array: later calls push into the stored one, and the caller's",
@@ -948,6 +996,8 @@
        "effect call added: network fetch (target unknown)",
        "effect call added: network fetch (target unknown)"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1006: test('reply.header does not mutate a set-cookie array passed by the caller', async t => {",
        "+1007:   t.plan(5)",
@@ -1015,6 +1065,8 @@
        "added function describe(\"JWT\") callback.it(\"JwtTokenInvalid for a signature containing whitespace\") callback",
        "added function describe(\"JWT\") callback.it(\"JwtTokenInvalid for a signature containing whitespace\") callback.\"catch() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+14:   JwtHeaderInvalid,",
        "+101:   })",
@@ -1051,6 +1103,8 @@
        "altered function isTokenHeader",
        "altered function verify"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-50:       (!('typ' in objWithAlg) || objWithAlg.typ === 'JWT')",
        "+50:       (!('typ' in objWithAlg) || objWithAlg.typ === 'JWT') &&",
@@ -1093,6 +1147,8 @@
        "altered function describe(\"Context header\") callback",
        "added function describe(\"Context header\") callback.it(\"Should be able to set headers after the response body is consumed\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+497:   it('Should be able to set headers after the response body is consumed', async () => {",
        "+498:     c.res = new Response('bar')",
@@ -1112,6 +1168,8 @@
        "altered class Context",
        "altered function Context.header"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-520:     if (this.finalized) {",
        "+520:     // a consumed body can't be passed to a new Response",
@@ -1151,6 +1209,8 @@
        "altered function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback",
        "added function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback.it(\"GET /x/aa/b/x with a quantifier before a slash\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+834: ",
        "+835:       it('GET /x/aa/b/x with a quantifier before a slash', () => {",
@@ -1170,6 +1230,8 @@
        "altered class Trie",
        "altered function Trie.insert"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-27:       markedPath = markedPath.replace(/\\{[^}]+\\}/g, (m) => {",
        "+27:       markedPath = markedPath.replace(/\\{(?:\\{[\\d,]+\\}|[^}])+\\}/g, (m) => {"
@@ -1182,6 +1244,8 @@
        "altered function describe(\"url\") callback",
        "added function describe(\"url\") callback.\"<function>\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+51:   it.each([",
        "+52:     ['/x/:prefix{a{2}/b}/x', ['x', ':prefix{a{2}/b}', 'x']],",
@@ -1201,6 +1265,8 @@
       "facts": [
        "altered function extractGroupsFromPath"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-26:   path = path.replace(/\\{[^}]+\\}/g, (match, index) => {",
        "+26:   path = path.replace(/\\{(?:\\{[\\d,]+\\}|[^}])+\\}/g, (match, index) => {"
@@ -1239,6 +1305,8 @@
        "altered function create.got.iterateHandlers",
        "altered function create.got.lastHandler"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-57: \t\t\trequest._noPipe = !normalized.isStream;",
        "+57: \t\t\trequest._noPipe = !normalized?.isStream;",
@@ -1254,6 +1322,8 @@
       "facts": [
        "added function test(\"throws if an invalid argument is passed\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+45: test('throws if an invalid argument is passed', async t => {",
        "+46: \tawait t.throwsAsync(",
@@ -1302,6 +1372,8 @@
        "effect call added: timer timers/promises setTimeout",
        "effect call removed: timer setTimeout"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {setTimeout as delay} from 'node:timers/promises';",
        "-19: ",
@@ -1339,6 +1411,8 @@
      {
       "label": "altered package.json",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-57: \t\t\"get-stream\": \"^8.0.1\",",
        "+88: \t\t\"get-stream\": \"^9.0.1\","
@@ -1348,6 +1422,8 @@
      {
       "label": "altered readme.md",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": true,
       "lines": [
        "-377: [InstallSizeOfTheDependencies]: https://packagephobia.com,@szmarczak/http-timer@5.0.1,cacheable-lookup@7.0.0,cacheable-request@12.0.1,decompress-response@6.0.0,form-data-encoder@4.0.2,get-stream@8.0.1...",
        "+377: [InstallSizeOfTheDependencies]: https://packagephobia.com,@szmarczak/http-timer@5.0.1,cacheable-lookup@7.0.0,cacheable-request@12.0.1,decompress-response@6.0.0,form-data-encoder@4.0.2,http2-wrapper@2...."
@@ -1360,6 +1436,8 @@
        "altered class Request",
        "altered function Request._setRawBody"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-14: import is from '@sindresorhus/is';",
        "-15: import {getStreamAsBuffer} from 'get-stream';",
@@ -1405,6 +1483,8 @@
        "altered function Request.constructor",
        "altered function Request.constructor.abort"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-267: \t\t\t\tthis.destroy(new AbortError(this));",
        "+267: \t\t\t\t// See https://developer.mozilla.org",
@@ -1425,6 +1505,8 @@
        "added function test(\"support AbortSignal.timeout()\") callback",
        "effect call added: timer setTimeout"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+327: ",
        "+328: const timeoutErrorCode = 23;",
@@ -1510,6 +1592,8 @@
       "facts": [
        "altered function \"Reply.prototype.header\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+287:   } else if (key === 'set-cookie' && Array.isArray(value)) {",
        "+288:     // Copy the array: later calls push into the stored one, and the caller's",
@@ -1529,6 +1613,8 @@
        "effect call added: network fetch (target unknown)",
        "effect call added: network fetch (target unknown)"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1006: test('reply.header does not mutate a set-cookie array passed by the caller', async t => {",
        "+1007:   t.plan(5)",
@@ -1592,6 +1678,8 @@
        "altered function incrementNodeInspectorPort",
        "altered function incrementNodeInspectorPort.\"map() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+2725:   //",
        "+2726:   // Host can be an IP literal encapsulated within square brackets (e.g. [::1]),",
@@ -1624,6 +1712,8 @@
        "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1] then bump port\") callback",
        "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1]:100 then bump port\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+75:   test('when --inspect=[::1] then bump port', (t) => {",
        "+76:     const { spawnSpy } = makeSpies(t);",
@@ -1676,6 +1766,8 @@
        "altered function stringEncaseCRLFWithFirstIndex",
        "altered function stringReplaceAll"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-12: \t\treturnValue += string.substr(endIndex, index - endIndex) + substring + replacer;",
        "+12: \t\treturnValue += string.slice(endIndex, index) + substring + replacer;",
@@ -1718,6 +1810,8 @@
        "effect call added: timer timers/promises setTimeout",
        "effect call removed: timer setTimeout"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {setTimeout as delay} from 'node:timers/promises';",
        "-19: ",
@@ -1758,6 +1852,8 @@
        "altered function describe(\"Context header\") callback",
        "added function describe(\"Context header\") callback.it(\"Should be able to set headers after the response body is consumed\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+497:   it('Should be able to set headers after the response body is consumed', async () => {",
        "+498:     c.res = new Response('bar')",
@@ -1777,6 +1873,8 @@
        "altered class Context",
        "altered function Context.header"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-520:     if (this.finalized) {",
        "+520:     // a consumed body can't be passed to a new Response",
@@ -1813,6 +1911,8 @@
       "facts": [
        "altered function getInstanceDecorator"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-41:   if (typeof this[name] === 'function') {",
        "-42:     return this[name].bind(this)",
@@ -1835,6 +1935,8 @@
        "added function test(\"getDecorator should evaluate a getter once\") callback.\"after() callback\"",
        "added function test(\"getDecorator should evaluate a getter once\") callback.getter"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1331: ",
        "+1332: test('getDecorator should evaluate a getter once', async t => {",
@@ -1895,6 +1997,8 @@
      {
       "label": "altered readme.md",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": true,
       "lines": [
        "-147: Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, use the environment variable `FORCE_COLOR=1` (level 1), `FORCE_COLOR=2` (...",
        "+147: Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, use the environment variable `FORCE_COLOR=1` (level 1), `FORCE_COLOR=2` (...",
@@ -1909,6 +2013,8 @@
        "altered function _supportsColor",
        "altered function envForceColor"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-46: \treturn env.FORCE_COLOR.length === 0 ? 1 : Math.min(Number.parseInt(env.FORCE_COLOR, 10), 3);",
        "+46: \tif (env.FORCE_COLOR.length === 0) {",
@@ -1933,6 +2039,8 @@
      {
       "label": "added test/_force-color-fixture.js",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {supportsColor} from '../source/index.js';",
        "+2: ",
@@ -1958,6 +2066,8 @@
        "added function test(\"the `--color=256` and `--co…` flags take precedence over a numeric `FORCE_COLOR`\") callback",
        "added function detectLevel"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {fileURLToPath} from 'node:url';",
        "+2: import test from 'ava';",
@@ -2054,6 +2164,8 @@
        "altered function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback",
        "added function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback.it(\"GET /x/aa/b/x with a quantifier before a slash\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+834: ",
        "+835:       it('GET /x/aa/b/x with a quantifier before a slash', () => {",
@@ -2073,6 +2185,8 @@
        "altered class Trie",
        "altered function Trie.insert"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-27:       markedPath = markedPath.replace(/\\{[^}]+\\}/g, (m) => {",
        "+27:       markedPath = markedPath.replace(/\\{(?:\\{[\\d,]+\\}|[^}])+\\}/g, (m) => {"
@@ -2085,6 +2199,8 @@
        "altered function describe(\"url\") callback",
        "added function describe(\"url\") callback.\"<function>\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+51:   it.each([",
        "+52:     ['/x/:prefix{a{2}/b}/x', ['x', ':prefix{a{2}/b}', 'x']],",
@@ -2104,6 +2220,8 @@
       "facts": [
        "altered function extractGroupsFromPath"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-26:   path = path.replace(/\\{[^}]+\\}/g, (match, index) => {",
        "+26:   path = path.replace(/\\{(?:\\{[\\d,]+\\}|[^}])+\\}/g, (match, index) => {"
@@ -2137,6 +2255,8 @@
      {
       "label": "altered History.md",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": true,
       "lines": [
        "+12: * Allow conditional revalidation for QUERY requests. `req.fresh` previously only validated freshness for GET and HEAD requests, so QUERY responses never returned 304 despite a matching validator. Sinc...",
        "+13: ",
@@ -2156,6 +2276,8 @@
       "facts": [
        "altered function \"defineGetter() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-474:   // GET or HEAD for weak freshness validation only",
        "-475:   if ('GET' !== method && 'HEAD' !== method) return false;",
@@ -2174,6 +2296,8 @@
        "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback",
        "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback.\"use() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+5: var shouldSkipQuery = require('./support/utils').shouldSkipQuery",
        "+48:       .expect(200, 'false', done);",
@@ -2247,6 +2371,8 @@
        "altered function Request.constructor",
        "altered function Request.constructor.abort"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-267: \t\t\t\tthis.destroy(new AbortError(this));",
        "+267: \t\t\t\t// See https://developer.mozilla.org",
@@ -2267,6 +2393,8 @@
        "added function test(\"support AbortSignal.timeout()\") callback",
        "effect call added: timer setTimeout"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+327: ",
        "+328: const timeoutErrorCode = 23;",
@@ -2350,6 +2478,8 @@
      {
       "label": "altered readme.md",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": true,
       "lines": [
        "-147: Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, use the environment variable `FORCE_COLOR=1` (level 1), `FORCE_COLOR=2` (...",
        "+147: Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, use the environment variable `FORCE_COLOR=1` (level 1), `FORCE_COLOR=2` (...",
@@ -2364,6 +2494,8 @@
        "altered function _supportsColor",
        "altered function envForceColor"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-46: \treturn env.FORCE_COLOR.length === 0 ? 1 : Math.min(Number.parseInt(env.FORCE_COLOR, 10), 3);",
        "+46: \tif (env.FORCE_COLOR.length === 0) {",
@@ -2388,6 +2520,8 @@
      {
       "label": "added test/_force-color-fixture.js",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {supportsColor} from '../source/index.js';",
        "+2: ",
@@ -2413,6 +2547,8 @@
        "added function test(\"the `--color=256` and `--co…` flags take precedence over a numeric `FORCE_COLOR`\") callback",
        "added function detectLevel"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {fileURLToPath} from 'node:url';",
        "+2: import test from 'ava';",
@@ -2507,6 +2643,8 @@
        "altered function stringEncaseCRLFWithFirstIndex",
        "altered function stringReplaceAll"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-12: \t\treturnValue += string.substr(endIndex, index - endIndex) + substring + replacer;",
        "+12: \t\treturnValue += string.slice(endIndex, index) + substring + replacer;",
@@ -2546,6 +2684,8 @@
        "altered function Command.getOptionValueSourceWithGlobals",
        "altered function Command.getOptionValueSourceWithGlobals.\"forEach() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-978:       if (cmd.getOptionValueSource(key) !== undefined) {",
        "+978:       if (Object.hasOwn(cmd._optionValueSources, key)) {"
@@ -2561,6 +2701,8 @@
        "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback",
        "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback.\"action() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-103:   test('when same named option in sub and program then source is defined by global', () => {",
        "+103:   test('when same named option used in sub CLI and program default value then source is defined by global', () => {",
@@ -2616,6 +2758,8 @@
        "added function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"map() callback\"",
        "altered function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"test() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+345:     const envvars = testCases.map(([envvar]) => envvar);",
        "+346:     let holdEnv;",
@@ -2668,6 +2812,8 @@
       "facts": [
        "altered function send"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-165:   // Because Content-Length and Transfer-Encoding can't be present in the response headers together,",
        "-166:   // Content-Length should be added only if there is no Transfer-Encoding header",
@@ -2690,6 +2836,8 @@
        "added function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback.it(\"should still generate an ETag\") callback",
        "added function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback.it(\"should still generate an ETag\") callback.\"use() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+619: ",
        "+620:     it('should still generate an ETag', function(done){",
@@ -2738,6 +2886,8 @@
       "facts": [
        "altered function host"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-427:     val = val.substring(0, val.indexOf(',')).trimRight()",
        "+427:     val = val.substring(0, val.indexOf(',')).trimEnd()"
@@ -2773,6 +2923,8 @@
       "facts": [
        "altered function \"Reply.prototype.header\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+287:   } else if (key === 'set-cookie' && Array.isArray(value)) {",
        "+288:     // Copy the array: later calls push into the stored one, and the caller's",
@@ -2792,6 +2944,8 @@
        "effect call added: network fetch (target unknown)",
        "effect call added: network fetch (target unknown)"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1006: test('reply.header does not mutate a set-cookie array passed by the caller', async t => {",
        "+1007:   t.plan(5)",
@@ -2855,6 +3009,8 @@
        "altered function describe(\"Context header\") callback",
        "added function describe(\"Context header\") callback.it(\"Should be able to set headers after the response body is consumed\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+497:   it('Should be able to set headers after the response body is consumed', async () => {",
        "+498:     c.res = new Response('bar')",
@@ -2874,6 +3030,8 @@
        "altered class Context",
        "altered function Context.header"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-520:     if (this.finalized) {",
        "+520:     // a consumed body can't be passed to a new Response",
@@ -2915,6 +3073,8 @@
        "effect call added: timer timers/promises setTimeout",
        "effect call removed: timer setTimeout"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {setTimeout as delay} from 'node:timers/promises';",
        "-19: ",
@@ -2956,6 +3116,8 @@
        "altered function Request.constructor",
        "altered function Request.constructor.abort"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-267: \t\t\t\tthis.destroy(new AbortError(this));",
        "+267: \t\t\t\t// See https://developer.mozilla.org",
@@ -2976,6 +3138,8 @@
        "added function test(\"support AbortSignal.timeout()\") callback",
        "effect call added: timer setTimeout"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+327: ",
        "+328: const timeoutErrorCode = 23;",
@@ -3062,6 +3226,8 @@
        "altered function createBuilder",
        "altered function createBuilder.builder"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-161: \t// eslint-disable-next-line no-implicit-coercion",
        "-162: \tconst builder = (...arguments_) => applyStyle(builder, (arguments_.length === 1) ? ('' + arguments_[0]) : arguments_.join(' '));",
@@ -3109,6 +3275,8 @@
       "facts": [
        "altered function \"port.get\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+23: const PORT_REGEX = /(?<port>:\\d+)$/",
        "+24: ",
@@ -3147,6 +3315,8 @@
       "facts": [
        "altered class ContentType"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-3: const { LruMap: Lru } = require('toad-cache')",
        "+3: const { FifoMap: Fifo } = require('toad-cache')",
@@ -3188,6 +3358,8 @@
       "facts": [
        "altered function host"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-427:     val = val.substring(0, val.indexOf(',')).trimRight()",
        "+427:     val = val.substring(0, val.indexOf(',')).trimEnd()"
@@ -3224,6 +3396,8 @@
        "altered function incrementNodeInspectorPort",
        "altered function incrementNodeInspectorPort.\"map() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+2725:   //",
        "+2726:   // Host can be an IP literal encapsulated within square brackets (e.g. [::1]),",
@@ -3256,6 +3430,8 @@
        "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1] then bump port\") callback",
        "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1]:100 then bump port\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+75:   test('when --inspect=[::1] then bump port', (t) => {",
        "+76:     const { spawnSpy } = makeSpies(t);",
@@ -3309,6 +3485,8 @@
        "altered function Command.getOptionValueSourceWithGlobals",
        "altered function Command.getOptionValueSourceWithGlobals.\"forEach() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-978:       if (cmd.getOptionValueSource(key) !== undefined) {",
        "+978:       if (Object.hasOwn(cmd._optionValueSources, key)) {"
@@ -3324,6 +3502,8 @@
        "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback",
        "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback.\"action() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-103:   test('when same named option in sub and program then source is defined by global', () => {",
        "+103:   test('when same named option used in sub CLI and program default value then source is defined by global', () => {",
@@ -3375,6 +3555,8 @@
        "altered function stringEncaseCRLFWithFirstIndex",
        "altered function stringReplaceAll"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-12: \t\treturnValue += string.substr(endIndex, index - endIndex) + substring + replacer;",
        "+12: \t\treturnValue += string.slice(endIndex, index) + substring + replacer;",
@@ -3415,6 +3597,8 @@
        "altered function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback",
        "added function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback.it(\"GET /x/aa/b/x with a quantifier before a slash\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+834: ",
        "+835:       it('GET /x/aa/b/x with a quantifier before a slash', () => {",
@@ -3434,6 +3618,8 @@
        "altered class Trie",
        "altered function Trie.insert"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-27:       markedPath = markedPath.replace(/\\{[^}]+\\}/g, (m) => {",
        "+27:       markedPath = markedPath.replace(/\\{(?:\\{[\\d,]+\\}|[^}])+\\}/g, (m) => {"
@@ -3446,6 +3632,8 @@
        "altered function describe(\"url\") callback",
        "added function describe(\"url\") callback.\"<function>\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+51:   it.each([",
        "+52:     ['/x/:prefix{a{2}/b}/x', ['x', ':prefix{a{2}/b}', 'x']],",
@@ -3465,6 +3653,8 @@
       "facts": [
        "altered function extractGroupsFromPath"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-26:   path = path.replace(/\\{[^}]+\\}/g, (match, index) => {",
        "+26:   path = path.replace(/\\{(?:\\{[\\d,]+\\}|[^}])+\\}/g, (match, index) => {"
@@ -3500,6 +3690,8 @@
       "facts": [
        "altered function getInstanceDecorator"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-41:   if (typeof this[name] === 'function') {",
        "-42:     return this[name].bind(this)",
@@ -3522,6 +3714,8 @@
        "added function test(\"getDecorator should evaluate a getter once\") callback.\"after() callback\"",
        "added function test(\"getDecorator should evaluate a getter once\") callback.getter"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1331: ",
        "+1332: test('getDecorator should evaluate a getter once', async t => {",
@@ -3582,6 +3776,8 @@
      {
       "label": "altered History.md",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": true,
       "lines": [
        "+12: * Allow conditional revalidation for QUERY requests. `req.fresh` previously only validated freshness for GET and HEAD requests, so QUERY responses never returned 304 despite a matching validator. Sinc...",
        "+13: ",
@@ -3601,6 +3797,8 @@
       "facts": [
        "altered function \"defineGetter() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-474:   // GET or HEAD for weak freshness validation only",
        "-475:   if ('GET' !== method && 'HEAD' !== method) return false;",
@@ -3619,6 +3817,8 @@
        "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback",
        "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback.\"use() callback\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+5: var shouldSkipQuery = require('./support/utils').shouldSkipQuery",
        "+48:       .expect(200, 'false', done);",
@@ -3696,6 +3896,8 @@
        "effect call added: timer timers/promises setTimeout",
        "effect call removed: timer setTimeout"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {setTimeout as delay} from 'node:timers/promises';",
        "-19: ",
@@ -3737,6 +3939,8 @@
        "altered function stringEncaseCRLFWithFirstIndex",
        "altered function stringReplaceAll"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-12: \t\treturnValue += string.substr(endIndex, index - endIndex) + substring + replacer;",
        "+12: \t\treturnValue += string.slice(endIndex, index) + substring + replacer;",
@@ -3776,6 +3980,8 @@
        "altered function describe(\"Context header\") callback",
        "added function describe(\"Context header\") callback.it(\"Should be able to set headers after the response body is consumed\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+497:   it('Should be able to set headers after the response body is consumed', async () => {",
        "+498:     c.res = new Response('bar')",
@@ -3795,6 +4001,8 @@
        "altered class Context",
        "altered function Context.header"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-520:     if (this.finalized) {",
        "+520:     // a consumed body can't be passed to a new Response",
@@ -3835,6 +4043,8 @@
        "altered function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback",
        "added function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback.it(\"GET /x/aa/b/x with a quantifier before a slash\") callback"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+834: ",
        "+835:       it('GET /x/aa/b/x with a quantifier before a slash', () => {",
@@ -3854,6 +4064,8 @@
        "altered class Trie",
        "altered function Trie.insert"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-27:       markedPath = markedPath.replace(/\\{[^}]+\\}/g, (m) => {",
        "+27:       markedPath = markedPath.replace(/\\{(?:\\{[\\d,]+\\}|[^}])+\\}/g, (m) => {"
@@ -3866,6 +4078,8 @@
        "altered function describe(\"url\") callback",
        "added function describe(\"url\") callback.\"<function>\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+51:   it.each([",
        "+52:     ['/x/:prefix{a{2}/b}/x', ['x', ':prefix{a{2}/b}', 'x']],",
@@ -3885,6 +4099,8 @@
       "facts": [
        "altered function extractGroupsFromPath"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-26:   path = path.replace(/\\{[^}]+\\}/g, (match, index) => {",
        "+26:   path = path.replace(/\\{(?:\\{[\\d,]+\\}|[^}])+\\}/g, (match, index) => {"
@@ -3919,6 +4135,8 @@
      {
       "label": "altered readme.md",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": true,
       "lines": [
        "-147: Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, use the environment variable `FORCE_COLOR=1` (level 1), `FORCE_COLOR=2` (...",
        "+147: Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, use the environment variable `FORCE_COLOR=1` (level 1), `FORCE_COLOR=2` (...",
@@ -3933,6 +4151,8 @@
        "altered function _supportsColor",
        "altered function envForceColor"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-46: \treturn env.FORCE_COLOR.length === 0 ? 1 : Math.min(Number.parseInt(env.FORCE_COLOR, 10), 3);",
        "+46: \tif (env.FORCE_COLOR.length === 0) {",
@@ -3957,6 +4177,8 @@
      {
       "label": "added test/_force-color-fixture.js",
       "facts": [],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {supportsColor} from '../source/index.js';",
        "+2: ",
@@ -3982,6 +4204,8 @@
        "added function test(\"the `--color=256` and `--co…` flags take precedence over a numeric `FORCE_COLOR`\") callback",
        "added function detectLevel"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {fileURLToPath} from 'node:url';",
        "+2: import test from 'ava';",
@@ -4080,6 +4304,8 @@
       "facts": [
        "altered function \"port.get\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+23: const PORT_REGEX = /(?<port>:\\d+)$/",
        "+24: ",
@@ -4124,6 +4350,8 @@
       "facts": [
        "altered class ContentType"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-3: const { LruMap: Lru } = require('toad-cache')",
        "+3: const { FifoMap: Fifo } = require('toad-cache')",
@@ -4172,6 +4400,8 @@
        "altered function stringEncaseCRLFWithFirstIndex",
        "altered function stringReplaceAll"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "-12: \t\treturnValue += string.substr(endIndex, index - endIndex) + substring + replacer;",
        "+12: \t\treturnValue += string.slice(endIndex, index) + substring + replacer;",
@@ -4220,6 +4450,8 @@
        "effect call added: timer timers/promises setTimeout",
        "effect call removed: timer setTimeout"
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+1: import {setTimeout as delay} from 'node:timers/promises';",
        "-20: // The `delay` package weighs 10KB (!)",
@@ -4268,6 +4500,8 @@
       "facts": [
        "altered function \"port.get\""
       ],
+      "cutFacts": 0,
+      "clipped": false,
       "lines": [
        "+23: const PORT_REGEX = /(?<port>:\\d+)$/",
        "+24: ",
