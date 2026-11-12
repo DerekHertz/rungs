@@ -1,8 +1,11 @@
 # Gate standard: bar for adoption
 
-Written 2026-11-11, before the first run. Gate version standard-v1, model jev-1.14.0, thresholds
-settled when breaks <= 0.1, flagged when breaks >= 0.5 and the base's lines did not already break
-the rule (before < 0.5), undecided otherwise (`STANDARD_THRESHOLDS`). The numbers start at the
+Written 2026-11-11, before the first run. Gate version standard-v2 (standard-v1 was the version of
+the first run; v2 changed only how the answers are decided, see below, and the questions and the
+numbers of the bar are the same), model jev-1.14.0, thresholds settled when breaks <= 0.1 and the
+base question was answered and is under 0.5, flagged when breaks >= 0.5 and the base's lines did
+not already break the rule (before < 0.5), undecided otherwise (`STANDARD_THRESHOLDS`). A missing or
+unreadable base answer never settles, and a base that already broke the rule is never settled. The numbers start at the
 claim gate's (issue #191: looser to start, to tighten later) and are not tuned on these cases.
 
 A case is one changed hunk with its base and one written rule (a section of an AGENTS.md). Labels:

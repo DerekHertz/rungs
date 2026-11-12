@@ -52,6 +52,8 @@ export interface HunkFacts {
   readonly before: readonly string[];
   /** The head's side: "+12: text" added, " 11: text" unchanged. */
   readonly after: readonly string[];
+  /** Set when one run of changed lines was too long for one hunk and was split: this is part `number` of `of`, each part with its own lines of both sides. */
+  readonly part?: { readonly number: number; readonly of: number };
 }
 
 /** What the gate judges. */
@@ -70,7 +72,7 @@ export const MAX_STATE_CHARS = 40_000;
 /**
  * The fixed starting thresholds. The reviewer's tier table (a later issue) replaces them. Recorded
  * with every record, so a changed constant makes a new record.
- *   settled: breaks <= `clear`
+ *   settled: breaks <= `clear` AND the base question was answered and is under `already`
  *   flagged: breaks >= `flag`, unless the base already broke the rule (before >= `already`)
  *   undecided: anything else, including a violation the base already had
  */
@@ -94,22 +96,23 @@ const where = (rule: RuleFacts): string => {
 };
 
 function ruleText(rule: RuleFacts): string {
-  const head = `Rule from ${where(rule)} (${rule.kind}), lines ${rule.lines.start}-${rule.lines.end} of the base. Applies to ${rule.scope === "" ? "the whole repository" : `only to files under ${rule.scope}/`}.`;
+  const head = `Rule from ${where(rule)} (${rule.kind}), lines ${rule.lines.start}-${rule.lines.end} of the base. Applies to ${rule.scope === "" ? "the whole repository" : `files under ${rule.scope}/ only`}.`;
   const edited = rule.edited === true ? " The change edited this rule file; the text below is the base's, not the change's." : "";
   const cut = rule.cutChars > 0 ? `\n[cut: ${rule.cutChars} more characters of the rule are not shown; the first ${rule.text.length} are]` : "";
   return `${head}${edited}\n${rule.text}${cut}`;
 }
 
-function side(name: string, path: string, range: LineRange | null, lines: readonly string[], none: string): string {
-  if (range === null || lines.length === 0) return `${name}: no lines (${none})`;
+function side(name: string, path: string, range: LineRange | null, lines: readonly string[], none: string, part: HunkFacts["part"]): string {
+  const split = part === undefined ? "" : ` (part ${part.number} of ${part.of} of one longer change; the other parts are judged apart)`;
+  if (range === null || lines.length === 0) return `${name}: no lines (${none})${split}`;
   const shown = lines.slice(0, MAX_HUNK_LINES);
   const cut = lines.length - shown.length;
-  return [`${name}: ${path} lines ${range.start}-${range.end}`, ...shown.map((line) => `  ${line}`), ...(cut > 0 ? [`  [${cut} more lines were cut from this state; the first ${shown.length} are shown]`] : [])].join("\n");
+  return [`${name}: ${path} lines ${range.start}-${range.end}${split}`, ...shown.map((line) => `  ${line}`), ...(cut > 0 ? [`  [${cut} more lines were cut from this state; the first ${shown.length} are shown]`] : [])].join("\n");
 }
 
 export const standardGate: Gate<StandardInput> = {
   id: STANDARD_GATE_ID,
-  version: "standard-v1",
+  version: "standard-v2",
   questions: {
     breaks: {
       type: "yes-no",
@@ -132,8 +135,8 @@ export const standardGate: Gate<StandardInput> = {
   state(input) {
     const state: Record<string, string> = {
       rule: ruleText(input.rule),
-      "before the change (base)": side("Base", input.hunk.path, input.hunk.base, input.hunk.before, "the file did not exist or had nothing here"),
-      "after the change (head)": side("Head", input.hunk.path, input.hunk.head, input.hunk.after, "the file was removed or has nothing here"),
+      "before the change (base)": side("Base", input.hunk.path, input.hunk.base, input.hunk.before, "the file did not exist or had nothing here", input.hunk.part),
+      "after the change (head)": side("Head", input.hunk.path, input.hunk.head, input.hunk.after, "the file was removed or has nothing here", input.hunk.part),
     };
     let total = 0;
     for (const [key, text] of Object.entries(state)) {
@@ -146,11 +149,14 @@ export const standardGate: Gate<StandardInput> = {
   decide(answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds): Verdict {
     const breaks = yesOf(answers, "breaks");
     if (breaks === undefined) return UNREADABLE;
+    const before = yesOf(answers, "before");
+    const already = before !== undefined && before >= (thresholds.already ?? 0.5);
     if (breaks >= (thresholds.flag ?? 0.5)) {
       // The base's answer only tells new from old: when it is missing or unreadable the violation is flagged, never hidden.
-      const before = yesOf(answers, "before");
-      return before !== undefined && before >= (thresholds.already ?? 0.5) ? "undecided" : "flagged";
+      return already ? "undecided" : "flagged";
     }
-    return breaks <= (thresholds.clear ?? 0.1) ? "settled" : "undecided";
+    // Settled needs both answers. A missing or unreadable base answer is an unknown, never a "no". And a base that already broke the
+    // rule is never settled, whatever the changed lines look like (they may only have moved the breach): a person looks.
+    return breaks <= (thresholds.clear ?? 0.1) && before !== undefined && !already ? "settled" : "undecided";
   },
 };

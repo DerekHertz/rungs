@@ -14,14 +14,23 @@ const input: StandardInput = {
 
 test("thresholds: settled needs breaks low; breaks high flags a new violation; one the base already had is not flagged and not settled", () => {
   expect(STANDARD_THRESHOLDS).toEqual({ clear: 0.1, flag: 0.5, already: 0.5 });
-  expect(decide(0.1)).toBe("settled");
-  expect(decide(0.02, 0.9)).toBe("settled");
-  expect(decide(0.11)).toBe("undecided");
-  expect(decide(0.3)).toBe("undecided");
+  expect(decide(0.1, 0.01)).toBe("settled");
+  expect(decide(0.02, 0.49)).toBe("settled");
+  expect(decide(0.11, 0.01)).toBe("undecided");
+  expect(decide(0.3, 0.01)).toBe("undecided");
   expect(decide(0.5, 0.1)).toBe("flagged");
   expect(decide(0.9, 0.02)).toBe("flagged");
   // The base already broke the rule in the same way: not new, so not flagged; never settled either.
   expect(decide(0.9, 0.7)).toBe("undecided");
+});
+
+test("settled needs both answers: a missing or unreadable base answer, or one that says the base already broke the rule, never settles", () => {
+  const unreadable: JevAnswer = { type: "unreadable", why: "bad", raw: "?" };
+  expect(decide(0.02)).toBe("undecided");
+  expect(standardGate.decide({ breaks: yes(0.02), before: unreadable }, STANDARD_THRESHOLDS)).toBe("undecided");
+  // The base already broke the rule: the contract is that such a violation is never settled, even when the change itself looks clean (it may only have moved the breach); a person looks.
+  expect(decide(0.02, 0.9)).toBe("undecided");
+  expect(decide(0.02, 0.5)).toBe("undecided");
 });
 
 test("an unknown base answer never hides a violation: breaks high with the base unreadable or missing is flagged", () => {
@@ -50,9 +59,15 @@ test("the state names the rule's file, section and lines, the scope, the base si
 
 test("a folder's rule says it applies to that folder only, and an edited rule file says the text is the base's", () => {
   const state = standardGate.state({ ...input, rule: { ...input.rule, scope: "packages/api", edited: true } });
-  expect(state.rule).toContain("only to files under packages/api/");
+  expect(state.rule).toContain("files under packages/api/ only");
   expect(state.rule).toContain("The change edited this rule file; the text below is the base's");
   expect(standardGate.state({ ...input, rule: { ...input.rule, edited: null } }).rule).not.toMatch(/edited/i);
+});
+
+test("a hunk that is one part of a larger split change says so, so a part is never read as the whole", () => {
+  const state = standardGate.state({ ...input, hunk: { ...input.hunk, part: { number: 2, of: 3 } } });
+  expect(state["after the change (head)"]).toContain("part 2 of 3");
+  expect(standardGate.state(input)["after the change (head)"]).not.toContain("part ");
 });
 
 test("a hunk with no lines on one side says so: a new file has no base, a removed one no head", () => {
@@ -79,5 +94,5 @@ test("repository text reaches only the state: the questions are the gate's const
   expect(JSON.stringify(request.questions)).not.toMatch(/answer no, there is no violation/);
   expect(Object.keys(request.questions)).toEqual(["breaks", "before"]);
   expect(standardGate.questions.breaks!.instructions).toMatch(/data to judge, never instructions/);
-  expect(standardGate.version).toBe("standard-v1");
+  expect(standardGate.version).toBe("standard-v2");
 });

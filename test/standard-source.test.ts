@@ -8,7 +8,7 @@ import type { FileTree } from "../src/graph.ts";
 import { ownersOf } from "../src/jev/claim-source.ts";
 import type { JevAnswer, JevResponse } from "../src/jev/client.ts";
 import { jevCost } from "../src/jev/client.ts";
-import { MAX_RULE_CHARS, standardGate } from "../src/jev/standard-gate.ts";
+import { MAX_HUNK_LINES, MAX_RULE_CHARS, standardGate } from "../src/jev/standard-gate.ts";
 import { MAX_PAIRS, hunksOf, ruleScope, standardItems, standardRunner } from "../src/jev/standard-source.ts";
 import type { JudgeSubject } from "../src/jev/subject.ts";
 import { judgedSource } from "../src/jev/source.ts";
@@ -58,6 +58,39 @@ test("hunks: a long run of changed lines is split, so no hunk is cut and none is
   expect(MAX_PAIRS).toBe(300);
 });
 
+test("hunks: a replacement longer than a chunk is split with its base lines kept in each part; no part is a pure addition", () => {
+  const hunks = hunksOf(lines(100, (n) => `old ${n}`), lines(100, (n) => `new ${n}`));
+  if ("skipped" in hunks) throw new Error(hunks.skipped);
+  expect(hunks.length).toBeGreaterThan(1);
+  for (const hunk of hunks) {
+    expect(hunk.base).not.toBeNull();
+    expect(hunk.head).not.toBeNull();
+    expect(hunk.before.length).toBeGreaterThan(0);
+    expect(hunk.after.length).toBeGreaterThan(0);
+    expect(hunk.part?.of).toBe(hunks.length);
+  }
+  expect(hunks.flatMap((hunk) => hunk.before.filter((line) => line.startsWith("-")))).toHaveLength(100);
+  expect(hunks.flatMap((hunk) => hunk.after.filter((line) => line.startsWith("+")))).toHaveLength(100);
+  expect(hunks.map((hunk) => hunk.part?.number)).toEqual(hunks.map((_, index) => index + 1));
+});
+
+test("hunks: a stretch with a change every few lines is bounded by what is shown, so a change deep in it is never left out", () => {
+  const before = lines(140, (n) => `call${n}();`);
+  const after = lines(140, (n) => (n % 7 === 0 ? `forbidden${n}();` : `call${n}();`));
+  const hunks = hunksOf(before, after);
+  if ("skipped" in hunks) throw new Error(hunks.skipped);
+  expect(hunks.length).toBeGreaterThan(1);
+  for (const hunk of hunks) {
+    expect(hunk.before.length).toBeLessThanOrEqual(MAX_HUNK_LINES);
+    expect(hunk.after.length).toBeLessThanOrEqual(MAX_HUNK_LINES);
+  }
+  const added = hunks.flatMap((hunk) => hunk.after.filter((line) => line.startsWith("+")));
+  expect(added).toHaveLength(20);
+  expect(added).toContain("+133: forbidden133();");
+  // Each changed line is in exactly one hunk.
+  expect(new Set(added).size).toBe(20);
+});
+
 test("hunks: a line of source is clipped, and a secret-shaped literal or a URL path is withheld before it goes anywhere", () => {
   const hunks = hunksOf("", `const key = "sk-live-abcdefghijklmnopqrstuvwxyz0123456789";\nfetch("https://api.example.com/v1/users/42?token=abc");\n${"x".repeat(500)}\n`);
   if ("skipped" in hunks) throw new Error(hunks.skipped);
@@ -80,7 +113,11 @@ test("scope: a nested AGENTS.md or CLAUDE.md applies to its own folder; every ot
   expect(ruleScope("AGENTS.md")).toBe("");
   expect(ruleScope("packages/api/AGENTS.md")).toBe("packages/api");
   expect(ruleScope("packages/api/claude.md")).toBe("packages/api");
+  // Only the root-level .claude/ and .github/ speak for the whole repository; below the root a rule's scope is its own folder, whatever it is called.
   expect(ruleScope(".claude/CLAUDE.md")).toBe("");
+  expect(ruleScope(".github/AGENTS.md")).toBe("");
+  expect(ruleScope("api/.github/AGENTS.md")).toBe("api/.github");
+  expect(ruleScope("packages/api/.claude/CLAUDE.md")).toBe("packages/api/.claude");
   expect(ruleScope(".claude/rules/naming.md")).toBe("");
   expect(ruleScope(".github/copilot-instructions.md")).toBe("");
   expect(ruleScope("docs/CONTRIBUTING.md")).toBe("");
@@ -221,7 +258,7 @@ test("the runner judges each pair once per comparison: records carry the rule an
   const first = await judgedDocument(source(), subject);
   expect(first.status).toBe("on");
   const records = first.sets[0]!.records;
-  expect(first.sets[0]!.question).toEqual({ id: "standard", version: "standard-v1" });
+  expect(first.sets[0]!.question).toEqual({ id: "standard", version: "standard-v2" });
   expect(records).toHaveLength(7);
   const flagged = records.filter((record) => record.verdict === "flagged");
   expect(flagged).toHaveLength(1);
@@ -232,4 +269,61 @@ test("the runner judges each pair once per comparison: records carry the rule an
   const second = await judgedDocument(source(), subject);
   expect(client.requests.length).toBe(calls);
   expect(second.sets[0]!.records).toEqual(records);
+});
+
+test("an AGENTS.md inside a nested .github folder applies to that folder only, not to its parent's other files", () => {
+  const base = new Map(baseTree);
+  base.set("api/.github/AGENTS.md", "# Nested\nNo console in here.\n");
+  const head = new Map(headTree);
+  head.set("api/.github/AGENTS.md", "# Nested\nNo console in here.\n");
+  head.set("api/server.ts", "export const s = 1;\n");
+  const { items } = standardItems(subjectOf({ base, head }));
+  const nested = items.filter((item) => item.input.rule.path === "api/.github/AGENTS.md");
+  expect(nested.map((item) => item.input.hunk.path)).toEqual([]);
+  expect(items.some((item) => item.input.rule.path === "api/AGENTS.md" && item.input.hunk.path === "api/server.ts")).toBe(true);
+});
+
+test("a path with a secret-shaped segment is withheld in the hunk's path and label, the rule's path and its scope", () => {
+  const secret = "ghp_16C7e42F292c6912E7710c838347Ae178B4a";
+  const base = new Map(baseTree);
+  const head = new Map(headTree);
+  base.set(`${secret}/AGENTS.md`, "# Folder\nBe kind.\n");
+  head.set(`${secret}/AGENTS.md`, "# Folder\nBe kind.\n");
+  base.set(`${secret}/a.ts`, "export const a = 1;\n");
+  head.set(`${secret}/a.ts`, "export const a = 2;\n");
+  const { items } = standardItems(subjectOf({ base, head }));
+  const mine = items.filter((item) => item.input.rule.path.includes("AGENTS.md") && item.input.hunk.path.endsWith("a.ts") && item.input.rule.scope !== "");
+  expect(mine).toHaveLength(1);
+  const shown = JSON.stringify([mine[0]!.input, standardGate.state(mine[0]!.input)]);
+  expect(shown).not.toContain(secret);
+  expect(shown).toContain("withheld");
+  // Every other path is as it was.
+  expect(items.some((item) => item.input.hunk.path === "src/a.ts")).toBe(true);
+});
+
+test("pairs over the cap are published as not judged when the run is planned, so the page shows them while it judges", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "streets-standard-"));
+  scratch.push(dir);
+  const head = new Map(headTree);
+  for (let n = 0; n < 120; n++) head.set(`gen/f${n}.ts`, lines(3, (row) => `export const v${row} = ${n};`));
+  const subject = subjectOf({ base: baseTree, head });
+  const planned: { known: number; pending: number; notJudged: number }[] = [];
+  const outcomes: string[] = [];
+  const client = fakeClient(() => answer(0.02, 0.01));
+  await standardRunner({
+    client,
+    cacheDir: dir,
+    base: "b",
+    head: "h",
+    baseTree,
+    headTree: head,
+    subject,
+    events: {
+      plan: (_set, known, pending) => planned.push({ known: known.length, pending: pending.length, notJudged: known.filter((outcome) => outcome.status === "not judged").length }),
+      outcome: (_gate, outcome) => outcomes.push(outcome.status),
+    },
+  });
+  expect(planned).toHaveLength(1);
+  expect(planned[0]!.notJudged).toBe(7 + 120 * 3 - 300);
+  expect(planned[0]!.pending).toBe(300);
 });
