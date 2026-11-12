@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/page",
     "test": "vitest run",
+    "bench": "node src/bench-cli.ts",
     "perf": "node perf/extract.ts"
   },
   "dependencies": {

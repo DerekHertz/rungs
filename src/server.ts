@@ -29,6 +29,7 @@ import { risksOf } from "./risks.ts";
 import { isTestFile } from "./test-files.ts";
 import type { TourOutcome } from "./walkthrough.ts";
 import { judgedDocument } from "./jev/store.ts";
+import { gateRates } from "./jev/results.ts";
 import { ownersOf } from "./jev/claim-source.ts";
 import type { JudgeSubject } from "./jev/subject.ts";
 import type { JudgedSource } from "./jev/store.ts";
@@ -92,7 +93,8 @@ interface Resource {
  *
  * When comparing, `GET /judged.json` serves the classifier's answers (the judged tier) apart from every other
  * document: from `judged`, which loads them once per comparison from the judged store, or, when judging is off, a
- * document saying so with no records. It never changes the graph.
+ * document saying so with no records. It never changes the graph. `GET /gate-rates.json` serves, always, the
+ * newest committed bench result of each gate (`gates/<id>/results/`): its measured rate and whether it met its bar.
  *
  * Given `tests`, one run of the tree's tests, it also serves `GET /observed.json`: the run as an
  * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
@@ -144,6 +146,7 @@ export async function serve(
     ["/", { contentType: "text/html; charset=utf-8", body: html }],
     ["/main.js", { contentType: "text/javascript; charset=utf-8", body: script }],
     ["/run.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", repo: repo ?? null }, null, 2)}\n` }],
+    ["/gate-rates.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(await gateRates(), null, 2)}\n` }],
     ["/graph.json", { contentType: "application/json; charset=utf-8", body: serializeGraph(graph) }],
     ["/ways-in.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify({ tier: "derived", waysIn: waysIn(tree, graph) }, null, 2)}\n` }],
   ]);

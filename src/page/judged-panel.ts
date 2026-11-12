@@ -1,4 +1,6 @@
-import { QUESTION_LABELS, describeThresholds } from "../jev/claim-gate.ts";
+import { CLAIM_GATE_ID, QUESTION_LABELS, describeThresholds } from "../jev/claim-gate.ts";
+import { NOT_MEASURED, rateText, ratesOf } from "../jev/rate.ts";
+import type { GateRate } from "../jev/rate.ts";
 import type { JudgedDocument } from "../jev/judged-types.ts";
 import { claimMarks, costText, judgedSummary, markWord, percent } from "../judged-marks.ts";
 import type { JudgedMark } from "../judged-marks.ts";
@@ -6,15 +8,21 @@ import { element } from "./review-panel.ts";
 
 /**
  * What the Claims row needs to draw judged marks. `marks` is null when there is no judged
- * document, and the row is then today's row. `rate` is the hook for the rate of wrong passes
- * shown beside a gate's answer (the labelled cases and their measured rate); until it answers
- * for a gate the detail says the rate is not measured yet.
+ * document, and the row is then today's row. `rate` is the gate's measured rate of wrong passes
+ * on its labelled cases, from the committed results; until it answers for a gate the detail says
+ * the rate is not measured yet. `adopted` says whether the gate met its bar: a gate that did not,
+ * or has no result, stays off, and its settled marks are drawn as not trusted.
  */
 export interface JudgedView {
   readonly marks: ReadonlyMap<number, JudgedMark>;
   /** The gate's measured rate of wrong passes, as one line of text, or undefined while none is measured. */
   readonly rate?: (gate: string) => string | undefined;
+  /** True only when the gate's committed result meets its bar; false or undefined (not measured) otherwise. */
+  readonly adopted?: (gate: string) => boolean | undefined;
 }
+
+/** The word on a settled mark of a gate that is not adopted: it says what the classifier answered, and that nothing stands behind it yet. */
+export const UNADOPTED_WORD = "settled, gate not adopted";
 
 const GLYPH: Record<string, string> = { settled: "✓", flagged: "⚑", undecided: "?", "not judged": "–" };
 
@@ -22,15 +30,17 @@ const GLYPH: Record<string, string> = { settled: "✓", flagged: "⚑", undecide
  * The mark beside a claim. Drawn as a filled pill with a glyph and its word, apart from the
  * outlined tier tags (derived, observed, claimed): it says what a classifier answered.
  */
-export function markButton(mark: JudgedMark, onClick: () => void): HTMLButtonElement {
+export function markButton(mark: JudgedMark, onClick: () => void, adopted: boolean = true): HTMLButtonElement {
   const word = markWord(mark);
-  const button = element("button", `review-judged ${word.replace(" ", "-")}`);
+  // A settled answer from a gate that has not met its bar must not read as trusted: it keeps the verdict and says so.
+  const untrusted = mark.kind === "judged" && mark.verdict === "settled" && !adopted;
+  const button = element("button", `review-judged ${word.replace(" ", "-")}${untrusted ? " unadopted" : ""}`);
   button.type = "button";
-  const glyph = element("span", "", GLYPH[word]);
+  const glyph = element("span", "", untrusted ? "\u25cb" : GLYPH[word]);
   glyph.setAttribute("aria-hidden", "true");
-  button.append(glyph, element("span", "", word));
-  button.title = mark.kind === "judged" ? `judged ${word} by Jev; click to see what it was shown` : mark.reason;
-  button.setAttribute("aria-label", mark.kind === "judged" ? `Judged ${word}: show the check` : `Not judged: ${mark.reason}`);
+  button.append(glyph, element("span", "", untrusted ? UNADOPTED_WORD : word));
+  button.title = mark.kind === "judged" ? `judged ${word} by Jev${untrusted ? ", but the claim gate has not met its bar and stays off, so this is not evidence" : ""}; click to see what it was shown` : mark.reason;
+  button.setAttribute("aria-label", mark.kind === "judged" ? `Judged ${word}${untrusted ? " by a gate that is not adopted" : ""}: show the check` : `Not judged: ${mark.reason}`);
   button.addEventListener("click", onClick);
   return button;
 }
@@ -59,7 +69,7 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
   const unreadable = Object.values(record.answers).some((answer) => answer.type === "unreadable");
   body.append(element("p", "judged-line", `Verdict: ${record.verdict}${unreadable ? ", because an answer could not be read (an answer that cannot be read never settles a claim)" : ""}.`));
   body.append(element("p", "judged-line", `Model ${record.model} · question ${record.question.id} ${record.question.version} · ${costText(record)}`));
-  body.append(element("p", "judged-line", view.rate?.(record.question.id) ?? "Rate of wrong passes: not measured yet."));
+  body.append(element("p", "judged-line", view.rate?.(record.question.id) ?? NOT_MEASURED));
   const shown = element("details", "judged-shown");
   shown.append(element("summary", "review-summary", "What Jev was shown"));
   for (const [name, question] of Object.entries(record.shown.questions)) {
@@ -86,5 +96,23 @@ export async function judgedInput(claims: readonly { readonly index: number; rea
     document = null;
   }
   const marks = claimMarks(document, claims, linked);
-  return { judged: marks === null ? null : { marks }, judgedSummary: judgedSummary(document, marks) };
+  if (marks === null) return { judged: null, judgedSummary: judgedSummary(document, marks) };
+  const rates = await gateRates();
+  const adopted = (gate: string): boolean => rates.get(gate)?.adopted === true;
+  const summary = judgedSummary(document, marks);
+  const settled = [...marks.values()].some((mark) => mark.kind === "judged" && mark.verdict === "settled");
+  return {
+    judged: { marks, rate: (gate) => { const rate = rates.get(gate); return rate === undefined ? undefined : rateText(rate); }, adopted },
+    judgedSummary: settled && !adopted(CLAIM_GATE_ID) ? `${summary} (claim gate not adopted)` : summary,
+  };
+}
+
+/** Reads /gate-rates.json: the newest committed result of each gate. A page that cannot read it has no rates, and its gates read as not adopted. */
+async function gateRates(): Promise<ReadonlyMap<string, GateRate>> {
+  try {
+    const response = await fetch("/gate-rates.json");
+    return response.ok ? ratesOf(await response.json()) : new Map();
+  } catch {
+    return new Map();
+  }
 }

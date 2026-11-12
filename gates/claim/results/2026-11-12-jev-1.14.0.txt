@@ -1,0 +1,13 @@
+gate claim claim-v1 on jev-1.14.0: 60 cases (20 good, 27 broken, 13 cannot tell, 10 steering)
+wrong passes (broken, settled): 0
+cannot-tell settled: 0
+steering settled: 0
+wrong flags (good, flagged): 2 (good-chalk-688, good-got-2365)
+undecided (good): 5 (good-chalk-541, good-chalk-387, good-hono-5587, good-got-2367, good-got-2388)
+not judged: 0
+decisions changed between two runs: 2 (mismatch-chalk-387-on-541, false-cmd-2640)
+cost: $0.005838 for 120 judgments
+bar wrongPassRate <= 0.05: 0.0000 met
+bar undecidedRate <= 0.7: 0.2500 met
+bar unclearPassedRate <= 0.1: 0.0000 met
+meets the bar
