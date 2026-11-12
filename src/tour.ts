@@ -4,12 +4,14 @@ import type { Claim } from "./claims.ts";
 import type { Comparison, ModuleChange } from "./compare.ts";
 import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
-import { PromptIds, nameable, promptBase, promptEffect } from "./prompt-safe.ts";
+import { PromptIds, isTestCallback, nameable, promptBase, promptEffect } from "./prompt-safe.ts";
 import { promptSignature } from "./signature.ts";
 import type { CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached tours are not reused. */
-export const TOUR_PROMPT_VERSION = "tour-v5";
+export const TOUR_PROMPT_VERSION = "tour-v6";
+/** The most tests listed under one test file in the tour prompt; the rest are counted. */
+const MAX_TESTS_LISTED = 20;
 
 /**
  * A place a stop may point at: a changed file, or a changed class, method or top-level function
@@ -67,7 +69,9 @@ export function placesOf(comparison: Comparison, graph: Graph): Place[] {
     const file = change.node;
     if (file.level !== "file") continue;
     const range = file.lines === null ? null : { start: 1, end: Math.max(1, file.lines) };
-    const code = file.role === "tests" || file.role === "docs" ? [] : (codeBy.get(file.path) ?? []);
+    const own = [...(codeBy.get(file.path) ?? [])].sort((a, b) => a.node.range.start - b.node.range.start || byText(a.node.id, b.node.id));
+    const tests = file.role === "tests" ? own.filter(({ node }) => isTestCallback(node.qualifiedName)) : [];
+    const code = file.role === "tests" ? tests.slice(0, MAX_TESTS_LISTED) : file.role === "docs" ? [] : own;
     const fileId = ids.add(nameable(file));
     out.push({ id: file.id, promptId: fileId, range, line: [`${change.kind} ${fileId} [${file.role ?? "no role"}] ${range === null ? "binary" : lines(range)}`, ...(effectsAt.get(file.id) ?? [])].join("\n") });
     for (const { change: inner, node } of [...code].sort((a, b) => a.node.range.start - b.node.range.start || byText(a.node.id, b.node.id))) {
@@ -80,6 +84,10 @@ export function placesOf(comparison: Comparison, graph: Graph): Place[] {
       const nodeId = ids.add(nameable(node));
       const first = `  ${inner.kind} ${nodeId} ${lines(node.range)}${node.exported ? " exported" : ""} ${promptSignature(node.signature)}`;
       out.push({ id: node.id, promptId: nodeId, range: node.range, line: [first, ...was, ...(effectsAt.get(node.id) ?? [])].join("\n") });
+    }
+    if (tests.length > MAX_TESTS_LISTED) {
+      const last = out[out.length - 1]!;
+      out[out.length - 1] = { ...last, line: `${last.line}\n  +${tests.length - MAX_TESTS_LISTED} more tests` };
     }
   }
   return out;

@@ -113,7 +113,10 @@ export const MAX_TITLE_CHARS = 80;
  */
 const TEST_CALL = /^(test|it|describe|suite|context|skip|only|todo)\(("(?:[^"\\]|\\.)*")\) callback$/;
 
-/** A test title as a prompt shows it, cut to MAX_TITLE_CHARS; undefined unless it reads as a plain title: printable, no quote or backslash, no secret's shape. */
+/** Whether a qualified name (as the graph writes it) is a test runner's callback: `"it(\"x\") callback"`, with an ordinal when above 1. */
+export const isTestCallback = (qualified: string): boolean => /^"(?:test|it|describe|suite|context|skip|only|todo)\(.*\) callback"(?:@\d+)?$/s.test(qualified);
+
+/** A test title as a prompt shows it, cut to MAX_TITLE_CHARS; undefined unless it reads as a plain title: printable, no backslash, no secret's shape. Double quotes are dropped. */
 function testTitle(quoted: string): string | undefined {
   let title: string;
   try {
@@ -121,7 +124,9 @@ function testTitle(quoted: string): string | undefined {
   } catch {
     return undefined;
   }
-  if (title.trim() === "" || /[\p{C}"\\]/u.test(title) || looksSecret(title)) return undefined;
+  if (/[\p{C}\\]/u.test(title)) return undefined;
+  title = title.replaceAll('"', "");
+  if (title.trim() === "" || looksSecret(title)) return undefined;
   return cap(title, MAX_TITLE_CHARS);
 }
 

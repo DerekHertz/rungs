@@ -182,9 +182,33 @@ test("a test runner's plain title reaches the prompts, every other literal stays
   expect(narration).not.toContain("sk-proj");
 });
 
-test("a test title with a control character, a quote or a secret's shape stays withheld; a long one is cut in the middle", () => {
+test("a title's quotes are dropped, its backslashes withheld", () => {
+  expect(promptName(JSON.stringify('it("say \\"(new)\\"") callback'))).toBe('it("say (new)") callback');
+  expect(promptName(JSON.stringify('it("a\\\\b") callback'))).toBe('it("…") callback');
+});
+
+test("a test file's places list its top-level tests by title, capped at 20, and an alias maps back", () => {
+  const many = Array.from({ length: 25 }, (_, n) => `test("case ${n}", () => {});`);
+  const source = ['import { test, describe } from "vitest";', 'describe("parser", () => {', '  it("inner", () => {});', "});", ...many, ""].join("\n");
+  const files = tree({ "package.json": "{}\n", "test/a.test.ts": source });
+  const graph = extract(files);
+  const places = placesOf(compare(base, graph), graph);
+  const user = tourPrompt([], places).user;
+  expect(user).toContain('describe("parser") callback');
+  expect(user).toContain('test("case 0") callback');
+  expect(user).not.toContain("case 24");
+  expect(user).not.toContain("inner");
+  expect(user).toMatch(/\+\d+ more/);
+  expect(places.filter((place) => place.promptId.includes("callback")).length).toBe(20);
+  const shown = places.find((place) => place.promptId.includes('describe("parser")'))!;
+  const range = shown.range!;
+  const tour = validateTour({ stops: [{ title: "t", ids: [shown.promptId], claims: [], narration: [{ text: "Parses.", id: shown.promptId, start: range.start, end: range.end }] }] }, 0, places);
+  expect(tour.stops[0]!.ids).toEqual([shown.id]);
+  expect(shown.id).toContain("parser");
+});
+
+test("a test title with a control character or a secret's shape stays withheld; a long one is cut in the middle", () => {
   expect(promptName(JSON.stringify('describe("a\\nb") callback'))).toBe('describe("…") callback');
-  expect(promptName(JSON.stringify('it("say \\"hi\\"") callback'))).toBe('it("…") callback');
   expect(promptName(JSON.stringify(`it("${KEY}") callback`))).toBe('it("…") callback');
   const shown = promptName(JSON.stringify(`it("${"word ".repeat(60)}") callback`));
   expect(shown.length).toBeLessThanOrEqual(`it("") callback`.length + MAX_TITLE_CHARS);
