@@ -30,7 +30,7 @@ test("the headline counts calls, argument changes, imports, dependencies and rem
   } as unknown as Comparison;
   const removed = { ...noTests, removedTests: [{ file: "a", name: "b" }], deletedFiles: [{ path: "t", tests: 3 }] } as TestChanges;
   expect(headline(comparison, removed, ran(27, 0))).toBe(
-    "files 1 altered · calls +2 −1 · 3 calls changed arguments · imports +1 · 1 dependency changed · 1 test name removed \u00b7 3 tests in deleted files · main's tests: 27 passed",
+    "files 1 altered · calls +2 −1 · 3 calls changed arguments · imports +1 · 1 dependency changed · 1 test name removed \u00b7 tests in deleted files: 3 · main's tests: 27 passed",
   );
 });
 
@@ -63,4 +63,18 @@ test("removed tests are counted as names, since two tests of one name are one lo
   const removed = { ...noTests, removedTests: [{ file: "a", name: "same" }] } as TestChanges;
   expect(headline(none, removed, null)).toContain("1 test name removed");
   expect(headline(none, removed, null)).not.toContain("1 test removed");
+});
+
+test("a deleted test file whose tests were not read makes the count unknown, never a total", () => {
+  const removed = { ...noTests, deletedFiles: [{ path: "test/a.test.mjs", tests: 1 }, { path: "test/test_b.py", tests: 0 }] } as TestChanges;
+  expect(headline(none, removed, null)).toContain("tests in deleted files: 1 + unknown");
+  const only = { ...noTests, deletedFiles: [{ path: "test/test_b.py", tests: 0 }] } as TestChanges;
+  expect(headline(none, only, null)).toContain("tests in deleted files: unknown");
+});
+
+test("a test file that left test discovery but still exists is counted apart, never called deleted", () => {
+  const removed = { ...noTests, deletedFiles: [{ path: "test/a.test.mjs", tests: 4 }, { path: "test/b.test.mjs", tests: 2, movedTo: "scripts/b.mjs" }] } as TestChanges;
+  const line = headline(none, removed, null);
+  expect(line).toContain("tests in deleted files: 4");
+  expect(line).toContain("tests moved out of test discovery: 2");
 });

@@ -17,6 +17,13 @@ function kinds(changes: readonly { readonly kind: string }[]): string {
     .join(" \u00b7 ");
 }
 
+/** The tests of some files: a file read as holding none is a file whose tests were not read (another language, or none found), so its count is unknown, never 0. */
+function testCount(files: readonly { readonly tests: number }[]): string {
+  const known = files.reduce((sum, file) => sum + file.tests, 0);
+  const unknown = files.some((file) => file.tests === 0);
+  return unknown ? (known > 0 ? `${known} + unknown` : "unknown") : `${known}`;
+}
+
 /** The tests part: main's tests run against the PR, said as what ran, or as not known. Never a count when no run gave one. */
 function testsPart(observed: ObservedDocument | null): string {
   if (observed === null) return "tests not run";
@@ -55,8 +62,10 @@ export function headline(comparison: Comparison, testChanges: TestChanges, obser
   if (comparison.dependencies.length > 0) parts.push(`${plural(comparison.dependencies.length, "dependency", "dependencies")} changed`);
   const lostNames = testChanges.removedTests.length;
   if (lostNames > 0) parts.push(`${plural(lostNames, "test name")} removed`);
-  const inDeleted = testChanges.deletedFiles.reduce((sum, file) => sum + file.tests, 0);
-  if (inDeleted > 0) parts.push(`${plural(inDeleted, "test")} in deleted files`);
+  const gone = testChanges.deletedFiles.filter((file) => file.movedTo === undefined);
+  const moved = testChanges.deletedFiles.filter((file) => file.movedTo !== undefined);
+  if (gone.length > 0) parts.push(`tests in deleted files: ${testCount(gone)}`);
+  if (moved.length > 0) parts.push(`tests moved out of test discovery: ${testCount(moved)}`);
   parts.push(testsPart(observed));
   return parts.join(" · ");
 }
