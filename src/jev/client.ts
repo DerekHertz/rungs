@@ -43,6 +43,8 @@ export interface JevRequest {
 
 export type JevAnswer =
   | { readonly type: "yes-no"; readonly yes: number }
+  /** The call succeeded but this answer is missing or malformed: kept with what came back, never read as a probability. */
+  | { readonly type: "unreadable"; readonly why: string; readonly raw: string }
   | { readonly type: "choice"; readonly probabilities: Readonly<Record<string, number>>; readonly choice: string; readonly confidence: number | null };
 
 export interface JevUsage {
@@ -104,19 +106,27 @@ function wireQuestions(questions: JevRequest["questions"]): Record<string, unkno
   return Object.fromEntries(Object.entries(questions).map(([name, question]) => [name, { ...question, type: WIRE_TYPE[question.type] }]));
 }
 
+function unreadable(why: string, raw: unknown): JevAnswer {
+  return { type: "unreadable", why, raw: oneLine(raw === undefined ? "(missing)" : JSON.stringify(raw) ?? "(missing)") };
+}
+
 function parseAnswers(raw: unknown, questions: JevRequest["questions"]): Record<string, JevAnswer> {
   const answers: Record<string, JevAnswer> = Object.create(null) as Record<string, JevAnswer>;
   for (const [name, question] of Object.entries(questions)) {
     const one = isRecord(raw) ? raw[name] : undefined;
     if (question.type === "yes-no") {
-      if (!isRecord(one) || !isProbability(one.noul)) throw new JevError("bad-response", `Jev's answer to "${name}" is not a probability`);
+      if (!isRecord(one) || !isProbability(one.noul)) {
+        answers[name] = unreadable(`Jev's answer to "${name}" is not a probability`, one);
+        continue;
+      }
       answers[name] = { type: "yes-no", yes: one.noul };
       continue;
     }
     const probabilities = isRecord(one) && isRecord(one.probabilities) ? one.probabilities : undefined;
     const choices = Object.keys(question.criteria);
     if (!isRecord(one) || probabilities === undefined || typeof one.choice !== "string" || !choices.every((choice) => isProbability(probabilities[choice]))) {
-      throw new JevError("bad-response", `Jev's answer to "${name}" is not a choice with probabilities`);
+      answers[name] = unreadable(`Jev's answer to "${name}" is not a choice with probabilities`, one);
+      continue;
     }
     answers[name] = {
       type: "choice",

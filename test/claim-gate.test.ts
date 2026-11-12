@@ -5,7 +5,7 @@ import { afterAll, expect, test } from "vitest";
 import { compare, contractsMoved } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
-import { CLAIM_THRESHOLDS, MAX_CHANGED_LINES, MAX_FACTS, MAX_PLACES, claimGate } from "../src/jev/claim-gate.ts";
+import { CLAIM_THRESHOLDS, MAX_CHANGED_LINES, MAX_CLAIM_CHARS, MAX_FACTS, MAX_PLACES, MAX_STATE_CHARS, claimGate } from "../src/jev/claim-gate.ts";
 import type { ClaimInput } from "../src/jev/claim-gate.ts";
 import { claimItems } from "../src/jev/claim-source.ts";
 import { requestFor } from "../src/jev/gate.ts";
@@ -14,6 +14,7 @@ import type { JudgedDocument, JudgedRecord } from "../src/jev/store.ts";
 import type { JudgeSubject } from "../src/jev/subject.ts";
 import { serve } from "../src/server.ts";
 import { fakeClient } from "./jev-fixtures.ts";
+import { createJevClient } from "../src/jev/client.ts";
 import type { JevAnswer, JevResponse } from "../src/jev/client.ts";
 
 const scratch: string[] = [];
@@ -183,4 +184,37 @@ test("a claim whose call fails is listed not judged with why, and the others kee
   const document = (await (await fetch(new URL("judged.json", server.url))).json()) as JudgedDocument;
   expect(document.sets.flatMap((set) => set.records).map((record) => record.key)).toEqual(["claim:1"]);
   expect(document.notJudged).toMatchObject([{ gate: "claim", key: "claim:0", about: { claim: 0 }, reason: "the classifier failed" }]);
+});
+
+test("the claim text is capped and the whole state has a budget; each cut is noted in the state", () => {
+  const huge = "x".repeat(1_000_000);
+  const state = claimGate.state({ claim: huge, places: [], omittedPlaces: 0 });
+  expect(state.claim!.length).toBeLessThan(MAX_CLAIM_CHARS + 200);
+  expect(state.claim).toMatch(/\[claim cut to the first 2000 characters of 1000000\]$/);
+  const wide = { label: "altered f", facts: [], lines: Array.from({ length: MAX_CHANGED_LINES }, () => "+1: " + "y".repeat(200)), cutLines: 0 };
+  const total = (input: ClaimInput) => Object.values(claimGate.state(input)).reduce((sum, text) => sum + text.length, 0);
+  const many: ClaimInput = { claim: huge, places: Array.from({ length: MAX_PLACES }, () => wide), omittedPlaces: 0 };
+  expect(total(many)).toBeLessThanOrEqual(MAX_STATE_CHARS + 400);
+  expect(claimGate.state(many).omitted).toMatch(/more linked places were left out to keep the state within its budget/);
+  const one: ClaimInput = { claim: "c", places: [{ ...wide, facts: Array.from({ length: 40 }, () => "f".repeat(2000)) }], omittedPlaces: 0 };
+  expect(total(one)).toBeLessThanOrEqual(MAX_STATE_CHARS + 400);
+  expect(claimGate.state(one)["place 1"]).toMatch(/cut to fit the state budget/);
+});
+
+test("a call that succeeded with an unreadable answer is a judged record, undecided, with the raw answer; a failed call stays not judged", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "streets-claim-gate-"));
+  scratch.push(dir);
+  const client = createJevClient({ key: "k", fetch: async () => ({ ok: true, status: 200, json: async () => ({ answers: { shown: { noul: 0.99 } }, usage: { input_tokens: 10, output_tokens: 1 }, model: "jev-x" }) }) });
+  const judged = judgedSource({ judge: true, env: {}, baseTree: serveBase, headTree: serveHead, cacheDir: dir, client });
+  const server = await serve(serveHead, 0, against, "Adds fresh.\n", async () => ({
+    status: "ok", byClaim: [["file:src/keep.ts" as NodeId]], model: "m", promptVersion: "p1",
+    shown: [{ text: "Adds fresh.", restated: false, sources: [0], ids: ["file:src/keep.ts" as NodeId] }],
+    context: [], dropped: { ids: 0, claims: 0, restatements: 0 }, cached: false,
+  }), undefined, undefined, undefined, undefined, judged);
+  servers.push(server);
+  const document = (await (await fetch(new URL("judged.json", server.url))).json()) as JudgedDocument;
+  const [record] = document.sets.flatMap((set) => set.records);
+  expect(record).toMatchObject({ key: "claim:0", verdict: "undecided", answers: { shown: { type: "yes-no", yes: 0.99 }, contradicted: { type: "unreadable", why: expect.any(String) } } });
+  expect(document.notJudged).toEqual([]);
+  expect(claimGate.decide({ shown: yes(0.99), contradicted: { type: "unreadable", why: "x", raw: "" } }, CLAIM_THRESHOLDS)).toBe("undecided");
 });

@@ -1,4 +1,4 @@
-import { describeThresholds } from "../jev/claim-gate.ts";
+import { QUESTION_LABELS, describeThresholds } from "../jev/claim-gate.ts";
 import type { JudgedDocument } from "../jev/judged-types.ts";
 import { claimMarks, costText, judgedSummary, markWord, percent } from "../judged-marks.ts";
 import type { JudgedMark } from "../judged-marks.ts";
@@ -46,21 +46,25 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
     return detail;
   }
   const { record } = mark;
-  for (const [name, question] of Object.entries(record.shown.questions)) {
+  for (const name of Object.keys(record.shown.questions)) {
     const answer = record.answers[name];
     const line = element("p", "judged-line");
-    const probability = answer?.type === "yes-no" ? `${percent(answer.yes)} yes` : "no answer";
-    const exact = answer?.type === "yes-no" ? ` (${answer.yes})` : "";
-    line.append(element("strong", "", `${name}: ${probability}`), element("span", "judged-exact", exact));
-    const asked = element("p", "judged-question", question.instructions);
-    body.append(line, asked);
+    const label = QUESTION_LABELS[name] ?? name;
+    if (answer?.type === "yes-no") line.append(element("strong", "", `${label} ${percent(answer.yes)} yes`), element("span", "judged-exact", ` (${answer.yes})`));
+    else if (answer?.type === "unreadable") line.append(element("strong", "", `${label} unreadable`), element("span", "judged-exact", ` ${answer.why}; Jev returned ${answer.raw}`));
+    else line.append(element("strong", "", `${label} no answer`));
+    body.append(line);
   }
   body.append(element("p", "judged-line", describeThresholds(record.thresholds)));
-  body.append(element("p", "judged-line", `Verdict: ${record.verdict}.`));
+  const unreadable = Object.values(record.answers).some((answer) => answer.type === "unreadable");
+  body.append(element("p", "judged-line", `Verdict: ${record.verdict}${unreadable ? ", because an answer could not be read (an answer that cannot be read never settles a claim)" : ""}.`));
   body.append(element("p", "judged-line", `Model ${record.model} · question ${record.question.id} ${record.question.version} · ${costText(record)}`));
   body.append(element("p", "judged-line", view.rate?.(record.question.id) ?? "Rate of wrong passes: not measured yet."));
   const shown = element("details", "judged-shown");
   shown.append(element("summary", "review-summary", "What Jev was shown"));
+  for (const [name, question] of Object.entries(record.shown.questions)) {
+    shown.append(element("h4", "judged-key", `question: ${name}`), element("pre", "judged-text", `${question.instructions}\n${Object.entries(question.criteria).map(([answer, text]) => `${answer}: ${text}`).join("\n")}`));
+  }
   for (const [key, text] of Object.entries(record.shown.state)) {
     shown.append(element("h4", "judged-key", key), element("pre", "judged-text", text));
   }

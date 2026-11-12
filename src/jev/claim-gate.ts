@@ -37,6 +37,10 @@ export const MAX_LINE_CHARS = 200;
 export const MAX_FACTS = 40;
 /** The most linked places shown for one claim; the rest are counted. */
 export const MAX_PLACES = 12;
+/** The longest claim text put in the state, in characters. */
+export const MAX_CLAIM_CHARS = 2000;
+/** The most characters of the whole state (every value together); places that do not fit are left out and counted. */
+export const MAX_STATE_CHARS = 40_000;
 
 /**
  * The fixed starting thresholds, the one place they are written. The reviewer's tier table (a
@@ -48,6 +52,9 @@ export const MAX_PLACES = 12;
 export const CLAIM_THRESHOLDS: Thresholds = { shown: 0.9, contradicted: 0.1, flag: 0.5 };
 
 export const CLAIM_GATE_ID = "claim";
+
+/** One short line per question for the page; the full text of each is under "What Jev was shown". */
+export const QUESTION_LABELS: Readonly<Record<string, string>> = { shown: "Shown by the changed places?", contradicted: "Contradicted by them?" };
 
 /** Says the rule in words, from the thresholds a record carries (so an old record is described by its own). */
 export function describeThresholds(thresholds: Thresholds): string {
@@ -80,8 +87,12 @@ export const claimGate: Gate<ClaimInput> = {
     },
   },
   state(input) {
-    const state: Record<string, string> = { claim: input.claim };
-    input.places.forEach((place, index) => {
+    const claim = input.claim.length > MAX_CLAIM_CHARS ? `${input.claim.slice(0, MAX_CLAIM_CHARS)} [claim cut to the first ${MAX_CLAIM_CHARS} characters of ${input.claim.length}]` : input.claim;
+    const state: Record<string, string> = { claim };
+    let remaining = MAX_STATE_CHARS - claim.length;
+    let shown = 0;
+    let budgetOmitted = 0;
+    for (const place of input.places) {
       const out = [place.label];
       if (place.facts.length > 0) out.push("derived facts:", ...place.facts.map((fact) => `  ${fact}`));
       if (place.noLines !== undefined) out.push(`changed lines: none shown (${place.noLines})`);
@@ -89,9 +100,22 @@ export const claimGate: Gate<ClaimInput> = {
         out.push("changed lines:", ...place.lines.map((line) => `  ${line}`));
         if (place.cutLines > 0) out.push(`  [${place.cutLines} more changed lines were cut from this state; the first ${place.lines.length} are shown]`);
       }
-      state[`place ${index + 1}`] = out.join("\n");
-    });
-    if (input.omittedPlaces > 0) state.omitted = `${input.omittedPlaces} more linked places were left out of this state; the first ${input.places.length} are shown.`;
+      let text = out.join("\n");
+      if (text.length > remaining) {
+        if (shown > 0) {
+          budgetOmitted += 1;
+          continue;
+        }
+        text = `${text.slice(0, Math.max(0, remaining))}\n[place cut to fit the state budget of ${MAX_STATE_CHARS} characters]`;
+      }
+      remaining -= text.length;
+      shown += 1;
+      state[`place ${shown}`] = text;
+    }
+    const notes: string[] = [];
+    if (input.omittedPlaces > 0) notes.push(`${input.omittedPlaces} more linked places were left out of this state to keep it short.`);
+    if (budgetOmitted > 0) notes.push(`${budgetOmitted} more linked places were left out to keep the state within its budget.`);
+    if (notes.length > 0) state.omitted = `${notes.join(" ")} The first ${shown} are shown.`;
     return state;
   },
   decide(answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds): Verdict {
