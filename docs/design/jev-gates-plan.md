@@ -17,8 +17,8 @@ so that the reviewer reads source lines only when no gate could settle an item.
 **Verification** here means a classifier's answer to "is A grounded in B?", where A and B are both
 already in the system. The probability decides where the item goes next.
 
-This has to work on any repository with no hand-written setup. Docviz pull request 14 is the test
-case, and nothing in the design may depend on it.
+This has to work on any repository with no hand-written setup. It is checked on [the check set](../agents/check-set.md),
+and nothing in the design may depend on any one repository.
 
 ## The flow
 
