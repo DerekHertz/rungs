@@ -7,14 +7,14 @@ import type { Comparison, ModuleChange } from "../src/compare.ts";
 import { extract } from "../src/extract/extract.ts";
 import { compareIds } from "../src/graph.ts";
 import type { CodeNode, FileTree, Graph, NodeId } from "../src/graph.ts";
+import { withholdUnread } from "../src/readable.ts";
 import { readFixtureTree } from "./fixture-tree.ts";
 
 const fixtureUrl = (name: string) => fileURLToPath(new URL(`fixtures/${name}`, import.meta.url));
 const goldenPath = fileURLToPath(new URL("golden/compare.json", import.meta.url));
 
-const base = extract(readFixtureTree(fixtureUrl("small")));
-const head = extract(readFixtureTree(fixtureUrl("small-head")));
-const comparison = compare(base, head);
+const { base, head, unread } = withholdUnread(extract(readFixtureTree(fixtureUrl("small"))), extract(readFixtureTree(fixtureUrl("small-head"))));
+const comparison = compare(base, head, undefined, unread);
 
 /** One line per change: "added file:a.ts", "moved file:b.ts <- file:a.ts", "altered file:a.ts". */
 function summarize(changes: readonly ModuleChange[]): string[] {
@@ -113,9 +113,9 @@ describe("tally", () => {
 
   test("counts changed files by kind in every container above them, at their head location", () => {
     expect(counts).toEqual({
-      "package:": "+7 ~3 -3 >1",
+      "package:": "+7 ~4 -3 >1",
       "folder:docs": "+2 ~0 -1 >0",
-      "folder:src": "+3 ~3 -1 >1",
+      "folder:src": "+3 ~4 -1 >1",
       "package:src/util": "+2 ~1 -0 >0",
       "folder:src/compat": "+0 ~0 -0 >1",
       "folder:packages": "+2 ~0 -0 >0",

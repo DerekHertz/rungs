@@ -8,7 +8,7 @@ import { markdownSections } from "./markdown.ts";
 import { roleOf } from "./roles.ts";
 import type { Declaration, EffectSite, ImportSite, LanguageAdapter, ResolutionSite, SourceFile } from "./adapters.ts";
 
-export const EXTRACTOR_VERSION = "22";
+export const EXTRACTOR_VERSION = "23";
 
 export function extract(tree: FileTree): Graph {
   const packageDirs = new Set([""]);
@@ -34,6 +34,7 @@ export function extract(tree: FileTree): Graph {
   const resolutions: ResolutionEdge[] = [];
   const imports: ImportEdge[] = [];
   const analysed = new Set<string>();
+  const unread = new Set<string>();
   const typesByPath = new Map<string, readonly TypeContract[]>();
   for (const [adapter, files] of filesByAdapter) {
     files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -42,6 +43,7 @@ export function extract(tree: FileTree): Graph {
       analysed.add(file.path);
       typesByPath.set(file.path, outlines.get(file.path)?.types ?? []);
       const outline = outlines.get(file.path);
+      if (outline?.unread === true) unread.add(file.path);
       const code = codeNodes(file.path, file.text, outline?.declarations ?? []);
       nodes.push(...code.nodes);
       edges.push(...effectEdges(file.path, file.text, outline?.effects ?? [], code.spans));
@@ -61,10 +63,10 @@ export function extract(tree: FileTree): Graph {
       name: posix.basename(path),
       parent: directoryId(directoryOf(path)),
       lines,
-      analysis: analysed.has(path) ? "analysed" : "not analysed",
+      analysis: unread.has(path) ? "not fully read" : analysed.has(path) ? "analysed" : "not analysed",
       role: roleOf(path, analysed.has(path)),
       digest: digestOf(text),
-      ...(analysed.has(path) ? { types: typesByPath.get(path) ?? [] } : {}),
+      ...(analysed.has(path) && !unread.has(path) ? { types: typesByPath.get(path) ?? [] } : {}),
     });
     for (let dir = path; dir !== ""; ) {
       dir = directoryOf(dir);

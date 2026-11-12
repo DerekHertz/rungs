@@ -21,6 +21,8 @@ export interface WalkInput {
   readonly observed: (stop: Stop) => Observed;
   /** A node's name. */
   readonly describe: (id: NodeId) => { readonly label: string };
+  /** The node is in a file that could not be fully read: nothing is known of its contracts or calls. */
+  readonly unread: (id: NodeId) => boolean;
   /** The node's source lines as rows, changed ones marked, or undefined when it has none. */
   readonly rows: (id: NodeId) => Promise<Loaded | undefined>;
   /** The reviewer came to a stop, or closed the tour; the host flies the picture to its nodes. */
@@ -155,7 +157,7 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
       }),
     );
     facts.replaceChildren(...moveRows(found), ...effectRows(found.effects, choose));
-    if (facts.childElementCount === 0) facts.append(element("p", "review-empty", "No contract moved and no new call reaches outside at this stop."));
+    if (facts.childElementCount === 0) facts.append(element("p", "review-empty", stop.ids.some(input.unread) ? "A file at this stop could not be read: its contracts and calls are not compared." : "No contract moved and no new call reaches outside at this stop."));
 
     observedBody.replaceChildren(...observedRows(input.observed(stop)));
 

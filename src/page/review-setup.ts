@@ -95,6 +95,7 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
     pickNode: on.pickNode,
     observed: observed === null ? null : { document: observed, report: observedRun },
     testChanges,
+    unread: comparison.unread,
     risks,
     pickRisk: (risk: RiskItem) => {
       on.showPick();
@@ -108,6 +109,7 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
   const run =(await (await fetch("/run.json")).json()) as { repo: string | null };
   const host = document.querySelector<HTMLElement>("#walk")!;
   host.hidden = false;
+  const unreadPaths = new Set(comparison.unread.map((file) => file.path));
   const walk = renderWalkthrough(host, {
     note: tour.walkthrough,
     stops: tour.stops,
@@ -124,6 +126,7 @@ export async function setUpReview(data: ReviewData, on: ReviewActions): Promise<
       const node = nodes.get(id) ?? changed.get(id);
       return loadRows(id, node !== undefined && isCodeNode(node) ? node.range.start : 1);
     },
+    unread: (id) => unreadPaths.has((nodes.get(id) ?? changed.get(id))?.path ?? ""),
     visit: on.visitStop,
   });
   on.walkDrawn(walk);

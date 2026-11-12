@@ -51,6 +51,11 @@ export const javaScriptAndTypeScript: LanguageAdapter = {
         const source =
           program.getSourceFile(`/${file.path}`) ??
           ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true, scriptKind(file.path));
+        // Syntactic diagnostics only: a type or semantic error leaves the tree whole, a syntax error does not.
+        // TypeScript-only syntax in a .js file (the 8xxx codes) counts too: the tree is recovered, and a signature built from it would carry types the file's language does not have.
+        if (program.getSyntacticDiagnostics(source).some((found) => found.category === ts.DiagnosticCategory.Error)) {
+          return [file.path, { unread: true as const, declarations: [], types: [], effects: [], resolutions: [], imports: [] }];
+        }
         return [file.path, { declarations: outline(source), types: exportedTypes(source), effects: effectSites(source, checker), resolutions: resolutionSites(source, checker), imports: source.isDeclarationFile ? [] : importSites(source, checker, resolver, file.path) }];
       }),
     );

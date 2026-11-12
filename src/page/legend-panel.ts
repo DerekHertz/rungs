@@ -15,6 +15,8 @@ export interface LegendFacts {
   readonly reaches: ReturnType<typeof reachMap>;
 }
 
+import { harbourText, plinthText, waysText } from "./legend-text.ts";
+
 /** What the town's sprites stand for. Nothing is listed that the picture does not draw. */
 export function showTownLegend(legend: HTMLElement, town: Town, shown: LegendFacts): void {
   const { comparison, observedRan, flagged, reaches } = shown;
@@ -23,17 +25,11 @@ export function showTownLegend(legend: HTMLElement, town: Town, shown: LegendFac
   const size = document.createElement("div");
   size.textContent = `size: classes and functions per file, square-root scale (${town.counts.fewest} to ${town.counts.most}); every file has a lot of the same size`;
   const harbour = document.createElement("div");
-  harbour.textContent =
-    town.piers.length === 0 && town.unpictured.length === 0
-      ? "harbour: no outside resource is reached"
-      : `harbour: ${town.piers.map((pier) => pier.kind).join(", ")}${town.unpictured.length > 0 ? ` (no sprite yet for ${town.unpictured.join(", ")})` : ""}`;
+  harbour.textContent = harbourText(town);
   const stone = document.createElement("div");
-  stone.textContent =
-    town.importance.most === 0
-      ? "plinth: the stone a building stands on is as tall as the files resting on it through imports; no file has any here"
-      : `plinth: the taller the stone, the more files rest on it through imports, square-root scale (${town.importance.fewest} to ${town.importance.most}); none where nothing rests on it \u00b7 point at a building for the list`;
+  stone.textContent = plinthText(town);
   const ways = document.createElement("div");
-  ways.textContent = `gate: a way in the repo declares in package.json (main, bin, exports, scripts); test files are ways in too, with no gate \u00b7 footpath: every file but code has one; a code file has one when a way in reaches it through imports, and ${town.unreached} code files have none: nothing reaches them`;
+  ways.textContent = waysText(town);
   const against = document.createElement("div");
   const flag = document.createElement("div");
   if (observedRan) flag.textContent = "red pennant: a test in the file failed when main's tests ran against this change (observed, one run; evidence against mistakes, not against a hostile author)";

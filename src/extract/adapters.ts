@@ -73,6 +73,8 @@ export interface ImportSite {
 }
 
 export interface FileOutline {
+  /** The parse reported syntax errors: everything else here is empty, because a recovered tree is a guess. */
+  readonly unread?: true;
   readonly declarations: readonly Declaration[];
   /** The interfaces and type aliases the file exports. */
   readonly types: readonly TypeContract[];

@@ -3,7 +3,7 @@ import type { Comparison, ContractMove } from "./compare.ts";
 import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
 import type { CodeLevel, CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
-import { exportNamesOf, exportRadiusOf, importanceOf } from "./importance.ts";
+import { exportNamesOf, exportRadiusOf, importanceOf, restsText, unknownRestOf } from "./importance.ts";
 import { effectParts, isAnonymous, labelOf } from "./review.ts";
 
 /*
@@ -49,6 +49,12 @@ export interface Why {
   readonly contracts: readonly string[];
   /** The files resting on this one through imports, directly or not, sorted. */
   readonly dependents: readonly string[];
+  /** Files that could not be fully read and may rest on this one too: their imports are unknown. */
+  readonly unknownDependents: number;
+  /** A test file that could not be read may import this file: whether a test reaches it is unknown. */
+  readonly testReachUnknown: boolean;
+  /** The file itself could not be fully read: nothing about its contracts or effects was compared. */
+  readonly unread: boolean;
   /** New and changed effects in this file, one line each, sorted. */
   readonly effects: readonly string[];
   /** The test files that reach this one through import edges, sorted. */
@@ -72,6 +78,8 @@ export interface Block {
    * the files resting on them. Never fewer than the truth: a use the extractor cannot name counts.
    */
   readonly rests?: readonly string[];
+  /** With `rests`: the files that could not be fully read and may rest on it too. */
+  readonly restsUnknown?: number;
   /** Resolved callers and callees, when the file's calls were asked for (derived by the compiler). */
   readonly callers?: readonly CallRef[];
   readonly callees?: CallList;
@@ -148,10 +156,10 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
   }
   const blocks: Block[] = [];
   const radius = exportRadiusOf(head);
-  const restsOf = (node: CodeNode): readonly string[] | undefined => {
+  const restsOf = (node: CodeNode): readonly NodeId[] | undefined => {
     if (!node.exported) return undefined;
     const was = base.nodes.find((candidate) => candidate.id === (moveBy.get(node.id)?.from ?? node.id));
-    return radius(file.id, exportNamesOf(was === undefined ? [node] : [node, was])).map((id) => nodes.get(id)?.path ?? id).sort(byText);
+    return radius(file.id, exportNamesOf(was === undefined ? [node] : [node, was]));
   };
   const changedIds = new Set<NodeId>(comparison.changes.filter((change) => change.kind === "altered" || change.kind === "added").map((change) => change.node.id));
   // A block is listed when its text changed, or when a contract moved or an effect arrived at it with the text the same (an import now points elsewhere).
@@ -160,7 +168,9 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
     const move = moveBy.get(node.id);
     if (!changedIds.has(node.id) && move === undefined && !effectLines.has(node.id)) continue;
     const reasons = [...(move === undefined ? [] : [`contract ${WORD[move.kind]}`]), ...[...(effectLines.get(node.id) ?? [])].sort(byText), ...(node.exported ? ["exported"] : [])];
-    const rests = restsOf(node);
+    const restIds = restsOf(node);
+    const rests = restIds?.map((id) => nodes.get(id)?.path ?? id).sort(byText);
+    const restsUnknown = restIds === undefined ? 0 : unknownRestOf(head, file.id, restIds).length;
     const callers = calls?.callersOf(node.id);
     const callees = calls?.calleesOf(node.id);
     blocks.push({
@@ -170,7 +180,7 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
       range: node.range,
       reasons,
       folded: (folds.get(node.id) ?? []).sort(byText),
-      ...(rests === undefined ? {} : { rests }),
+      ...(rests === undefined ? {} : { rests, restsUnknown }),
       ...(callers === undefined || callees === undefined ? {} : { callers, callees }),
     });
   }
@@ -192,7 +202,8 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
             : 4;
   blocks.sort((a, b) => rank(a) - rank(b) || a.range.start - b.range.start || byText(a.id, b.id));
 
-  const rests = (importanceOf(head).get(file.id) ?? []).map((id) => nodes.get(id)?.path ?? id).sort(byText);
+  const restIds = importanceOf(head).get(file.id) ?? [];
+  const rests = restIds.map((id) => nodes.get(id)?.path ?? id).sort(byText);
   const nameOf = (id: NodeId): string => {
     const node = nodes.get(id) ?? base.nodes.find((candidate) => candidate.id === id);
     return node !== undefined && isCodeNode(node) ? node.qualifiedName : (node?.path ?? id);
@@ -202,6 +213,9 @@ export function fileWhy(fileId: NodeId, comparison: Comparison, base: Graph, hea
     why: {
       contracts: moves.map((move) => `${move.type?.name ?? nameOf(move.id)} ${WORD[move.kind]}`).sort(byText),
       dependents: rests,
+      unknownDependents: unknownRestOf(head, file.id, restIds).length,
+      testReachUnknown: unknownRestOf(head, file.id, restIds).some((id) => isTest(nodes.get(id)?.path ?? "")),
+      unread: file.analysis === "not fully read",
       effects: [...effects].sort(byText),
       testReaches: rests.filter(isTest),
       isTest: isTest(path),
@@ -241,7 +255,7 @@ export function effectStepsOf(graph: Graph, blockId: NodeId): Step[] {
 export const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** "1 file rests on it", "N files rest on it". */
-export const restsOnIt = (n: number): string => `${n} ${n === 1 ? "file rests" : "files rest"} on it`;
+export const restsOnIt = (n: number, unread = 0): string => restsText(n, unread);
 
 /** New and changed effects counted apart: each line from `fileWhy` starts with "new " or "changed ". */
 function effectsText(effects: readonly string[]): string {
@@ -254,12 +268,19 @@ function effectsText(effects: readonly string[]): string {
 /** The one line that says why the file matters: derived facts only, each a number or a name. */
 export function whyLine(found: FileWhy): string {
   const { why } = found;
+  if (why.unread) return `could not read: contracts and effects not compared · ${why.dependents.length === 0 && why.unknownDependents === 0 ? "no file rests on it" : restsOnIt(why.dependents.length, why.unknownDependents)}`;
   const parts = [
     why.contracts.length === 0 ? "no contract moved" : `${count(why.contracts.length, "contract")} moved`,
-    why.dependents.length === 0 ? "no file rests on it" : restsOnIt(why.dependents.length),
+    why.dependents.length === 0 && why.unknownDependents === 0 ? "no file rests on it" : restsOnIt(why.dependents.length, why.unknownDependents),
     effectsText(why.effects),
-    why.isTest ? "is a test file" : why.testReaches.length === 0 ? "no test reaches it" : `${count(why.testReaches.length, "test file")} reach it`,
+    why.isTest ? "is a test file" : why.testReaches.length === 0 ? (why.testReachUnknown ? "test reach unknown: a test file could not be read" : "no test reaches it") : `${why.testReachUnknown ? "at least " : ""}${count(why.testReaches.length, "test file")} reach it`,
   ];
   return parts.join(" · ");
 }
 
+
+/** The heading of the defining blocks: "not read" for a file that could not be fully read, never "none". */
+export function definingHeading(found: FileWhy): string {
+  if (found.why.unread) return "Defining blocks: not read";
+  return found.defining.length === 0 ? "Defining blocks: none (no changed block is exported, moved a contract, gained an effect or has the most callers)" : `Defining blocks (${found.defining.length})`;
+}

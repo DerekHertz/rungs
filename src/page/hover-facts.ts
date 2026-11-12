@@ -6,6 +6,8 @@ import type { WayIn } from "../importance.ts";
 import { restsOnIt } from "../defining.ts";
 import type { observedReport } from "../observed-report.ts";
 import type { TestMarks } from "../test-marks.ts";
+import type { UnreadFile } from "../compare.ts";
+import { unreadFacts } from "./unread-look.ts";
 
 /** What the hover card reads from the page. `lots` is a function because the town rebuilds its lots as the camera moves. */
 export interface HoverFactsInput {
@@ -16,13 +18,17 @@ export interface HoverFactsInput {
   readonly importance: ReadonlyMap<NodeId, readonly NodeId[]>;
   readonly waysIn: readonly WayIn[];
   readonly reachedByWays: ReadonlySet<NodeId>;
+  /** Not known reached, but possibly through a file that could not be read. */
+  readonly reachPossible: ReadonlySet<NodeId>;
   readonly marks: TestMarks;
   /** A function, because the run may end after the page is drawn. */
   readonly observedRun: () => ReturnType<typeof observedReport> | null;
+  /** The files a comparison could not fully read, by path: which side failed to parse. */
+  readonly unread: ReadonlyMap<string, UnreadFile["side"]>;
 }
 
 /** The lines the hover card shows for a building: the path, what the change did, its role, importance, failures and size. */
-export function hoverFacts({ nodes, ghostFiles, lots, picture, importance, waysIn, reachedByWays, marks, observedRun }: HoverFactsInput): (id: NodeId) => string[] | undefined {
+export function hoverFacts({ nodes, ghostFiles, lots, picture, importance, waysIn, reachedByWays, reachPossible, marks, observedRun, unread }: HoverFactsInput): (id: NodeId) => string[] | undefined {
   function describe(id: NodeId): string[] | undefined {
     const file = nodes.get(id) ?? ghostFiles.get(id);
     const lot = lots().get(id);
@@ -35,9 +41,7 @@ export function hoverFacts({ nodes, ghostFiles, lots, picture, importance, waysI
       ...failingFacts(file),
       ...testMarkFacts(file),
       file.lines === null ? "binary" : `lines: ${file.lines}`,
-      file.analysis === "analysed"
-        ? `functions: ${lot.functions}   classes: ${lot.classes}`
-        : "not analysed",
+      ...unreadFacts(file, lot, unread),
     ];
   }
 
@@ -58,14 +62,17 @@ export function hoverFacts({ nodes, ghostFiles, lots, picture, importance, waysI
 
   /** In the town: what rests on the file (the count with its list), how the repo declares it a way in, and whether anything reaches it. */
   function townFacts(file: FileNode): string[] {
-    const above = (importance.get(file.id) ?? []).map((id) => nodes.get(id)?.path ?? id);
+    const ids = importance.get(file.id) ?? [];
+    const above = ids.map((id) => nodes.get(id)?.path ?? id);
     const way = waysIn.find((entry) => entry.id === file.id);
+    // A file that could not be read may import this one: "nothing rests on it" is only said when there is none.
+    const unknown = [...nodes.values()].filter((node) => node.level === "file" && node.analysis === "not fully read" && node.id !== file.id && !ids.includes(node.id)).length;
     return [
-      above.length === 0 ? "importance: nothing rests on it" : `importance: ${restsOnIt(above.length)}`,
+      above.length === 0 && unknown === 0 ? "importance: nothing rests on it" : `importance: ${restsOnIt(above.length, unknown)}`,
       ...above.slice(0, TOOLTIP_FILES).map((path) => `  ${path}`),
       ...(above.length > TOOLTIP_FILES ? [`  and ${above.length - TOOLTIP_FILES} more: click the building for the full list`] : []),
       ...(way === undefined ? [] : [`way in: ${way.reasons.join(", ")}`]),
-      ...(reachedByWays.has(file.id) ? [] : ["nothing reaches it"]),
+      ...(reachedByWays.has(file.id) ? [] : reachPossible.has(file.id) ? ["reach unknown: a file that could not be read may import it"] : ["nothing reaches it"]),
     ];
   }
 

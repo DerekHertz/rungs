@@ -1,4 +1,6 @@
 import { tallyText } from "../compare.ts";
+import type { UnreadFile } from "../compare.ts";
+import { unreadBlock, unreadSummary } from "./unread-panel.ts";
 import type { ChangeKind } from "../compare.ts";
 import { shortToken } from "../effects.ts";
 import { declarationText } from "../dependencies.ts";
@@ -6,7 +8,7 @@ import { restsOnIt } from "../defining.ts";
 import { signatureSummary } from "../signature-change.ts";
 import { effectChip, sectionCount, signatureDiff } from "../review.ts";
 import { MEMBER_CAP, memberTally } from "../type-change.ts";
-import { claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
+import { qualifyUnread, claimGroups, claimsSummary, contractsSummary, foldersOf, resourceSummaries, signatureChange, testsSummary, noNewCallsText, unmentionedSummary } from "../review-summary.ts";
 import type { ContractRow, ContractsReport, DependencyReview, DependencyRow, EffectGroup, EffectRow, EffectsBlock, EffectsChangedRow, NewEffects, ReviewEntry, Unmentioned } from "../review.ts";
 import type { NodeId } from "../graph.ts";
 import { observedAbout, observedBody, observedNote } from "./observed-panel.ts";
@@ -92,6 +94,8 @@ export interface ReviewInput {
   readonly judged?: JudgedView | null;
   /** What the Claims row's summary adds for the judged marks, counted number first; empty adds nothing. */
   readonly judgedSummary?: string;
+  /** The files a syntax error stopped the extractor reading; empty when every file read. */
+  readonly unread: readonly UnreadFile[];
 }
 
 /** A mark drawn as one glyph that a screen reader says in words: the glyph is hidden from it, the word is read. */
@@ -122,7 +126,7 @@ export function element<K extends keyof HTMLElementTagNameMap>(tag: K, className
   return made;
 }
 
-type RowId = "risks" | "claims" | "unmentioned" | "contracts" | "tests";
+type RowId = "unread" | "risks" | "claims" | "unmentioned" | "contracts" | "tests";
 
 const STORE_KEY = "streets.review.open";
 
@@ -404,7 +408,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     const { edges, functions } = block;
     const title = element("h3", "review-subtitle", `New calls out${byAgent ? ", linked by the agent" : ""} (${edges} in ${plural(functions, "function")})`);
     if (byAgent) title.append(element("span", "review-tag claimed", "claimed"));
-    if (edges === 0 && block.tests.edges === 0) return [title, element("p", "review-empty", noNewCallsText(agentOnly))];
+    if (edges === 0 && block.tests.edges === 0) return [title, element("p", "review-empty", noNewCallsText(agentOnly, input.unread.length))];
     const items = resourceSummaries(block.groups).map(resourceRow);
     if (block.tests.edges > 0) {
       items.push(
@@ -497,7 +501,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
   function fillContracts(body: HTMLElement): void {
     const report = input.contracts;
     if (report === null || (report.entries.length === 0 && report.effectsChanged.length === 0)) {
-      body.append(element("p", "review-empty", "No exported signature changed."));
+      body.append(element("p", "review-empty", input.unread.length === 0 ? "No exported signature changed." : `No exported signature changed in the files that could be read. ${plural(input.unread.length, "file")} could not be read: see Could not read.`));
       return;
     }
     const rows = report.entries.flatMap((entry) => (entry.kind === "row" ? [entry] : entry.rows));
@@ -657,7 +661,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
   function fillRisks(body: HTMLElement): void {
     const risks = input.risks ?? [];
     if (risks.length === 0) {
-      body.append(element("p", "review-empty", "No risks found: no contract moved, no new call out, no test weakened, no dependency changed."));
+      body.append(element("p", "review-empty", input.unread.length === 0 ? "No risks found: no contract moved, no new call out, no test weakened, no dependency changed." : `No risks found in the files that could be read: no contract moved, no new call out, no test weakened, no dependency changed. ${plural(input.unread.length, "file")} could not be read, so nothing is known of ${input.unread.length === 1 ? "it" : "them"}: see Could not read.`));
       return;
     }
     const titles: Record<RiskItem["kind"], string> = { contract: "Contracts moved", effect: "Effects reaching out", test: "Tests", dependency: "Dependencies" };
@@ -671,11 +675,12 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
         if (risk.summary === undefined) detail.append(element("pre", "review-claim", risk.detail));
         else detail.append(summaryLines(risk.summary), rawBeside(element("pre", "review-claim", risk.detail)));
         if (risk.blast.count > 0) detail.append(element("p", "review-empty", `Rests on it: ${risk.blast.files.join(", ")}`));
+        if (risk.blast.unknown > 0) detail.append(element("p", "review-empty", `Unknown: ${plural(risk.blast.unknown, "file")} that could not be read may rest on it too.`));
         const item = element("li", "review-row");
         const pick = picker("review-pick", detail, () => input.pickRisk(risk));
         pick.title = risk.path;
         const text = element("span", "contract-text");
-        text.append(element("span", "review-label", risk.label), element("span", "contract-where", risk.blast.count > 0 ? `${risk.path} · ${restsOnIt(risk.blast.count)}` : risk.path));
+        text.append(element("span", "review-label", risk.label), element("span", "contract-where", risk.blast.count > 0 || risk.blast.unknown > 0 ? `${risk.path} · ${restsOnIt(risk.blast.count, risk.blast.unknown)}` : risk.path));
         pick.append(markSpan("review-mark", "!", "risk"), text);
         item.append(pick, detail);
         riskPicks.set(risk, { pick, detail });
@@ -710,11 +715,12 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
   const tested = observedNow !== null || testChangesBlock(input.testChanges, input.pickNode) !== null;
   const weakened = input.testChanges.deletedFiles.length + input.testChanges.removedTests.length + input.testChanges.markers.length + input.testChanges.weakened.length;
   const questions: Question[] = [
+    ...(input.unread.length === 0 ? [] : [{ id: "unread" as const, name: "Could not read", tag: "derived", summary: unreadSummary(input.unread), fill: (body: HTMLElement) => body.append(unreadBlock(input.unread, input.pickNode)) }]),
     {
       id: "risks",
       name: "Risks",
       tag: "derived",
-      summary: input.risks === null ? "none" : input.risks.length === 0 ? "none found" : `${input.risks.length} ${input.risks.length === 1 ? "risk" : "risks"}${input.risks.some((risk) => risk.kind === "contract") ? `, ${plural(input.risks.filter((risk) => risk.kind === "contract").length, "contract")} moved` : ""}`,
+      summary: qualifyUnread(input.risks === null ? "none" : input.risks.length === 0 ? "none found" : `${input.risks.length} ${input.risks.length === 1 ? "risk" : "risks"}${input.risks.some((risk) => risk.kind === "contract") ? `, ${plural(input.risks.filter((risk) => risk.kind === "contract").length, "contract")} moved` : ""}`, input.unread.length),
       fill: fillRisks,
     },
     { id: "claims", name: "Claims", tag: "claimed", summary: claimsSummary(input.description, input.claims, input.link.status, input.context.length, input.judgedSummary), fill: fillClaims },
@@ -722,14 +728,14 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       id: "unmentioned",
       name: "Unmentioned",
       tag: "derived",
-      summary: unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, sections: result === null ? 0 : sectionCount(result.entries), moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0, dependencies: input.dependencies?.none.length ?? 0, agent: { files: result?.linkedFiles ?? 0, calls: (input.effects?.byAgent.edges ?? 0) + (input.effects?.byAgent.tests.edges ?? 0), changed: input.effects?.changed.byAgent.length ?? 0 } }),
+      summary: qualifyUnread(unmentionedSummary({ files: result === null ? null : result.unmentionedFiles - result.linkedFiles, sections: result === null ? 0 : sectionCount(result.entries), moves: result?.unlinkedMoveGroups, movedFiles: result?.unlinkedMovedFiles, calls: (input.effects?.none.edges ?? 0) + (input.effects?.none.tests.edges ?? 0), changed: input.effects?.changed.none.length ?? 0, dependencies: input.dependencies?.none.length ?? 0, agent: { files: result?.linkedFiles ?? 0, calls: (input.effects?.byAgent.edges ?? 0) + (input.effects?.byAgent.tests.edges ?? 0), changed: input.effects?.changed.byAgent.length ?? 0 } }), input.unread.length),
       fill: fillUnmentioned,
     },
     {
       id: "contracts",
       name: "Contracts moved",
       tag: "derived",
-      summary: input.contracts === null ? "none" : contractsSummary(input.contracts.counts, input.contracts.effectsChanged.length),
+      summary: qualifyUnread(input.contracts === null ? "none" : contractsSummary(input.contracts.counts, input.contracts.effectsChanged.length), input.unread.length),
       fill: fillContracts,
     },
     ...(tested

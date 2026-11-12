@@ -5,7 +5,7 @@ import { resourceKindOf } from "./effects.ts";
 import { isCodeNode, targetText } from "./graph.ts";
 import type { Graph, ModuleNode, NodeId, ResourceKind } from "./graph.ts";
 import type { ExportRadius } from "./importance.ts";
-import { exportNamesOf, exportRadiusOf } from "./importance.ts";
+import { exportNamesOf, exportRadiusOf, unknownRestOf } from "./importance.ts";
 import { effectParts } from "./review.ts";
 import { signatureSummary } from "./signature-change.ts";
 import type { TestChanges } from "./test-changes-types.ts";
@@ -28,6 +28,8 @@ export interface Blast {
   readonly count: number;
   /** The paths of the files that rest on the file, sorted. */
   readonly files: readonly string[];
+  /** Files that could not be fully read and may rest on it too: their imports are unknown, so the count is "at least". */
+  readonly unknown: number;
 }
 
 export interface RiskItem {
@@ -86,9 +88,13 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
    */
   const blastOf = (paths: readonly string[], basePaths: readonly string[] = [], of: readonly string[] | "all" = "all"): Blast => {
     const found = new Set<string>();
+    const maybe = new Set<string>();
     const add = (path: string, radius: ExportRadius, names: ReadonlyMap<NodeId, ModuleNode>): void => {
       const id = `file:${path}` as NodeId;
-      if (names.has(id)) for (const rest of radius(id, of)) found.add(names.get(rest)?.path ?? rest);
+      if (!names.has(id)) return;
+      const rests = radius(id, of);
+      for (const rest of rests) found.add(names.get(rest)?.path ?? rest);
+      for (const unread of unknownRestOf(names === headNodes ? head : base, id, rests)) maybe.add(names.get(unread)?.path ?? unread);
     };
     for (const path of paths) {
       add(path, headRadius, headNodes);
@@ -98,7 +104,8 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     // A moved file's old place: the files that rested on it there still do, or are broken by it.
     for (const path of basePaths) add(path, baseRadius, baseNodes);
     const files = [...found].sort(byText);
-    return { count: files.length, files };
+    const unknown = [...maybe].filter((path) => !found.has(path) && !paths.includes(path) && !basePaths.includes(path)).length;
+    return { count: files.length, files, unknown };
   };
   const fileOf = (owner: ModuleNode | undefined): ModuleNode | undefined => (owner === undefined ? undefined : headNodes.get(`file:${owner.path}` as NodeId));
   const demotes = (file: ModuleNode | undefined): boolean => file?.level === "file" && (file.role === "tests" || file.role === "generated");
@@ -168,8 +175,8 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
     if (change.node.level !== "file" || (change.kind !== "moved" && change.kind !== "removed")) continue;
     const old = change.kind === "moved" ? change.from : change.node;
     const blast = blastOf([change.node.path], [old.path]);
-    if (blast.count === 0) continue;
-    const files = `${blast.count} ${blast.count === 1 ? "file" : "files"}`;
+    if (blast.count === 0 && blast.unknown === 0) continue;
+    const files = `${blast.count} ${blast.count === 1 ? "file" : "files"}${blast.unknown > 0 ? ` (plus unknown via ${blast.unknown} unread)` : ""}`;
     items.push({
       kind: "contract",
       label: change.kind === "moved" ? `${change.node.path} moved from ${old.path}: ${files} ${blast.count === 1 ? "rests" : "rest"} on it` : `${old.path} removed: ${files} rested on it`,
@@ -200,7 +207,7 @@ export function risksOf(comparison: Comparison, base: Graph, head: Graph, tests:
       label: `${change.name} ${change.kind}`,
       detail: change.kind === "added" ? `${now} in ${change.path}` : change.kind === "removed" ? `was ${was} in ${change.path}` : `${was} → ${now} in ${change.path}`,
       path: change.path,
-      blast: { count: 0, files: [] },
+      blast: { count: 0, files: [], unknown: 0 },
       ids: [`file:${change.path}` as NodeId],
     });
   }

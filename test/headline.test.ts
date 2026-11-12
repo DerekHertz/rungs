@@ -4,7 +4,7 @@ import type { Comparison } from "../src/compare.ts";
 import type { ObservedDocument } from "../src/observed-types.ts";
 import type { TestChanges } from "../src/test-changes-types.ts";
 
-const none = { extractorVersion: "x", changes: [], effects: [], changedEffects: [], imports: [], sections: [], dependencies: [] } as unknown as Comparison;
+const none = { extractorVersion: "x", changes: [], effects: [], changedEffects: [], imports: [], sections: [], dependencies: [], unread: [] } as unknown as Comparison;
 const noTests = { deletedFiles: [], removedTests: [], renamed: [], markers: [], weakened: [] } as TestChanges;
 const change = (level: string, kind = "altered") => ({ kind, node: { level } });
 const ran = (pass: number, fail: number): ObservedDocument => ({ tier: "observed", tree: "t", status: "ran", counts: { pass, fail, skip: 0 } }) as unknown as ObservedDocument;

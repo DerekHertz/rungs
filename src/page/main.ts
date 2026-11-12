@@ -12,7 +12,7 @@ import { createTownView, loadSheet } from "./town-view.ts";
 import type { CameraState } from "./town-view.ts";
 import type { TownHandlers } from "./town-view.ts";
 import { townOf, withGhosts } from "../town.ts";
-import { importanceOf, reachedFrom } from "../importance.ts";
+import { importanceOf, possiblyReachedFrom, reachedFrom } from "../importance.ts";
 import type { WayIn } from "../importance.ts";
 import { insideOf, marksOf } from "../town-inside.ts";
 import { createTownInsideView } from "./town-inside-view.ts";
@@ -132,6 +132,7 @@ const waysIn = ((await (await fetch("/ways-in.json")).json()) as { waysIn: WayIn
 /** The files a comparison's base had and the head lacks: a ghost has no place in reach. */
 const ghostIds = new Set<NodeId>((comparison?.changes ?? []).flatMap((change) => (change.kind === "removed" && change.node.level === "file" ? [change.node.id] : change.kind === "moved" && change.from.level === "file" ? [change.from.id] : [])));
 const reachedByWays = new Set([...reachedFrom(picture.graph, waysIn.map((way) => way.id)), ...ghostIds]);
+const reachPossible = possiblyReachedFrom(picture.graph, waysIn.map((way) => way.id));
 const importance = importanceOf(picture.graph);
 
 const reaches = reachMap(picture);
@@ -180,7 +181,7 @@ const handlers: TownHandlers = {
 };
 const flagged = new Map<NodeId, TestMark>([...marksOfTests.files].map(([path, mark]) => [`file:${path}` as NodeId, mark] as const).filter(([id]) => nodes.has(id)));
 const townView = createTownView(stage, handlers, sheet, observedRun?.failingFiles, reaches, flagged);
-const hoverFor = hoverFacts({ nodes, ghostFiles, lots: () => lots, picture, importance, waysIn, reachedByWays, marks: marksOfTests, observedRun: () => observedRun });
+const hoverFor = hoverFacts({ nodes, ghostFiles, lots: () => lots, picture, importance, waysIn, reachedByWays, reachPossible, marks: marksOfTests, observedRun: () => observedRun, unread: new Map((comparison?.unread ?? []).map((file) => [file.path, file.side])) });
 const insideView = createTownInsideView(
     stage,
     {

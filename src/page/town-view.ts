@@ -7,6 +7,7 @@ import type { Reach } from "../reach.ts";
 import type { Placement, Plaque } from "../town-pick.ts";
 import type { Block, Lot, Pier, Town } from "../town.ts";
 import { EFFECT_COLOR } from "./palette.ts";
+import { UNREAD_EDGE, paintUnread } from "./unread-look.ts";
 
 /*
  * Draws a Town on a 2D canvas from the sprite sheet: every thing standing in the picture is a
@@ -498,7 +499,7 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
       // Lit buildings wait for a last pass, so nothing faded or named is drawn over them.
       if (isLit(thing)) continue;
       ctx.globalAlpha = dimming ? 0.4 : 1;
-      drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z);
+      paintUnread(ctx, thing.kind === "lot" && thing.part === "building" && thing.lot.unread, () => drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing.kind === "mark" ? undefined : thing, thing.Z));
       if (thing.kind === "lot" && thing.part === "moved-sign" && thing.lot.movedTo !== null) boardText(thing.lot.movedTo.path, thing.X, thing.Y);
       ctx.globalAlpha = 1;
     }
@@ -570,12 +571,12 @@ export function createTownView(host: HTMLElement, handlers: TownHandlers, sheet:
         // An altered file's name stands over its crane, where the change shows above the roofs.
         const at = lot.crane ? groundScreen(lot.X + CRANE_AT.X, lot.Y + CRANE_AT.Y, 8.9) : groundScreen(lot.X, lot.Y, 0);
         if (at.x < -200 || at.y < -100 || at.x > canvas.width + 200 || at.y > canvas.height + 200) continue;
-        pill(lot.name, at.x, lot.crane ? at.y : at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), lot.change === "altered" ? COLOUR.mark : COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.9, false, buildingOf.get(lot));
+        pill(lot.unread ? `? ${lot.name} (could not read)` : lot.name, at.x, lot.crane ? at.y : at.y + Math.round(30 * camera.zoom), Math.round(11 * dpr), lot.unread ? UNREAD_EDGE : lot.change === "altered" ? COLOUR.mark : COLOUR.pillEdge, 2 * LOT * AXIS * camera.zoom * 0.9, false, buildingOf.get(lot));
       }
     }
     // The lit buildings, last: above the faded ones and the names, at full strength with their wide outline.
     ctx.globalAlpha = 1;
-    for (const thing of things) if (isLit(thing)) drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing, thing.Z, true);
+    for (const thing of things) if (isLit(thing)) paintUnread(ctx, thing.kind === "lot" && thing.part === "building" && thing.lot.unread, () => drawSprite(thing.sprite, thing.X, thing.Y, outlineOf(thing), thing, thing.Z, true));
   }
 
   // Picking: the topmost sprite whose drawn pixel lies under the pointer, else the lot's ground.

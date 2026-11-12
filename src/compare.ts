@@ -9,6 +9,13 @@ import type { FilePair, SectionChange } from "./sections.ts";
 import type { ChangedEffect, EffectChange } from "./effects.ts";
 import type { CodeNode, ContainerNode, EffectEdge, FileNode, FileTree, Graph, ModuleNode, NodeId, TypeContract } from "./graph.ts";
 
+/** A file one side or both could not fully read, changed or not: nothing below it is compared, and every answer the review gives is of the files that could be read. */
+export interface UnreadFile {
+  readonly path: string;
+  /** Which side's parse reported syntax errors. */
+  readonly side: "base" | "head" | "both";
+}
+
 export type ChangeKind = "added" | "altered" | "removed" | "moved";
 
 type Body = FileNode | CodeNode;
@@ -41,6 +48,8 @@ export interface Comparison {
   readonly dependencies: readonly DependencyChange[];
   /** The changed package.json files (head paths) whose only change is inside the dependency lists; see onlyDependenciesChanged. Empty when `compare` was not given the file texts. */
   readonly dependencyOnlyManifests?: readonly string[];
+  /** The files a parse failed on (an unchanged one too, as both), sorted by path. Their code, contracts and calls are left out of every list above (see withholdUnread in src/readable.ts). */
+  readonly unread: readonly UnreadFile[];
 }
 
 export class ExtractorVersionMismatch extends Error {
@@ -76,7 +85,7 @@ const isBody = (node: ModuleNode): node is Body => node.level !== "package" && n
  * `trees` are the two sides' file texts. With them, `sections` lists the Markdown sections whose
  * lines changed; without them it is empty, because a graph holds no text.
  */
-export function compare(base: Graph, head: Graph, trees?: { readonly base: FileTree; readonly head: FileTree }): Comparison {
+export function compare(base: Graph, head: Graph, trees?: { readonly base: FileTree; readonly head: FileTree }, unread: readonly UnreadFile[] = []): Comparison {
   if (base.extractorVersion !== head.extractorVersion) {
     throw new ExtractorVersionMismatch(base.extractorVersion, head.extractorVersion);
   }
@@ -195,7 +204,7 @@ export function compare(base: Graph, head: Graph, trees?: { readonly base: FileT
       if (was !== undefined && now !== undefined && onlyDependenciesChanged(was, now, new Set(dependencies.filter((one) => one.path === change.node.path).map((one) => one.name)))) dependencyOnlyManifests.push(change.node.path);
     }
   }
-  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections, dependencies, dependencyOnlyManifests };
+  return { extractorVersion: head.extractorVersion, changes, effects: diffEffects(base, head, movedTo), changedEffects: changedEffects(base, head, movedTo), imports: diffImports(base, head, movedTo), sections, dependencies, dependencyOnlyManifests, unread };
 }
 
 export type ContractMoveKind = "changed" | "effects" | "added" | "removed" | "exposed" | "unexported" | "moved";
@@ -380,7 +389,7 @@ export function serializeComparison(comparison: Comparison): string {
   });
   const effects = comparison.effects.map((change) => ({ kind: change.kind, edge: canonicalEdge(change.edge), nth: change.nth }));
   const imports = comparison.imports.map((change) => ({ kind: change.kind, edge: canonicalImport(change.edge) }));
-  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports, sections: comparison.sections, dependencies: comparison.dependencies, dependencyOnlyManifests: comparison.dependencyOnlyManifests ?? [] }, null, 2)}\n`;
+  return `${JSON.stringify({ extractorVersion: comparison.extractorVersion, changes, effects, changedEffects: comparison.changedEffects, imports, sections: comparison.sections, dependencies: comparison.dependencies, dependencyOnlyManifests: comparison.dependencyOnlyManifests ?? [], unread: comparison.unread }, null, 2)}\n`;
 }
 
 export type Change = ChangeKind | "unchanged";

@@ -9,7 +9,7 @@ import { waysIn } from "../src/ways-in.ts";
 const tree = new Map<string, string>([
   ["package.json", JSON.stringify({ main: "main.js" })],
   ["main.js", 'import { a } from "./a.js";\nexport const m = a;\n'],
-  ["a.js", 'import { b } from "./b.js";\nimport type { T } from "./types.ts";\nexport const a = b;\n'],
+  ["a.js", 'import { b } from "./b.js";\nimport { T } from "./types.ts";\nexport const a = b;\n'],
   ["b.js", 'import { a } from "./a.js";\nexport const b = 1;\nexport const c = a;\n'],
   ["types.ts", "export type T = number;\n"],
   ["orphan.js", 'import { b } from "./b.js";\nexport const o = b;\n'],
