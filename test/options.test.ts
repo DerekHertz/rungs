@@ -104,6 +104,23 @@ test("--narrate and --renarrate need compare; --renarrate implies --narrate; nei
   expect(parseOptions(["--renarrate"])).toBe("--narrate needs compare: streets compare <base> --narrate");
 });
 
+test("setup takes a directory and an optional --base, and nothing that belongs to compare", () => {
+  expect(parseOptions(["setup"])).toMatchObject({ setup: true, dir: resolve("."), base: undefined });
+  expect(parseOptions(["setup", "some/dir", "--base", "origin/main"])).toMatchObject({ setup: true, dir: resolve("some/dir"), base: "origin/main" });
+  expect(parseOptions(["setup", "a", "b"])).toBe("expected at most one directory");
+  expect(parseOptions(["setup", "--judge"])).toMatch(/--judge needs compare/);
+  expect(parseOptions(["setup", "--link"])).toMatch(/--link needs compare/);
+  expect(parseOptions(["setup", "--walkthrough"])).toMatch(/--walkthrough needs compare/);
+  expect(parseOptions(["setup", "--pr", "3"])).toMatch(/--pr needs compare/);
+  // Nothing marks a bare run or a compare as setup.
+  expect(parseOptions(["compare", "main"])).not.toHaveProperty("setup");
+});
+
+test("--base needs setup: compare takes its base as an argument", () => {
+  expect(parseOptions(["compare", "main", "--base", "x"])).toMatch(/--base is for setup/);
+  expect(parseOptions(["--base", "x"])).toMatch(/--base is for setup/);
+});
+
 test("--judge turns judged checks on, and needs compare", () => {
   expect(parseOptions(["compare", "main", "--judge"])).toMatchObject({ judge: true });
   expect(parseOptions(["compare", "main"])).toMatchObject({ judge: false });

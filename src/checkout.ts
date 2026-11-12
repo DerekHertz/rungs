@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { lstat, mkdtemp, readFile, readlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
@@ -12,7 +12,22 @@ const execFileAsync = promisify(execFile);
  * or a hooks folder that lives in the PR's own files, and neither may run.
  */
 const SAFE = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"];
-const gitFile = (args: readonly string[], options: { cwd: string; maxBuffer: number; env?: NodeJS.ProcessEnv }) => execFileAsync("git", [...SAFE, ...args], { ...options, encoding: "utf8" });
+
+/** How a git command is run: the `-c` settings before it and the environment it gets. */
+interface GitMode {
+  readonly config: readonly string[];
+  readonly env: () => NodeJS.ProcessEnv;
+}
+const COMPARE_MODE: GitMode = { config: SAFE, env: () => process.env };
+/**
+ * For a read that must never leave the machine or run what a repository names: nothing is fetched
+ * (a promisor remote's lazy fetch is off, and no transport, `ext::` included, is allowed), on top
+ * of SAFE. `readBase` does not use it: it reads a checkout of a partial clone, which needs the
+ * lazy fetch.
+ */
+const OBJECTS_ONLY: GitMode = { config: [...SAFE, "-c", "protocol.allow=never", "-c", "protocol.ext.allow=never"], env: () => ({ ...process.env, GIT_NO_LAZY_FETCH: "1" }) };
+const gitFile = (args: readonly string[], options: { cwd: string; maxBuffer: number; env?: NodeJS.ProcessEnv }, mode: GitMode = COMPARE_MODE) =>
+  execFileAsync("git", [...mode.config, ...args], { ...options, env: options.env ?? mode.env(), encoding: "utf8" });
 
 export async function readCheckout(dir: string): Promise<FileTree> {
   const listed = await listFiles(dir);
@@ -126,7 +141,71 @@ export interface Base {
 
 export async function readBase(dir: string, ref: string): Promise<Base> {
   const prefix = await prefixOf(dir);
-  const commit = await mergeBase(dir, ref);
+  return readCommit(dir, await mergeBase(dir, ref), prefix);
+}
+
+/**
+ * What `ref` itself holds, not the merge base `readBase` finds: the tip of a branch. For what is
+ * stored once per repository rather than compared against a head. The files are read from git's
+ * objects as they are stored: no checkout, so no smudge filter, attribute-driven conversion or
+ * other program the repository's configuration names ever runs.
+ */
+export async function readRef(dir: string, ref: string): Promise<RefBase> {
+  const prefix = await prefixOf(dir, OBJECTS_ONLY);
+  const tip = await git(dir, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`], OBJECTS_ONLY);
+  if (tip === undefined) throw new BaseUnavailable("unknown-ref", `unknown base "${ref}": not a commit in ${dir}`);
+  const commit = tip.trim();
+  const entries = await listCommit(dir, commit, prefix, OBJECTS_ONLY);
+  const blobs = await readBlobs(dir, entries.map((entry) => entry.sha));
+  const tree = new Map<string, string>();
+  const unavailable: { path: string; sha: string }[] = [];
+  for (const entry of entries) {
+    const text = blobs.get(entry.sha);
+    if (text === undefined) unavailable.push({ path: entry.path, sha: entry.sha });
+    else tree.set(entry.path, text);
+  }
+  return { commit, tree, executable: executableOf(entries, tree), unavailable };
+}
+
+/** What `readRef` read. A file whose object this clone does not hold is in `unavailable`, never in `tree`: it was not fetched, and it is not empty. */
+export interface RefBase extends Base {
+  readonly unavailable: readonly { readonly path: string; /** The object's name, which says which version is missing. */ readonly sha: string }[];
+}
+
+const executableOf = (entries: readonly Entry[], tree: FileTree): ReadonlySet<string> => new Set(entries.filter((entry) => entry.executable && tree.has(entry.path)).map((entry) => entry.path));
+
+/** The text of each blob by its object name, from `git cat-file --batch`: the stored bytes, with no filter applied. A blob this clone lacks is left out, and git is not allowed to fetch it. */
+async function readBlobs(dir: string, shas: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(shas)];
+  const out = await new Promise<Buffer>((resolve, reject) => {
+    const child = spawn("git", [...OBJECTS_ONLY.config, "cat-file", "--batch"], { cwd: dir, env: OBJECTS_ONLY.env(), stdio: ["pipe", "pipe", "pipe"] });
+    const chunks: Buffer[] = [];
+    let err = "";
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => (err += chunk));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`cannot read the files of ${dir}: ${err.trim() || `git exited ${code}`}`))));
+    child.stdin.on("error", () => {});
+    child.stdin.end(unique.map((sha) => `${sha}\n`).join(""));
+  });
+  const blobs = new Map<string, string>();
+  let at = 0;
+  for (const sha of unique) {
+    const end = out.indexOf(0x0a, at);
+    const header = end < 0 ? [] : out.toString("utf8", at, end).split(" ");
+    if (header[0] === sha && header[1] === "missing") {
+      at = end + 1;
+      continue;
+    }
+    if (header[0] !== sha || header[1] !== "blob") throw new Error(`cannot read the files of ${dir}: git answered ${JSON.stringify(header.join(" "))} for ${sha}`);
+    const size = Number(header[2]);
+    blobs.set(sha, out.toString("utf8", end + 1, end + 1 + size));
+    at = end + 1 + size + 1;
+  }
+  return blobs;
+}
+
+async function readCommit(dir: string, commit: string, prefix: string): Promise<Base> {
   const entries = await listCommit(dir, commit, prefix);
   const tree = new Map<string, string>();
   await withCheckout(dir, commit, entries, async (root) => {
@@ -135,7 +214,7 @@ export async function readBase(dir: string, ref: string): Promise<Base> {
       if (text !== undefined) tree.set(entry.path, text);
     }
   });
-  return { commit, tree, executable: new Set(entries.filter((entry) => entry.executable && tree.has(entry.path)).map((entry) => entry.path)) };
+  return { commit, tree, executable: executableOf(entries, tree) };
 }
 
 interface Entry {
@@ -145,10 +224,12 @@ interface Entry {
   readonly full: string;
   /** Git's mode for the path is 100755. */
   readonly executable: boolean;
+  /** The blob's object name. */
+  readonly sha: string;
 }
 
-async function prefixOf(dir: string): Promise<string> {
-  const prefix = await git(dir, ["rev-parse", "--show-prefix"]);
+async function prefixOf(dir: string, mode: GitMode = COMPARE_MODE): Promise<string> {
+  const prefix = await git(dir, ["rev-parse", "--show-prefix"], mode);
   if (prefix === undefined) throw new BaseUnavailable("not-a-repository", `${dir} is not a git repository`);
   return prefix.replace(/\n$/, "");
 }
@@ -178,9 +259,9 @@ async function mergeBase(dir: string, ref: string): Promise<string> {
   throw new BaseUnavailable("no-common-history", `HEAD and "${ref}" share no history`);
 }
 
-async function git(dir: string, args: string[]): Promise<string | undefined> {
+async function git(dir: string, args: string[], mode: GitMode = COMPARE_MODE): Promise<string | undefined> {
   try {
-    return (await gitFile(args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
+    return (await gitFile(args, { cwd: dir, maxBuffer: 1 << 30 }, mode)).stdout;
   } catch (error) {
     if (typeof (error as { code?: unknown }).code === "number") return undefined;
     throw error;
@@ -188,11 +269,11 @@ async function git(dir: string, args: string[]): Promise<string | undefined> {
 }
 
 // Submodules (mode 160000) are skipped: readCheckout finds no file text for them either.
-async function listCommit(dir: string, commit: string, prefix: string): Promise<Entry[]> {
+async function listCommit(dir: string, commit: string, prefix: string, mode: GitMode = COMPARE_MODE): Promise<Entry[]> {
   let listed: string;
   try {
     const args = ["ls-tree", "-r", "-z", "--full-name", commit];
-    listed = (await gitFile(args, { cwd: dir, maxBuffer: 1 << 30 })).stdout;
+    listed = (await gitFile(args, { cwd: dir, maxBuffer: 1 << 30 }, mode)).stdout;
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr?.trim();
     throw new Error(`cannot list the files of ${commit} in ${dir}: ${stderr || (error as Error).message}`, {
@@ -203,10 +284,10 @@ async function listCommit(dir: string, commit: string, prefix: string): Promise<
   for (const record of listed.split("\0")) {
     const tab = record.indexOf("\t");
     if (tab < 0) continue;
-    const [mode, type] = record.slice(0, tab).split(" ");
+    const [mode, type, sha] = record.slice(0, tab).split(" ");
     if (type !== "blob") continue;
     const full = record.slice(tab + 1);
-    entries.push({ path: full.slice(prefix.length), full, executable: mode === "100755" });
+    entries.push({ path: full.slice(prefix.length), full, executable: mode === "100755", sha: sha! });
   }
   return entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }

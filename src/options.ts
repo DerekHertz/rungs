@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const USAGE = "usage: streets [dir] [--link] [--walkthrough] [--port <n>] [--no-open]   (no PR: lists the open PRs to pick from, through gh)\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]";
+export const USAGE = "usage: streets [dir] [--link] [--walkthrough] [--port <n>] [--no-open]   (no PR: lists the open PRs to pick from, through gh)\n       streets compare <base> [dir] [--description <file>|-] [--link] [--relink]\n         [--walkthrough] [--rewalk] [--narrate] [--renarrate] [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets compare --pr <n> [--link] [--relink] [--walkthrough] [--rewalk] [--narrate] [--renarrate]\n         [--run-tests|--run-tests-unsandboxed] [--judge] [--port <n>] [--no-open]\n       streets setup [dir] [--base <ref>]   (builds and stores the repository's vocabulary from its base; default: the default branch)";
 
 export interface Options {
   readonly dir: string;
@@ -32,6 +32,8 @@ export interface Options {
   readonly renarrate: boolean;
   /** Set by `--judge`: let judged checks send source text to TypeSafe's Jev. Off unless given. */
   readonly judge: boolean;
+  /** Set by `streets setup`: build and store the repository's vocabulary instead of serving a page. Absent otherwise. `base` is then `--base`. */
+  readonly setup?: true;
 }
 
 /** The options, or a one-line usage error. */
@@ -54,12 +56,15 @@ export function parseOptions(argv: readonly string[]): Options | string {
         narrate: { type: "boolean", default: false },
         renarrate: { type: "boolean", default: false },
         judge: { type: "boolean", default: false },
+        base: { type: "string" },
       },
     });
     const port = Number(values.port);
     if (!Number.isInteger(port) || port < 0 || port > 65535) return `invalid port: ${values.port}`;
     const comparing = positionals[0] === "compare";
-    const [base, ...rest] = comparing ? positionals.slice(1) : [undefined, ...positionals];
+    const setup = positionals[0] === "setup";
+    if (values.base !== undefined && !setup) return "--base is for setup: streets setup --base <ref> (compare takes its base as an argument)";
+    const [base, ...rest] = comparing ? positionals.slice(1) : setup ? [values.base, ...positionals.slice(1)] : [undefined, ...positionals];
     let pr: number | undefined;
     if (values.pr !== undefined) {
       pr = Number(values.pr);
@@ -80,8 +85,10 @@ export function parseOptions(argv: readonly string[]): Options | string {
     const narrate = values.narrate || values.renarrate;
     if (narrate && !comparing) return "--narrate needs compare: streets compare <base> --narrate";
     if (values.judge && !comparing) return "--judge needs compare: streets compare <base> --judge";
+    if (setup && link) return "--link needs compare: streets compare <base> --description <file> --link";
+    if (setup && walkthrough) return "--walkthrough needs compare: streets compare <base> --walkthrough";
     if (rest.length > 1) return "expected at most one directory";
-    return { dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, pr, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate, judge: values.judge };
+    return { ...(setup ? { setup: true as const } : {}), dir: resolve(rest[0] ?? "."), port, open: !values["no-open"], base, pr, description: values.description, link, relink: values.relink, tests, walkthrough, rewalk: values.rewalk, narrate, renarrate: values.renarrate, judge: values.judge };
   } catch (error) {
     return (error as Error).message;
   }

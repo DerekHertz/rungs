@@ -22,6 +22,7 @@ import type { Narrator, SnapshotInputs } from "./server.ts";
 import type { FileTree } from "./graph.ts";
 import { placesOf } from "./tour.ts";
 import { walkthrough } from "./walkthrough.ts";
+import { reportLines, setUp, vocabularyNotice } from "./setup.ts";
 import { judgedSource } from "./jev/source.ts";
 import type { Claim } from "./claims.ts";
 import type { Comparison } from "./compare.ts";
@@ -135,6 +136,9 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
         : options.description === "-"
           ? await text(process.stdin)
           : await readFile(options.description, "utf8");
+  // The comparison works without a vocabulary; this only says it is missing or built with other rules.
+  const notice = await vocabularyNotice(options.dir, cache);
+  if (notice !== undefined) console.error(`streets: ${notice}`);
   const link = options.link
     ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
         const candidates = candidatesOf(comparison, graph);
@@ -201,6 +205,17 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
   if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
   const inputs: SnapshotInputs = [against, description, link, walk, narrator, observed, from?.repo ?? basename(resolve(options.dir)), judged];
   return { tree, base, inputs };
+}
+
+if (options.setup) {
+  // The vocabulary is stored once per repository and no page is served, so the process ends here.
+  try {
+    for (const line of reportLines(await setUp({ dir: options.dir, cacheDir: cache, ...(options.base === undefined ? {} : { ref: options.base }) }))) console.log(line);
+    process.exit(0);
+  } catch (error) {
+    console.error(`streets: ${(error as Error).message}`);
+    process.exit(1);
+  }
 }
 
 try {

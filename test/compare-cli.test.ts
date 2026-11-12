@@ -96,6 +96,60 @@ test("an unknown base prints one line and exits 1", () => {
   expect(result.stderr).toMatch(/^streets: .*nope/);
 });
 
+function cacheEnv(): { cache: string; env: NodeJS.ProcessEnv } {
+  const cache = mkdtempSync(join(tmpdir(), "streets-cache-"));
+  scratch.push(cache);
+  return { cache, env: { ...process.env, XDG_CACHE_HOME: cache } };
+}
+
+test("setup stores the vocabulary and reports it; a second run says nothing was redone", () => {
+  const dir = repo('{ "description": "Checkout service for the shop" }\n');
+  const { cache, env } = cacheEnv();
+  const setup = () => spawnSync("node", [cli, "setup", "--base", "main"], { cwd: dir, encoding: "utf8", timeout: 30000, env });
+  const first = setup();
+  expect(first.status).toBe(0);
+  expect(first.stdout).toMatch(/streets setup: .*base main at [0-9a-f]{7}/);
+  expect(first.stdout).toMatch(/built from nothing/);
+  expect(first.stdout).toMatch(/terms: \d+/);
+  expect(first.stdout).toContain(join(cache, "systems-to-streets", "vocabulary"));
+  const second = setup();
+  expect(second.status).toBe(0);
+  expect(second.stdout).toMatch(/nothing redone/);
+  // The repository is left as it was: the same changes as repo() made, no vocabulary file.
+  expect(git(dir, "status", "--porcelain")).not.toMatch(/vocabulary/);
+});
+
+test("setup on a folder that is no repository fails in one line", () => {
+  const dir = mkdtempSync(join(tmpdir(), "streets-plain-"));
+  scratch.push(dir);
+  const result = run(["setup"], dir);
+  expect(result.status).toBe(1);
+  expect(result.stderr).toMatch(/^streets: .*not a git repository/);
+  expect(result.stderr.trim().split("\n")).toHaveLength(1);
+});
+
+test("compare says the vocabulary is missing, and goes on", async () => {
+  const dir = repo();
+  const { env } = cacheEnv();
+  const child = spawn("node", [cli, "compare", "main", "--no-open", "--port", "0"], { cwd: dir, env });
+  try {
+    let err = "";
+    child.stderr.on("data", (chunk) => (err += chunk));
+    await new Promise<void>((resolve, reject) => {
+      let out = "";
+      child.stdout.on("data", (chunk) => {
+        out += chunk;
+        if (out.split("\n").length >= 3) resolve();
+      });
+      child.on("error", reject);
+      child.on("exit", () => reject(new Error(`exited early: ${err}`)));
+    });
+    expect(err).toMatch(/streets: no vocabulary for this repository.*streets setup/);
+  } finally {
+    child.kill();
+  }
+});
+
 test("compare without a base is a usage error, exit 2", () => {
   const result = run(["compare"], repo());
   expect(result.status).toBe(2);
