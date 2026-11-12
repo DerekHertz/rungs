@@ -154,7 +154,8 @@ test("the tests have no network", async () => assert.rejects(fetch(${JSON.string
       [["no install script ever ran"], "pass"],
       [["the tests have no network"], "pass"],
     ]);
-    expect(registry.hits).toEqual(["/dep/-/dep-1.0.0.tgz"]);
+    // The head run and the control run each install: once for the PR's tree, once for main's, both with the network and nothing else.
+    expect(registry.hits).toEqual(["/dep/-/dep-1.0.0.tgz", "/dep/-/dep-1.0.0.tgz"]);
     expect(reached()).toBe(0);
   });
 });
@@ -333,6 +334,33 @@ test("a PR cannot swap the runner by changing its test script", async () => {
   head.set("evil.mjs", `process.exit(0);\n`);
   const run = await runTests(baseTree, head, new Set(), bwrap, 60_000);
   expect(run).toMatchObject({ status: "ran", exitCode: 1, reports: [{ file: "test/math.test.mjs", path: ["adds"], outcome: "fail" }] });
+});
+
+const ENV_TEST = `import { test } from "node:test";\ntest("needs a browser", () => { throw new Error("no browser in the sandbox"); });\n`;
+
+test("the control run runs the same base tests on the base's own code: what the PR broke is a regression, what fails there too is environment", async () => {
+  const base = new Map(baseTree);
+  base.set("test/env.test.mjs", ENV_TEST);
+  const head = new Map(base);
+  head.set("src/math.mjs", `export const add = (a, b) => a - b;\n`);
+  const stages: string[] = [];
+  const run = await runTests(base, head, new Set(), bwrap, 60_000, undefined, () => stages.push("control"));
+  expect(stages).toEqual(["control"]);
+  expect(run).toMatchObject({ status: "ran", control: { status: "ran", reports: expect.arrayContaining([expect.objectContaining({ file: "test/math.test.mjs", outcome: "pass" }), expect.objectContaining({ file: "test/env.test.mjs", outcome: "fail" })]) } });
+  const doc = document(run, head);
+  expect(doc).toMatchObject({ status: "ran", counts: { pass: 0, fail: 2, skip: 0 }, control: { status: "ran", counts: { regression: 1, environment: 1 } } });
+  const verdicts = doc.status === "ran" ? Object.values(doc.tests).flat().map((test) => [test.name, test.verdict]) : [];
+  expect(verdicts).toEqual(expect.arrayContaining([["adds", "regression"], ["needs a browser", "environment"]]));
+});
+
+test("a control run that cannot finish leaves the head run's failures with the reason, never a verdict", async () => {
+  const base = new Map(baseTree);
+  base.set("src/math.mjs", `export const add = () => { for (;;) {} };\n`);
+  const head = new Map(baseTree);
+  head.set("src/math.mjs", `export const add = (a, b) => a - b;\n`);
+  const run = await runTests(base, head, new Set(), bwrap, 4000);
+  expect(run).toMatchObject({ status: "ran", reports: [{ outcome: "fail" }], control: { status: "failed", why: expect.stringContaining("passed its limit") } });
+  expect(JSON.stringify(document(run, head))).not.toContain("regression");
 });
 
 test("a base test the PR deleted still runs against the PR's code, and is named as deleted", async () => {

@@ -1,4 +1,5 @@
 import type { ContractMoveKind } from "./compare.ts";
+import { runningText } from "./observed-types.ts";
 import type { ObservedDocument } from "./observed-types.ts";
 import { signatureDiff } from "./review.ts";
 import type { ContractRow, EffectGroup } from "./review.ts";
@@ -211,11 +212,16 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
   const changes = weakened > 0 ? `${weakened} weakened${observed === null ? " or removed" : ""}` : "";
   let run = "";
   if (observed !== null) {
-    if (observed.status === "running") run = "running tests…";
+    if (observed.status === "running") run = runningText(observed.stage);
     else if (observed.status === "ran") {
       const { pass, fail, skip } = observed.counts;
       const total = pass + fail + skip;
-      run = total === 0 ? "no results" : fail > 0 ? `${fail} fail of ${total}` : [pass > 0 ? `${pass} pass` : "", skip > 0 ? `${skip} skip` : ""].filter((part) => part !== "").join(" · ");
+      const { control } = observed;
+      const failed =
+        control.status !== "ran"
+          ? `${fail} fail of ${total} (no control run)`
+          : `${control.counts.regression > 0 ? `${control.counts.regression} ${control.counts.regression === 1 ? "regression" : "regressions"}` : "no regressions"}${control.counts.environment > 0 ? ` · ${control.counts.environment} environment` : ""} of ${total}`;
+      run = total === 0 ? "no results" : fail > 0 ? failed : [pass > 0 ? `${pass} pass` : "", skip > 0 ? `${skip} skip` : ""].filter((part) => part !== "").join(" · ");
     } else if (observed.status === "unreliable") run = "results unreliable";
     else if (observed.status === "failed") run = "run failed";
     else run = "not run";

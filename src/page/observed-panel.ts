@@ -1,6 +1,6 @@
 import type { NodeId } from "../graph.ts";
-import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "../observed-types.ts";
-import type { Counts, ObservedDocument, UnmatchedTest } from "../observed-types.ts";
+import { EVIDENCE_LINE, UNSANDBOXED_LINE, VERDICT_WORD, runningText } from "../observed-types.ts";
+import type { ControlDocument, Counts, ObservedDocument, UnmatchedTest } from "../observed-types.ts";
 import { failingHeading } from "../arrival.ts";
 import { unreliableText } from "../observed-report.ts";
 import type { FailingTest, FileResults, ObservedReport, WrittenReport } from "../observed-report.ts";
@@ -14,10 +14,17 @@ export interface ObservedInput {
   readonly report: ObservedReport | null;
 }
 
-const countsText = (counts: Counts): string =>
-  counts.pass + counts.fail + counts.skip === 0
+const countsText = (counts: Counts, environment = 0): string =>
+  counts.pass + counts.fail + counts.skip + environment === 0
     ? "no results"
-    : [counts.fail > 0 ? `${counts.fail} fail` : "", `${counts.pass} pass`, counts.skip > 0 ? `${counts.skip} skip` : ""].filter((part) => part !== "").join(" · ");
+    : [counts.fail > 0 ? `${counts.fail} fail` : "", `${counts.pass} pass`, counts.skip > 0 ? `${counts.skip} skip` : "", environment > 0 ? `${environment} environment` : ""].filter((part) => part !== "").join(" · ");
+
+/** What the control run says of the head run, for "About this run". */
+function controlText(control: ControlDocument): string {
+  if (control.status !== "ran") return `No control run: ${control.why}. The failures are main's tests failing against this PR, not known to be this PR's doing.`;
+  const { regression, environment, fixed } = control.counts;
+  return `The same tests also ran against main's own code, in ${control.seconds}s: ${regression} ${regression === 1 ? "regression" : "regressions"}, ${environment} environment (fail on main too), ${fixed} fixed.`;
+}
 
 /** The caveat that sits one hover or click from the Tests row. */
 export function observedNote(document: ObservedDocument): string {
@@ -32,8 +39,8 @@ export function observedAbout(observed: ObservedInput): [string, string][] {
   if (document.status === "ran") {
     const { pass, fail, skip } = document.counts;
     const where = document.sandbox === "bwrap" ? "in a sandbox with no network" : "unsandboxed";
-    notes.push(["Tests", `${pass + fail + skip} of main's tests ran once against this PR's code with node --test ${where}, in ${document.seconds}s: ${fail} fail, ${pass} pass, ${skip} skip. ${observedNote(document)}`]);
-  } else if (document.status === "running") notes.push(["Tests", "Main's tests are running once against this PR's code; this fills in when the run ends."]);
+    notes.push(["Tests", `${pass + fail + skip} of main's tests ran once against this PR's code with node --test ${where}, in ${document.seconds}s: ${fail} fail, ${pass} pass, ${skip} skip. ${controlText(document.control)} ${observedNote(document)}`]);
+  } else if (document.status === "running") notes.push(["Tests", document.stage === "control" ? "Main's tests ran against this PR's code and now run against main's own code (the control run); this fills in when it ends." : "Main's tests are running once against this PR's code; this fills in when the run ends."]);
   else if (document.status === "failed") notes.push(["Tests", `The node --test run failed after ${document.seconds}s: ${document.why}. ${observedNote(document)}`]);
   else if (document.status === "unreliable") notes.push(["Tests", `${unreliableText(document)} ${observedNote(document)}`]);
   else notes.push(["Tests", `Tests not run: ${document.why}.`]);
@@ -44,7 +51,7 @@ export function observedAbout(observed: ObservedInput): [string, string][] {
 export function observedBody(observed: ObservedInput, pickNode: (id: NodeId) => void): HTMLElement[] {
   const { document, report } = observed;
   const out: HTMLElement[] = [];
-  if (document.status === "running") return [element("p", "review-empty", "running tests…")];
+  if (document.status === "running") return [element("p", "review-empty", runningText(document.stage))];
   if (document.status !== "ran" && document.status !== "failed" && document.status !== "unreliable") {
     out.push(element("p", "review-warning", `Tests not run: ${document.why}.`));
     return out;
@@ -60,8 +67,10 @@ export function observedBody(observed: ObservedInput, pickNode: (id: NodeId) => 
   }
   if (report === null) return out;
 
-  out.push(element("h3", "review-subtitle", failingHeading(report.failing.length)));
+  if (document.control.status !== "ran") out.push(element("p", "review-warning", controlText(document.control)));
+  out.push(element("h3", "review-subtitle", failingHeading(report.failing.length, document.control.status === "ran")));
   out.push(list(report.failing.map((test) => failingRow(test, pickNode))));
+  if (document.control.status === "ran") out.push(...otherResults(report, document.control, pickNode));
 
   out.push(element("h3", "review-subtitle", `Test files this PR changed, with main's results (${report.files.length})`));
   if (report.files.length === 0) out.push(element("p", "review-empty", "No changed file is a test file or had a result."));
@@ -75,6 +84,27 @@ export function observedBody(observed: ObservedInput, pickNode: (id: NodeId) => 
   }
   if (report.written !== null) out.push(writtenBlock(report.written));
   return out;
+}
+
+/** The full list's rest, apart from the regressions: environment failures dimmed with their reason, fixed tests, and tests only one run reported or that were skipped. */
+function otherResults(report: ObservedReport, control: Extract<ControlDocument, { status: "ran" }>, pickNode: (id: NodeId) => void): HTMLElement[] {
+  const total = report.others.length + control.baseOnly.length;
+  if (total === 0) return [];
+  const more = element("details", "observed-unmatched");
+  more.append(element("summary", "review-subtitle", `Not this PR's doing, or not compared (${total}): environment, fixed, skipped, one-sided`));
+  more.append(
+    list([
+      ...report.others.map((test) => failingRow(test, pickNode, true)),
+      ...control.baseOnly.map((test) => {
+        const item = element("li", "review-row observed-loose observed-dim");
+        const text = element("span", "contract-text");
+        text.append(element("span", "review-label", test.name || "(the whole file)"), element("span", "contract-where", `${test.file} · ${VERDICT_WORD["base only"]}`));
+        item.append(outcomeMark(test.outcome), text);
+        return item;
+      }),
+    ]),
+  );
+  return [more];
 }
 
 /** What the tests this PR wrote or edited did. Claimed, never evidence: their author is the PR. */
@@ -138,21 +168,22 @@ function fileRow(file: FileResults, report: ObservedReport, pickNode: (id: NodeI
   const pick = pickButton(() => pickNode(file.id));
   pick.title = file.path;
   pick.classList.add("observed-file");
-  const state = file.counts.fail > 0 ? "fail" : file.counts.pass + file.counts.skip === 0 ? "none" : "pass";
+  const state = file.counts.fail > 0 ? "fail" : file.counts.pass + file.counts.skip + (file.environment ?? 0) === 0 ? "none" : "pass";
   pick.append(
     outcomeMark(state),
     element("span", "review-label", file.path),
     ...(report.deleted.includes(file.path) ? [element("span", "review-flag", "deleted by this PR")] : report.edited.includes(file.path) ? [element("span", "review-flag", "edited by this PR")] : []),
-    element("span", "review-size", countsText(file.counts)),
+    element("span", "review-size", countsText(file.counts, file.environment)),
   );
   item.append(pick);
   return item;
 }
 
-function failingRow(test: FailingTest, pickNode: (id: NodeId) => void): HTMLElement {
-  const item = element("li", "review-row");
+function failingRow(test: FailingTest, pickNode: (id: NodeId) => void, dim = false): HTMLElement {
+  const item = element("li", dim ? "review-row observed-dim" : "review-row");
   const detail = element("div", "rv-detail contract-text");
   detail.hidden = true;
+  if (test.verdict !== undefined) detail.append(element("span", "contract-where", VERDICT_WORD[test.verdict]));
   if (test.why !== undefined) detail.append(element("span", "contract-where", test.why));
   if (test.message !== undefined) detail.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
   const pick = pickButton(() => {

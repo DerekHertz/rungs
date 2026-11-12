@@ -261,7 +261,7 @@ function leaveInside(): void {
 
 let shownTown: Town | undefined;
 function drawLegend(): void {
-  if (shownTown !== undefined) showTownLegend(legend, shownTown, { comparison, observedRan: observed?.status === "ran", flagged, reaches });
+  if (shownTown !== undefined) showTownLegend(legend, shownTown, { comparison, observedRan: observed?.status === "ran", controlRan: observed?.status === "ran" && observed.control.status === "ran", flagged, reaches });
 }
 
 function showTown(): void {
@@ -824,11 +824,11 @@ followTestRun(pictureTree, observed, (document) => {
 /** A test function that failed in the run: what the runner gave of the failure, and the line its stack named marked in the source. */
 function showFailure(node: ModuleNode): void {
   const results = observed?.status === "ran" && isCodeNode(node) && node.level === "function" ? observed.tests[node.id] : undefined;
-  if (drawn === undefined || results === undefined || !isCodeNode(node)) {
+  if (drawn === undefined || results === undefined || !isCodeNode(node) || observed?.status !== "ran") {
     failurePane.hidden = true;
     return;
   }
   const shown = drawn;
-  const mark = renderFailure(failurePane, results, node.range, (line) => markFailedLine(sourceParts, shown, line));
+  const mark = renderFailure(failurePane, results, node.range, (line) => markFailedLine(sourceParts, shown, line), observed.control);
   markFailedLine(sourceParts, shown, mark);
 }

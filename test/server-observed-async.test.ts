@@ -30,14 +30,16 @@ afterAll(async () => {
 /** A run that stays open until the test settles it. */
 function controlled() {
   let settle: (value: TestRun | Error) => void = () => {};
+  let controlStage: () => void = () => {};
   const started = { count: 0 };
-  const start = (): Promise<TestRun> => {
+  const start = (onControl: () => void): Promise<TestRun> => {
+    controlStage = onControl;
     started.count += 1;
     return new Promise<TestRun>((resolve, reject) => (settle = (value) => (value instanceof Error ? reject(value) : resolve(value))));
   };
-  return { start, settle: (value: TestRun | Error) => settle(value), started };
+  return { start, settle: (value: TestRun | Error) => settle(value), started, control: () => controlStage() };
 }
-const open = async (tests?: TestRun | (() => Promise<TestRun>)) => {
+const open = async (tests?: TestRun | ((onControl: () => void) => Promise<TestRun>)) => {
   const server = await serve(head, 0, against, undefined, undefined, undefined, undefined, tests);
   servers.push(server);
   return server;
@@ -56,17 +58,35 @@ test("the page is served while /observed.json says running; the finished documen
   const control = controlled();
   const server = await open(control.start);
   expect((await fetch(server.url)).status).toBe(200);
-  expect(await observed(server)).toEqual({ tier: "observed", tree: treeDigest(head), status: "running" });
+  expect(await observed(server)).toEqual({ tier: "observed", tree: treeDigest(head), status: "running", stage: "tests" });
   expect(control.started.count).toBe(1);
   control.settle(run);
   expect(await finished(server)).toEqual(observedDocument(run, extract(head), treeDigest(head)));
   expect(control.started.count).toBe(1);
 });
 
+test("once the head run is done the document says the control run is running, with nothing else, until the whole run ends", async () => {
+  const control = controlled();
+  const server = await open(control.start);
+  control.control();
+  expect(await observed(server)).toEqual({ tier: "observed", tree: treeDigest(head), status: "running", stage: "control" });
+  control.settle({ ...run, control: { status: "ran", seconds: 2, reports: [{ file: "test/a.test.mjs", path: ["works"], outcome: "pass", ms: 1 }] } });
+  const done = await finished(server);
+  expect(done).toMatchObject({ status: "ran", control: { status: "ran", counts: { regression: 1 } } });
+});
+
+test("a control run that stops leaves the head run's failures with the reason, not a verdict", async () => {
+  const control = controlled();
+  const server = await open(control.start);
+  control.control();
+  control.settle({ ...run, control: { status: "stopped", why: "the control run stopped: boom" } });
+  expect(await finished(server)).toMatchObject({ status: "ran", control: { status: "stopped", why: "the control run stopped: boom" } });
+});
+
 test("a run that throws leaves the server up and the tests not run, with the reason", async () => {
   const control = controlled();
   const server = await open(control.start);
-  expect(await observed(server)).toMatchObject({ status: "running" });
+  expect(await observed(server)).toMatchObject({ status: "running", stage: "tests" });
   control.settle(new Error("the sandbox fell over"));
   expect(await finished(server)).toEqual({ tier: "observed", tree: treeDigest(head), status: "stopped", why: "the test run stopped: the sandbox fell over" });
   expect((await fetch(server.url)).status).toBe(200);

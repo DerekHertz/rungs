@@ -1,7 +1,8 @@
 import type { FailureView } from "../failure-view.ts";
 import { failureView } from "../failure-view.ts";
 import type { LineRange } from "../graph.ts";
-import type { ObservedTest } from "../observed-types.ts";
+import { VERDICT_WORD } from "../observed-types.ts";
+import type { ControlDocument, ObservedTest } from "../observed-types.ts";
 import type { CodeParts, Drawn } from "./code-rows.ts";
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {
@@ -50,19 +51,27 @@ function draw(view: FailureView, onLine: (line: number) => void): HTMLElement[] 
   return parts;
 }
 
+/** Says whether the failure is the change's: a regression, main's own, or not known for want of a control run. */
+export function failureHeading(test: ObservedTest, control: ControlDocument): string {
+  if (control.status !== "ran") return `Failed when main's tests ran against this change (observed; no control run: ${control.why})`;
+  if (test.verdict === "regression") return "Regression: passes on main, fails with this change (observed)";
+  if (test.verdict === "environment") return "Environment: fails on main too, so not this change's doing (observed)";
+  return `Failed when main's tests ran against this change, not compared with main (${VERDICT_WORD[test.verdict ?? "unclear"]})`;
+}
+
 /**
  * What the run produced of the failures of the open test function, in the pane above its source:
  * the runner's message, the assertion's expected and actual side by side, and the line its stack
  * named; hidden when the test did not fail. Returns the line to mark in the source, when there is one.
  */
-export function renderFailure(pane: HTMLElement, tests: readonly ObservedTest[], range: LineRange, onLine: (line: number) => void): number | undefined {
+export function renderFailure(pane: HTMLElement, tests: readonly ObservedTest[], range: LineRange, onLine: (line: number) => void, control: ControlDocument): number | undefined {
   const failed = tests.filter((test) => test.outcome === "fail");
   pane.replaceChildren();
   pane.hidden = failed.length === 0;
   let mark: number | undefined;
   for (const test of failed) {
     const view = failureView(test, range);
-    pane.append(element("div", "failure-heading", "Failed when main's tests ran against this change (observed)"), ...draw(view, onLine));
+    pane.append(element("div", "failure-heading", failureHeading(test, control)), ...draw(view, onLine));
     if (view.kind === "detailed" && view.mark !== undefined) mark ??= view.mark;
   }
   return mark;

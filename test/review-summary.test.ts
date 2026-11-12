@@ -122,9 +122,15 @@ test("no description means unmentioned is not checked, never nothing", () => {
 });
 
 test("the tests row says fail of total, or why there is no run", () => {
-  const ran = { tier: "observed", tree: "t", status: "ran", counts: { pass: 187, fail: 23, skip: 0 } } as const;
-  expect(testsSummary(ran as never, 0)).toBe("23 fail of 210");
-  expect(testsSummary({ tier: "observed", tree: "t", status: "running" }, 0)).toBe("running tests…");
+  const noControl = { status: "failed", why: "x" } as const;
+  const ran = { tier: "observed", tree: "t", status: "ran", counts: { pass: 187, fail: 23, skip: 0 }, control: noControl } as const;
+  expect(testsSummary(ran as never, 0)).toBe("23 fail of 210 (no control run)");
+  const counts = { regression: 2, environment: 21, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 0 };
+  const controlled = { ...ran, control: { status: "ran", seconds: 1, counts, baseOnly: [] } };
+  expect(testsSummary(controlled as never, 0)).toBe("2 regressions · 21 environment of 210");
+  expect(testsSummary({ ...controlled, control: { ...controlled.control, counts: { ...counts, regression: 0, environment: 23 } } } as never, 0)).toBe("no regressions · 23 environment of 210");
+  expect(testsSummary({ tier: "observed", tree: "t", status: "running", stage: "control" }, 0)).toBe("running the control run…");
+  expect(testsSummary({ tier: "observed", tree: "t", status: "running", stage: "tests" }, 0)).toBe("running tests…");
   expect(testsSummary({ tier: "observed", tree: "t", status: "stopped", why: "x" }, 0)).toBe("not run");
   expect(testsSummary({ ...ran, counts: { pass: 5, fail: 0, skip: 1 } } as never, 0)).toBe("5 pass · 1 skip");
   expect(testsSummary({ ...ran, counts: { pass: 0, fail: 0, skip: 10 } } as never, 0)).toBe("10 skip");
@@ -132,7 +138,7 @@ test("the tests row says fail of total, or why there is no run", () => {
   expect(testsSummary({ tier: "observed", tree: "t", status: "unreliable" } as never, 0)).toBe("results unreliable");
   expect(testsSummary({ ...ran, status: "failed" } as never, 0)).toBe("run failed");
   expect(testsSummary(null, 3)).toBe("3 weakened or removed");
-  expect(testsSummary(ran as never, 3)).toBe("23 fail of 210 · 3 weakened");
+  expect(testsSummary(ran as never, 3)).toBe("23 fail of 210 (no control run) · 3 weakened");
 });
 
 test("the empty state of new calls out never says none while an agent-only call is counted", () => {

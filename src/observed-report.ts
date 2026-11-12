@@ -1,8 +1,9 @@
 import type { ChangeKind, Comparison } from "./compare.ts";
 import type { Graph, NodeId } from "./graph.ts";
-import type { Counts, ObservedDocument } from "./observed-types.ts";
+import { countsAsFailing } from "./observed-types.ts";
+import type { Counts, ObservedDocument, ObservedTest, RanObserved, Verdict } from "./observed-types.ts";
 
-export type RanDocument = Extract<ObservedDocument, { status: "ran" }>;
+export type RanDocument = RanObserved;
 
 /**
  * A test file of the base and how main's tests in it went against the head, all zero when none of
@@ -13,6 +14,8 @@ export interface FileResults {
   readonly path: string;
   readonly change: ChangeKind;
   readonly counts: Counts;
+  /** Failures that also happen on main's code (environment), when there are any: not counted in `counts.fail`. */
+  readonly environment?: number;
 }
 
 /** What the tests this PR wrote or edited came to. They are the PR's claim, never evidence. */
@@ -28,6 +31,8 @@ export interface FailingTest {
   readonly message?: string;
   /** Why the test is not attached to a test function, when it is not. */
   readonly why?: string;
+  /** Against the control run; absent when there is none. */
+  readonly verdict?: Verdict;
 }
 
 export interface ObservedReport {
@@ -37,8 +42,12 @@ export interface ObservedReport {
   readonly deleted: readonly string[];
   readonly edited: readonly string[];
   readonly written: WrittenReport | null;
-  /** Attached ones in the order they ran, then the unattached. */
+  /** The failures held against the PR: regressions when the control run gave results, else every failure of the head run. Attached ones in the order they ran, then the unattached. */
   readonly failing: readonly FailingTest[];
+  /** What else the head run reported that is not a pass: environment failures, fixed, skipped and one-sided tests. Empty without a control run. The full list is `failing` and these. */
+  readonly others: readonly FailingTest[];
+  /** Whether the control run gave results; else why not, and `failing` is the head run's failures labelled so. */
+  readonly control: { readonly status: "ran" } | { readonly status: string; readonly why: string };
   /** The files holding a failing test, which the picture marks. */
   readonly failingFiles: ReadonlySet<NodeId>;
 }
@@ -50,25 +59,31 @@ export function observedReport(document: RanDocument, graph: Graph, comparison: 
   const paths = new Map(graph.nodes.map((node) => [node.id, node.path]));
   // The old path of a moved file (and its functions) is a place of the picture (rubble) that only the base had: its tests ran there.
   for (const change of comparison.changes) if (change.kind === "moved") paths.set(change.from.id, change.from.path);
-  const counts = new Map<string, { pass: number; fail: number; skip: number }>();
-  const tally = (path: string, outcome: keyof Counts) => {
-    const count = counts.get(path) ?? { pass: 0, fail: 0, skip: 0 };
-    count[outcome] += 1;
+  const counts = new Map<string, { pass: number; fail: number; skip: number; environment: number }>();
+  const { control } = document;
+  const tally = (path: string, test: ObservedTest) => {
+    const count = counts.get(path) ?? { pass: 0, fail: 0, skip: 0, environment: 0 };
+    if (test.outcome === "fail" && !countsAsFailing(control, test)) {
+      if (test.verdict === "environment") count.environment += 1;
+    } else count[test.outcome] += 1;
     counts.set(path, count);
   };
   const failing: FailingTest[] = [];
+  const others: FailingTest[] = [];
+  const sort = (test: ObservedTest, row: FailingTest) => {
+    if (countsAsFailing(control, test)) failing.push(row);
+    else if (test.outcome === "fail" || (test.verdict !== undefined && test.verdict !== "passes")) others.push(row);
+  };
   for (const [id, results] of Object.entries(document.tests)) {
     const file = paths.get(id as NodeId) ?? "";
     for (const result of results) {
-      tally(file, result.outcome);
-      if (result.outcome === "fail") failing.push({ id: id as NodeId, file, name: result.name, ...(result.message ? { message: result.message } : {}) });
+      tally(file, result);
+      sort(result, { id: id as NodeId, file, name: result.name, ...(result.message ? { message: result.message } : {}), ...(result.verdict ? { verdict: result.verdict } : {}) });
     }
   }
   for (const result of document.unmatched) {
-    tally(result.file, result.outcome);
-    if (result.outcome === "fail") {
-      failing.push({ id: fileId(result.file), file: result.file, name: result.name, ...(result.message ? { message: result.message } : {}), why: result.why });
-    }
+    tally(result.file, result);
+    sort(result, { id: fileId(result.file), file: result.file, name: result.name, ...(result.message ? { message: result.message } : {}), why: result.why, ...(result.verdict ? { verdict: result.verdict } : {}) });
   }
   const deleted = new Set(document.deleted);
   const files: FileResults[] = [];
@@ -77,12 +92,14 @@ export function observedReport(document: RanDocument, graph: Graph, comparison: 
     if (node.level !== "file" || (change.kind === "removed" && !deleted.has(node.path))) continue;
     const count = counts.get(node.path);
     if (count === undefined && node.role !== "tests") continue;
-    files.push({ id: node.id, path: node.path, change: change.kind, counts: count ?? { pass: 0, fail: 0, skip: 0 } });
+    const { environment, ...own } = count ?? { pass: 0, fail: 0, skip: 0, environment: 0 };
+    files.push({ id: node.id, path: node.path, change: change.kind, counts: own, ...(environment > 0 ? { environment } : {}) });
   }
   const rank = (file: FileResults) => (file.counts.fail > 0 ? 0 : file.counts.pass + file.counts.skip === 0 ? 1 : 2);
   files.sort((a, b) => rank(a) - rank(b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const failingFiles = new Set(failing.map((test) => fileId(test.file)).filter((id) => paths.has(id)));
-  return { files, deleted: document.deleted, edited: document.edited, written: writtenReport(document.written), failing, failingFiles };
+  const how = control.status === "ran" ? ({ status: "ran" } as const) : { status: control.status, why: control.why };
+  return { files, deleted: document.deleted, edited: document.edited, written: writtenReport(document.written), failing, others, control: how, failingFiles };
 }
 
 function writtenReport(written: RanDocument["written"]): WrittenReport | null {

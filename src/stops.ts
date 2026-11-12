@@ -2,7 +2,7 @@ import type { Comparison, ContractMove } from "./compare.ts";
 import { effectLabel } from "./effects.ts";
 import { isCodeNode } from "./graph.ts";
 import type { Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
-import type { Outcome, ObservedDocument } from "./observed-types.ts";
+import type { Outcome, ObservedDocument, Verdict } from "./observed-types.ts";
 import { WITHHELD, promptTarget } from "./prompt-safe.ts";
 import { ROLLUP_OVER, effectChip, effectParts } from "./review.ts";
 import type { TestChanges } from "./test-changes-types.ts";
@@ -18,6 +18,8 @@ export interface StopTest {
   readonly message?: string;
   /** Why the result is attached to the file and not to a test function, when it is. */
   readonly why?: string;
+  /** Against the control run: only a regression is the PR's doing. Absent when there is no control run. */
+  readonly verdict?: Verdict;
 }
 
 /**
@@ -29,11 +31,13 @@ export interface StopTest {
 export type Observed =
   | { readonly status: "not run"; readonly changes: readonly string[] }
   /** The run is still going: nothing is known yet, and nothing is counted as passing or failing. */
-  | { readonly status: "running"; readonly changes: readonly string[] }
+  | { readonly status: "running"; readonly stage: "tests" | "control"; readonly changes: readonly string[] }
   | { readonly status: "refused" | "unsupported" | "stopped" | "failed" | "unreliable"; readonly why: string; readonly unsandboxed: boolean; readonly changes: readonly string[] }
   | {
       readonly status: "ran";
       readonly unsandboxed: boolean;
+      /** Why the control run gave no results, so the failures here are the head run's, not known to be the PR's doing. */
+      readonly noControl?: string;
       readonly results: readonly StopTest[];
       readonly written: readonly StopTest[];
       /** The PR's own tests covering this stop gave no results: claimed, with why. */
@@ -43,12 +47,13 @@ export type Observed =
 
 export const NOT_RUN: Observed = { status: "not run", changes: [] };
 
-const asResult = ({ file, name, outcome, message, why }: StopTest): StopTest => ({
+const asResult = ({ file, name, outcome, message, why, verdict }: StopTest): StopTest => ({
   file,
   name,
   outcome,
   ...(message ? { message } : {}),
   ...(why ? { why } : {}),
+  ...(verdict ? { verdict } : {}),
 });
 
 /**
@@ -82,7 +87,7 @@ export function observedAt(stop: Stop, graph: Graph, comparison: Comparison, doc
   for (const test of testChanges.weakened) if (files.has(test.file)) changes.push(`${test.name} weakened: ${test.why}`);
 
   if (document === null) return { status: "not run", changes };
-  if (document.status === "running") return { status: "running", changes };
+  if (document.status === "running") return { status: "running", stage: document.stage, changes };
   if (!("sandbox" in document)) return { status: document.status, why: document.why, unsandboxed: false, changes };
   const unsandboxed = document.sandbox === "unsandboxed";
   if (document.status !== "ran") return { status: document.status, why: document.why, unsandboxed, changes };
@@ -100,6 +105,7 @@ export function observedAt(stop: Stop, graph: Graph, comparison: Comparison, doc
   return {
     status: "ran",
     unsandboxed,
+    ...(document.control.status === "ran" ? {} : { noControl: document.control.why }),
     results,
     written,
     ...(covered ? { writtenProblem: { status: run.status, why: run.why } } : {}),

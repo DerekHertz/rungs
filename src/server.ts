@@ -106,7 +106,7 @@ interface Resource {
  * observed fact attached to the graph's test functions by id and keyed by the tree's digest, kept
  * apart from the graph and the comparison.
  * `tests` may be a function that starts the run: the server then listens at once, `/observed.json` is
- * `running` until the run ends, and a run that throws leaves the tests `stopped` with why (never zero failures).
+ * `running` until the run ends (at stage `control` once the head run is done), and a run that throws leaves the tests `stopped` with why (never zero failures).
  *
  * Given `narrator` (and so `base`), narration is on offer: `GET /narrate.json` lists the
  * functions of "contracts moved" being narrated ahead of time, in the background after the server
@@ -138,7 +138,7 @@ export type SnapshotInputs = [
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
   walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
   narrator?: Narrator,
-  tests?: TestRun | (() => Promise<TestRun>),
+  tests?: TestRun | ((onControl: () => void) => Promise<TestRun>),
   repo?: string,
   judged?: JudgedSource,
 ];
@@ -160,7 +160,7 @@ export async function createSnapshot(
   link?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<LinkOutcome>,
   walk?: (comparison: Comparison, claims: readonly Claim[], graph: Graph) => Promise<TourOutcome>,
   narrator?: Narrator,
-  tests?: TestRun | (() => Promise<TestRun>),
+  tests?: TestRun | ((onControl: () => void) => Promise<TestRun>),
   repo?: string,
   judged?: JudgedSource,
 ): Promise<Snapshot> {
@@ -300,7 +300,7 @@ export async function createSnapshot(
   const observedAs = (document: ObservedDocument): void => {
     resources.set("/observed.json", { contentType: "application/json; charset=utf-8", body: `${JSON.stringify(document, null, 2)}\n` });
   };
-  if (typeof tests === "function") observedAs({ tier: "observed", tree: treeDigest(tree), status: "running" });
+  if (typeof tests === "function") observedAs({ tier: "observed", tree: treeDigest(tree), status: "running", stage: "tests" });
   else if (tests !== undefined) observedAs(observedDocument(tests, graph, treeDigest(tree)));
 
   function sourceOf(id: string | null): string | undefined {
@@ -447,7 +447,7 @@ export async function createSnapshot(
       if (judgeSubject !== undefined) judging = beginJudging(judged, judgeSubject);
       // The run starts once the server listens; a run that throws leaves the server up and the tests stopped.
       if (typeof tests === "function") {
-        Promise.resolve().then(tests).then(
+        Promise.resolve().then(() => tests(() => observedAs({ tier: "observed", tree: treeDigest(tree), status: "running", stage: "control" }))).then(
           (run) => observedAs(observedDocument(run, graph, treeDigest(tree))),
           (error: unknown) => observedAs({ tier: "observed", tree: treeDigest(tree), status: "stopped", why: `the test run stopped: ${error instanceof Error ? error.message : String(error)}` }),
         );
