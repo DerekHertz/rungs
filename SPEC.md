@@ -48,8 +48,8 @@ Each level is computed from the one below it. Only the graph is stored; the rest
    and can never create or change one. The tiers are stored apart and drawn differently.
 3. **Nothing is drawn that is not a fact.** A theme may style a fact but may not add an object.
 4. **Lazy.** Pseudocode, narration and call edges are computed when a view needs them.
-5. **Never guess.** An unresolved call, an effect with an unknown target and a file with no
-   language adapter are each shown as exactly that.
+5. **Never guess.** An unresolved call, an effect with an unknown target, a file with no
+   language adapter and a file whose parse reports syntax errors are each shown as exactly that.
 
 ## The graph
 
@@ -57,6 +57,12 @@ Each level is computed from the one below it. Only the graph is stored; the rest
   external resources (network, process, file system, queue, timer, and code loaded at run time).
   Code loaded at run time is a `require` or `import()` whose target is not a literal, or a
   `createRequire`.
+- **Analysis** of a file is analysed, not analysed (no language adapter) or not fully read (the
+  parse reported syntax errors; type errors do not count). A file not fully read stays a building,
+  drawn apart, with no code nodes, contract, effects or imports. When either side of a comparison
+  cannot be fully read, nothing under the file is compared on either side, and the review lists it
+  as could not read. Reach, radius and every "none" that could depend on an unread file are
+  qualified ("at least N, plus unknown via unread files"), never stated as 0 or none.
 - **Sections:** a Markdown file has one section per heading, nested by heading level and pinned to
   its lines. A section has a name and lines, and no edges.
 - **Dependencies** are what `package.json` declares in `dependencies`, `devDependencies`,
@@ -129,6 +135,13 @@ Anything shown can be clicked through to the source lines that produced it.
 
 A comparison between two trees is an overlay on the picture, switched on by default for a pull
 request.
+
+**Headline.** The page opens on one headline strip under the top bar, built only from derived
+facts: files and code units new, altered, removed and moved (a kind only when above 0), calls added
+or removed, calls whose arguments changed, imports added or removed, dependencies changed, tests
+removed, and how main's tests ran. A fact that could not be read is left out or said to be unknown,
+never shown as 0. The strip stays on one line with an ellipsis and the full text as its hover
+title. It never states a claim or a judgment.
 
 **Comparison.** Under `streets compare <base>`, a changed file is one of four kinds: added,
 altered, removed or moved. Moved means identical text under a new path, never a guess.
@@ -229,11 +242,24 @@ single test function matches is listed, never dropped. With no sandbox the run i
 page says so, unless `--run-tests-unsandboxed` is given; its results are then labelled "ran without
 a sandbox: as trustworthy as the PR's author".
 
+With `--run-tests` the server listens before the run is done. `/observed.json` reads `running`
+until the run ends, and the page shows the Tests row, the opening view's tests entry, the headline
+and each stop's observed column as "running tests…", never as a count or as zero failures. When the
+run ends the page fills in the results and the failing marks without moving the camera. A run that
+throws, one the page can no longer read, or one from another tree reads `stopped` and is shown as
+"not run" with the reason; the server stays up.
+
 **Walkthrough.** On request, an agent tours the change as an ordered list of stops. A stop points
 at changed modules of the comparison, names the claims it says it fulfils, and narrates in
 sentences, each anchored to lines of one of its modules. Whatever points nowhere is dropped and
-counted. The agent sees names, signatures, line ranges and effect labels, never source text. At
-each stop the reviewer reads four things side by side: what the description expects (claimed),
+counted. The agent sees names, signatures, line ranges and effect labels, never source text. A
+label's target is cut to what names it: a network target to its scheme and host, a process target
+to the command's name, a file-system target to the file's name; a target that has a secret's shape,
+or is not a plain name, is shown as "withheld". Literals inside names and computed member names are
+shown as "…", and ids, signatures and targets are length-capped; the agent's answers are mapped
+back to the real ids by code. File paths, function names and the PR description still reach the
+agent: they are untrusted text, and code, not the agent, decides what is unmentioned. The page
+shows the full targets to the local user. At each stop the reviewer reads four things side by side: what the description expects (claimed),
 what the agent says (claimed), the source lines with the contract moves and new effect edges there
 (derived), and what a run recorded (observed, "not run" until one is). What the narration leaves
 out of the derived facts is noted by code, never by the agent.
@@ -249,7 +275,9 @@ and stays in its count; nothing judged ever removes a derived fact. Clicking a j
 the question, what the classifier was shown and its answer. A check ships only after a test on
 known cases, and its rate of wrong passes is shown beside it. Without a classifier the page shows
 "not judged". Judged checks send source text to a hosted model and are off unless the reviewer
-turns them on.
+turns them on. With `--judge` the server listens before any call to the model; `/judged.json` reads
+pending until done, and claim marks fill in. A gate's settled marks are trusted only when its newest
+committed bench result meets the bar.
 
 ## Seams
 
@@ -282,6 +310,16 @@ A local command builds or updates the graph for the checkout it runs in. A secon
 against a base. Both open a local page. Agents call the same commands and cannot write to the
 graph. `streets setup` builds a repository's vocabulary and stakes once, and stores them with the
 cache.
+
+`streets compare --pr N` compares a pull request, read through the reviewer's own `gh` login. With
+no PR and no base, the page lists the repository's open pull requests; picking one draws exactly
+what `streets compare --pr N` draws, from a scratch worktree under the cache directory that is
+removed when the PR is switched or the server stops. Every git call on that worktree runs with
+hooks and fsmonitor off. A picked PR never runs tests. When `gh` cannot answer, the picker says so
+in one line and shows no list; an unknown list is never an empty one. "No longer open" is shown
+only when gh says so. The page checks whether the PR's head moved on focus and every few minutes;
+an unreadable answer shows "could not check", never "no new commits". A page never mixes two pull
+requests' answers: a stale tab reloads.
 
 ## Parked
 
