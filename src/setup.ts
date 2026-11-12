@@ -4,6 +4,7 @@ import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promis
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { readRef } from "./checkout.ts";
+import type { RefBase } from "./checkout.ts";
 import { EXTRACTOR_VERSION, digestOf, extract } from "./extract/extract.ts";
 import type { FileTree } from "./graph.ts";
 import { looksSecret } from "./prompt-safe.ts";
@@ -118,10 +119,19 @@ async function defaultRef(dir: string): Promise<string> {
 
 const fileFor = (cacheDir: string, key: string): string => join(cacheDir, "vocabulary", `${key}.json`);
 
-/** A path as it is stored: itself, or a stable stand-in when a part of it is shaped like a secret. */
+const standIn = (text: string): string => `withheld:${createHash("sha256").update(text).digest("hex").slice(0, 12)}`;
+
+/**
+ * A path as it is stored: itself, or a stable stand-in when a part of it is shaped like a secret.
+ * A stand-in starts with "/", which no path in a git tree can, so it is never the same key as a
+ * file that is really named "withheld:...".
+ */
 export function storedPath(path: string): string {
-  return path.split("/").some(looksSecret) ? `withheld:${createHash("sha256").update(path).digest("hex").slice(0, 12)}` : path;
+  return path.split("/").some(looksSecret) ? `/${standIn(path)}` : path;
 }
+
+/** A ref as it is stored and printed: itself, or a stand-in when a part of it is shaped like a secret. */
+const storedRef = (ref: string): string => (ref.split("/").some(looksSecret) ? standIn(ref) : ref);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isCount = (value: unknown): boolean => typeof value === "number" && Number.isInteger(value) && value >= 0;
@@ -199,10 +209,22 @@ async function readStored(file: string): Promise<Previous> {
 }
 
 /** The base's files as stored: stored path to the digest of its text. A Map, since a path may be named like a property of an object ("__proto__", "constructor"). */
-function digestsOf(tree: FileTree): Map<string, string> {
+function digestsOf(tree: FileTree, unavailable: RefBase["unavailable"]): Map<string, string> {
   const files = new Map<string, string>();
   for (const path of [...tree.keys()].sort()) files.set(storedPath(path), digestOf(tree.get(path)!));
+  // A file this clone does not hold has no digest of its text; its object's name says which version is missing, and differs from every digest.
+  for (const { path, sha } of unavailable) files.set(storedPath(path), `unavailable:${sha}`);
   return files;
+}
+
+const NOT_AVAILABLE = "not available in this clone (git was not allowed to fetch it)";
+
+/** The vocabulary with the files this clone could not give listed as unread. A repository whose words may all be in them is unknown, never none. */
+function withUnavailable(vocabulary: Vocabulary, unavailable: RefBase["unavailable"]): Vocabulary {
+  if (unavailable.length === 0) return vocabulary;
+  const unread = [...vocabulary.unread, ...unavailable.map(({ path }) => ({ path, reason: NOT_AVAILABLE }))].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const paths = unavailable.map(({ path }) => path).sort().join(", ");
+  return { ...vocabulary, unread, ...(vocabulary.status === "none" ? { status: "unknown" as const, reason: `a file could not be read: ${paths}` } : {}) };
 }
 
 function countChanges(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): { added: number; changed: number; removed: number } {
@@ -237,12 +259,12 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
   const file = fileFor(cacheDir, identity.key);
   const asked = request.ref ?? (await defaultRef(dir));
   // What is stored and printed names a ref shaped like a secret by a stand-in.
-  const ref = storedPath(asked);
+  const ref = storedRef(asked);
   const base = await readRef(dir, asked).catch((error: unknown) => {
     if (error instanceof Error && ref !== asked) error.message = error.message.split(asked).join(ref);
     throw error;
   });
-  const files = digestsOf(base.tree);
+  const files = digestsOf(base.tree, base.unavailable);
   const previous = await readStored(file);
   const before = previous.kind === "ok" ? new Map(Object.entries(previous.stored.files)) : new Map<string, string>();
 
@@ -268,7 +290,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
   }
 
   const graph = graphOf(base.tree);
-  const vocabulary = collect({ graph, tree: base.tree });
+  const vocabulary = withUnavailable(collect({ graph, tree: base.tree }), base.unavailable);
   const stored: StoredVocabulary = {
     ...(previous.kind === "ok" ? previous.whole : {}),
     format: FORMAT,
@@ -277,7 +299,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     base: { ref, commit: base.commit },
     extractorVersion: graph.extractorVersion,
     files: Object.fromEntries(files),
-    pathsWithheld: [...files.keys()].filter((path) => path.startsWith("withheld:")).length,
+    pathsWithheld: [...files.keys()].filter((path) => path.startsWith("/")).length,
     coverage: { of: graph.nodes.filter((node) => node.level === "file" && node.analysis === "analysed").length, mapped: 0, measured: false },
     vocabulary: storable(vocabulary),
   };

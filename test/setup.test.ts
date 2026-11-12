@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, expect, test, vi } from "vitest";
 import { extract } from "../src/extract/extract.ts";
-import { reportLines, setUp, vocabularyNotice } from "../src/setup.ts";
+import { reportLines, setUp, storedPath, vocabularyNotice } from "../src/setup.ts";
 import type { SetupResult } from "../src/setup.ts";
 import { collectVocabulary, keyOf, VOCABULARY_TABLE_VERSION } from "../src/vocabulary.ts";
 
@@ -269,6 +269,64 @@ test("setup never runs a program the repository names: a smudge filter does not 
   expect(existsSync(marker)).toBe(false);
   expect(keyOfTerm(result)).toContain(keyOf("place order"));
   expect(result.stored.vocabulary.status).toBe("found");
+});
+
+/** A repo that names a promisor remote whose "transport" runs a script, with one blob gone: reading it would make git run the script. */
+function promisorRepo(files: Record<string, string>, gone: string): { dir: string; marker: string } {
+  const dir = repo(files);
+  const marker = join(temp("streets-marker-"), "ran");
+  const payload = join(temp("streets-payload-"), "payload.sh");
+  writeFileSync(payload, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
+  const sha = git(dir, "rev-parse", `HEAD:${gone}`);
+  rmSync(join(dir, ".git", "objects", sha.slice(0, 2), sha.slice(2)));
+  for (const [key, value] of [
+    ["core.repositoryformatversion", "1"],
+    ["extensions.partialclone", "probe"],
+    ["remote.probe.promisor", "true"],
+    ["remote.probe.partialclonefilter", "blob:none"],
+    ["remote.probe.url", `ext::sh ${payload}`],
+    ["protocol.ext.allow", "always"],
+  ] as const) git(dir, "config", key, value);
+  return { dir, marker };
+}
+
+test("setup never fetches: a missing blob runs no transport and its file is reported unread", async () => {
+  const { dir, marker } = promisorRepo(files, "src/orders/place.ts");
+  const result = await setUp({ dir, cacheDir: temp("streets-cache-") });
+  expect(existsSync(marker)).toBe(false);
+  expect(result.stored.vocabulary.unread).toContainEqual({ path: "src/orders/place.ts", reason: expect.stringMatching(/not available/) });
+  expect(result.stored.vocabulary.status).toBe("found");
+  expect(keyOfTerm(result)).not.toContain(keyOf("place order"));
+  expect(reportLines(result).join("\n")).toMatch(/unread: 1\n\s+src\/orders\/place\.ts: .*not available/);
+  expect(result.stored.files["src/orders/place.ts"]).toMatch(/^unavailable:/);
+  expect((await setUp({ dir, cacheDir: dirname(dirname(result.file)) })).work).toBe("unchanged");
+});
+
+test("when the only file with words is unavailable the status is unknown, never none", async () => {
+  const { dir, marker } = promisorRepo({ "README.md": "# Tinyparse\n\ntext\n" }, "README.md");
+  const result = await setUp({ dir, cacheDir: temp("streets-cache-") });
+  expect(existsSync(marker)).toBe(false);
+  expect(result.stored.vocabulary.status).toBe("unknown");
+  expect(result.stored.vocabulary.reason).toMatch(/README\.md/);
+  expect(reportLines(result).join("\n")).toMatch(/terms: unknown/);
+});
+
+test("a file literally named like a redacted path does not share its entry: editing the secret-shaped one is a change", async () => {
+  const secret = "ghp_1234567890abcdefABCDEF1234567890abcd";
+  const secretPath = `src/${secret}.ts`;
+  const standIn = storedPath(secretPath);
+  const dir = repo({ ...files, [secretPath]: "export function chargeToken(): void {}\n", [standIn.replace(/^\//, "")]: "literal\n" });
+  const cacheDir = temp("streets-cache-");
+  const first = await setUp({ dir, cacheDir });
+  const stored = JSON.parse(readFileSync(first.file, "utf8"));
+  expect(Object.keys(stored.files)).toHaveLength(Object.keys(files).length + 2);
+  expect(stored.files[standIn]).not.toBe(stored.files[standIn.replace(/^\//, "")]);
+  expect(first.stored.pathsWithheld).toBe(1);
+  commit(dir, { [secretPath]: "export function chargeToken(): void {}\nexport function refundToken(): void {}\n" });
+  const second = await setUp({ dir, cacheDir });
+  expect(second.work).toBe("rebuilt");
+  expect(second.files).toEqual({ added: 0, changed: 1, removed: 0 });
+  expect(JSON.stringify(second.stored)).not.toContain("1234567890abcdef");
 });
 
 test("files are read as git stores them: a Windows line ending stays one", async () => {
