@@ -10,6 +10,19 @@ test("while the tests run the entry says so and is not a count of failures", () 
   expect(failingEntry("stopped", 0)).toMatchObject({ label: "Tests not run", enabled: false });
 });
 
+test("while the control run goes the entry says so, and a run with no control run labels the head's failures", () => {
+  expect(failingEntry("running", 0, { stage: "control" })).toMatchObject({ label: "running the control run…", enabled: false });
+  expect(failingEntry("running", 0, { stage: "tests" })).toMatchObject({ label: "running tests…", enabled: false });
+  expect(failingEntry("ran", 8, { noControl: "the run passed its limit" })).toMatchObject({ label: "Inspect 8 failing tests (no control run: the run passed its limit)", enabled: true });
+  expect(failingEntry("ran", 0, { noControl: "x" }).label).not.toContain("regression");
+});
+
+test("with a control run the entry counts regressions, and a run of only environment failures says so and keeps the list reachable", () => {
+  expect(failingEntry("ran", 2, { others: 6 })).toMatchObject({ label: "Inspect 2 failing tests", enabled: true });
+  expect(failingEntry("ran", 0, { others: 6 })).toMatchObject({ label: "No regressions (6 other results)", enabled: true });
+  expect(failingEntry("ran", 0, { others: 0 })).toMatchObject({ label: "No failing tests", enabled: false });
+});
+
 test("the compared line names the repository and the comparison target, and holds without a repository", () => {
   expect(comparedLine("docviz", { ref: "pr14-base", commit: "31163ce".padEnd(40, "0") })).toBe("docviz against pr14-base at 31163ce (merge base)");
   expect(comparedLine(null, { ref: "main", commit: "abcdef0123" })).toBe("against main at abcdef0 (merge base)");
@@ -38,6 +51,9 @@ test("the Failing heading puts the provenance beside the count", () => {
   expect(failingHeading(8)).toBe("8 failures running main's tests against this PR");
   expect(failingHeading(1)).toBe("1 failure running main's tests against this PR");
   expect(failingHeading(0)).toBe("No test failed running main's tests against this PR");
+  expect(failingHeading(2, true)).toBe("2 regressions: tests that pass on main and fail with this PR");
+  expect(failingHeading(1, true)).toBe("1 regression: a test that passes on main and fails with this PR");
+  expect(failingHeading(0, true)).toBe("No regressions: no test passes on main and fails with this PR");
 });
 
 test("the footer status is the stop count, and the diagnostics stay in the summary", () => {

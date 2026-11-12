@@ -3,10 +3,11 @@ import { isCodeNode } from "./graph.ts";
 import type { FileTree, Graph, NodeId } from "./graph.ts";
 import { isTestFile } from "./test-files.ts";
 import { titlesOf } from "./test-marks.ts";
+import { classify } from "./control.ts";
 import { runIsolated } from "./sandbox.ts";
 import type { Isolation, Places } from "./sandbox.ts";
 import { FAILURE_LIMIT, bounded } from "./observed-types.ts";
-import type { FailureDetail, ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest, WrittenDocument } from "./observed-types.ts";
+import type { ControlDocument, FailureDetail, ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest, WrittenDocument } from "./observed-types.ts";
 
 /** One test as its runner reported it: the titles of its suites, then its own. */
 export interface TestReport {
@@ -73,7 +74,18 @@ export type TestRun =
       readonly deleted: readonly string[];
       readonly edited: readonly string[];
       readonly written?: WrittenRun;
+      /** The same base tests against the base code; none when no control run was made. */
+      readonly control?: ControlRun;
     };
+
+/**
+ * The control run: main's tests against main's own code, in the same sandbox and the same way, so a
+ * failure of the head run that also happens here is the environment's, not the change's.
+ */
+export type ControlRun =
+  | { readonly status: "ran"; readonly seconds: number; readonly reports: readonly TestReport[] }
+  | { readonly status: "failed"; readonly why: string; readonly output: string }
+  | { readonly status: "unreliable" | "refused" | "unsupported" | "stopped"; readonly why: string };
 
 /** The runner the base's `test` script names, with the arguments it passes. */
 /** The script's node flags, each with its value as `--flag=value`, and the files or patterns it names. */
@@ -499,6 +511,10 @@ export async function runTests(
   isolation: Isolation,
   timeoutMs: number,
   registry: string = NPM_REGISTRY,
+  /** Called when the head's run is done and the control run starts. */
+  onControl: () => void = () => {},
+  /** The base tree's own executable files, for the control run; the head's set is the head's. */
+  baseExecutable: ReadonlySet<string> = executable,
 ): Promise<TestRun> {
   const detection = detectRunner(base);
   if ("unsupported" in detection) return { status: "unsupported", why: detection.unsupported };
@@ -528,7 +544,10 @@ export async function runTests(
     );
     written = { files: writtenFiles, seconds: took, outcome };
   }
+  onControl();
+  const control = await controlRun(base, baseExecutable, isolation, timeoutMs, registry, [...detection.flags, ...detection.files], baseTests);
   return {
+    control,
     status: "ran",
     ...about,
     seconds,
@@ -538,6 +557,26 @@ export async function runTests(
     edited: baseTests.filter((path) => head.has(path) && head.get(path) !== base.get(path)),
     ...(written === undefined ? {} : { written }),
   };
+}
+
+/**
+ * The control run: the head's run again with main's own code in place of the head's, the same test
+ * files read-only, the same arguments, the same sandbox. The base tree reaches the sandbox the way the
+ * head's does, as a tree handed to `once`. A run that cannot be made says why; it never throws.
+ */
+async function controlRun(base: FileTree, executable: ReadonlySet<string>, isolation: Isolation, timeoutMs: number, registry: string, args: readonly string[], baseTests: readonly string[]): Promise<ControlRun> {
+  try {
+    const needed = installNeeded(base);
+    if ("unsupported" in needed) return { status: "unsupported", why: needed.unsupported };
+    const install = needed.install ? installFiles(base, registry) : undefined;
+    if (install !== undefined && "refused" in install) return { status: "refused", why: install.refused };
+    const pinned = new Set(baseTests);
+    const outcome = await once({ tree: base, executable, pinned, args, allowed: pinned, install }, isolation, timeoutMs, registry);
+    if (outcome.status === "ran") return { status: "ran", seconds: outcome.seconds, reports: outcome.reports };
+    return outcome.status === "failed" ? { status: "failed", why: outcome.why, output: outcome.output } : { status: "unreliable", why: outcome.why };
+  } catch (error) {
+    return { status: "stopped", why: `the control run stopped: ${error instanceof Error ? error.message : String(error)}` };
+  }
 }
 
 /**
@@ -668,6 +707,15 @@ function writtenDocument(written: WrittenRun): WrittenDocument {
   return { ...about, status: "ran", exitCode: outcome.exitCode, counts, tests };
 }
 
+/** The control run as the document serves it; a run with none says so, and is never read as a run with no regressions. */
+function controlDocument(control: ControlRun | undefined, compared: ReturnType<typeof classify> | undefined): ControlDocument {
+  if (control === undefined) return { status: "stopped", why: "not attempted" };
+  if (control.status !== "ran") return { status: control.status, why: control.why };
+  if (compared === undefined) return { status: "stopped", why: "the control run was not compared" };
+  const baseOnly = compared.baseOnly.map((report) => ({ file: report.file, name: report.path.join(" > "), outcome: report.outcome }));
+  return { status: "ran", seconds: control.seconds, counts: compared.counts, baseOnly };
+}
+
 /**
  * Attaches a run's reports to the graph's test functions, by file and name; never changes the
  * graph. A report from a file the change edited or deleted is not attached: the graph is the
@@ -694,10 +742,12 @@ export function observedDocument(run: TestRun, graph: Graph, tree: string): Obse
   const tests: Record<string, ObservedTest[]> = {};
   const unmatched: UnmatchedTest[] = [];
   const counts = { pass: 0, fail: 0, skip: 0 };
-  for (const report of run.reports) {
+  const compared = run.control?.status === "ran" ? classify(run.reports, run.control.reports) : undefined;
+  for (const [index, report] of run.reports.entries()) {
     counts[report.outcome] += 1;
     const { message, detail } = report;
-    const observed: ObservedTest = { name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}), ...(detail ? { detail } : {}) };
+    const verdict = compared?.verdicts[index];
+    const observed: ObservedTest = { name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}), ...(detail ? { detail } : {}), ...(verdict ? { verdict } : {}) };
     const ids = byFile.get(report.file)?.get(JSON.stringify(report.path)) ?? [];
     const [id] = ids;
     const changed = report.suite ? SUITE_FAILED : deleted.has(report.file) ? DELETED : edited.has(report.file) ? EDITED : undefined;
@@ -727,5 +777,6 @@ export function observedDocument(run: TestRun, graph: Graph, tree: string): Obse
     deleted: run.deleted,
     edited: run.edited,
     written: run.written === undefined ? null : writtenDocument(run.written),
+    control: controlDocument(run.control, compared),
   };
 }

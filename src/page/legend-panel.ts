@@ -11,6 +11,8 @@ export type PageComparison = Comparison & { against: { ref: string; commit: stri
 export interface LegendFacts {
   readonly comparison: PageComparison | null;
   readonly observedRan: boolean;
+  /** The run had a control run, so a pennant is a regression; else it marks any failing test of the head run. */
+  readonly controlRan?: boolean;
   readonly flagged: ReadonlyMap<string, TestMark>;
   readonly reaches: ReturnType<typeof reachMap>;
 }
@@ -19,7 +21,7 @@ import { harbourText, plinthText, waysText } from "./legend-text.ts";
 
 /** What the town's sprites stand for. Nothing is listed that the picture does not draw. */
 export function showTownLegend(legend: HTMLElement, town: Town, shown: LegendFacts): void {
-  const { comparison, observedRan, flagged, reaches } = shown;
+  const { comparison, observedRan, controlRan, flagged, reaches } = shown;
   const kinds = document.createElement("div");
   kinds.textContent = "building: workshop source \u00b7 lab tests \u00b7 library docs \u00b7 shed config and build \u00b7 warehouse generated \u00b7 hut no role";
   const size = document.createElement("div");
@@ -32,7 +34,7 @@ export function showTownLegend(legend: HTMLElement, town: Town, shown: LegendFac
   ways.textContent = waysText(town);
   const against = document.createElement("div");
   const flag = document.createElement("div");
-  if (observedRan) flag.textContent = "red pennant: a test in the file failed when main's tests ran against this change (observed, one run; evidence against mistakes, not against a hostile author)";
+  if (observedRan) flag.textContent = `red pennant: ${controlRan === true ? "a regression in the file: a test that passes on main and fails with this change" : "a test in the file failed when main's tests ran against this change (no control run, so not known to be this change's doing)"} (observed, one run; evidence against mistakes, not against a hostile author)`;
   if (comparison !== null) {
     against.textContent = `against ${comparison.against.ref} (merge base ${comparison.against.commit.slice(0, 7)}): scaffolding and crane, named: altered \u00b7 bare earth: added \u00b7 rubble: removed \u00b7 rubble with a sign: moved to the path on it \u00b7 fence and sign: a block mostly new`;
   }

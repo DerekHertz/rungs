@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { followObserved, ofPicture } from "../src/observed-follow.ts";
 import type { ObservedDocument } from "../src/observed-types.ts";
 
-const running: ObservedDocument = { tier: "observed", tree: "t", status: "running" };
+const running: ObservedDocument = { tier: "observed", tree: "t", status: "running", stage: "tests" };
 const done: ObservedDocument = { tier: "observed", tree: "t", status: "refused", why: "no sandbox" };
 const quick = () => Promise.resolve();
 const other = (document: ObservedDocument, tree: string): ObservedDocument => ({ ...document, tree });
@@ -14,6 +14,29 @@ test("polls until the run is done, showing the finished document, and stops ther
   await followObserved("t", () => Promise.resolve(++reads < 3 ? running : done), quick, (document) => shown.push(document));
   expect(reads).toBe(3);
   expect(shown).toEqual([done]);
+});
+
+test("the control run's running document keeps the wait going: only the finished one is shown", async () => {
+  const control: ObservedDocument = { tier: "observed", tree: "t", status: "running", stage: "control" };
+  const answers = [running, control, control, done];
+  const shown: ObservedDocument[] = [];
+  await followObserved("t", () => Promise.resolve(answers.shift() ?? null), quick, (document) => shown.push(document));
+  expect(shown).toEqual([done]);
+});
+
+test("a change of stage is handed on once, so an open page can say the control run is going; the tree is still checked", async () => {
+  const control: ObservedDocument = { tier: "observed", tree: "t", status: "running", stage: "control" };
+  const answers = [running, control, control, done];
+  const staged: ObservedDocument[] = [];
+  const shown: ObservedDocument[] = [];
+  await followObserved("t", () => Promise.resolve(answers.shift() ?? null), quick, (document) => shown.push(document), (document) => staged.push(document), "tests");
+  expect(staged).toEqual([control]);
+  expect(shown).toEqual([done]);
+  const other: ObservedDocument[] = [];
+  const stagedOther: ObservedDocument[] = [];
+  await followObserved("t", () => Promise.resolve({ ...control, tree: "head-B" }), quick, (document) => other.push(document), (document) => stagedOther.push(document), "tests");
+  expect(stagedOther).toEqual([]);
+  expect(other).toEqual([another]);
 });
 
 test("five failed reads in a row leave the tests not run, with why", async () => {

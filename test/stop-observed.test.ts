@@ -32,6 +32,7 @@ const ran = (over: Partial<Extract<ObservedDocument, { status: "ran" }>> = {}): 
   deleted: [],
   edited: [],
   written: null,
+  control: { status: "ran", seconds: 1, counts: { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 0 }, baseOnly: [] },
   ...over,
 });
 const at = (ids: string[], document: ObservedDocument | null, changes = none) => observedAt(stop(...ids), graph, comparison, document, changes);
@@ -125,5 +126,15 @@ test("a written run that did not give results shows its state and reason, claime
 
 test("while the run is under way a stop is running, not zero failures, and still lists what the PR did to the tests", () => {
   const changes: TestChanges = { ...none, removedTests: [{ file: "test/api.test.ts", name: "gone" }] as never };
-  expect(at(["file:test/api.test.ts"], { tier: "observed", tree: "t", status: "running" }, changes)).toEqual({ status: "running", changes: ["test removed: gone"] });
+  expect(at(["file:test/api.test.ts"], { tier: "observed", tree: "t", status: "running", stage: "tests" }, changes)).toEqual({ status: "running", stage: "tests", changes: ["test removed: gone"] });
+  expect(at(["file:test/api.test.ts"], { tier: "observed", tree: "t", status: "running", stage: "control" }, changes)).toEqual({ status: "running", stage: "control", changes: ["test removed: gone"] });
+});
+
+test("each result carries its verdict from the control run, and a run with no control run says why at the stop", () => {
+  const tests = { [fails]: [{ name: "fails", outcome: "fail" as const, ms: 1, message: "no browser", verdict: "environment" as const }] };
+  const found = at(["file:test/api.test.ts"], ran({ tests }));
+  expect(found.status === "ran" && found.results).toEqual([{ file: "test/api.test.ts", name: "fails", outcome: "fail", message: "no browser", verdict: "environment" }]);
+  expect(found).not.toHaveProperty("noControl");
+  const without = at(["file:test/api.test.ts"], ran({ control: { status: "failed", why: "the run passed its limit" } }));
+  expect(without).toMatchObject({ status: "ran", noControl: "the run passed its limit" });
 });

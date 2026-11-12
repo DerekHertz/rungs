@@ -34,7 +34,7 @@ const TOUR_TIMEOUT_MS = 10 * 60 * 1000;
 /** How long one run of the tests, install included, may take. */
 const TEST_TIMEOUT_MS = 10 * 60 * 1000;
 
-async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUnsandboxed: boolean): Promise<TestRun> {
+async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUnsandboxed: boolean, onControl: () => void, baseExecutable: ReadonlySet<string>): Promise<TestRun> {
   const choice = chooseIsolation(await detectSandbox(), allowUnsandboxed);
   if ("refused" in choice) {
     console.error(`streets: tests not run: ${choice.refused}`);
@@ -45,7 +45,10 @@ async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUn
       ? "in a bwrap sandbox with no network"
       : `WITHOUT a sandbox: their code can reach this machine and the network, and the results are only as trustworthy as the PR's author`;
   console.error(`streets: running the base's tests once against the head's code ${where} (up to ${TEST_TIMEOUT_MS / 60000} minutes)`);
-  const run = await runTests(base, tree, await readExecutables(dir, tree), choice.isolation, TEST_TIMEOUT_MS);
+  const run = await runTests(base, tree, await readExecutables(dir, tree), choice.isolation, TEST_TIMEOUT_MS, undefined, () => {
+    console.error("streets: running the control run: the same tests against main's own code");
+    onControl();
+  }, baseExecutable);
   const label = choice.isolation.kind === "bwrap" ? "" : ` (${UNSANDBOXED_LINE})`;
   if (run.status === "ran") {
     const count = (outcome: string) => run.reports.filter((report) => report.outcome === outcome).length;
@@ -56,6 +59,13 @@ async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUn
       const { outcome } = run.written;
       const said = outcome.status === "ran" ? `${outcome.reports.filter((report) => report.outcome === "fail").length} of ${outcome.reports.length} failed` : `${outcome.status}: ${outcome.why}`;
       console.error(`streets: tests written by this PR (${run.written.files.length} files, claimed, not evidence): ${said}`);
+    }
+    const { control } = run;
+    if (control === undefined) console.error("streets: no control run was made, so no failure is known to be this PR's doing");
+    else if (control.status !== "ran") console.error(`streets: no control run: ${control.why}; the failures above are not known to be this PR's doing`);
+    else {
+      const reported = (outcome: string) => control.reports.filter((report) => report.outcome === outcome).length;
+      console.error(`streets: control run on main's own code in ${control.seconds}s: ${reported("pass")} pass, ${reported("fail")} fail, ${reported("skip")} skip`);
     }
     console.error(`streets: ${EVIDENCE_LINE}`);
   } else if (run.status === "unreliable") console.error(`streets: the test results are unreliable and none is shown: ${run.why}${label}`);
@@ -143,7 +153,7 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
         return outcome;
       }
     : undefined;
-  const observed = tests === "off" ? undefined : () => observeTests(dir, base.tree, tree, tests === "unsandboxed allowed");
+  const observed = tests === "off" ? undefined : (onControl: () => void) => observeTests(dir, base.tree, tree, tests === "unsandboxed allowed", onControl, base.executable);
   const walk = options.walkthrough
     ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
         const places = placesOf(comparison, graph);

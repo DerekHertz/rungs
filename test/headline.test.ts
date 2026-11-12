@@ -7,7 +7,9 @@ import type { TestChanges } from "../src/test-changes-types.ts";
 const none = { extractorVersion: "x", changes: [], effects: [], changedEffects: [], imports: [], sections: [], dependencies: [], unread: [] } as unknown as Comparison;
 const noTests = { deletedFiles: [], removedTests: [], renamed: [], markers: [], weakened: [] } as TestChanges;
 const change = (level: string, kind = "altered") => ({ kind, node: { level } });
-const ran = (pass: number, fail: number): ObservedDocument => ({ tier: "observed", tree: "t", status: "ran", counts: { pass, fail, skip: 0 } }) as unknown as ObservedDocument;
+const nothing = { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 0 };
+const ran = (pass: number, fail: number, control: unknown = { status: "ran", seconds: 1, counts: { ...nothing, regression: fail, passes: pass }, baseOnly: [] }): ObservedDocument =>
+  ({ tier: "observed", tree: "t", status: "ran", counts: { pass, fail, skip: 0 }, control }) as unknown as ObservedDocument;
 const doc = (status: string): ObservedDocument => ({ tier: "observed", tree: "t", status, why: "x" }) as unknown as ObservedDocument;
 
 test("a change with nothing else says it changed no code, and that the tests were not run, never a test count", () => {
@@ -35,12 +37,42 @@ test("the headline counts calls, argument changes, imports, dependencies and rem
 });
 
 test("failing, unfinished and unreliable runs are said as what they are, and no count appears without a run", () => {
-  expect(headline(none, noTests, ran(5, 2))).toContain("main's tests: 2 failed, 5 passed");
+  expect(headline(none, noTests, ran(5, 2))).toContain("main's tests: 2 regressions, 5 passed");
   expect(headline(none, noTests, doc("failed"))).toContain("tests did not finish");
   expect(headline(none, noTests, doc("unreliable"))).toContain("test results unreliable");
   expect(headline(none, noTests, doc("refused"))).toContain("tests not run");
-  expect(headline(none, noTests, { tier: "observed", tree: "t", status: "running" })).toContain("tests running…");
+  expect(headline(none, noTests, { tier: "observed", tree: "t", status: "running", stage: "tests" })).toContain("tests running…");
   expect(headline(none, noTests, { tier: "observed", tree: "t", status: "stopped", why: "x" })).toContain("tests not run: x");
+});
+
+test("with a control run the tests part counts regressions only, and says what else failed", () => {
+  const control = (over: object) => ({ status: "ran", seconds: 1, counts: { ...nothing, passes: 130, ...over }, baseOnly: [] });
+  expect(headline(none, noTests, ran(130, 8, control({ regression: 2, environment: 6 })))).toContain("main's tests: 2 regressions, 6 environment, 130 passed");
+  expect(headline(none, noTests, ran(130, 6, control({ environment: 6 })))).toContain("main's tests: no regressions, 6 environment, 130 passed");
+  expect(headline(none, noTests, ran(130, 1, control({ regression: 1 })))).toContain("main's tests: 1 regression, 130 passed");
+  expect(headline(none, noTests, ran(130, 3, control({ environment: 1, skipped: 2 })))).toContain("main's tests: no regressions, 1 environment, 2 not compared, 130 passed");
+  // Counts come from the verdicts: a test skipped on main, one only the PR reported, or one named twice did not pass on both.
+  expect(headline(none, noTests, ran(130, 0, control({ passes: 127, skipped: 1, "head only": 1, unclear: 1 })))).toContain("main's tests: no regressions, 3 not compared, 127 passed");
+  expect(headline(none, noTests, ran(130, 0, control({ passes: 129, fixed: 1 })))).toContain("main's tests: no regressions, 1 fixed, 129 passed");
+});
+
+test("a control run that gave no results leaves the head's failures, labelled, and never says zero regressions", () => {
+  for (const status of ["failed", "stopped", "unreliable", "unsupported", "refused"]) {
+    const line = headline(none, noTests, ran(5, 2, { status, why: "it broke" }));
+    expect(line).toContain("main's tests: 2 failed, 5 passed (no control run: it broke)");
+    expect(line).not.toContain("regression");
+  }
+  expect(headline(none, noTests, ran(5, 0, { status: "failed", why: "it broke" }))).toContain("main's tests: 5 passed");
+});
+
+test("while the control run is under way the part says so, never a partial verdict", () => {
+  expect(headline(none, noTests, { tier: "observed", tree: "t", status: "running", stage: "control" })).toContain("running the control run…");
+  expect(headline(none, noTests, { tier: "observed", tree: "t", status: "running", stage: "tests" })).toContain("tests running…");
+});
+
+test("a test only main ran is not a pass of the PR's run: it is counted as not compared", () => {
+  const counts = { ...nothing, passes: 129, "base only": 1 };
+  expect(headline(none, noTests, ran(129, 0, { status: "ran", seconds: 1, counts, baseOnly: [] }))).toContain("main's tests: no regressions, 1 not compared, 129 passed");
 });
 
 test("a change of only dependencies is not said to change no code", () => {

@@ -120,6 +120,8 @@ export interface Base {
   readonly commit: string;
   /** What a checkout of `commit` would hold, shaped exactly as readCheckout shapes a tree. */
   readonly tree: FileTree;
+  /** The paths of `tree` git records as executable (mode 100755) at `commit`: the base's own, whatever the working tree says now. */
+  readonly executable: ReadonlySet<string>;
 }
 
 export async function readBase(dir: string, ref: string): Promise<Base> {
@@ -133,7 +135,7 @@ export async function readBase(dir: string, ref: string): Promise<Base> {
       if (text !== undefined) tree.set(entry.path, text);
     }
   });
-  return { commit, tree };
+  return { commit, tree, executable: new Set(entries.filter((entry) => entry.executable && tree.has(entry.path)).map((entry) => entry.path)) };
 }
 
 interface Entry {
@@ -141,6 +143,8 @@ interface Entry {
   readonly path: string;
   /** Path from the repository root. */
   readonly full: string;
+  /** Git's mode for the path is 100755. */
+  readonly executable: boolean;
 }
 
 async function prefixOf(dir: string): Promise<string> {
@@ -199,9 +203,10 @@ async function listCommit(dir: string, commit: string, prefix: string): Promise<
   for (const record of listed.split("\0")) {
     const tab = record.indexOf("\t");
     if (tab < 0) continue;
-    if (record.slice(0, tab).split(" ")[1] !== "blob") continue;
+    const [mode, type] = record.slice(0, tab).split(" ");
+    if (type !== "blob") continue;
     const full = record.slice(tab + 1);
-    entries.push({ path: full.slice(prefix.length), full });
+    entries.push({ path: full.slice(prefix.length), full, executable: mode === "100755" });
   }
   return entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }

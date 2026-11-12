@@ -135,6 +135,7 @@ test("reports attach to their test functions by file and name; the rest are list
     seconds: 2,
     exitCode: 1,
     counts: { pass: 5, fail: 2, skip: 1 },
+    control: { status: "stopped", why: "not attempted" },
     tests: {
       'function:test/a.test.mjs#"describe(\\"outer\\") callback"."it(\\"one\\") callback"': [{ name: "outer > one", outcome: "pass", ms: 1 }],
       'function:test/a.test.mjs#"describe(\\"outer\\") callback"."describe(\\"in.ner\\") callback"."it(\\"two\\") callback"': [

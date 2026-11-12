@@ -1,4 +1,4 @@
-import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "../observed-types.ts";
+import { EVIDENCE_LINE, UNSANDBOXED_LINE, VERDICT_WORD, runningText } from "../observed-types.ts";
 import { ROLLUP_OVER, signatureDiff } from "../review.ts";
 import type { LineRange, NodeId } from "../graph.ts";
 import { walkStatus } from "../stops.ts";
@@ -174,7 +174,7 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
       for (const change of observed.changes) rows.push(element("p", "walk-fact", change));
     };
     if (observed.status === "running") {
-      rows.push(element("p", "walk-observed", "running tests…"), element("p", "review-empty", "Main's tests are still running; this fills in when the run ends."));
+      rows.push(element("p", "walk-observed", runningText(observed.stage)), element("p", "review-empty", "Main's tests are still running; this fills in when the run ends."));
       changes();
       return rows;
     }
@@ -192,12 +192,16 @@ export function renderWalkthrough(host: HTMLElement, input: WalkInput): Walk {
       changes();
       return rows;
     }
+    if (observed.noControl !== undefined) rows.push(element("p", "review-warning", `No control run: ${observed.noControl}. The failures here are not known to be this PR's doing.`));
     const list = (tests: readonly StopTest[]): HTMLElement => {
       const made = element("ul", "review-list");
       for (const test of tests) {
-        const item = element("li", "review-row observed-loose");
+        // Only a regression is held against the PR; any other verdict is dimmed and says what it is.
+        const dim = test.verdict !== undefined && test.verdict !== "regression" && test.outcome === "fail";
+        const item = element("li", dim ? "review-row observed-loose observed-dim" : "review-row observed-loose");
         const text = element("span", "contract-text");
-        text.append(element("span", "review-label", test.name || "(the whole file)"), element("span", "contract-where", test.why === undefined ? test.file : `${test.file} · ${test.why}`));
+        const where = [test.file, ...(test.why === undefined ? [] : [test.why]), ...(test.verdict === undefined || test.verdict === "passes" ? [] : [VERDICT_WORD[test.verdict]])].join(" · ");
+        text.append(element("span", "review-label", test.name || "(the whole file)"), element("span", "contract-where", where));
         if (test.message !== undefined) text.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
         item.append(outcomeMark(test.outcome), text);
         made.append(item);
