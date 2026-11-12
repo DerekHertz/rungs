@@ -199,7 +199,7 @@ test("--link asks claude, serves the links, and a second run reads the cache", {
   try {
     const body = (await (await fetch(new URL("claims.json", await first.url))).json()) as { claims: { ids: string[] }[]; link: Record<string, unknown> };
     expect(body.claims.map((claim) => claim.ids)).toEqual([["file:src/a.ts"]]);
-    expect(body.link).toEqual({ status: "ok", model: "stub-model", promptVersion: "claims-v6", dropped: { ids: 1, claims: 0, restatements: 0 }, cached: false });
+    expect(body.link).toEqual({ status: "ok", model: "stub-model", promptVersion: "claims-v7", dropped: { ids: 1, claims: 0, restatements: 0 }, cached: false });
     expect(first.stderr()).toMatch(/linked 1 of 2 claims by stub-model/);
   } finally {
     first.child.kill();
@@ -305,7 +305,7 @@ test("--walkthrough asks claude for a tour, serves it, and a second run reads th
   const first = startLinked(dir, { PATH: `${stubClaude(tourStub)}:${bareBin()}`, XDG_CACHE_HOME: cache }, ["--walkthrough"]);
   try {
     const body = (await (await fetch(new URL("walkthrough.json", await first.url))).json()) as { walkthrough: Record<string, unknown>; stops: unknown[] };
-    expect(body.walkthrough).toEqual({ status: "ok", model: "stub-model", promptVersion: "tour-v2", dropped: { stops: 0, ids: 1, claims: 1, sentences: 1 }, cached: false });
+    expect(body.walkthrough).toEqual({ status: "ok", model: "stub-model", promptVersion: "tour-v3", dropped: { stops: 0, ids: 1, claims: 1, sentences: 1 }, cached: false });
     expect(body.stops).toEqual([{ title: "A", ids: ["function:src/a.ts#a"], claims: [0], sentences: [{ text: "Returns more.", id: "function:src/a.ts#a", range: { start: 1, end: 3 } }] }]);
     expect(first.stderr()).toMatch(/walkthrough of 1 stops by stub-model in \d+s \(dropped 0 stops, 1 unknown ids, 1 bad claim numbers, 1 unanchored sentences\)/);
   } finally {

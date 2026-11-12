@@ -9,7 +9,7 @@ import { promptSignature } from "./signature.ts";
 import type { CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached tours are not reused. */
-export const TOUR_PROMPT_VERSION = "tour-v2";
+export const TOUR_PROMPT_VERSION = "tour-v3";
 
 /**
  * A place a stop may point at: a changed file, or a changed class, method or top-level function
@@ -200,4 +200,25 @@ export function validateTour(output: unknown, claimCount: number, places: readon
     else stops.push({ title: flat(title), ids: kept, claims: fulfils, sentences });
   }
   return { stops, dropped };
+}
+
+/**
+ * A tour as `validateTour` keeps it when asked with places whose ids are their prompt ids (see
+ * walkthrough): in the ids the prompt showed. This maps them to the ids of `places`, the present
+ * graph's, dropping any the places do not show. It runs on every load, cached or fresh.
+ */
+export function resolveTour(tour: Tour, places: readonly Place[]): Tour {
+  const real = new Map(places.map((place) => [place.promptId, place.id] as const));
+  const back = (shown: NodeId): NodeId | undefined => real.get(shown);
+  const stops: Stop[] = [];
+  for (const stop of tour.stops) {
+    const ids = stop.ids.flatMap((shown) => back(shown) ?? []);
+    if (ids.length === 0) continue;
+    const sentences = stop.sentences.flatMap((sentence) => {
+      const id = back(sentence.id);
+      return id === undefined ? [] : [{ ...sentence, id }];
+    });
+    stops.push({ ...stop, ids, sentences });
+  }
+  return { stops, dropped: tour.dropped };
 }

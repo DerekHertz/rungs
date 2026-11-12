@@ -9,7 +9,7 @@ import type { Graph, NodeId } from "./graph.ts";
 import { PromptIds } from "./prompt-safe.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached links are not reused. */
-export const PROMPT_VERSION = "claims-v6";
+export const PROMPT_VERSION = "claims-v7";
 
 /**
  * A place an agent may link a claim to: a changed file, or a folder or package holding changed
@@ -328,6 +328,12 @@ export interface Ask<T> {
   readonly check: (output: unknown) => T;
   /** Whether a cache entry still has the shape `check` returns. */
   readonly usable: (saved: T) => boolean;
+  /**
+   * Turns an answer, fresh or cached, into what is returned. What is cached is `check`'s answer
+   * with the ids the prompt showed (aliases); `resolve` maps them to the real ids of the present
+   * graph, so a prompt that reads the same for another graph never serves the old graph's ids.
+   */
+  readonly resolve?: (answer: T) => T;
   readonly runner: AgentRunner;
   readonly cacheDir: string;
   /** Ask the agent again even when the cache holds an answer. */
@@ -348,7 +354,7 @@ export async function askCached<T extends object>(ask: Ask<T>): Promise<Asked<T>
   if (!ask.fresh) {
     try {
       const saved = JSON.parse(await readFile(file, "utf8")) as T & { model: string; promptVersion: string };
-      if (saved.promptVersion === ask.promptVersion && ask.usable(saved)) return { status: "ok", ...saved, cached: true };
+      if (saved.promptVersion === ask.promptVersion && ask.usable(saved)) return { status: "ok", ...saved, ...ask.resolve?.(saved), cached: true };
     } catch {
       // No usable cache entry: ask the agent.
     }
@@ -362,7 +368,7 @@ export async function askCached<T extends object>(ask: Ask<T>): Promise<Asked<T>
     } catch {
       // An unwritable cache costs a call next time, nothing more.
     }
-    return { status: "ok", ...answer, cached: false };
+    return { status: "ok", ...answer, ...ask.resolve?.(answer), cached: false };
   } catch (error) {
     return { status: "failed", message: oneLine((error as Error).message) };
   }
@@ -381,14 +387,17 @@ export interface LinkRequest {
 /** Links claims to changed modules through an agent, cached by the prompt: its version, the claims and the candidate lines. */
 export function linkClaims(request: LinkRequest): Promise<LinkOutcome> {
   const { claims, candidates, runner, cacheDir, relink, timeoutMs } = request;
-  // The agent answers with the ids the prompt showed (promptId); each maps back to the files it covers.
-  const known = new Map(candidates.map((candidate) => [candidate.promptId, candidate.files] as const));
+  // The agent answers with the ids the prompt showed (promptId). The answer is kept, and cached, in those: a file covers itself, a folder none. They map to the present ids on every load (resolve).
+  const known = new Map(candidates.map((candidate) => [candidate.promptId, candidate.files.length === 0 ? [] : [candidate.promptId as NodeId]] as const));
+  const real = new Map(candidates.map((candidate) => [candidate.promptId, candidate.id] as const));
+  const back = (shown: NodeId): NodeId => real.get(shown) ?? shown;
   return askCached<Validated>({
     prompt: promptFor(claims, candidates),
     schema: SCHEMA,
     promptVersion: PROMPT_VERSION,
     check: (output) => validate(output, claims, known),
     usable: (saved) => Array.isArray(saved.byClaim) && saved.byClaim.length === claims.length && Array.isArray(saved.shown) && Array.isArray(saved.context),
+    resolve: (answer) => ({ ...answer, byClaim: answer.byClaim.map((ids) => ids.map(back)), shown: answer.shown.map((row) => ({ ...row, ids: row.ids.map(back) })) }),
     runner,
     cacheDir,
     fresh: relink,

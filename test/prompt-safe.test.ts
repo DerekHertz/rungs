@@ -192,3 +192,79 @@ test("the cache key is the prompt, so an answer written for an older prompt vers
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const members = (first: string, second: string): string => `export class C {\n  ["${first}"]() {\n    return 1;\n  }\n  ["${second}"]() {\n    return 2;\n  }\n}\n`;
+
+test("a cached tour resolves to the present graph's methods when A and B swap places and the prompt reads the same", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "streets-swap-"));
+  try {
+    const placesOfSource = (source: string) => {
+      const graph = extract(tree({ "package.json": "{}\n", "src/a.ts": source }));
+      return placesOf(compare(base, graph), graph);
+    };
+    const before = placesOfSource(members("A", "B"));
+    const after = placesOfSource(members("B", "A"));
+    expect(tourPrompt([], before)).toEqual(tourPrompt([], after));
+    const first = before.find((place) => place.promptId === "function:src/a.ts#C.[…]")!;
+    expect(first.id).toContain('"A');
+    const runner = {
+      run: () => Promise.resolve({ output: { stops: [{ title: "One", ids: [first.promptId], claims: [], narration: [{ text: "Returns one.", id: first.promptId, start: first.range!.start, end: first.range!.end }] }] }, model: "stub" }),
+    };
+    const ask = (places: typeof before) => walkthrough({ claims: [], places, runner, cacheDir: dir, rewalk: false, timeoutMs: 1000 });
+    const fresh = await ask(before);
+    const cached = await ask(after);
+    expect(fresh).toMatchObject({ cached: false });
+    expect(cached).toMatchObject({ cached: true });
+    const now = after.find((place) => place.promptId === first.promptId)!;
+    expect(now.id).toContain('"B');
+    if (cached.status !== "ok") throw new Error("not ok");
+    expect(cached.stops[0]!.ids).toEqual([now.id]);
+    expect(cached.stops[0]!.sentences[0]!.id).toBe(now.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a cached link resolves to the present files when two long paths that cut the same way are swapped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "streets-swap-"));
+  try {
+    const path = (mark: string): string => `src/${"d".repeat(100)}${mark}${"e".repeat(100)}/file.ts`;
+    const candidatesFor = (...marks: string[]) => {
+      const graph = extract(tree({ "package.json": "{}\n", ...Object.fromEntries(marks.map((mark) => [path(mark), "export const x = 1;\n"])) }));
+      return candidatesOf(compare(base, graph), graph);
+    };
+    const before = candidatesFor("1", "2");
+    const after = candidatesFor("3", "4");
+    const claims = splitClaims("Adds x.\n");
+    expect(promptFor(claims, before)).toEqual(promptFor(claims, after));
+    const first = before.find((candidate) => candidate.files.length > 0)!;
+    const runner = { run: () => Promise.resolve({ output: { links: [{ claim: 0, ids: [first.promptId], say: "Adds x", mergeInto: -1 }] }, model: "stub" }) };
+    const { linkClaims } = await import("../src/link.ts");
+    const ask = (candidates: typeof before) => linkClaims({ claims, candidates, runner, cacheDir: dir, relink: false, timeoutMs: 1000 });
+    await ask(before);
+    const cached = await ask(after);
+    if (cached.status !== "ok") throw new Error("not ok");
+    expect(cached.cached).toBe(true);
+    const now = after.find((candidate) => candidate.promptId === first.promptId)!;
+    expect(cached.byClaim[0]).toEqual([now.id]);
+    expect(cached.shown[0]!.ids).toEqual([now.id]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a long name inside a signature is capped, in the node's own signature and in the previous one", () => {
+  const name = "p".repeat(400);
+  const was = extract(tree({ "package.json": "{}\n", "src/a.ts": `export function f(${name}: number) {\n  return 1;\n}\n` }));
+  const now = extract(tree({ "package.json": "{}\n", "src/a.ts": `export function f(${name}: number, ${name}2: string) {\n  return 1;\n}\n` }));
+  const user = tourPrompt([], placesOf(compare(was, now), now)).user;
+  expect(user).not.toContain("p".repeat(100));
+  expect(user).toContain("(");
+  for (const line of user.split("\n")) expect(line.length).toBeLessThan(500);
+  const node = now.nodes.find((candidate): candidate is CodeNode => isCodeNode(candidate) && candidate.id === ("function:src/a.ts#f" as NodeId))!;
+  const files = tree({ "package.json": "{}\n", "src/a.ts": `export function f(${name}: number) {\n  return g();\n}\nfunction g() {\n  return 1;\n}\n` });
+  const graph = extract(files);
+  const target = graph.nodes.find((candidate): candidate is CodeNode => isCodeNode(candidate) && candidate.id === ("function:src/a.ts#f" as NodeId))!;
+  expect(node.id).toBe(target.id);
+  expect(narrationPrompt(target, pseudocode(graph, files, target.id)!).user).not.toContain("p".repeat(100));
+});
