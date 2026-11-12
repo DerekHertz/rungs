@@ -1,5 +1,7 @@
 /** The observed tier as /observed.json serves it; free of node so the page can read it too. */
 
+import type { Leftover } from "./leftover.ts";
+
 export type Outcome = "pass" | "fail" | "skip";
 /** Only node's own runner: any other is a dependency the change installs, and the change picks it. */
 export type Runner = "node";
@@ -8,6 +10,11 @@ export type Runner = "node";
 export const EVIDENCE_LINE = "Evidence against mistakes, not against a hostile author: the PR's code runs inside each test.";
 /** The label on every result of a run that had no sandbox. */
 export const UNSANDBOXED_LINE = "ran without a sandbox: as trustworthy as the PR's author";
+/**
+ * Said beside UNSANDBOXED_LINE. In the sandbox the tree is read-only to the tests; without one it
+ * is writable, and nothing keeps one test from changing what another reads.
+ */
+export const UNSANDBOXED_SHARED_LINE = "Without a sandbox one test can rewrite the code and test files another test reads, so a result may be another test's doing";
 
 /** What the runner gave of a failure beyond its message; each part only when the run produced it. */
 export interface FailureDetail {
@@ -35,21 +42,39 @@ export function bounded(text: string, limit: number = FAILURE_LIMIT): string {
  */
 export type Verdict = "regression" | "environment" | "fixed" | "passes" | "skipped" | "head only" | "base only" | "unclear";
 
+/**
+ * Why a failure of main's control run says nothing about the PR's: the run's tree is read-only, so
+ * a main test that writes into it fails there with a read-only file system error it never had on
+ * main. The PR's failure is then neither environment nor fixed, only not compared.
+ */
+export const READ_ONLY_REASON = "main's run met a read-only file system error, which the read-only tree causes: not compared with main";
+
+/** A verdict as the lists say it: its own reason when it has one, else the word for it. */
+export const verdictText = (verdict: Verdict, why?: string): string => why ?? VERDICT_WORD[verdict];
+
 export type VerdictCounts = Readonly<Record<Verdict, number>>;
+
+/** "1 failure", "2 failures". */
+export const failuresText = (count: number): string => `${count} ${count === 1 ? "failure" : "failures"}`;
 
 /**
  * What a control run says of the head's tests, as the parts of a line: regressions (or "no regressions"
  * when something else is worth saying), environment, fixed, and the tests not compared (skipped on a
  * side, one-sided, or named twice). Empty when every test passed on both. `passes` counts only those.
+ * `notComparedFailures` are the PR's failures among the tests not compared: while there are any,
+ * "no regressions" is not said, only that none was found and how many failures were not compared.
  */
-export function verdictParts(counts: VerdictCounts): string[] {
+export function verdictParts(counts: VerdictCounts, notComparedFailures = 0): string[] {
   const notCompared = counts.skipped + counts["head only"] + counts.unclear + counts["base only"];
+  const uncertain = counts.regression === 0 && notComparedFailures > 0;
+  const rest = uncertain ? Math.max(0, notCompared - notComparedFailures) : notCompared;
   const others = [
     ...(counts.environment > 0 ? [`${counts.environment} environment`] : []),
     ...(counts.fixed > 0 ? [`${counts.fixed} fixed`] : []),
-    ...(notCompared > 0 ? [`${notCompared} not compared`] : []),
+    ...(rest > 0 ? [`${rest} ${uncertain ? "other " : ""}not compared`] : []),
   ];
   if (counts.regression > 0) return [`${counts.regression} ${counts.regression === 1 ? "regression" : "regressions"}`, ...others];
+  if (uncertain) return [`no regression found, ${failuresText(notComparedFailures)} not compared`, ...others];
   return others.length > 0 ? ["no regressions", ...others] : [];
 }
 
@@ -74,6 +99,8 @@ export interface ObservedTest {
   readonly detail?: FailureDetail;
   /** Against the control run; absent when there is no control run, so no test is called a regression without one. */
   readonly verdict?: Verdict;
+  /** Why the verdict is `unclear`, when it is for a reason the word does not say. */
+  readonly verdictWhy?: string;
 }
 
 /** A test only main's code ran, which the PR's code did not report. */
@@ -88,7 +115,14 @@ export interface BaseOnlyTest {
  * give results, `why` says so and the head run's failures stand, labelled "no control run".
  */
 export type ControlDocument =
-  | { readonly status: "ran"; readonly seconds: number; readonly counts: VerdictCounts; readonly baseOnly: readonly BaseOnlyTest[] }
+  | {
+      readonly status: "ran";
+      readonly seconds: number;
+      readonly counts: VerdictCounts;
+      /** The PR's failures that were not compared with main (skipped on main, one-sided, or unclear): never read as "no regressions". */
+      readonly notComparedFailures: number;
+      readonly baseOnly: readonly BaseOnlyTest[];
+    }
   | { readonly status: "failed" | "unreliable" | "refused" | "unsupported" | "stopped"; readonly why: string };
 
 export interface UnmatchedTest extends ObservedTest {
@@ -140,6 +174,7 @@ export type ObservedDocument = { readonly tier: "observed"; readonly tree: strin
       readonly sandbox: "bwrap" | "unsandboxed";
       readonly seconds: number;
       readonly output: string;
+      readonly leftover?: Leftover;
     }
   | {
       /** The run's results contradict the runner or each other: none is served, only why. */
@@ -149,6 +184,7 @@ export type ObservedDocument = { readonly tier: "observed"; readonly tree: strin
       readonly sandbox: "bwrap" | "unsandboxed";
       readonly seconds: number;
       readonly exitCode: number;
+      readonly leftover?: Leftover;
     }
   | {
       readonly status: "ran";
@@ -164,6 +200,12 @@ export type ObservedDocument = { readonly tier: "observed"; readonly tree: strin
       readonly deleted: readonly string[];
       readonly edited: readonly string[];
       readonly written: WrittenDocument | null;
+      /**
+       * What the runs (the PR's, the written tests', the control run) left running, found after each
+       * step. Present only for a run without a sandbox, the only one that can leave anything; a
+       * check that could not run says so in `notChecked`, never as an empty list.
+       */
+      readonly leftover?: Leftover;
     }
 );
 

@@ -1,7 +1,7 @@
 import type { FailureView } from "../failure-view.ts";
 import { failureView } from "../failure-view.ts";
 import type { LineRange } from "../graph.ts";
-import { VERDICT_WORD } from "../observed-types.ts";
+import { verdictText } from "../observed-types.ts";
 import type { ControlDocument, ObservedTest } from "../observed-types.ts";
 import type { CodeParts, Drawn } from "./code-rows.ts";
 
@@ -56,7 +56,7 @@ export function failureHeading(test: ObservedTest, control: ControlDocument): st
   if (control.status !== "ran") return `Failed when main's tests ran against this change (observed; no control run: ${control.why})`;
   if (test.verdict === "regression") return "Regression: passes on main, fails with this change (observed)";
   if (test.verdict === "environment") return "Environment: fails on main too, so not this change's doing (observed)";
-  return `Failed when main's tests ran against this change, not compared with main (${VERDICT_WORD[test.verdict ?? "unclear"]})`;
+  return `Failed when main's tests ran against this change, not compared with main (${verdictText(test.verdict ?? "unclear", test.verdictWhy)})`;
 }
 
 /**

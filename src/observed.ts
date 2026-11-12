@@ -3,10 +3,12 @@ import { isCodeNode } from "./graph.ts";
 import type { FileTree, Graph, NodeId } from "./graph.ts";
 import { isTestFile } from "./test-files.ts";
 import { titlesOf } from "./test-marks.ts";
-import { classify } from "./control.ts";
+import { READ_ONLY, classify } from "./control.ts";
+import { mergeLeftovers } from "./leftover.ts";
+import type { Leftover } from "./leftover.ts";
 import { runIsolated } from "./sandbox.ts";
 import type { Isolation, Places } from "./sandbox.ts";
-import { FAILURE_LIMIT, bounded } from "./observed-types.ts";
+import { FAILURE_LIMIT, READ_ONLY_REASON, bounded } from "./observed-types.ts";
 import type { ControlDocument, FailureDetail, ObservedDocument, ObservedTest, Outcome, Runner, UnmatchedTest, WrittenDocument } from "./observed-types.ts";
 
 /** One test as its runner reported it: the titles of its suites, then its own. */
@@ -54,6 +56,8 @@ export type TestRun =
       readonly seconds: number;
       /** The end of what the run printed. */
       readonly output: string;
+      /** What its steps left running; absent for a run in the sandbox. */
+      readonly leftover?: Leftover;
     }
   | {
       /** The results contradict the runner or the files the run was given, so none of them is passed on. */
@@ -63,6 +67,7 @@ export type TestRun =
       readonly isolation: Isolation["kind"];
       readonly seconds: number;
       readonly exitCode: number;
+      readonly leftover?: Leftover;
     }
   | {
       readonly status: "ran";
@@ -76,6 +81,8 @@ export type TestRun =
       readonly written?: WrittenRun;
       /** The same base tests against the base code; none when no control run was made. */
       readonly control?: ControlRun;
+      /** What the head run, the written tests' run and the control run left running, as one; absent when none ran outside the sandbox. */
+      readonly leftover?: Leftover;
     };
 
 /**
@@ -83,7 +90,13 @@ export type TestRun =
  * failure of the head run that also happens here is the environment's, not the change's.
  */
 export type ControlRun =
-  | { readonly status: "ran"; readonly seconds: number; readonly reports: readonly TestReport[] }
+  | {
+      readonly status: "ran";
+      readonly seconds: number;
+      readonly reports: readonly TestReport[];
+      /** The run's output names a read-only file system error: the read-only tree made something fail that no single failure says, so none of main's failures is main's own. */
+      readonly readOnly?: true;
+    }
   | { readonly status: "failed"; readonly why: string; readonly output: string }
   | { readonly status: "unreliable" | "refused" | "unsupported" | "stopped"; readonly why: string };
 
@@ -452,12 +465,14 @@ interface Job {
 }
 
 /** One node --test run in its own sandbox: dependencies first, with the network, then the tests, with none. */
-async function once(job: Job, isolation: Isolation, timeoutMs: number, registry: string): Promise<Once & { readonly seconds: number }> {
+async function once(job: Job, isolation: Isolation, timeoutMs: number, registry: string): Promise<Once & { readonly seconds: number; readonly leftover?: Leftover; readonly readOnly?: true }> {
   const started = Date.now();
   const run = await runIsolated({
     tree: job.tree,
     executable: job.executable,
     pinned: job.pinned,
+    // In the sandbox no test can change what another reads. Without one nothing can be promised, and the run says so.
+    readOnlyWork: true,
     isolation,
     // node's runner is ours and runs none of the tree's code, so it reports where the tests cannot write.
     tools: new Map([["reporter.mjs", NODE_REPORTER], ["npmrc-user", ""], ["npmrc-global", ""]]),
@@ -468,13 +483,18 @@ async function once(job: Job, isolation: Isolation, timeoutMs: number, registry:
       },
     ],
     report: true,
+    watch: READ_ONLY,
     timeoutMs,
     outputBytes: 1 << 20,
   });
   const seconds = Math.round((Date.now() - started) / 100) / 10;
   const ran = [...(run.install === undefined ? [] : [run.install]), ...run.steps];
   const output = ran.map((step) => step.output).join("").slice(-OUTPUT_TAIL);
-  const failed = (why: string): Once & { readonly seconds: number } => ({ status: "failed", why, output, seconds });
+  const leftover = mergeLeftovers(ran.map((step) => step.leftover));
+  // Seen as the output arrived, so output cut at the limit cannot have hidden it.
+  const readOnly = ran.some((step) => step.watched === true);
+  const found = { ...(leftover === undefined ? {} : { leftover }), ...(readOnly ? { readOnly: true as const } : {}) };
+  const failed = (why: string): Once & { readonly seconds: number; readonly leftover?: Leftover; readonly readOnly?: true } => ({ status: "failed", why, output, seconds, ...found });
   const last = ran.at(-1);
   if (last === undefined) return failed("nothing ran");
   if (last.timedOut) return failed(`the run passed its limit of ${Math.round(timeoutMs / 1000)} seconds`);
@@ -486,7 +506,7 @@ async function once(job: Job, isolation: Isolation, timeoutMs: number, registry:
     const reports = parseNodeEvents(results.text);
     const exitCode = last.exitCode ?? 1;
     const why = unreliable(reports, exitCode, job.allowed);
-    return why === undefined ? { status: "ran", exitCode, reports, seconds } : { status: "unreliable", why, exitCode, seconds };
+    return why === undefined ? { status: "ran", exitCode, reports, seconds, ...found } : { status: "unreliable", why, exitCode, seconds, ...found };
   } catch (error) {
     return failed((error as Error).message);
   }
@@ -529,33 +549,38 @@ export async function runTests(
   const pinned = new Set(baseTests);
   const first = await once({ tree, executable, pinned, args: [...detection.flags, ...detection.files], allowed: pinned, install }, isolation, timeoutMs, registry);
   const seconds = Math.round((Date.now() - started) / 100) / 10;
-  const about = { runner: detection.runner, isolation: isolation.kind, seconds: first.seconds };
+  const about = { runner: detection.runner, isolation: isolation.kind, seconds: first.seconds, ...(first.leftover === undefined ? {} : { leftover: first.leftover }) };
   if (first.status === "failed") return { status: "failed", why: first.why, output: first.output, ...about };
   if (first.status === "unreliable") return { status: "unreliable", why: first.why, exitCode: first.exitCode, ...about };
   const writtenFiles = testPaths(head).filter((path) => RUNNABLE.test(path) && head.get(path) !== base.get(path));
   let written: WrittenRun | undefined;
+  let writtenLeftover: Leftover | undefined;
   if (writtenFiles.length > 0) {
     const left = Math.max(1000, timeoutMs - (Date.now() - started));
-    const { seconds: took, ...outcome } = await once(
+    const { seconds: took, leftover: writtenLeft, ...outcome } = await once(
       { tree: head, executable, pinned: new Set(), args: [...detection.flags, ...writtenFiles], allowed: new Set(writtenFiles), install },
       isolation,
       left,
       registry,
     );
     written = { files: writtenFiles, seconds: took, outcome };
+    writtenLeftover = writtenLeft;
   }
   onControl();
-  const control = await controlRun(base, baseExecutable, isolation, timeoutMs, registry, [...detection.flags, ...detection.files], baseTests);
+  const { control, leftover: controlLeftover } = await controlRun(base, baseExecutable, isolation, timeoutMs, registry, [...detection.flags, ...detection.files], baseTests);
+  const leftover = mergeLeftovers([first.leftover, writtenLeftover, controlLeftover]);
   return {
     control,
     status: "ran",
-    ...about,
+    runner: about.runner,
+    isolation: about.isolation,
     seconds,
     exitCode: first.exitCode,
     reports: first.reports,
     deleted: baseTests.filter((path) => !head.has(path)),
     edited: baseTests.filter((path) => head.has(path) && head.get(path) !== base.get(path)),
     ...(written === undefined ? {} : { written }),
+    ...(leftover === undefined ? {} : { leftover }),
   };
 }
 
@@ -564,18 +589,27 @@ export async function runTests(
  * files read-only, the same arguments, the same sandbox. The base tree reaches the sandbox the way the
  * head's does, as a tree handed to `once`. A run that cannot be made says why; it never throws.
  */
-async function controlRun(base: FileTree, executable: ReadonlySet<string>, isolation: Isolation, timeoutMs: number, registry: string, args: readonly string[], baseTests: readonly string[]): Promise<ControlRun> {
+async function controlRun(
+  base: FileTree,
+  executable: ReadonlySet<string>,
+  isolation: Isolation,
+  timeoutMs: number,
+  registry: string,
+  args: readonly string[],
+  baseTests: readonly string[],
+): Promise<{ readonly control: ControlRun; readonly leftover?: Leftover }> {
   try {
     const needed = installNeeded(base);
-    if ("unsupported" in needed) return { status: "unsupported", why: needed.unsupported };
+    if ("unsupported" in needed) return { control: { status: "unsupported", why: needed.unsupported } };
     const install = needed.install ? installFiles(base, registry) : undefined;
-    if (install !== undefined && "refused" in install) return { status: "refused", why: install.refused };
+    if (install !== undefined && "refused" in install) return { control: { status: "refused", why: install.refused } };
     const pinned = new Set(baseTests);
-    const outcome = await once({ tree: base, executable, pinned, args, allowed: pinned, install }, isolation, timeoutMs, registry);
-    if (outcome.status === "ran") return { status: "ran", seconds: outcome.seconds, reports: outcome.reports };
-    return outcome.status === "failed" ? { status: "failed", why: outcome.why, output: outcome.output } : { status: "unreliable", why: outcome.why };
+    const { leftover, readOnly, ...outcome } = await once({ tree: base, executable, pinned, args, allowed: pinned, install }, isolation, timeoutMs, registry);
+    const found = leftover === undefined ? {} : { leftover };
+    if (outcome.status === "ran") return { control: { status: "ran", seconds: outcome.seconds, reports: outcome.reports, ...(readOnly ? { readOnly } : {}) }, ...found };
+    return { control: outcome.status === "failed" ? { status: "failed", why: outcome.why, output: outcome.output } : { status: "unreliable", why: outcome.why }, ...found };
   } catch (error) {
-    return { status: "stopped", why: `the control run stopped: ${error instanceof Error ? error.message : String(error)}` };
+    return { control: { status: "stopped", why: `the control run stopped: ${error instanceof Error ? error.message : String(error)}` } };
   }
 }
 
@@ -713,7 +747,7 @@ function controlDocument(control: ControlRun | undefined, compared: ReturnType<t
   if (control.status !== "ran") return { status: control.status, why: control.why };
   if (compared === undefined) return { status: "stopped", why: "the control run was not compared" };
   const baseOnly = compared.baseOnly.map((report) => ({ file: report.file, name: report.path.join(" > "), outcome: report.outcome }));
-  return { status: "ran", seconds: control.seconds, counts: compared.counts, baseOnly };
+  return { status: "ran", seconds: control.seconds, counts: compared.counts, notComparedFailures: compared.notComparedFailures, baseOnly };
 }
 
 /**
@@ -742,12 +776,13 @@ export function observedDocument(run: TestRun, graph: Graph, tree: string): Obse
   const tests: Record<string, ObservedTest[]> = {};
   const unmatched: UnmatchedTest[] = [];
   const counts = { pass: 0, fail: 0, skip: 0 };
-  const compared = run.control?.status === "ran" ? classify(run.reports, run.control.reports) : undefined;
+  const compared = run.control?.status === "ran" ? classify(run.reports, run.control.reports, run.control.readOnly ? READ_ONLY_REASON : undefined) : undefined;
   for (const [index, report] of run.reports.entries()) {
     counts[report.outcome] += 1;
     const { message, detail } = report;
     const verdict = compared?.verdicts[index];
-    const observed: ObservedTest = { name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}), ...(detail ? { detail } : {}), ...(verdict ? { verdict } : {}) };
+    const verdictWhy = compared?.reasons[index];
+    const observed: ObservedTest = { name: report.path.join(" > "), outcome: report.outcome, ms: report.ms, ...(message ? { message } : {}), ...(detail ? { detail } : {}), ...(verdict ? { verdict } : {}), ...(verdictWhy ? { verdictWhy } : {}) };
     const ids = byFile.get(report.file)?.get(JSON.stringify(report.path)) ?? [];
     const [id] = ids;
     const changed = report.suite ? SUITE_FAILED : deleted.has(report.file) ? DELETED : edited.has(report.file) ? EDITED : undefined;
@@ -778,5 +813,6 @@ export function observedDocument(run: TestRun, graph: Graph, tree: string): Obse
     edited: run.edited,
     written: run.written === undefined ? null : writtenDocument(run.written),
     control: controlDocument(run.control, compared),
+    ...(run.leftover === undefined ? {} : { leftover: run.leftover }),
   };
 }

@@ -245,3 +245,20 @@ test("an unreliable run is served as that, with no result in it", () => {
     exitCode: 1,
   });
 });
+
+// What a run left behind reaches the document whatever the run came to; a sandboxed run has none to report.
+const stuck = { strays: [{ pid: 77, name: "node", killed: false }], more: 0, held: false };
+const notChecked = { strays: [], more: 0, held: false, notChecked: "the process list could not be read (ENOENT)" };
+
+test("a leftover is served in the document of a run that ran, one that failed and one that was unreliable", () => {
+  const empty = extract(new Map());
+  expect(observedDocument(ran([], { isolation: "unsandboxed", leftover: stuck }), empty, "t")).toMatchObject({ status: "ran", sandbox: "unsandboxed", leftover: stuck });
+  const failed: TestRun = { status: "failed", why: "x", runner: "node", isolation: "unsandboxed", seconds: 1, output: "", leftover: notChecked };
+  expect(observedDocument(failed, empty, "t")).toMatchObject({ status: "failed", leftover: notChecked });
+  const unreliableRun: TestRun = { status: "unreliable", why: "x", runner: "node", isolation: "unsandboxed", seconds: 1, exitCode: 1, leftover: stuck };
+  expect(observedDocument(unreliableRun, empty, "t")).toMatchObject({ status: "unreliable", leftover: stuck });
+});
+
+test("a run with no leftover to report serves none, which is not a check that found nothing", () => {
+  expect(observedDocument(ran([]), extract(new Map()), "t")).not.toHaveProperty("leftover");
+});

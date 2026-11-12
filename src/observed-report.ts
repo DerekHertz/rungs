@@ -49,6 +49,8 @@ export interface FailingTest {
   readonly outcome: Outcome;
   /** Against the control run; absent when there is none. */
   readonly verdict?: Verdict;
+  /** Why the verdict is `unclear`, when it has a reason of its own. */
+  readonly verdictWhy?: string;
 }
 
 /** The mark of a row of the lists: a fixed test passes now, every other row is what the PR's run made of it. */
@@ -110,12 +112,12 @@ export function observedReport(document: RanDocument, graph: Graph, comparison: 
     const file = paths.get(id as NodeId) ?? "";
     for (const result of results) {
       tally(file, result);
-      sort(result, { id: id as NodeId, file, name: result.name, outcome: result.outcome, ...(result.message ? { message: result.message } : {}), ...(result.verdict ? { verdict: result.verdict } : {}) });
+      sort(result, { id: id as NodeId, file, name: result.name, outcome: result.outcome, ...(result.message ? { message: result.message } : {}), ...(result.verdict ? { verdict: result.verdict } : {}), ...(result.verdictWhy ? { verdictWhy: result.verdictWhy } : {}) });
     }
   }
   for (const result of document.unmatched) {
     tally(result.file, result);
-    sort(result, { id: fileId(result.file), file: result.file, name: result.name, outcome: result.outcome, ...(result.message ? { message: result.message } : {}), why: result.why, ...(result.verdict ? { verdict: result.verdict } : {}) });
+    sort(result, { id: fileId(result.file), file: result.file, name: result.name, outcome: result.outcome, ...(result.message ? { message: result.message } : {}), why: result.why, ...(result.verdict ? { verdict: result.verdict } : {}), ...(result.verdictWhy ? { verdictWhy: result.verdictWhy } : {}) });
   }
   const deleted = new Set(document.deleted);
   const files: FileResults[] = [];

@@ -113,6 +113,23 @@ test("commas inside generics do not split parameters", () => {
   expect(signatureChange("f(a: Map<string, number>)", "f(a: Map<string, number>, b: number)").text).toBe("+ b: number");
 });
 
+test("the tests row says when a process was left running or the leftovers were not checked, and nothing of a killed or absent one", () => {
+  const ran = { tier: "observed", tree: "t", status: "ran", sandbox: "unsandboxed", counts: { pass: 5, fail: 0, skip: 0 }, control: { status: "failed", why: "x" } } as const;
+  const none = { strays: [], more: 0, held: false };
+  const withLeftover = (leftover: object, status = "ran") => ({ ...ran, status, leftover }) as never;
+  expect(testsSummary(ran as never, 0)).toBe("5 pass");
+  expect(testsSummary(withLeftover(none), 0)).toBe("5 pass");
+  expect(testsSummary(withLeftover({ ...none, strays: [{ pid: 1, name: "node", killed: true }] }), 0)).toBe("5 pass");
+  expect(testsSummary(withLeftover({ ...none, strays: [{ pid: 1, name: "node", killed: false }] }), 0)).toBe("5 pass · a process left running");
+  expect(testsSummary(withLeftover({ ...none, held: true }), 0)).toBe("5 pass · a process left running");
+  expect(testsSummary(withLeftover({ ...none, notChecked: "no /proc" }), 0)).toBe("5 pass · leftovers not checked");
+  // 21 killed processes: the list is cut at 20, and the cut name was killed too.
+  expect(testsSummary(withLeftover({ strays: Array.from({ length: 20 }, (_, pid) => ({ pid, name: "sleep", killed: true })), more: 1, moreAlive: 0, held: false }), 0)).toBe("5 pass");
+  expect(testsSummary(withLeftover({ ...none, more: 1, moreAlive: 1 }), 0)).toBe("5 pass · a process left running");
+  expect(testsSummary(withLeftover({ ...none, more: 1 }), 0)).toBe("5 pass · a process left running");
+  expect(testsSummary(withLeftover({ ...none, strays: [{ pid: 1, name: "node", killed: false }] }, "failed"), 0)).toBe("run failed · a process left running");
+});
+
 test("no description means unmentioned is not checked, never nothing", () => {
   expect(unmentionedSummary({ files: null, calls: 0 })).toBe("not checked, no description");
   expect(unmentionedSummary({ files: 0, calls: 0 })).toBe("nothing");
@@ -150,4 +167,14 @@ test("the empty state of new calls out never says none while an agent-only call 
   expect(noNewCallsText(0)).toMatch(/^No new call reaches/);
   expect(noNewCallsText(1)).toBe("Every other new call out is mentioned.");
   expect(unmentionedSummary({ files: 0, calls: 0, agent: { files: 0, calls: 0, changed: 1 } })).toBe("1 effect changed linked by the agent only");
+});
+
+test("the tests row never says no regressions while a head failure is not compared", () => {
+  const counts = { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 1 };
+  const doc = { tier: "observed", tree: "t", status: "ran", counts: { pass: 0, fail: 1, skip: 0 }, control: { status: "ran", seconds: 1, counts, notComparedFailures: 1, baseOnly: [] } } as never;
+  expect(testsSummary(doc, 0)).toBe("no regression found, 1 failure not compared of 1");
+  expect(testsSummary(doc, 0)).not.toContain("no regressions");
+  // Tests not compared that did not fail keep their own count beside it.
+  const more = { ...(doc as object), control: { status: "ran", seconds: 1, counts: { ...counts, skipped: 2 }, notComparedFailures: 1, baseOnly: [] } } as never;
+  expect(testsSummary(more, 0)).toBe("no regression found, 1 failure not compared · 2 other not compared of 1");
 });

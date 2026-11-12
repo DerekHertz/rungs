@@ -15,6 +15,7 @@ import { narrate } from "./narrate.ts";
 import { runTests } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
 import { EVIDENCE_LINE, UNSANDBOXED_LINE } from "./observed-types.ts";
+import { leftoverText } from "./leftover.ts";
 import { chooseIsolation, detectSandbox } from "./sandbox.ts";
 import { createSnapshot, serve } from "./server.ts";
 import type { Narrator, SnapshotInputs } from "./server.ts";
@@ -43,7 +44,7 @@ async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUn
   const where =
     choice.isolation.kind === "bwrap"
       ? "in a bwrap sandbox with no network"
-      : `WITHOUT a sandbox: their code can reach this machine and the network, and the results are only as trustworthy as the PR's author`;
+      : `WITHOUT a sandbox: their code can reach this machine and the network, one test can rewrite the code and test files another test reads, and the results are only as trustworthy as the PR's author`;
   console.error(`streets: running the base's tests once against the head's code ${where} (up to ${TEST_TIMEOUT_MS / 60000} minutes)`);
   const run = await runTests(base, tree, await readExecutables(dir, tree), choice.isolation, TEST_TIMEOUT_MS, undefined, () => {
     console.error("streets: running the control run: the same tests against main's own code");
@@ -71,6 +72,9 @@ async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUn
   } else if (run.status === "unreliable") console.error(`streets: the test results are unreliable and none is shown: ${run.why}${label}`);
   else if (run.status === "failed") console.error(`streets: the test run failed after ${run.seconds}s: ${run.why}${label}\n${run.output}`);
   else console.error(`streets: tests not run: ${run.why}`);
+  // Only a run without a sandbox can leave a process behind; "none left" is said only by a check that ran.
+  const left = run.status === "ran" || run.status === "failed" || run.status === "unreliable" ? run.leftover : undefined;
+  if (left !== undefined) console.error(`streets: ${leftoverText(left)}`);
   return run;
 }
 
