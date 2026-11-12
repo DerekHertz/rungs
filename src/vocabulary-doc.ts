@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { certificationOf, combine, effectOf, noLongerApply, pairKeyOf, shownCertification, describeCorrection } from "./corrections.ts";
 import type { Effect, PairCorrection, Part } from "./corrections.ts";
 import { digestOf } from "./extract/extract.ts";
-import type { DocFile, DocMember, DocPin, DocStamp, DocTerm, DocTermRef, VocabularyDoc } from "./file-card.ts";
+import type { DocFile, DocMember, DocPin, DocProposal, DocStamp, DocTerm, DocTermRef, VocabularyDoc } from "./file-card.ts";
 import type { FileTree, Graph, NodeId } from "./graph.ts";
 import { yesOf } from "./jev/gate.ts";
 import { termDigest, unitsOf } from "./jev/membership-source.ts";
@@ -12,7 +12,7 @@ import { recordValidity, rulesChanged, unitValidity } from "./membership-valid.t
 import type { HeadFacts, Validity } from "./membership-valid.ts";
 import { pairStatus } from "./memberships.ts";
 import type { MembershipRecord, PairStatus, StoredMemberships, StoredUnit } from "./memberships.ts";
-import { codeFilesUnread } from "./setup.ts";
+import { codeFilesUnread, termsOf as storedTerms } from "./setup.ts";
 import type { StoredRead, StoredVocabulary } from "./setup.ts";
 import { shown } from "./stored-names.ts";
 import type { Term } from "./vocabulary.ts";
@@ -75,6 +75,8 @@ interface Ctx {
   readonly liveTerms: ReadonlyMap<string, readonly string[]>;
   /** A visible term's name. */
   readonly names: ReadonlyMap<string, string>;
+  /** The keys of the terms a model proposed: claimed, wherever a term of that key is named. */
+  readonly claimed: ReadonlySet<string>;
 }
 
 /** One stored judged answer for one pair, read by the shared validity rule. */
@@ -164,8 +166,9 @@ const refOrder = (a: DocTermRef, b: DocTermRef): number => Number(b.corrected !=
 
 function refOf(key: string, view: View, ctx: Ctx): DocTermRef {
   const name = ctx.names.get(key) ?? key;
-  if (view.corrected?.belongs === true) return { key, name, probability: null, corrected: stampOf(view.corrected) };
-  return { key, name, probability: view.settled?.probability ?? 0 };
+  const claimed = ctx.claimed.has(key) ? { claimed: true as const } : {};
+  if (view.corrected?.belongs === true) return { key, name, probability: null, corrected: stampOf(view.corrected), ...claimed };
+  return { key, name, probability: view.settled?.probability ?? 0, ...claimed };
 }
 
 /** What the head says of one function: a current term, no answer for it, an answer out of date, or nothing to ask. */
@@ -331,8 +334,15 @@ function termsOf(stored: StoredVocabulary, ctx: Ctx, head: FileTree, unread: Unr
   const newUnits = [...facts.headUnits.keys()].filter((key) => !facts.storedUnits.has(key)).length;
   const unknowns: Unknowns = { newUnits, codeUnread: codeFilesUnread(vocabulary), headUnread: unread.size };
   const pins = new Map(Object.entries(stored.files));
-  const termByKey = new Map(vocabulary.terms.map((term) => [term.key, term]));
+  const termByKey = new Map(storedTerms(stored).map((term) => [term.key, term]));
+  /** The parts of a visible term that a model proposed, each with what it said and the files it named. */
+  const proposedParts = (key: string): DocProposal[] =>
+    effect.sources(key).flatMap((source) => {
+      const part = termByKey.get(source);
+      return part?.claimed === undefined ? [] : [{ name: shown(effect.nameOf(source)), description: shown(part.claimed.description), files: part.claimed.files.map(shown), model: stored.proposals?.model ?? "unknown" }];
+    });
   return [...effect.visible.values()].map((visible) => {
+    const proposed = proposedParts(visible.key);
     const all = (members.get(visible.key) ?? []).sort(memberOrder);
     const left = all.slice(MAX_MEMBERS);
     const omitted = { current: left.filter((member) => member.state === "member").length, stale: left.filter((member) => member.state === "stale").length };
@@ -342,6 +352,7 @@ function termsOf(stored: StoredVocabulary, ctx: Ctx, head: FileTree, unread: Unr
       name: shown(visible.name),
       summary: memberships === undefined && (own?.member ?? 0) === 0 ? { kind: "not known" as const, why: "not judged" } : summaryOf(own, unknowns, facts.rules),
       pins: effect.sources(visible.key).flatMap((source) => pinsOf(termByKey.get(source)!, head, pins)),
+      ...(proposed.length === 0 ? {} : { proposed }),
       members: all.slice(0, MAX_MEMBERS),
       ...(left.length > 0 ? { membersOmitted: omitted } : {}),
       ...(visible.confirmed === undefined ? {} : { confirmed: stampOf(visible.confirmed) }),
@@ -359,7 +370,8 @@ export function vocabularyDocument(read: StoredRead | undefined, head: { readonl
   const { stored } = read;
   const units = unitsOf(head.graph, head.tree);
   const unread = unreadOf(head.graph);
-  const termByKey = new Map(stored.vocabulary.terms.map((term) => [term.key, term]));
+  const allTerms = storedTerms(stored);
+  const termByKey = new Map(allTerms.map((term) => [term.key, term]));
   const digests = new Map<string, string>();
   const rules = rulesChanged({ extractorVersion: stored.extractorVersion, tableVersion: stored.vocabulary.tableVersion, ...(stored.memberships === undefined ? {} : { memberships: stored.memberships }) });
   const facts: HeadFacts = {
@@ -375,7 +387,7 @@ export function vocabularyDocument(read: StoredRead | undefined, head: { readonl
     },
   };
   const corrections = stored.corrections ?? [];
-  const effect = effectOf(stored.vocabulary.terms, corrections);
+  const effect = effectOf(allTerms, corrections);
   const live = new Map([...effect.pairs].filter(([, pair]) => facts.headUnits.has(pair.unit)));
   const liveTerms = new Map<string, string[]>();
   for (const pair of live.values()) liveTerms.set(pair.unit, [...(liveTerms.get(pair.unit) ?? []), pair.term]);
@@ -386,6 +398,8 @@ export function vocabularyDocument(read: StoredRead | undefined, head: { readonl
     live,
     liveTerms,
     names: new Map([...effect.visible].map(([key, term]) => [key, shown(term.name)])),
+    // A term is claimed when any part of it is a model's proposal: a model's word is never presented as written in the repository, whatever it is merged with.
+    claimed: new Set([...effect.visible.keys()].filter((key) => effect.sources(key).some((source) => termByKey.get(source)?.claimed !== undefined))),
   };
   return {
     tier: "derived",
@@ -397,7 +411,8 @@ export function vocabularyDocument(read: StoredRead | undefined, head: { readonl
     judged: stored.memberships !== undefined,
     ...(stored.memberships === undefined ? {} : { model: stored.memberships.model }),
     terms: termsOf(stored, ctx, head.tree, unread),
-    certification: shownCertification(certificationOf(stored.vocabulary.terms, corrections, stored.certification)),
+    ...(stored.proposals === undefined ? {} : { proposed: { count: ctx.claimed.size, model: stored.proposals.model, answered: stored.proposals.answered, basis: stored.proposals.basis } }),
+    certification: shownCertification(certificationOf(allTerms, corrections, stored.certification)),
     corrections: { count: corrections.length, noLongerApply: noLongerApply(effect, corrections, new Set(facts.headUnits.keys())).map((one) => ({ text: describeCorrection(one.correction), why: one.why, ...stampOf(one.correction) })) },
     withheldPaths: stored.pathsWithheld,
     files: filesOf(units, ctx, stored.memberships, unread),

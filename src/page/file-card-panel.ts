@@ -63,8 +63,14 @@ function termDetail(term: DocTerm, doc: VocabularyDoc, actions: CardActions): HT
   const done = [term.confirmed === undefined ? "" : `confirmed by ${term.confirmed.by} at ${term.confirmed.at}`, term.renamedFrom === undefined ? "" : `renamed from ${term.renamedFrom}`, term.mergedFrom === undefined ? "" : `merged in: ${term.mergedFrom.join(", ")}`].filter((part) => part !== "");
   if (done.length > 0) detail.append(el("div", "card-note", done.join("; ")));
   if (doc.certification !== undefined) detail.append(el("div", "card-note", `vocabulary ${certificationLine(doc.certification)}`));
-  detail.append(el("div", "card-heading", "Written in the repository (derived)"));
-  if (term.pins.length === 0) detail.append(el("div", "card-pin", "nowhere the store kept"));
+  for (const part of term.proposed ?? []) {
+    detail.append(el("div", "card-heading card-claimed", `${part.name}: proposed by ${part.model} (claimed, not written in the repository)`));
+    detail.append(el("div", "card-pin", part.description));
+    detail.append(el("div", "card-pin", `files it named: ${part.files.join(", ")}`));
+  }
+  // A term made partly of a proposal has pins only for the parts the repository wrote, and says so.
+  detail.append(el("div", "card-heading", term.proposed === undefined ? "Written in the repository (derived)" : "Written in the repository (derived), by the parts the repository wrote"));
+  if (term.pins.length === 0) detail.append(el("div", "card-pin", term.proposed === undefined ? "nowhere the store kept" : "nowhere: a model proposed this term"));
   for (const pin of term.pins) {
     const where = `${pin.source} · ${shownPath(pin.path)}${lines(pin.range)} · ${pin.written}`;
     const reason = pin.why ?? "a folder: it has no lines";
@@ -89,8 +95,8 @@ function lineElement(line: CardLine, doc: VocabularyDoc | null, actions: CardAct
   if (line.label !== "") wrap.append(el("span", "card-label", line.label));
   let detail: HTMLElement | undefined;
   for (const chip of line.chips ?? []) {
-    const button = el("button", "card-term", chip.text);
-    button.title = `${chip.name}: where it is written and which functions belong to it`;
+    const button = el("button", chip.claimed === true ? "card-term card-term-claimed" : "card-term", chip.text);
+    button.title = chip.claimed === true ? `${chip.name}: a term a model proposed (claimed); which functions belong to it is judged` : `${chip.name}: where it is written and which functions belong to it`;
     button.type = "button";
     button.addEventListener("click", () => {
       const term = doc?.terms.find((one) => one.key === chip.key);

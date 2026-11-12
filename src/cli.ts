@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { readBase, readCheckout, readExecutables } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
+import { PROPOSE_EFFORT, PROPOSE_MODEL } from "./propose.ts";
 import { parseOptions, USAGE } from "./options.ts";
 import type { Options } from "./options.ts";
 import { servePicker } from "./picker.ts";
@@ -235,7 +236,9 @@ if (options.setup) {
     const key = process.env.TYPESAFE_API_KEY;
     const judging = options.judge && key !== undefined && key !== "";
     if (options.judge && !judging) console.error("streets: no TYPESAFE_API_KEY in the environment: nothing sent, no code is mapped to a term");
-    for (const line of reportLines(await setUp({ dir: options.dir, cacheDir: cache, ...(options.base === undefined ? {} : { ref: options.base }), ...(judging ? { judge: clientFor(true, process.env) } : {}) }))) console.log(line);
+    // Proposing sends only paths and names, to Sonnet through the person's own Claude login, and only when asked for.
+    const proposing = options.propose === true ? { propose: claudeRunner("claude", { model: PROPOSE_MODEL, effort: PROPOSE_EFFORT }) } : {};
+    for (const line of reportLines(await setUp({ dir: options.dir, cacheDir: cache, ...(options.base === undefined ? {} : { ref: options.base }), ...(judging ? { judge: clientFor(true, process.env) } : {}), ...proposing }))) console.log(line);
     process.exit(0);
   } catch (error) {
     console.error(`streets: ${(error as Error).message}`);

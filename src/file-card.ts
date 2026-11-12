@@ -28,6 +28,8 @@ export interface DocTermRef {
   readonly probability: number | null;
   /** Set when a person corrected it to a member: shown as "corrected by <name>", whatever the judged record says. */
   readonly corrected?: DocStamp;
+  /** Set when the term is one a model proposed (claimed): it is drawn as claimed, though the mapping to it is judged. */
+  readonly claimed?: true;
 }
 
 /** What is known of the terms of a file's functions, classes and constants in the head. */
@@ -84,12 +86,30 @@ export interface DocMember {
   readonly id?: NodeId;
 }
 
+/** One part of a term that a model proposed: a claimed fact. */
+export interface DocProposal {
+  /** The part's name (after a rename). */
+  readonly name: string;
+  readonly description: string;
+  readonly files: readonly string[];
+  readonly model: string;
+}
+
+/** What a stored answer of no terms is called, on every surface: the model was asked, and proposed none. Never "no terms needed". */
+export const EMPTY_ANSWER = "a model was asked and proposed no terms";
+
 export interface DocTerm {
   readonly key: string;
   readonly name: string;
   /** "has members", "no members" or "not known": never "no members" while a pair is not judged. */
   readonly summary: { readonly kind: "has members" | "no members" | "not known"; readonly why: string };
   readonly pins: readonly DocPin[];
+  /**
+   * One entry for each part of the term that a model proposed (claimed): what it said the part is and the files it named. Set when
+   * any part is a proposal, so a term merged from a proposed and an own term shows both: the pins are the parts the repository
+   * wrote, these are the parts it did not.
+   */
+  readonly proposed?: readonly DocProposal[];
   readonly members: readonly DocMember[];
   /** Set when a person confirmed the term. */
   readonly confirmed?: DocStamp;
@@ -119,6 +139,12 @@ export interface VocabularyDoc {
   readonly judged: boolean;
   readonly model?: string;
   readonly terms: readonly DocTerm[];
+  /**
+   * Present whenever proposals are stored. `count` is how many of the terms shown are, or include, a part a model proposed
+   * (claimed); `answered` is how many terms the model's answer held (zero: it was asked and proposed none); `basis` is how far the
+   * repository's own words reached when it was asked.
+   */
+  readonly proposed?: { readonly count: number; readonly model: string; readonly answered: number; readonly basis: { readonly of: number; readonly mapped: number } };
   /** Whether a person has certified the vocabulary, and whether it changed since (see src/corrections.ts). Present when a vocabulary is stored. */
   readonly certification?: DocCertification;
   /** A person's corrections, and the ones with nothing to apply to in this tree (kept, never dropped). Present when a vocabulary is stored. */
@@ -153,6 +179,8 @@ export interface TermChip {
   readonly key: string;
   readonly name: string;
   readonly text: string;
+  /** A term a model proposed: drawn as claimed. */
+  readonly claimed?: true;
 }
 
 export interface TermsLine {
@@ -175,6 +203,12 @@ export function omittedText(omitted: { readonly current: number; readonly stale:
   return `and ${omitted.current + omitted.stale} more not listed (${parts.join(", ")})`;
 }
 
+function proposedNote(proposed: NonNullable<VocabularyDoc["proposed"]>): string {
+  if (proposed.answered === 0) return `${EMPTY_ANSWER} (own words reach ${proposed.basis.mapped} of ${proposed.basis.of} files, under half)`;
+  if (proposed.count === 0) return `every term ${proposed.model} proposed is removed or merged away by a person`;
+  return `${proposed.count} ${proposed.count === 1 ? "term is" : "terms are"} proposed by ${proposed.model}, or include a part it proposed (claimed), not written in the repository`;
+}
+
 /** The terms line of a file: its terms with their probabilities, or exactly why there are none to show. */
 export function termsLine(doc: VocabularyDoc | null | undefined, file: DocFile | undefined, unread = false): TermsLine {
   if (doc === null) return { chips: [], text: "vocabulary unavailable: the page could not load it" };
@@ -184,6 +218,7 @@ export function termsLine(doc: VocabularyDoc | null | undefined, file: DocFile |
   const gone = doc.corrections?.noLongerApply.length ?? 0;
   const notes = [
     doc.rules === undefined ? "" : `built with other rules (${doc.rules}): run streets setup`,
+    doc.proposed === undefined ? "" : proposedNote(doc.proposed),
     doc.certification === undefined ? "" : `vocabulary ${certificationLine(doc.certification)}`,
     gone === 0 ? "" : `${gone} ${gone === 1 ? "correction" : "corrections"} no longer apply (streets vocabulary list)`,
   ].filter((part) => part !== "");
@@ -197,7 +232,7 @@ export function termsLine(doc: VocabularyDoc | null | undefined, file: DocFile |
   // No adapter, or a syntax error: its code is not read, so what its terms are is unknown, never "no function".
   if (file?.unread !== undefined) return say(`this file's code is not read (${file.unread}): its terms are not known`);
   const units = file?.units;
-  const chips = (file?.terms ?? []).map((term) => ({ key: term.key, name: term.name, text: `${term.name} ${markOf(term)}`.trim() }));
+  const chips = (file?.terms ?? []).map((term): TermChip => ({ key: term.key, name: term.name, text: `${term.name} ${markOf(term)}${term.claimed === true ? " (claimed term)" : ""}`.trim(), ...(term.claimed === true ? { claimed: true as const } : {}) }));
   const stale = units?.stale ?? 0;
   const notJudged = units?.notJudged ?? 0;
   if (chips.length > 0) return say([notJudged > 0 ? `${notJudged} of ${units!.total} ${UNITS} not judged` : "", stale > 0 ? staleText(stale, file?.staleWhy) : ""].filter((part) => part !== "").join(", "), chips);

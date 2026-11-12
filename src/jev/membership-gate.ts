@@ -35,6 +35,8 @@ export interface TermFacts {
   readonly pins: readonly TermPinFacts[];
   /** Places where the term is written that are left out to keep the state short. */
   readonly omittedPins: number;
+  /** Set only for a term a model proposed: what it said the term is. The repository does not write it, and the state says so. */
+  readonly claimed?: string;
 }
 
 export interface UnitFacts {
@@ -120,7 +122,9 @@ const DATA_NOTE =
 export const cutTo = (text: string, room: number): string => (text.length > room ? `${text.slice(0, Math.max(0, room))}\n[cut to fit the state budget of ${MAX_STATE_CHARS} characters]` : text);
 
 export function termText(term: TermFacts): string {
-  const out = [`Term: ${term.name}`, "Written in this repository as:"];
+  const out = [`Term: ${term.name}`];
+  if (term.claimed !== undefined) out.push(`Proposed by a model, not written in this repository. The model described it as: ${term.claimed}`);
+  if (term.pins.length > 0 || term.omittedPins > 0) out.push("Written in this repository as:");
   for (const pin of term.pins) {
     out.push(`  ${pin.source} at ${pin.where}: ${pin.written}`);
     for (const line of pin.context) out.push(`    ${line}`);

@@ -210,7 +210,8 @@ export function validate(output: unknown, claims: readonly Claim[], known: Reado
 
 /** Asks an agent a question and returns its structured answer. The seam tests fake. */
 export interface AgentRunner {
-  run(request: { system: string; prompt: string; schema: object; timeoutMs: number }): Promise<{ output: unknown; model: string }>;
+  /** `usd` is what the call cost when the CLI said so; absent or null is unknown, never zero. */
+  run(request: { system: string; prompt: string; schema: object; timeoutMs: number }): Promise<{ output: unknown; model: string; usd?: number | null }>;
 }
 
 const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim().slice(0, 300);
@@ -223,7 +224,8 @@ const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim().slice
 export const AGENT_MODEL = "opus";
 export const AGENT_EFFORT = "medium";
 
-export function claudeRunner(command = "claude"): AgentRunner {
+export function claudeRunner(command = "claude", options: { readonly model?: string; readonly effort?: string } = {}): AgentRunner {
+  const { model = AGENT_MODEL, effort = AGENT_EFFORT } = options;
   return {
     run({ system, prompt, schema, timeoutMs }) {
       return new Promise((resolve, reject) => {
@@ -234,9 +236,9 @@ export function claudeRunner(command = "claude"): AgentRunner {
           "--json-schema",
           JSON.stringify(schema),
           "--model",
-          AGENT_MODEL,
+          model,
           "--effort",
-          AGENT_EFFORT,
+          effort,
           "--tools",
           "",
           "--strict-mcp-config",
@@ -282,12 +284,13 @@ export function claudeRunner(command = "claude"): AgentRunner {
           if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
             return reject(new Error(code === 0 ? "claude CLI printed JSON that is not an object" : `claude CLI exited with ${code}: ${oneLine(stderr || stdout)}`));
           }
-          const reply = parsed as { is_error?: boolean; result?: unknown; structured_output?: unknown; modelUsage?: unknown };
+          const reply = parsed as { is_error?: boolean; result?: unknown; structured_output?: unknown; modelUsage?: unknown; total_cost_usd?: unknown };
           if (code !== 0 || reply.is_error === true) {
             return reject(new Error(`claude CLI ${code !== 0 ? `exited with ${code}` : "reported an error"}: ${oneLine(typeof reply.result === "string" ? reply.result : stderr)}`));
           }
           if (reply.structured_output === undefined) return reject(new Error("claude CLI returned no structured output"));
-          resolve({ output: reply.structured_output, model: (typeof reply.modelUsage === "object" && reply.modelUsage !== null ? Object.keys(reply.modelUsage)[0] : undefined) ?? "unknown" });
+          const usd = typeof reply.total_cost_usd === "number" && Number.isFinite(reply.total_cost_usd) && reply.total_cost_usd >= 0 ? reply.total_cost_usd : null;
+          resolve({ output: reply.structured_output, model: (typeof reply.modelUsage === "object" && reply.modelUsage !== null ? Object.keys(reply.modelUsage)[0] : undefined) ?? "unknown", usd });
         };
         child.stdin.end(prompt);
       });
