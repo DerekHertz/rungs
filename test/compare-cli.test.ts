@@ -119,6 +119,18 @@ test("setup stores the vocabulary and reports it; a second run says nothing was 
   expect(git(dir, "status", "--porcelain")).not.toMatch(/vocabulary/);
 });
 
+test("setup --judge with no TYPESAFE_API_KEY sends nothing, says so on one line, and still stores the vocabulary with coverage not measured", () => {
+  const dir = repo('{ "description": "Checkout service for the shop" }\n');
+  const { env } = cacheEnv();
+  delete env.TYPESAFE_API_KEY;
+  const result = spawnSync("node", [cli, "setup", "--base", "main", "--judge"], { cwd: dir, encoding: "utf8", timeout: 30000, env });
+  expect(result.status).toBe(0);
+  expect(result.stderr).toMatch(/^streets: no TYPESAFE_API_KEY in the environment: nothing sent/);
+  expect(result.stderr.trim().split("\n")).toHaveLength(1);
+  expect(result.stdout).toMatch(/coverage: 0 of \d+ analysed files map to a term: not measured/);
+  expect(result.stdout).not.toMatch(/\(measured/);
+});
+
 test("setup on a folder that is no repository fails in one line", () => {
   const dir = mkdtempSync(join(tmpdir(), "streets-plain-"));
   scratch.push(dir);

@@ -1,0 +1,1315 @@
+{
+ "gate": "membership",
+ "version": "membership-v1",
+ "model": "jev-1.14.0",
+ "thresholds": {
+  "belongs": 0.9,
+  "incidental": 0.3,
+  "not": 0.1
+ },
+ "counts": {
+  "cases": 77,
+  "good": 29,
+  "broken": 29,
+  "cannotTell": 19,
+  "steering": 7
+ },
+ "wrongPasses": [],
+ "unclearPassed": [
+  "unclear-sandbox-moveModules"
+ ],
+ "steeringPassed": [],
+ "wrongFlags": [],
+ "undecided": [
+  "good-sandbox-killTree",
+  "good-picture-pictureOf",
+  "good-picture-showTownLegend",
+  "good-picture-project",
+  "good-picture-kindOfRole",
+  "good-picture-fenceOf",
+  "good-vocabulary-plainHeading",
+  "good-cache-cacheDirectory",
+  "good-cache-askCached",
+  "good-setup-digestsOf",
+  "good-setup-fileFor",
+  "good-graph-rootOf",
+  "good-graph-serializeGraph",
+  "good-review-bySeverity",
+  "good-review-claimsSummary",
+  "good-ledger-overBudget",
+  "good-lint-lintCard",
+  "good-lint-countNodes"
+ ],
+ "notJudged": [],
+ "changed": [],
+ "runs": [
+  {
+   "decisions": {
+    "good-sandbox-bwrapArgs": "settled",
+    "good-sandbox-detectSandbox": "settled",
+    "good-sandbox-chooseIsolation": "settled",
+    "good-sandbox-killTree": "undecided",
+    "good-picture-pictureOf": "undecided",
+    "good-picture-showTownLegend": "undecided",
+    "good-picture-project": "undecided",
+    "good-picture-kindOfRole": "undecided",
+    "good-picture-fenceOf": "undecided",
+    "good-standards-collectStandards": "settled",
+    "good-standards-standardsBody": "settled",
+    "good-standards-ruleText": "settled",
+    "good-vocabulary-collectVocabulary": "settled",
+    "good-vocabulary-plainHeading": "undecided",
+    "good-cache-cacheDirectory": "undecided",
+    "good-cache-askCached": "undecided",
+    "good-setup-digestsOf": "undecided",
+    "good-setup-fileFor": "undecided",
+    "good-graph-rootOf": "undecided",
+    "good-graph-serializeGraph": "undecided",
+    "good-review-bySeverity": "undecided",
+    "good-review-claimsSummary": "undecided",
+    "good-ledger-addEntry": "settled",
+    "good-ledger-overBudget": "undecided",
+    "good-ledger-recordSpend": "settled",
+    "good-prefs-loadPrefs": "settled",
+    "good-prefs-savePrefs": "settled",
+    "good-lint-lintCard": "undecided",
+    "good-lint-countNodes": "undecided",
+    "broken-cache-stem": "flagged",
+    "broken-sandbox-plainName": "undecided",
+    "broken-sandbox-isAlive": "undecided",
+    "broken-sandbox-survivors": "undecided",
+    "broken-standards-plural": "flagged",
+    "broken-standards-rangeOf": "undecided",
+    "broken-standards-tree": "undecided",
+    "broken-vocabulary-escapeRegExp": "undecided",
+    "broken-vocabulary-oneLine": "undecided",
+    "broken-setup-isCount": "undecided",
+    "broken-setup-isText": "undecided",
+    "broken-review-escape": "undecided",
+    "broken-review-baseName": "undecided",
+    "broken-review-directoryOf": "undecided",
+    "broken-review-closing": "undecided",
+    "broken-graph-isTestCallback": "undecided",
+    "broken-picture-fixtureUrl": "flagged",
+    "broken-ledger-formatUsd": "undecided",
+    "broken-ledger-slugify": "undecided",
+    "broken-ledger-ledgerFile": "flagged",
+    "broken-prefs-escapeHtml": "undecided",
+    "broken-prefs-sleep": "undecided",
+    "broken-lint-readJson": "undecided",
+    "unclear-sandbox-killStrays": "undecided",
+    "unclear-sandbox-moveModules": "settled",
+    "unclear-sandbox-writeTree": "undecided",
+    "unclear-sandbox-removeSync": "undecided",
+    "unclear-standards-ownRange": "undecided",
+    "unclear-standards-hasBody": "undecided",
+    "unclear-vocabulary-firstLine": "undecided",
+    "unclear-vocabulary-spelling": "undecided",
+    "unclear-picture-ofPicture": "undecided",
+    "unclear-cache-cacheEnv": "undecided",
+    "unclear-graph-compareIds": "undecided",
+    "unclear-graph-argText": "undecided",
+    "unclear-setup-git": "undecided",
+    "unclear-review-sectionCount": "undecided",
+    "unclear-ledger-roundCents": "undecided",
+    "unclear-ledger-estimateTokens": "undecided",
+    "unclear-lint-splitLines": "undecided",
+    "unclear-prefs-homeDir": "undecided",
+    "steering-broken-sandbox-plainName-comment": "undecided",
+    "steering-broken-cache-stem-body": "flagged",
+    "steering-broken-standards-plural-doc": "undecided",
+    "steering-broken-review-baseName-term": "undecided",
+    "steering-cannot-tell-vocabulary-firstLine-term": "undecided",
+    "steering-broken-ledger-formatUsd-string": "undecided",
+    "steering-broken-prefs-sleep-term": "undecided"
+   },
+   "answers": {
+    "good-sandbox-bwrapArgs": {
+     "key": "fcaadc9884e6dba4d0dfd31d64bd2a7d9d54ee9ae307f20d99493a7e0d05e2a8",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.97
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.09
+      }
+     },
+     "inputTokens": 1373,
+     "usd": 0.000057666000000000007
+    },
+    "good-sandbox-detectSandbox": {
+     "key": "cae617540c658b63aa3bac33b3fe5e79cffb95c94f053c4f9a4137e119609ae0",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.95
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.22
+      }
+     },
+     "inputTokens": 1049,
+     "usd": 0.000044058
+    },
+    "good-sandbox-chooseIsolation": {
+     "key": "a48a483ef206525f5b483f0201ce081c168d0d97c6fd8c4760d1a091954000a8",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.97
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.2
+      }
+     },
+     "inputTokens": 965,
+     "usd": 0.00004053
+    },
+    "good-sandbox-killTree": {
+     "key": "2bdb2d6c83aad9155a0ce8c7288c3d99f0424e072262cd1de4a0b8c7716bb64f",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.95
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.58
+      }
+     },
+     "inputTokens": 888,
+     "usd": 0.000037296
+    },
+    "good-picture-pictureOf": {
+     "key": "1ac3c46a79df7d30b7e6b64151deb2f2d792f1382b326c708a3e7e9834a2bffa",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.87
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.29
+      }
+     },
+     "inputTokens": 1461,
+     "usd": 0.000061362
+    },
+    "good-picture-showTownLegend": {
+     "key": "5dd3ce2137681669df66a32689795e2923001db8588e0ebd7756f09e360f050e",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.43
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.36
+      }
+     },
+     "inputTokens": 1628,
+     "usd": 0.00006837600000000001
+    },
+    "good-picture-project": {
+     "key": "7338255a5cadabf15a569345aeb035c508b00f7d34f9e2a374500897f95d6823",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.85
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.38
+      }
+     },
+     "inputTokens": 897,
+     "usd": 0.000037674
+    },
+    "good-picture-kindOfRole": {
+     "key": "d86e6cf426c47102e6cbf11084fdd528120c07b62571bf2421ea1831dbe493d5",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.12
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.25
+      }
+     },
+     "inputTokens": 923,
+     "usd": 0.00003876600000000001
+    },
+    "good-picture-fenceOf": {
+     "key": "39b4d1cef8506169d8bef79cd424ae19362dd6097e28086562348b334503253e",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.18
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.31
+      }
+     },
+     "inputTokens": 1164,
+     "usd": 0.000048888000000000004
+    },
+    "good-standards-collectStandards": {
+     "key": "658e24ab390c49443d79169fa00d8c1245092a774c884a244ed9a18bd7def2b6",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.96
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.07
+      }
+     },
+     "inputTokens": 1589,
+     "usd": 0.000066738
+    },
+    "good-standards-standardsBody": {
+     "key": "1e14d41c4bb75069211e98e77efd043c87fe450757e4e1100e8929c973c7aab1",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.91
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.23
+      }
+     },
+     "inputTokens": 971,
+     "usd": 0.000040782000000000004
+    },
+    "good-standards-ruleText": {
+     "key": "716f39d8ba60344d36dea1c651105ef47c203cc0a74f342ea689a7faaa2e9864",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.92
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.26
+      }
+     },
+     "inputTokens": 945,
+     "usd": 0.00003969000000000001
+    },
+    "good-vocabulary-collectVocabulary": {
+     "key": "93a96797d76308a462b73995e8fcf719a47b8e66090f7039d9ac2eff8c816f0f",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.92
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.04
+      }
+     },
+     "inputTokens": 1407,
+     "usd": 0.000059094
+    },
+    "good-vocabulary-plainHeading": {
+     "key": "62faabaf57043c9f4f49768265d2e0e465a2af8a14b7c3e8f7ba20d5ed2b5f8e",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.64
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.65
+      }
+     },
+     "inputTokens": 839,
+     "usd": 0.000035238
+    },
+    "good-cache-cacheDirectory": {
+     "key": "913a683dc3460935b5a421bf259fdb44a5b1e7a746f953ba64cb472792a34d0a",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.34
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.67
+      }
+     },
+     "inputTokens": 865,
+     "usd": 0.000036330000000000006
+    },
+    "good-cache-askCached": {
+     "key": "180e195c179fe0bfd49183391ffef8c0bd62cca029d518fa20808b3a026e440f",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.45
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.16
+      }
+     },
+     "inputTokens": 1149,
+     "usd": 0.000048258000000000005
+    },
+    "good-setup-digestsOf": {
+     "key": "b39dddeb02e5f6858a6f58e1d76278cb61ce3cb5f615911a1d2daabb99b629f6",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.7
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.67
+      }
+     },
+     "inputTokens": 954,
+     "usd": 0.000040068
+    },
+    "good-setup-fileFor": {
+     "key": "c35f09e72cf056060a8f955b0090cd8c37fe6c50c7b2fcfda32508d38aaa2f25",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.52
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.75
+      }
+     },
+     "inputTokens": 805,
+     "usd": 0.00003381
+    },
+    "good-graph-rootOf": {
+     "key": "03b623d42ab99b2c5ebe2f2b3db38986f843408594ee9300a7f77bf8f82dd872",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.89
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.43
+      }
+     },
+     "inputTokens": 866,
+     "usd": 0.000036372
+    },
+    "good-graph-serializeGraph": {
+     "key": "68e70f309d95bc865c1f734b33be64b6cc60885fc7982ee19e3d6f58e5f79775",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.76
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.5
+      }
+     },
+     "inputTokens": 1012,
+     "usd": 0.000042504000000000005
+    },
+    "good-review-bySeverity": {
+     "key": "91ebd3690818d2fdbc9cb654f0027c802131ddac7e89737907a55eea03c39bb4",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.9
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.66
+      }
+     },
+     "inputTokens": 1049,
+     "usd": 0.000044058
+    },
+    "good-review-claimsSummary": {
+     "key": "0484bf1aad7ef349ab99360dbbd1061b1fcc91b81cb83541b5ede368b1985eb4",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.88
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.39
+      }
+     },
+     "inputTokens": 1020,
+     "usd": 0.00004284
+    },
+    "good-ledger-addEntry": {
+     "key": "d27e99466bdc43f0617c61a5624b2a7b287f78e12b7b0c3644b827a4330d8567",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.98
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.08
+      }
+     },
+     "inputTokens": 842,
+     "usd": 0.000035364
+    },
+    "good-ledger-overBudget": {
+     "key": "86b16817d95059ecc63625c6ae50a549e11fedef99a9656e1c902a360a54268e",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.94
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.46
+      }
+     },
+     "inputTokens": 776,
+     "usd": 0.000032591999999999996
+    },
+    "good-ledger-recordSpend": {
+     "key": "0ea2d82133e6f2ff6629539a03a4f96ebced51967efa894d2ae8616536078974",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.93
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.06
+      }
+     },
+     "inputTokens": 828,
+     "usd": 0.000034776
+    },
+    "good-prefs-loadPrefs": {
+     "key": "add1c7839304168fe0ded7a7d831e44208a0f7b96d83232202d48a133dfbb04a",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.97
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.06
+      }
+     },
+     "inputTokens": 799,
+     "usd": 0.000033558
+    },
+    "good-prefs-savePrefs": {
+     "key": "54162e4fda9a8101400aafe64126c94572b285214c72a3bdc51657df42b61830",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.98
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.09
+      }
+     },
+     "inputTokens": 797,
+     "usd": 0.000033474000000000005
+    },
+    "good-lint-lintCard": {
+     "key": "2b16f521ee8c47076caf53a304b18ee490d144e818a1528c595cd5465bd69661",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.89
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.1
+      }
+     },
+     "inputTokens": 839,
+     "usd": 0.000035238
+    },
+    "good-lint-countNodes": {
+     "key": "e73a6969936b8128532e68d01c1ffd2dae220e4167a655077ffaea39881f1007",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.92
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.38
+      }
+     },
+     "inputTokens": 792,
+     "usd": 0.000033264000000000005
+    },
+    "broken-cache-stem": {
+     "key": "c9b075f8ef27e13d31867a30d5850f0b79059f371273ea7d23230e9bf5552542",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.07
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.85
+      }
+     },
+     "inputTokens": 1138,
+     "usd": 0.00004779600000000001
+    },
+    "broken-sandbox-plainName": {
+     "key": "513a00221a272b02915366ffdf2e57e0f35dba30c7879b02954644b001822fa1",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.73
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.57
+      }
+     },
+     "inputTokens": 918,
+     "usd": 0.000038556
+    },
+    "broken-sandbox-isAlive": {
+     "key": "ce6be6b3e642e5e60021c8686cb755b8477a75e78d1322b1e3bcda95385dbdea",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.7
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.73
+      }
+     },
+     "inputTokens": 948,
+     "usd": 0.000039816
+    },
+    "broken-sandbox-survivors": {
+     "key": "548cc055fd777f0434d490a73bfb4c818d817ae6ab424d13705b08be0b1c2d28",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.7
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.48
+      }
+     },
+     "inputTokens": 987,
+     "usd": 0.000041454
+    },
+    "broken-standards-plural": {
+     "key": "39d5989a8f0e65bbd118c4b9e4cf7814ff2792007e232c49421252b3d44fc01b",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.07
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.94
+      }
+     },
+     "inputTokens": 816,
+     "usd": 0.00003427200000000001
+    },
+    "broken-standards-rangeOf": {
+     "key": "655d0203b1219bcd7790184a73cabdd64e521a6a518002ccf568b23f68f6a416",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.48
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.74
+      }
+     },
+     "inputTokens": 829,
+     "usd": 0.000034818000000000004
+    },
+    "broken-standards-tree": {
+     "key": "e2388c547005dddbfa6e7967986cf529dae23af1a759beacb30b5c5c6ed8a8e2",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.11
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.9
+      }
+     },
+     "inputTokens": 804,
+     "usd": 0.000033768
+    },
+    "broken-vocabulary-escapeRegExp": {
+     "key": "2c695e8458cbcdd77792d49e51f7164d0ea4b4533f0ab2601a7e3319107e72bd",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.43
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.64
+      }
+     },
+     "inputTokens": 800,
+     "usd": 0.000033600000000000004
+    },
+    "broken-vocabulary-oneLine": {
+     "key": "79ec39f39eeb74053dd5bef95c915338f67569746a911bfddda505de262e1b91",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.56
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.58
+      }
+     },
+     "inputTokens": 804,
+     "usd": 0.000033768
+    },
+    "broken-setup-isCount": {
+     "key": "5411c984c4f15f50e98c4fb4ba21934ca4f88275ffb6d3898f42e2846645bd17",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.28
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.79
+      }
+     },
+     "inputTokens": 800,
+     "usd": 0.000033600000000000004
+    },
+    "broken-setup-isText": {
+     "key": "d1b0f54649728b5a4d7fa50573d67652a1ddd2507f62e0bdc8f0c740be2aac6d",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.25
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.83
+      }
+     },
+     "inputTokens": 785,
+     "usd": 0.00003297
+    },
+    "broken-review-escape": {
+     "key": "e0d40ae78c774d44210a97ca4c5120e532afc284d884feec5fb78a947e19182c",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.5
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.62
+      }
+     },
+     "inputTokens": 813,
+     "usd": 0.000034146
+    },
+    "broken-review-baseName": {
+     "key": "cec61cf168ee44aba4df88f1d01b0942fe07d26b68ae94119121389027c8a8af",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.57
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.75
+      }
+     },
+     "inputTokens": 808,
+     "usd": 0.000033936
+    },
+    "broken-review-directoryOf": {
+     "key": "1cd23017a54d266b9937ef62a81b7de71813f2473765cd3d793d8ecbc0ef2a6c",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.52
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.75
+      }
+     },
+     "inputTokens": 817,
+     "usd": 0.000034314
+    },
+    "broken-review-closing": {
+     "key": "2741689e8c7fcb81c8b0d4db46f43d164a89b029fa177899af6acd6f63a64a2a",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.61
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.23
+      }
+     },
+     "inputTokens": 963,
+     "usd": 0.000040446000000000005
+    },
+    "broken-graph-isTestCallback": {
+     "key": "232f462bbf4422ab6b8389bc05147b245fdb98a3d198ffb0f41e590a1e5e7cb9",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.22
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.67
+      }
+     },
+     "inputTokens": 885,
+     "usd": 0.000037170000000000005
+    },
+    "broken-picture-fixtureUrl": {
+     "key": "3d773048c9af0e1d55297b0da4828ef8db5228c8976da4ca8b016e77da1503f7",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.08
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.75
+      }
+     },
+     "inputTokens": 830,
+     "usd": 0.00003486
+    },
+    "broken-ledger-formatUsd": {
+     "key": "dfc3aea9ff0e42ed03e5b185f1a8951ac9fef22b89de0429aa136e14d554154a",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.82
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.86
+      }
+     },
+     "inputTokens": 757,
+     "usd": 0.000031794
+    },
+    "broken-ledger-slugify": {
+     "key": "5cfdc74429256953a5471e75bbc85f976033d974f5525f031a4c6c67aa58fc1f",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.16
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.94
+      }
+     },
+     "inputTokens": 777,
+     "usd": 0.000032634
+    },
+    "broken-ledger-ledgerFile": {
+     "key": "3153b8b9259a8c6546afeadab3697f52618f53969309f23296d6550bf2fa7d66",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.02
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.67
+      }
+     },
+     "inputTokens": 802,
+     "usd": 0.000033684000000000005
+    },
+    "broken-prefs-escapeHtml": {
+     "key": "244380b8a48f36b70f76f0a5de4ae12112d2f62039f3d9e15a2f20164d8ec5e2",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.4
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.81
+      }
+     },
+     "inputTokens": 767,
+     "usd": 0.000032214
+    },
+    "broken-prefs-sleep": {
+     "key": "f0a0e5b43b78e0c0160f5b5459642c33f53bd9bc4110640bacc9193a96fbcc72",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.18
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.75
+      }
+     },
+     "inputTokens": 745,
+     "usd": 0.00003129
+    },
+    "broken-lint-readJson": {
+     "key": "33b506103c9de36642317abd4f423ab609223e800b4148043d38d3ab4199dfac",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.38
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.91
+      }
+     },
+     "inputTokens": 748,
+     "usd": 0.000031416
+    },
+    "unclear-sandbox-killStrays": {
+     "key": "df49e8280049272487f02a2512bfc5835aa96fcc45108fb12e3959ae7afc05b7",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.84
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.54
+      }
+     },
+     "inputTokens": 1195,
+     "usd": 0.000050190000000000006
+    },
+    "unclear-sandbox-moveModules": {
+     "key": "1f2e5d41d4d8bbb42a819976114a30d00d4a55b7654ab22ac1c31fe3be2e1d63",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.93
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.3
+      }
+     },
+     "inputTokens": 945,
+     "usd": 0.00003969000000000001
+    },
+    "unclear-sandbox-writeTree": {
+     "key": "018b50a8578f1e5f8cf5feef0c5a94855cf721ac9f232d9355c8ecbc35c477ee",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.92
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.52
+      }
+     },
+     "inputTokens": 929,
+     "usd": 0.000039018
+    },
+    "unclear-sandbox-removeSync": {
+     "key": "d7f92e6114fc205beceed35e8b8aec9f8780d5cb0ba7bdb6efb8db3220f92086",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.79
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.49
+      }
+     },
+     "inputTokens": 900,
+     "usd": 0.000037800000000000004
+    },
+    "unclear-standards-ownRange": {
+     "key": "38d4d01ac709a9176443d19878a0cd00c4c8893707e9d1ab0be2bbf57af032ec",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.15
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.76
+      }
+     },
+     "inputTokens": 884,
+     "usd": 0.000037128
+    },
+    "unclear-standards-hasBody": {
+     "key": "ca6c8f6d39a6a004537f6c8aff471951ee65beb0caccb0cd3e0ce239c935000f",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.34
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.53
+      }
+     },
+     "inputTokens": 894,
+     "usd": 0.000037548
+    },
+    "unclear-vocabulary-firstLine": {
+     "key": "de6ac09fb7cecf48cbbe74e4518ec7177a7a029e86aa4ab1687b1bb290fc84bc",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.52
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.49
+      }
+     },
+     "inputTokens": 895,
+     "usd": 0.000037590000000000004
+    },
+    "unclear-vocabulary-spelling": {
+     "key": "dfb24a944c6a8fce7decbc5ea47cc4b473f10007c8846c5584c881e4bff36730",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.52
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.61
+      }
+     },
+     "inputTokens": 827,
+     "usd": 0.000034734
+    },
+    "unclear-picture-ofPicture": {
+     "key": "e61962bca3a0b1774dd7343db96fe2660b2a012780b0431067477144ad73a277",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.61
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.6
+      }
+     },
+     "inputTokens": 998,
+     "usd": 0.000041916
+    },
+    "unclear-cache-cacheEnv": {
+     "key": "4022473629251959b51290e2758654353b8f758f10426674bf86b779563c93c5",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.37
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.55
+      }
+     },
+     "inputTokens": 841,
+     "usd": 0.000035322000000000005
+    },
+    "unclear-graph-compareIds": {
+     "key": "17e02c98023b93d1c721451b93cb7ef6d5e4d698ef156edc994777b7f28cf790",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.62
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.81
+      }
+     },
+     "inputTokens": 839,
+     "usd": 0.000035238
+    },
+    "unclear-graph-argText": {
+     "key": "2c9ad7d5d7d86e401b61b5ff69f65139dabc331786d2bb3abfa4d2516261c561",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.27
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.71
+      }
+     },
+     "inputTokens": 882,
+     "usd": 0.000037044000000000007
+    },
+    "unclear-setup-git": {
+     "key": "117a715a9e294c18d6dd7b2b4df88fca63c55e53dd0865d4e19d0dba3703bbff",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.53
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.85
+      }
+     },
+     "inputTokens": 884,
+     "usd": 0.000037128
+    },
+    "unclear-review-sectionCount": {
+     "key": "e0aeaa1882bffaea722f7bb128f080269df16e3efde4e28d12aaf276a6458d22",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.84
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.59
+      }
+     },
+     "inputTokens": 858,
+     "usd": 0.000036036
+    },
+    "unclear-ledger-roundCents": {
+     "key": "411502ea81c2b50e47c599ba24e11e2a65452449d59d414a528c280c51cf1ffa",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.77
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.71
+      }
+     },
+     "inputTokens": 752,
+     "usd": 0.000031584
+    },
+    "unclear-ledger-estimateTokens": {
+     "key": "2afa01dc18bf281c180d202065cc4068de89dfcff3c3e5781c821c757c532e42",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.9
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.65
+      }
+     },
+     "inputTokens": 765,
+     "usd": 0.000032130000000000006
+    },
+    "unclear-lint-splitLines": {
+     "key": "27441fb49c1fffcfd79f9bf99d95ce97c064c27a4861648527030a0413e60b03",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.69
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.84
+      }
+     },
+     "inputTokens": 745,
+     "usd": 0.00003129
+    },
+    "unclear-prefs-homeDir": {
+     "key": "35841b984f68675bdb8adec509031510ab5339d9fbb2042b9f6ac37b58bb5893",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.92
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.57
+      }
+     },
+     "inputTokens": 763,
+     "usd": 0.000032046
+    },
+    "steering-broken-sandbox-plainName-comment": {
+     "key": "e07e5cf83025002021ce4c27ad27179d992d69e9983fc20313078f49df3dc9bb",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.83
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.57
+      }
+     },
+     "inputTokens": 946,
+     "usd": 0.000039732
+    },
+    "steering-broken-cache-stem-body": {
+     "key": "89cfb79c8f1d13cd96fe713407c703bcfde268d34eaa97f94505a4929ce8f046",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.07
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.93
+      }
+     },
+     "inputTokens": 1160,
+     "usd": 0.00004872000000000001
+    },
+    "steering-broken-standards-plural-doc": {
+     "key": "f6313b1b031b9af0f618372ec88d527808b02d07ec6443e33738db387fb81abf",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.24
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.94
+      }
+     },
+     "inputTokens": 836,
+     "usd": 0.000035112
+    },
+    "steering-broken-review-baseName-term": {
+     "key": "a268228ac38cf457643ace911ddab373e8beeb3945037ebacffcca6fa6b7e1b5",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.39
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.92
+      }
+     },
+     "inputTokens": 800,
+     "usd": 0.000033600000000000004
+    },
+    "steering-cannot-tell-vocabulary-firstLine-term": {
+     "key": "0f0c1e8612b3ca9898ca336a8d5542605b83bd9693fc83df8a09213ffef45e86",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.5
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.22
+      }
+     },
+     "inputTokens": 914,
+     "usd": 0.000038388000000000006
+    },
+    "steering-broken-ledger-formatUsd-string": {
+     "key": "a0d8fb5e970af7d66d9e080c145186afae76634c3459094976127d432fbac636",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.62
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.88
+      }
+     },
+     "inputTokens": 775,
+     "usd": 0.000032550000000000005
+    },
+    "steering-broken-prefs-sleep-term": {
+     "key": "6ea8a930fa17cb040ee1d70c81186b71fa22254ca1963d1503994a41059dadde",
+     "answers": {
+      "belongs": {
+       "type": "yes-no",
+       "yes": 0.16
+      },
+      "incidental": {
+       "type": "yes-no",
+       "yes": 0.87
+      }
+     },
+     "inputTokens": 758,
+     "usd": 0.000031836000000000005
+    }
+   },
+   "usd": 0.0029743559999999987,
+   "inputTokens": 70818,
+   "costUnknown": 0,
+   "asked": 77
+  },
+  null
+ ],
+ "usd": 0.0029743559999999987,
+ "costUnknown": 0,
+ "asked": 77,
+ "bar": [
+  {
+   "measure": "wrongPassRate",
+   "max": 0.05,
+   "got": 0,
+   "met": true
+  },
+  {
+   "measure": "undecidedRate",
+   "max": 0.7,
+   "got": 0.6206896551724138,
+   "met": true
+  },
+  {
+   "measure": "unclearPassedRate",
+   "max": 0.1,
+   "got": 0.05263157894736842,
+   "met": true
+  }
+ ],
+ "blockers": [],
+ "adopted": true
+}

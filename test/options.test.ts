@@ -108,7 +108,8 @@ test("setup takes a directory and an optional --base, and nothing that belongs t
   expect(parseOptions(["setup"])).toMatchObject({ setup: true, dir: resolve("."), base: undefined });
   expect(parseOptions(["setup", "some/dir", "--base", "origin/main"])).toMatchObject({ setup: true, dir: resolve("some/dir"), base: "origin/main" });
   expect(parseOptions(["setup", "a", "b"])).toBe("expected at most one directory");
-  expect(parseOptions(["setup", "--judge"])).toMatch(/--judge needs compare/);
+  expect(parseOptions(["setup", "--judge"])).toMatchObject({ setup: true, judge: true });
+  expect(parseOptions(["setup"])).toMatchObject({ setup: true, judge: false });
   expect(parseOptions(["setup", "--link"])).toMatch(/--link needs compare/);
   expect(parseOptions(["setup", "--walkthrough"])).toMatch(/--walkthrough needs compare/);
   expect(parseOptions(["setup", "--pr", "3"])).toMatch(/--pr needs compare/);
@@ -121,8 +122,8 @@ test("--base needs setup: compare takes its base as an argument", () => {
   expect(parseOptions(["--base", "x"])).toMatch(/--base is for setup/);
 });
 
-test("--judge turns judged checks on, and needs compare", () => {
+test("--judge turns judged checks on, and needs compare or setup", () => {
   expect(parseOptions(["compare", "main", "--judge"])).toMatchObject({ judge: true });
   expect(parseOptions(["compare", "main"])).toMatchObject({ judge: false });
-  expect(parseOptions(["--judge"])).toMatch(/--judge needs compare/);
+  expect(parseOptions(["--judge"])).toMatch(/--judge needs compare or setup/);
 });

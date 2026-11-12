@@ -135,6 +135,10 @@ const STOP_SET: ReadonlySet<string> = new Set(STOP_WORDS);
 /** The table's generic words and phrases as keys are made: stemmed, so "utils" and "util" are both caught. */
 const GENERIC_WORD_SET: ReadonlySet<string> = new Set(GENERIC_WORDS.map(stem));
 const GENERIC_PHRASE_SET: ReadonlySet<string> = new Set(GENERIC_PHRASES.map(keyOf));
+const STOP_STEM_SET: ReadonlySet<string> = new Set(STOP_WORDS.map(stem));
+
+/** Whether a stem (see `stem`) is a stop word or a generic word: it says nothing about what a module is for. Narrowing code to candidate terms skips these. */
+export const isFillerStem = (word: string): boolean => STOP_STEM_SET.has(word) || GENERIC_WORD_SET.has(word);
 
 /** The written text as it may be shown: letters, digits and "_ . $ / -" only. */
 const spelling = (written: string): string => written.replace(/[^\p{L}\p{N}_.$/ -]+/gu, " ").replace(/\s+/g, " ").trim();

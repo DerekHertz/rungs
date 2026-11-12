@@ -8,6 +8,11 @@ import type { RefBase } from "./checkout.ts";
 import { EXTRACTOR_VERSION, digestOf, extract } from "./extract/extract.ts";
 import type { FileTree } from "./graph.ts";
 import { looksSecret } from "./prompt-safe.ts";
+import type { JevClient } from "./jev/client.ts";
+import { MAX_PAIRS, judgeMemberships, narrow, pairKey, unitsOf } from "./jev/membership-source.ts";
+import type { Coverage, JudgingNote, MembershipRecord, StoredMemberships } from "./memberships.ts";
+import { coverageOf, memberships as buildMemberships, membershipLines, problemWithMemberships, reconcile } from "./memberships.ts";
+import { standIn, storedPath } from "./stored-names.ts";
 import { collectVocabulary, VOCABULARY_TABLE_VERSION } from "./vocabulary.ts";
 import type { Vocabulary } from "./vocabulary.ts";
 
@@ -19,8 +24,12 @@ const execFileAsync = promisify(execFile);
  * is kept apart from the graph. A later run redoes nothing when no file's digest and neither the
  * vocabulary table's version nor the extractor's changed; otherwise it collects the terms again
  * (a term merges spellings from many files, so one changed file can change a term anywhere) and
- * says how many files changed. No model is called here. Whatever later steps add to the stored
- * file (memberships, certification) is kept when setup rewrites it.
+ * says how many files changed. No model is called unless the reviewer passes `--judge`: then each
+ * function, class or constant is mapped to the terms code picked for it (the membership gate), the
+ * judged records are stored beside the vocabulary (a separate tier, see memberships.ts) and
+ * coverage is measured. Without `--judge`, stored memberships are only brought up to date: a
+ * mapping whose function changed is marked stale. Whatever later steps add to the stored file
+ * (certification) is kept when setup rewrites it.
  */
 
 /** The shape of the stored file. Raise it when a field's meaning changes. */
@@ -40,11 +49,13 @@ export interface StoredVocabulary {
   /** Files whose path had secret-shaped text in it, so the path is not kept. */
   readonly pathsWithheld: number;
   /**
-   * The share of code modules that map to at least one term. `mapped` is zero because no
-   * membership has been made, not because none was found: a later step measures it.
+   * The share of analysed files that map to at least one term (see Coverage). `mapped` is zero and
+   * `measured` false until `streets setup --judge` has judged: zero then means "not measured".
    */
-  readonly coverage: { readonly of: number; readonly mapped: 0; readonly measured: false };
+  readonly coverage: Coverage;
   readonly vocabulary: Vocabulary;
+  /** Judged: which function, class or constant belongs to which term. Absent until `streets setup --judge` has run. */
+  readonly memberships?: StoredMemberships;
 }
 
 export type SetupWork = "first setup" | "unchanged" | "rebuilt" | "rules changed" | "replaced unreadable";
@@ -62,12 +73,16 @@ export interface SetupResult {
   readonly files?: { readonly added: number; readonly changed: number; readonly removed: number };
   /** The commit the stored vocabulary was built from before this run. */
   readonly previousCommit?: string;
+  /** What this run's judging did; absent when it did not judge. */
+  readonly judging?: JudgingNote;
 }
 
 /** What a test may swap to see that no work was done. */
 export interface SetupDeps {
   readonly collect?: typeof collectVocabulary;
   readonly graphOf?: typeof extract;
+  /** The most (function, term) pairs asked in one run; MAX_PAIRS when left out. */
+  readonly maxPairs?: number;
 }
 
 export interface SetupRequest {
@@ -75,6 +90,8 @@ export interface SetupRequest {
   readonly cacheDir: string;
   /** The base to read; the default branch's tip when left out (see `defaultRef`). */
   readonly ref?: string;
+  /** Judging on: the classifier that answers the membership questions. Left out, no model is called. */
+  readonly judge?: JevClient;
   readonly deps?: SetupDeps;
 }
 
@@ -119,16 +136,7 @@ async function defaultRef(dir: string): Promise<string> {
 
 const fileFor = (cacheDir: string, key: string): string => join(cacheDir, "vocabulary", `${key}.json`);
 
-const standIn = (text: string): string => `withheld:${createHash("sha256").update(text).digest("hex").slice(0, 12)}`;
-
-/**
- * A path as it is stored: itself, or a stable stand-in when a part of it is shaped like a secret.
- * A stand-in starts with "/", which no path in a git tree can, so it is never the same key as a
- * file that is really named "withheld:...".
- */
-export function storedPath(path: string): string {
-  return path.split("/").some(looksSecret) ? `/${standIn(path)}` : path;
-}
+export { storedPath };
 
 /** A ref as it is stored and printed: itself, or a stand-in when a part of it is shaped like a secret. */
 const storedRef = (ref: string): string => (ref.split("/").some(looksSecret) ? standIn(ref) : ref);
@@ -156,11 +164,17 @@ function problemWith(whole: Record<string, unknown>): string | undefined {
     ["extractorVersion", isText(whole.extractorVersion)],
     ["files", isRecord(whole.files) && Object.values(whole.files).every(isText)],
     ["pathsWithheld", isCount(whole.pathsWithheld)],
-    ["coverage", hasFields(whole.coverage, { of: isCount, mapped: (one) => one === 0, measured: (one) => one === false })],
+    ["coverage", hasFields(whole.coverage, { of: isCount, mapped: isCount, measured: (one) => typeof one === "boolean", unjudged: (one) => one === undefined || isCount(one), stale: (one) => one === undefined || isCount(one), unknownUnits: (one) => one === undefined || isCount(one), reason: (one) => one === undefined || isText(one) })],
     ["vocabulary", isRecord(whole.vocabulary)],
+    ["memberships", whole.memberships === undefined || problemWithMemberships(whole.memberships) === undefined],
   ];
   const failed = checks.find(([, ok]) => !ok);
   if (failed !== undefined) return failed[0];
+  // Stored coverage is a count of what the records say, never a cached claim: records removed or edited with the coverage kept is damage.
+  const stated = whole.coverage as Record<string, unknown>;
+  const expected = coverageOf(stated.of as number, whole.memberships as StoredMemberships | undefined);
+  const same = (c: Record<string, unknown>): string => JSON.stringify([c.mapped, c.measured, c.unjudged ?? null, c.stale ?? null, c.unknownUnits ?? null, c.reason ?? null]);
+  if (same(stated) !== same(expected as unknown as Record<string, unknown>)) return "coverage (it does not follow from the memberships)";
   const v = whole.vocabulary as Record<string, unknown>;
   const term = (one: unknown): boolean =>
     hasFields(one, {
@@ -284,13 +298,29 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
       why = `the extractor went from version ${stored.extractorVersion} to ${EXTRACTOR_VERSION}`;
     } else {
       const changes = countChanges(before, files);
-      if (changes.added + changes.changed + changes.removed === 0) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
-      work = "rebuilt";
+      // Nothing to redo, and no model to ask: nothing is built or written.
+      if (changes.added + changes.changed + changes.removed === 0 && request.judge === undefined) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
+      work = changes.added + changes.changed + changes.removed === 0 ? "unchanged" : "rebuilt";
     }
   }
 
   const graph = graphOf(base.tree);
   const vocabulary = withUnavailable(collect({ graph, tree: base.tree }), base.unavailable);
+  const prior = previous.kind === "ok" ? previous.stored.memberships : undefined;
+  let held: StoredMemberships | undefined;
+  let judging: JudgingNote | undefined;
+  if (request.judge !== undefined || prior !== undefined) {
+    // Which pairs are asked is decided by code alone (see narrow); a model is asked only about those.
+    const units = unitsOf(graph, base.tree);
+    const narrowed = narrow(units, vocabulary.terms, base.tree);
+    if (request.judge === undefined) held = reconcile(prior!, units, narrowed, vocabulary.terms, base.tree);
+    else {
+      const maxPairs = deps.maxPairs ?? MAX_PAIRS;
+      const outcome = await judgeMemberships({ pairs: narrowed.pairs, tree: base.tree, previous: new Map<string, MembershipRecord>((prior?.records ?? []).map((record) => [pairKey(record.unit, record.term), record])), client: request.judge, maxPairs });
+      held = buildMemberships(units, narrowed, outcome, request.judge.model);
+      judging = { status: "judged", asked: outcome.asked, reused: outcome.reused, notJudged: outcome.notJudged.length, ...(outcome.notJudged[0] === undefined ? {} : { firstFailure: outcome.notJudged[0].reason }), overLimit: outcome.overLimit, maxPairs, usd: outcome.usd, costUnknown: outcome.costUnknown };
+    }
+  }
   const stored: StoredVocabulary = {
     ...(previous.kind === "ok" ? previous.whole : {}),
     format: FORMAT,
@@ -300,9 +330,14 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     extractorVersion: graph.extractorVersion,
     files: Object.fromEntries(files),
     pathsWithheld: [...files.keys()].filter((path) => path.startsWith("/")).length,
-    coverage: { of: graph.nodes.filter((node) => node.level === "file" && node.analysis === "analysed").length, mapped: 0, measured: false },
+    coverage: coverageOf(graph.nodes.filter((node) => node.level === "file" && node.analysis === "analysed" && node.role !== "generated").length, held),
     vocabulary: storable(vocabulary),
+    ...(held === undefined ? {} : { memberships: held }),
   };
+  // A judged run over a repository nothing changed in, whose answers are all current, has nothing to write.
+  if (work === "unchanged" && previous.kind === "ok" && JSON.stringify([stored.memberships, stored.coverage]) === JSON.stringify([previous.stored.memberships, previous.stored.coverage])) {
+    return { work, file, ref, stored: previous.stored, previousCommit: previous.stored.base.commit, ...(judging === undefined ? {} : { judging }) };
+  }
   await mkdir(dirname(file), { recursive: true });
   // A whole file or none: another run, or a reader, never sees half of one.
   const scratch = `${file}.${process.pid}.tmp`;
@@ -320,12 +355,21 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     stored,
     ...(why === undefined ? {} : { why }),
     ...(previous.kind === "ok" ? { previousCommit: previous.stored.base.commit, ...(work === "rebuilt" ? { files: countChanges(before, files) } : {}) } : {}),
+    ...(judging === undefined ? {} : { judging }),
   };
 }
 
 const short = (commit: string): string => commit.slice(0, 7);
 const plural = (count: number, one: string, many = `${one}s`): string => `${count} ${count === 1 ? one : many}`;
 const MAX_UNREAD_SHOWN = 10;
+
+/**
+ * Code files whose members could not be looked at: text files no adapter reads, and unread files that are not Markdown or a
+ * manifest. A term that no read file maps to may have members in these, so it is "not known", never "no members".
+ */
+function codeFilesUnread(vocabulary: Vocabulary): number {
+  return vocabulary.notAnalysed + vocabulary.unread.filter((one) => !one.path.endsWith(".md") && basename(one.path) !== "package.json").length;
+}
 
 /** What setup tells the reviewer, one line each. An unknown status is never shown as a count of zero. */
 export function reportLines(result: SetupResult): string[] {
@@ -368,7 +412,7 @@ export function reportLines(result: SetupResult): string[] {
   if (vocabulary.unread.length > MAX_UNREAD_SHOWN) lines.push(`    and ${vocabulary.unread.length - MAX_UNREAD_SHOWN} more`);
   lines.push(`  not analysed: ${vocabulary.notAnalysed} text files in a language no adapter reads`);
   if (stored.pathsWithheld > 0) lines.push(`  paths withheld: ${stored.pathsWithheld} (a part of the path is shaped like a secret, so the path is not stored)`);
-  lines.push(`  coverage: ${stored.coverage.mapped} of ${plural(stored.coverage.of, "analysed file")} map to a term: not measured yet, nothing has been mapped to a term (memberships come in a later step)`);
+  lines.push(...membershipLines(stored.memberships, stored.coverage, vocabulary.terms, result.judging, vocabulary.notAnalysed + vocabulary.unread.length, codeFilesUnread(vocabulary)));
   return lines;
 }
 
