@@ -104,13 +104,45 @@ export function promptEffect(label: string): string {
   return `${label.slice(0, at)} ${promptTarget(resource, label.slice(at + 2, -1))}`;
 }
 
+/** The longest test title a prompt shows; a longer one is cut in the middle. */
+export const MAX_TITLE_CHARS = 80;
+
 /**
- * A quoted segment of a name, free of the literals the extractor copies into names: a callback's
+ * A test runner's callback as the extractor names it: by the last name of its callee, so
+ * `describe.only("x", fn)` reads `only("x") callback`. A `.each` call has no name at all.
+ */
+const TEST_CALL = /^(test|it|describe|suite|context|skip|only|todo)\(("(?:[^"\\]|\\.)*")\) callback$/;
+
+/** Whether a qualified name (as the graph writes it) is a test runner's callback: `"it(\"x\") callback"`, with an ordinal when above 1. */
+export const isTestCallback = (qualified: string): boolean => /^"(?:test|it|describe|suite|context|skip|only|todo)\(.*\) callback"(?:@\d+)?$/s.test(qualified);
+
+/** A test title as a prompt shows it, cut to MAX_TITLE_CHARS; undefined unless it reads as a plain title: printable, no backslash, no secret's shape. Double quotes are dropped. */
+function testTitle(quoted: string): string | undefined {
+  let title: string;
+  try {
+    title = JSON.parse(quoted) as string;
+  } catch {
+    return undefined;
+  }
+  if (/[\p{C}\\]/u.test(title)) return undefined;
+  title = title.replaceAll('"', "");
+  if (title.trim() === "" || looksSecret(title)) return undefined;
+  return cap(title, MAX_TITLE_CHARS);
+}
+
+/**
+ * A quoted segment of a name, free of the literals the extractor copies into names: a test
+ * runner's plain title (`describe("parser") callback`, see testTitle) is kept, any other callback's
  * first string argument (`readFile("sk-…") callback`, written inside the segment as a JSON string)
  * becomes `"…"`, and a string-literal key (or a member path ending in one) that has a secret's
  * shape becomes "withheld". Any other quoted segment is returned as written (`raw`).
  */
 function literalFree(text: string, raw: string): string {
+  const title = TEST_CALL.exec(text);
+  if (title !== null) {
+    const shown = testTitle(title[2]!);
+    if (shown !== undefined) return `${title[1]}("${shown}") callback`;
+  }
   const without = text.replace(/"(?:[^"\\]|\\.)*"/g, '"…"');
   if (looksSecret(without)) return WITHHELD;
   return without === text ? raw : without;
@@ -139,8 +171,11 @@ export function promptName(qualified: string): string {
       } catch {
         text = raw;
       }
-      const bracket = text.indexOf("[");
-      head = bracket === -1 ? literalFree(text, raw) : `${text.slice(0, bracket)}[…]`;
+      // Every quoted literal is dealt with first; a bracket is looked for only in what is left.
+      const clean = literalFree(text, raw);
+      const shown = clean === raw ? text : clean;
+      const bracket = clean === WITHHELD || TEST_CALL.test(text) ? -1 : shown.indexOf("[");
+      head = bracket === -1 ? clean : `${shown.slice(0, bracket)}[…]`;
     } else {
       while (end < qualified.length && qualified[end] !== "." && qualified[end] !== "@") end++;
       head = qualified.slice(at, end);

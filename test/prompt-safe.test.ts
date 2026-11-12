@@ -10,7 +10,7 @@ import { isCodeNode } from "../src/graph.ts";
 import type { CodeNode, FileTree, NodeId } from "../src/graph.ts";
 import { candidatesOf, promptFor, validate } from "../src/link.ts";
 import { narrationPrompt } from "../src/narration.ts";
-import { MAX_ID_CHARS, MAX_TARGET_CHARS, PromptIds, WITHHELD, looksSecret, promptEffect, promptName, promptTarget } from "../src/prompt-safe.ts";
+import { MAX_ID_CHARS, MAX_TITLE_CHARS,MAX_TARGET_CHARS, PromptIds, WITHHELD, looksSecret, promptEffect, promptName, promptTarget } from "../src/prompt-safe.ts";
 import { pseudocode } from "../src/pseudocode.ts";
 import { stopFacts } from "../src/stops.ts";
 import { TOUR_PROMPT_VERSION, placesOf, tourPrompt, validateTour } from "../src/tour.ts";
@@ -138,6 +138,105 @@ test("a literal in a callback's or a string key's name never reaches the tour or
   const tour = validateTour({ stops: [{ title: "t", ids: [shown.promptId], claims: [], narration: [{ text: "Reads.", id: shown.promptId, start: range.start, end: range.end }] }] }, 0, places);
   expect(tour.stops[0]!.ids).toEqual([shown.id]);
   expect(shown.id).toContain(KEY);
+});
+
+test("a test runner's plain title reaches the prompts, every other literal stays withheld, and each alias maps back", () => {
+  const long = "x".repeat(300);
+  const source = [
+    'import { readFile } from "node:fs";',
+    "export function run() {",
+    '  describe("parser", () => {});',
+    "}",
+    'describe("parser", () => {});',
+    'describe.only("lexer", () => {});',
+    `it("${KEY}", () => {});`,
+    'it("same", () => {});',
+    'it("same", () => {});',
+    'readFile("x", () => {});',
+    `test("${long}", () => {});`,
+    "",
+  ].join("\n");
+  const files = tree({ "package.json": "{}\n", "src/a.ts": source });
+  const graph = extract(files);
+  const places = placesOf(compare(base, graph), graph);
+  const user = tourPrompt([], places).user;
+  expect(user).toContain('describe("parser") callback');
+  expect(user).toContain('only("lexer") callback');
+  expect(user).not.toContain("sk-proj");
+  expect(user).toContain('readFile("…") callback');
+  expect(user).not.toContain('readFile("x")');
+  expect(user).not.toContain("x".repeat(100));
+  expect(user).toMatch(/test\("x+…x+"\) callback/);
+  const ids = places.map((place) => place.promptId);
+  expect(ids.some((id) => id.endsWith('it("same") callback'))).toBe(true);
+  expect(ids.some((id) => id.endsWith('it("same") callback@2'))).toBe(true);
+  for (const place of places) {
+    const range = place.range;
+    if (range === undefined || range === null) continue;
+    const tour = validateTour({ stops: [{ title: "t", ids: [place.promptId], claims: [], narration: [{ text: "Here.", id: place.promptId, start: range.start, end: range.end }] }] }, 0, places);
+    expect(tour.stops[0]!.ids).toEqual([place.id]);
+  }
+  const run = graph.nodes.find((candidate): candidate is CodeNode => isCodeNode(candidate) && candidate.id === ("function:src/a.ts#run" as NodeId))!;
+  const narration = narrationPrompt(run, pseudocode(graph, files, run.id)!).user;
+  expect(narration).toContain('describe("parser") callback');
+  expect(narration).not.toContain("sk-proj");
+});
+
+test("a test title with brackets goes through the title rule; a real computed member still reads […]", () => {
+  expect(promptName(JSON.stringify(`it("${KEY}[case]") callback`))).toBe('it("…") callback');
+  expect(promptName(JSON.stringify('it("handles [empty] arrays") callback'))).toBe('it("handles [empty] arrays") callback');
+  expect(promptName(`C.${JSON.stringify('["it(\\"x\\") callback"]')}`)).toBe("C.[…]");
+  expect(promptName(`C.${JSON.stringify('[SECRET_KEY]')}`)).toBe("C.[…]");
+});
+
+test("a bracket never lets a quoted literal or a secret through in any segment", () => {
+  expect(promptName(JSON.stringify('readFile("sk-proj-abcdefgh12345678[case]") callback'))).toBe('readFile("…") callback');
+  expect(promptName(JSON.stringify(`${KEY}[x]`))).toBe(WITHHELD);
+  expect(promptName(`obj.${JSON.stringify(`${KEY}[x]`)}`)).toBe(`obj.${WITHHELD}`);
+  expect(promptName(`obj.${JSON.stringify('["a"][b]')}`)).toBe("obj.[…]");
+  expect(promptName(JSON.stringify('get [x]'))).toBe("get […]");
+});
+
+test("a bracket in a real graph's callback or key never leaks", () => {
+  const source = [`readFile("sk-proj-abcdefgh12345678[case]", () => {});`, `export const obj = { "${KEY}[x]": () => 1 };`, ""].join("\n");
+  const files = tree({ "package.json": "{}\n", "src/a.ts": source });
+  const graph = extract(files);
+  const user = tourPrompt([], placesOf(compare(base, graph), graph)).user;
+  expect(user).not.toContain("sk-proj");
+  expect(user).not.toContain("abcdefgh");
+});
+
+test("a title's quotes are dropped, its backslashes withheld", () => {
+  expect(promptName(JSON.stringify('it("say \\"(new)\\"") callback'))).toBe('it("say (new)") callback');
+  expect(promptName(JSON.stringify('it("a\\\\b") callback'))).toBe('it("…") callback');
+});
+
+test("a test file's places list its top-level tests by title, capped at 20, and an alias maps back", () => {
+  const many = Array.from({ length: 25 }, (_, n) => `test("case ${n}", () => {});`);
+  const source = ['import { test, describe } from "vitest";', 'describe("parser", () => {', '  it("inner", () => {});', "});", ...many, ""].join("\n");
+  const files = tree({ "package.json": "{}\n", "test/a.test.ts": source });
+  const graph = extract(files);
+  const places = placesOf(compare(base, graph), graph);
+  const user = tourPrompt([], places).user;
+  expect(user).toContain('describe("parser") callback');
+  expect(user).toContain('test("case 0") callback');
+  expect(user).not.toContain("case 24");
+  expect(user).not.toContain("inner");
+  expect(user).toMatch(/\+\d+ more/);
+  expect(places.filter((place) => place.promptId.includes("callback")).length).toBe(20);
+  const shown = places.find((place) => place.promptId.includes('describe("parser")'))!;
+  const range = shown.range!;
+  const tour = validateTour({ stops: [{ title: "t", ids: [shown.promptId], claims: [], narration: [{ text: "Parses.", id: shown.promptId, start: range.start, end: range.end }] }] }, 0, places);
+  expect(tour.stops[0]!.ids).toEqual([shown.id]);
+  expect(shown.id).toContain("parser");
+});
+
+test("a test title with a control character or a secret's shape stays withheld; a long one is cut in the middle", () => {
+  expect(promptName(JSON.stringify('describe("a\\nb") callback'))).toBe('describe("…") callback');
+  expect(promptName(JSON.stringify(`it("${KEY}") callback`))).toBe('it("…") callback');
+  const shown = promptName(JSON.stringify(`it("${"word ".repeat(60)}") callback`));
+  expect(shown.length).toBeLessThanOrEqual(`it("") callback`.length + MAX_TITLE_CHARS);
+  expect(shown).toContain("…");
 });
 
 test("a computed member is aliased in the narration prompt too", () => {
