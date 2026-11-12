@@ -642,6 +642,78 @@
         border: 1px solid #e6b85c;
         border-radius: 2px;
       }
+      /* A judged mark: a filled pill with a glyph, apart from the outlined tier tags. */
+      .claim-line {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .claim-line > .review-pick {
+        flex: 1;
+        min-width: 0;
+      }
+      .review-judged {
+        flex: none;
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+        font: inherit;
+        font-size: 10px;
+        line-height: 16px;
+        padding: 0 7px;
+        border: 0;
+        border-radius: 9px;
+        cursor: pointer;
+        background: #3a4658;
+        color: #d6deea;
+      }
+      .review-judged.settled {
+        background: #1f6f5a;
+        color: #e8fff6;
+      }
+      .review-judged.flagged {
+        background: #a5541a;
+        color: #fff1e3;
+      }
+      .review-judged.not-judged {
+        background: #232c38;
+        color: #8a9bb0;
+      }
+      .review-judged:focus-visible {
+        outline: 2px solid #6cb6ff;
+        outline-offset: 1px;
+      }
+      .judged-detail {
+        margin: 4px 0 6px;
+        padding-left: 8px;
+        border-left: 2px solid #3a4658;
+      }
+      .judged-line,
+      .judged-question {
+        margin: 3px 0;
+        overflow-wrap: anywhere;
+      }
+      .judged-question,
+      .judged-exact {
+        color: #8a9bb0;
+      }
+      .judged-key {
+        margin: 6px 0 2px;
+        font-size: 11px;
+        color: #8a9bb0;
+      }
+      .judged-text {
+        margin: 0;
+        max-height: 14em;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 11px;
+        padding: 4px 6px;
+        background: #151b23;
+        border-radius: 2px;
+      }
       .review-mark.contract-effects {
         color: #6cb6ff;
       }

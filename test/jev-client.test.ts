@@ -103,10 +103,14 @@ test("a timeout is a not-judged check that names the wait", async () => {
 test("a network failure and a malformed answer are not-judged, never thrown", async () => {
   const down = createJevClient({ key: "k", fetch: () => Promise.reject(new Error("connect ECONNREFUSED")) });
   expect(await judge(down, request)).toMatchObject({ status: "not judged", kind: "network" });
+  // A call that succeeded but whose answer cannot be read is an answer: unreadable, kept with what came back.
   const bad = fakeFetch(200, { ...good, answers: { shown: { type: "noul", noul: 7 }, kind: good.answers.kind } });
-  expect(await judge(createJevClient({ key: "k", fetch: bad.fetch }), request)).toMatchObject({ status: "not judged", kind: "bad-response" });
-  const missing = fakeFetch(200, { ...good, answers: {} });
-  expect(await judge(createJevClient({ key: "k", fetch: missing.fetch }), request)).toMatchObject({ kind: "bad-response" });
+  const judgedBad = await judge(createJevClient({ key: "k", fetch: bad.fetch }), request);
+  expect(judgedBad).toMatchObject({ status: "judged", answers: { shown: { type: "unreadable", why: expect.stringMatching(/not a probability/), raw: expect.stringContaining("7") } } });
+  const missing = await judge(createJevClient({ key: "k", fetch: fakeFetch(200, { ...good, answers: {} }).fetch }), request);
+  expect(missing).toMatchObject({ status: "judged", answers: { shown: { type: "unreadable" } } });
+  const notJson = await judge(createJevClient({ key: "k", fetch: fakeFetch(200, "nope" as unknown as object).fetch }), request);
+  expect(notJson).toMatchObject({ status: "not judged", kind: "bad-response" });
 });
 
 test("a client that is not a JevError still reads not judged", async () => {

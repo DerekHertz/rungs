@@ -15,6 +15,8 @@ import type { TestChanges } from "../test-changes-types.ts";
 import { testChangesBlock } from "./test-changes-panel.ts";
 import type { RiskItem } from "../risks.ts";
 import { CHANGE_WORD, CONTRACT_WORD } from "../mark-text.ts";
+import { judgedDetail, markButton } from "./judged-panel.ts";
+import type { JudgedView } from "./judged-panel.ts";
 
 const CONTRACT_MARK: Record<ContractRow["move"]["kind"], string> = {
   changed: "~",
@@ -84,6 +86,10 @@ export interface ReviewInput {
   readonly pickRisk: (item: RiskItem) => void;
   /** How the tour was made, for "About this run"; absent when there is no tour to describe. */
   readonly walkAbout?: string;
+  /** The judged marks of the claims, or null with no judged document (today's row). */
+  readonly judged?: JudgedView | null;
+  /** What the Claims row's summary adds for the judged marks, counted number first; empty adds nothing. */
+  readonly judgedSummary?: string;
 }
 
 /** A mark drawn as one glyph that a screen reader says in words: the glyph is hidden from it, the word is read. */
@@ -283,7 +289,24 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     pick.title = claim.text;
     pick.append(element("span", "rv-one review-claim", claim.text));
     if (linked) pick.append(element("span", claim.ids.length === 0 ? "review-flag" : "review-size", claim.ids.length === 0 ? "no places" : plural(claim.ids.length, "place")));
-    item.append(pick, full);
+    const mark = input.judged?.marks.get(claim.index);
+    if (input.judged === null || input.judged === undefined || mark === undefined) {
+      item.append(pick, full);
+      return item;
+    }
+    // The judged mark is a button of its own beside the claim: it picks the claim (its places light up) and opens the check.
+    const detail = judgedDetail(mark, input.judged);
+    full.append(detail);
+    const line = element("div", "claim-line");
+    line.append(
+      pick,
+      markButton(mark, () => {
+        choose(pick, full);
+        input.pickClaim(claim);
+        detail.open = true;
+      }),
+    );
+    item.append(line, full);
     return item;
   }
 
@@ -668,7 +691,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
       summary: input.risks === null ? "none" : input.risks.length === 0 ? "none found" : `${input.risks.length} ${input.risks.length === 1 ? "risk" : "risks"}${input.risks.some((risk) => risk.kind === "contract") ? `, ${plural(input.risks.filter((risk) => risk.kind === "contract").length, "contract")} moved` : ""}`,
       fill: fillRisks,
     },
-    { id: "claims", name: "Claims", tag: "claimed", summary: claimsSummary(input.description, input.claims, input.link.status, input.context.length), fill: fillClaims },
+    { id: "claims", name: "Claims", tag: "claimed", summary: claimsSummary(input.description, input.claims, input.link.status, input.context.length, input.judgedSummary), fill: fillClaims },
     {
       id: "unmentioned",
       name: "Unmentioned",

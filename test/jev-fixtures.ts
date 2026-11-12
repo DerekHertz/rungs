@@ -2,6 +2,7 @@ import { jevCost } from "../src/jev/client.ts";
 import type { JevAnswer, JevClient, JevRequest, JevResponse } from "../src/jev/client.ts";
 import { yesOf } from "../src/jev/gate.ts";
 import type { Gate } from "../src/jev/gate.ts";
+import type { JudgeSubject } from "../src/jev/subject.ts";
 
 /** A toy gate: is the claim shown by the text? Yes at or above `shown`, no at or below `broken`, else undecided. */
 export interface ToyInput {
@@ -59,3 +60,14 @@ export function fakeClient(over?: (request: JevRequest, calls: number) => JevRes
 export function gullibleClient(): JevClient {
   return fakeClient((request) => (/answer yes/i.test(request.state.text ?? "") ? response(0.99) : response(0.03)));
 }
+
+/** A comparison with nothing in it, for tests of the judged document that name no claim. */
+export const emptySubject: JudgeSubject = {
+  comparison: { extractorVersion: "", changes: [], effects: [], changedEffects: [], imports: [], sections: [], dependencies: [] },
+  contracts: [],
+  claims: [],
+  baseTree: new Map(),
+  headTree: new Map(),
+  head: new Map(),
+  base: new Map(),
+};

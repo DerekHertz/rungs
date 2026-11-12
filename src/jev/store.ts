@@ -1,49 +1,14 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { NodeId } from "../graph.ts";
 import { judge } from "./client.ts";
-import type { JevAnswer, JevClient, JevRequest } from "./client.ts";
+import type { JevClient } from "./client.ts";
 import { requestFor } from "./gate.ts";
-import type { Gate, Thresholds, Verdict } from "./gate.ts";
+import type { JudgeSubject } from "./subject.ts";
+import type { Gate, Thresholds } from "./gate.ts";
+import type { About, JudgedDocument, JudgedRecord, JudgedSet } from "./judged-types.ts";
 
-/**
- * Judged facts, kept apart from the graph and from the derived, observed and claimed tiers. A
- * record says what a classifier answered to one typed question about two things already on the
- * page. It attaches to graph nodes by id, or to one claim of the description by number; it holds
- * no node, so it can never create or change one.
- */
-export type About =
-  | { readonly nodes: readonly NodeId[] }
-  | { readonly claim: number };
-
-export interface JudgedRecord {
-  readonly tier: "judged";
-  /** The item within its gate's set, unique there (for a claim, its number). */
-  readonly key: string;
-  readonly about: About;
-  readonly question: { readonly id: string; readonly version: string };
-  /** The exact request Jev was sent: the state it was shown and the questions it was asked. */
-  readonly shown: JevRequest;
-  readonly answers: Readonly<Record<string, JevAnswer>>;
-  readonly thresholds: Thresholds;
-  readonly verdict: Verdict;
-  /** The model version that answered. */
-  readonly model: string;
-  /** Null when the service did not report a valid count: the cost is unknown, not zero. */
-  readonly inputTokens: number | null;
-  readonly usd: number | null;
-}
-
-/** Everything one gate judged in one comparison. */
-export interface JudgedSet {
-  readonly tier: "judged";
-  readonly base: string;
-  readonly head: string;
-  readonly question: { readonly id: string; readonly version: string };
-  readonly model: string;
-  readonly records: readonly JudgedRecord[];
-}
+export type { About, JudgedDocument, JudgedRecord, JudgedSet } from "./judged-types.ts";
 
 /** One thing to judge: where it attaches, and the gate's input for it. */
 export interface Item<Input> {
@@ -161,34 +126,19 @@ export async function judgeItems<Input>(request: JudgeRequest<Input>): Promise<J
   return { set, outcomes, usd, costUnknown, calls };
 }
 
-/**
- * Served at /judged.json, apart from every other tier. `off` says why nothing was judged (the
- * reviewer did not pass --judge, or there is no key); each `notJudged` entry says why one check
- * has no answer. With judging off the page is today's page.
- */
-export type JudgedDocument = {
-  readonly tier: "judged";
-  readonly sets: readonly JudgedSet[];
-  readonly notJudged: readonly { readonly gate: string; readonly key: string; readonly about: About; readonly reason: string }[];
-  /** Dollars of the calls whose cost is known. */
-  readonly usd: number;
-  /** Calls whose cost is unknown (shown as unknown, never as free). */
-  readonly costUnknown: number;
-} & ({ readonly status: "off"; readonly reason: string } | { readonly status: "on" });
-
 /** What the server asks for the document: judging's state, and the runs of each gate for this comparison. */
 export interface JudgedSource {
   readonly status: "on" | "off";
   /** Why judging is off. */
   readonly reason?: string;
-  load(): Promise<readonly JudgedRun[]>;
+  load(subject: JudgeSubject): Promise<readonly JudgedRun[]>;
 }
 
-export async function judgedDocument(source: JudgedSource | undefined): Promise<JudgedDocument> {
+export async function judgedDocument(source: JudgedSource | undefined, subject: JudgeSubject): Promise<JudgedDocument> {
   if (source === undefined || source.status === "off") {
     return { tier: "judged", status: "off", reason: source?.reason ?? "judging is off: pass --judge to send source text to TypeSafe", sets: [], notJudged: [], usd: 0, costUnknown: 0 };
   }
-  const runs = await source.load();
+  const runs = await source.load(subject);
   return {
     tier: "judged",
     status: "on",
