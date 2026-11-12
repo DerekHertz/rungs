@@ -1,4 +1,4 @@
-import { describeGateThresholds, questionLabel } from "../jev/gate-words.ts";
+import { describeGateThresholds, explainVerdict, questionLabel } from "../jev/gate-words.ts";
 import { notMeasured, ratesOf } from "../jev/rate.ts";
 import type { GateRate } from "../jev/rate.ts";
 import type { JudgedDocument } from "../jev/judged-types.ts";
@@ -57,6 +57,8 @@ export function judgedDetail(mark: JudgedMark, view: JudgedView): HTMLDetailsEle
   }
   body.append(element("p", "judged-line", describeGateThresholds(record.question.id, record.thresholds)));
   const unreadable = Object.values(record.answers).some((answer) => answer.type === "unreadable");
+  const why = explainVerdict(record.question.id, record.answers, record.thresholds, record.verdict);
+  if (why !== "") body.append(element("p", "judged-line", why));
   body.append(element("p", "judged-line", `Verdict: ${record.verdict}${unreadable ? ", because an answer could not be read (an answer that cannot be read never settles anything)" : ""}.`));
   body.append(element("p", "judged-line", `Model ${record.model} · question ${record.question.id} ${record.question.version} · ${costText(record)}`));
   body.append(element("p", "judged-line", view.rate?.(record.question.id) ?? notMeasured(record.question.id)));

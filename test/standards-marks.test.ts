@@ -4,7 +4,7 @@ import type { About, JudgedDocument, JudgedRecord } from "../src/jev/judged-type
 import { STANDARD_THRESHOLDS } from "../src/jev/standard-gate.ts";
 import { rateText } from "../src/jev/rate.ts";
 import type { GateRate } from "../src/jev/rate.ts";
-import { describeGateThresholds, questionLabel } from "../src/jev/gate-words.ts";
+import { describeGateThresholds, explainVerdict, questionLabel } from "../src/jev/gate-words.ts";
 import { standardLines, standardsSummary } from "../src/standards-marks.ts";
 import type { StandardsDocument } from "../src/standards-marks.ts";
 
@@ -85,7 +85,7 @@ test("the gate's words: its questions are labelled and its thresholds described 
   expect(questionLabel("standard", "breaks")).toBe("Broken by the changed lines?");
   expect(questionLabel("claim", "shown")).toBe("Shown by the changed places?");
   expect(questionLabel("other", "x")).toBe("x");
-  expect(describeGateThresholds("standard", STANDARD_THRESHOLDS)).toBe("Settled when broken is at most 10%. Flagged when broken is at least 50% and the base did not already break the rule (its answer under 50%). Otherwise undecided.");
+  expect(describeGateThresholds("standard", STANDARD_THRESHOLDS)).toBe("Settled when broken is at most 10% and the base question was answered and is under 50% (the base's lines did not already break the rule). Flagged when broken is at least 50% and the base did not already break the rule (its answer under 50%, or missing: then it is flagged, not hidden). Otherwise undecided: that includes a clean-looking change whose base already broke the rule, or whose base answer is missing.");
 });
 
 test("the standard gate's rate is worded for hunks, not claims", () => {
@@ -113,3 +113,22 @@ test("the standard gate's rate is worded for hunks, not claims", () => {
   expect(text).toContain("a settled mark is not evidence that the change keeps the rule");
   expect(text).not.toMatch(/claim holds/);
 });
+
+test("a verdict is explained from the answers: undecided because the base already broke the rule, or because its answer is missing; flagged without a base answer says so", () => {
+  const yes = (value: number) => ({ type: "yes-no" as const, yes: value });
+  const explain = (answers: Record<string, ReturnType<typeof yes>>, verdict: "settled" | "flagged" | "undecided") => explainVerdict("standard", answers, STANDARD_THRESHOLDS, verdict);
+  const already = explain({ breaks: yes(0.01), before: yes(0.9) }, "undecided");
+  expect(already).toMatch(/undecided/i);
+  expect(already).toMatch(/base.*already broke the rule \(90%\)/);
+  expect(already).toMatch(/never settled/);
+  const missing = explain({ breaks: yes(0.01) }, "undecided");
+  expect(missing).toMatch(/undecided/i);
+  expect(missing).toMatch(/base question has no answer/);
+  expect(explain({ breaks: yes(0.9) }, "flagged")).toMatch(/flagged/i);
+  expect(explain({ breaks: yes(0.9) }, "flagged")).toMatch(/no answer.*not hidden|not hidden/);
+  expect(explain({ breaks: yes(0.9), before: yes(0.8) }, "undecided")).toMatch(/already broke the rule \(80%\).*not a new violation/);
+  expect(explain({ breaks: yes(0.01), before: yes(0.01) }, "settled")).toMatch(/settled/i);
+  expect(explain({ breaks: yes(0.3), before: yes(0.01) }, "undecided")).toMatch(/between/);
+  expect(explainVerdict("claim", {}, {}, "settled")).toBe("");
+});
+

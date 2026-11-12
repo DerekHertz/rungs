@@ -327,3 +327,36 @@ test("pairs over the cap are published as not judged when the run is planned, so
   expect(planned[0]!.notJudged).toBe(7 + 120 * 3 - 300);
   expect(planned[0]!.pending).toBe(300);
 });
+
+test("hunks: when a split makes the parts unequal, the parts with a side missing are marked, so nothing replaced is told as 'nothing here'", () => {
+  const before = ["export function f() {", "  a();", "  console.log(\"old\");", "  b();", "  c();", "}", ""].join("\n");
+  const comments = Array.from({ length: 80 }, (_, n) => `  // note ${n + 1}`);
+  const after = ["export function f() {", "  a();", ...comments, "  console.log(\"new\");", "  b();", "  c();", "}", ""].join("\n");
+  const hunks = hunksOf(before, after);
+  if ("skipped" in hunks) throw new Error(hunks.skipped);
+  expect(hunks.length).toBeGreaterThan(1);
+  // The part that holds the base's line is whole; every part that lost a side is marked, and none is quietly a pure addition.
+  expect(hunks[0]!.lopsided).toBeUndefined();
+  expect(hunks[0]!.before.join("\n")).toContain('console.log("old")');
+  const marked = hunks.filter((hunk) => hunk.lopsided === true);
+  expect(marked.length).toBeGreaterThan(0);
+  expect(marked.every((hunk) => hunk.base === null || hunk.head === null || hunk.before.every((line) => line.startsWith(" ")) )).toBe(true);
+  expect(hunks.flatMap((hunk) => hunk.after.filter((line) => line.startsWith("+")))).toHaveLength(81);
+});
+
+test("items: a part of a split replacement with a side missing is not judged, with the reason, against any rule", () => {
+  const base = new Map(baseTree);
+  const head = new Map(headTree);
+  base.set("src/c.ts", ["export function f() {", "  a();", "  console.log(\"old\");", "  b();", "  c();", "}", ""].join("\n"));
+  head.set("src/c.ts", ["export function f() {", "  a();", ...Array.from({ length: 80 }, (_, n) => `  // note ${n + 1}`), "  console.log(\"new\");", "  b();", "  c();", "}", ""].join("\n"));
+  const { items, skipped } = standardItems(subjectOf({ base, head }));
+  const mine = items.filter((item) => item.input.hunk.path === "src/c.ts");
+  expect(mine.length).toBeGreaterThan(0);
+  expect(mine.every((item) => item.input.hunk.base !== null)).toBe(true);
+  const lost = skipped.filter((outcome) => outcome.status === "not judged" && outcome.reason.includes("src/c.ts"));
+  expect(lost.length).toBeGreaterThan(0);
+  expect(lost.every((outcome) => outcome.status === "not judged" && /replaced|part/.test(outcome.reason) && /not judged|not asked|not shown/.test(outcome.reason))).toBe(true);
+  // No judged item ever tells Jev there was nothing before a change that replaced lines.
+  expect(mine.every((item) => !(item.input.hunk.part !== undefined && item.input.hunk.before.length === 0))).toBe(true);
+});
+

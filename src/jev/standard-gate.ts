@@ -84,7 +84,25 @@ export const STANDARD_QUESTION_LABELS: Readonly<Record<string, string>> = { brea
 /** Says the rule in words, from the thresholds a record carries (so an old record is described by its own). */
 export function describeStandardThresholds(thresholds: Thresholds): string {
   const pct = (name: string): string => `${Math.round((thresholds[name] ?? Number.NaN) * 100)}%`;
-  return `Settled when broken is at most ${pct("clear")}. Flagged when broken is at least ${pct("flag")} and the base did not already break the rule (its answer under ${pct("already")}). Otherwise undecided.`;
+  return `Settled when broken is at most ${pct("clear")} and the base question was answered and is under ${pct("already")} (the base's lines did not already break the rule). Flagged when broken is at least ${pct("flag")} and the base did not already break the rule (its answer under ${pct("already")}, or missing: then it is flagged, not hidden). Otherwise undecided: that includes a clean-looking change whose base already broke the rule, or whose base answer is missing.`;
+}
+
+/**
+ * Why a record has its verdict, from its own answers and thresholds: the page shows this under the
+ * rule in words, so "undecided" always says whether the cause is the base's answer or the middle band.
+ */
+export function explainStandardVerdict(answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds, verdict: Verdict): string {
+  const pct = (value: number): string => `${Math.round(value * 100)}%`;
+  const breaks = yesOf(answers, "breaks");
+  const before = yesOf(answers, "before");
+  if (breaks === undefined) return "Undecided: the answer about the changed lines could not be read, so nothing is settled.";
+  const already = before !== undefined && before >= (thresholds.already ?? 0.5);
+  const base = before === undefined ? "the base question has no answer" : `the base's lines ${already ? "already broke the rule" : "did not already break the rule"} (${pct(before)})`;
+  if (verdict === "settled") return `Settled: the changed lines are unlikely to break the rule (${pct(breaks)}) and ${base}.`;
+  if (verdict === "flagged") return before === undefined ? `Flagged: the changed lines break the rule (${pct(breaks)}) and ${base}, so the violation is flagged, not hidden.` : `Flagged: the changed lines break the rule (${pct(breaks)}) and ${base}: a new violation.`;
+  if (breaks >= (thresholds.flag ?? 0.5)) return `Undecided: the changed lines break the rule (${pct(breaks)}) but ${base}, so this is not a new violation; a person looks.`;
+  if (breaks <= (thresholds.clear ?? 0.1)) return before === undefined ? `Undecided: the changed lines look clean (${pct(breaks)}), but ${base}, so it cannot be settled.` : `Undecided: the changed lines look clean (${pct(breaks)}), but ${base}, and a change over a violation the base already had is never settled; a person looks.`;
+  return `Undecided: the chance that the changed lines break the rule (${pct(breaks)}) is between the settle limit (${pct(thresholds.clear ?? 0.1)}) and the flag limit (${pct(thresholds.flag ?? 0.5)}).`;
 }
 
 const DATA_NOTE =

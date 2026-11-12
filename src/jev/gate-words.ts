@@ -1,6 +1,7 @@
 import { CLAIM_GATE_ID, QUESTION_LABELS as CLAIM_LABELS, describeThresholds as describeClaim } from "./claim-gate.ts";
-import type { Thresholds } from "./gate.ts";
-import { STANDARD_GATE_ID, STANDARD_QUESTION_LABELS, describeStandardThresholds } from "./standard-gate.ts";
+import type { JevAnswer } from "./client.ts";
+import type { Thresholds, Verdict } from "./gate.ts";
+import { STANDARD_GATE_ID, STANDARD_QUESTION_LABELS, describeStandardThresholds, explainStandardVerdict } from "./standard-gate.ts";
 
 /** The words the page puts on each gate's marks. No node imports: the page reads this. */
 
@@ -19,4 +20,9 @@ export function describeGateThresholds(gate: string, thresholds: Thresholds): st
   if (gate === CLAIM_GATE_ID) return describeClaim(thresholds);
   if (gate === STANDARD_GATE_ID) return describeStandardThresholds(thresholds);
   return `Thresholds: ${Object.entries(thresholds).map(([name, value]) => `${name} ${Math.round(value * 100)}%`).join(", ")}.`;
+}
+
+/** Why a record has its verdict, for the gates that say; "" for the others. */
+export function explainVerdict(gate: string, answers: Readonly<Record<string, JevAnswer>>, thresholds: Thresholds, verdict: Verdict): string {
+  return gate === STANDARD_GATE_ID ? explainStandardVerdict(answers, thresholds, verdict) : "";
 }

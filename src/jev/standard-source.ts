@@ -22,7 +22,10 @@ export const HUNK_CHANGED_LINES = 40;
 export const MAX_PAIRS = 300;
 
 /** One hunk before it is named for a file: the base's side and the head's side of the same stretch. */
-export type Hunk = Pick<HunkFacts, "base" | "head" | "before" | "after" | "part">;
+export type Hunk = Pick<HunkFacts, "base" | "head" | "before" | "after" | "part"> & {
+  /** Set on a part of a split replacement that holds lines of one side only, though the run replaced lines: its other side is in other parts, so it must not be judged as if nothing were there. */
+  readonly lopsided?: true;
+};
 
 const rangeOf = (numbers: readonly number[]): LineRange | null => (numbers.length === 0 ? null : { start: Math.min(...numbers), end: Math.max(...numbers) });
 
@@ -38,6 +41,8 @@ interface Piece {
   readonly to: number;
   /** Set when the run was split: this piece is part `number` of `of`. */
   readonly part?: { readonly number: number; readonly of: number };
+  /** A part of a run that both removed and added lines, holding only one of the two. */
+  readonly lopsided?: true;
 }
 
 /**
@@ -82,6 +87,7 @@ export function hunksOf(before: string, after: string): Hunk[] | { readonly skip
       from: run.from,
       to: run.to,
       ...(count > 1 ? { part: { number: at + 1, of: count } } : {}),
+      ...(count > 1 && run.removed.length > 0 && run.added.length > 0 && (at * HUNK_CHANGED_LINES >= run.removed.length || at * HUNK_CHANGED_LINES >= run.added.length) ? { lopsided: true as const } : {}),
     }));
   });
   const gapOf = (last: Piece, next: Piece): number => next.from - last.to - 1;
@@ -134,7 +140,7 @@ export function hunksOf(before: string, after: string): Hunk[] | { readonly skip
     });
     const last = group.at(-1)!;
     same(last.to + 1, last.to + 1 + trailing[at]!);
-    return { base: rangeOf(baseNumbers), head: rangeOf(headNumbers), before: lines.before, after: lines.after, ...(group.length === 1 && first.part !== undefined ? { part: first.part } : {}) };
+    return { base: rangeOf(baseNumbers), head: rangeOf(headNumbers), before: lines.before, after: lines.after, ...(group.length === 1 && first.part !== undefined ? { part: first.part } : {}), ...(group.length === 1 && first.lopsided === true ? { lopsided: true as const } : {}) };
   });
 }
 
@@ -203,6 +209,12 @@ export function standardItems(subject: JudgeSubject): { readonly items: Item<Sta
       continue;
     }
     for (const hunk of hunks) {
+      if (hunk.lopsided === true && rules.length > 0) {
+        // One side of this part is in other parts. Showing it with "nothing" there would tell the gate a violation was new when the base had it.
+        const place = `${label}, ${hunk.base === null ? "no base lines" : "no head lines"}`;
+        skipped.push({ status: "not judged", key: `standard:lopsided:${path}:${hunk.base?.start ?? "-"}:${hunk.head?.start ?? "-"}`, about: { nodes }, reason: `${place}: part ${hunk.part?.number ?? "?"} of ${hunk.part?.of ?? "?"} of a change that replaced lines, holding lines of one side only, so it was not judged against any rule` });
+        continue;
+      }
       for (const { rule, facts, scope } of rules) {
         if (!inScope(scope, path)) continue;
         const key = keyOf(rule, path, hunk);
