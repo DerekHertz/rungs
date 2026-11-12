@@ -105,6 +105,18 @@ export function promptEffect(label: string): string {
 }
 
 /**
+ * A quoted segment of a name, free of the literals the extractor copies into names: a callback's
+ * first string argument (`readFile("sk-…") callback`, written inside the segment as a JSON string)
+ * becomes `"…"`, and a string-literal key (or a member path ending in one) that has a secret's
+ * shape becomes "withheld". Any other quoted segment is returned as written (`raw`).
+ */
+function literalFree(text: string, raw: string): string {
+  const without = text.replace(/"(?:[^"\\]|\\.)*"/g, '"…"');
+  if (looksSecret(without)) return WITHHELD;
+  return without === text ? raw : without;
+}
+
+/**
  * A qualified name (see qualifiedName in graph.ts) with each computed member name replaced by
  * "[…]": `C.["SECRET"]` is written in the name as the JSON string `"[\"SECRET\"]"`. A segment is
  * an identifier or a JSON string, then "@" and an ordinal when above 1; "." separates segments.
@@ -128,7 +140,7 @@ export function promptName(qualified: string): string {
         text = raw;
       }
       const bracket = text.indexOf("[");
-      head = bracket === -1 ? raw : `${text.slice(0, bracket)}[…]`;
+      head = bracket === -1 ? literalFree(text, raw) : `${text.slice(0, bracket)}[…]`;
     } else {
       while (end < qualified.length && qualified[end] !== "." && qualified[end] !== "@") end++;
       head = qualified.slice(at, end);

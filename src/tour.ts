@@ -9,7 +9,7 @@ import { promptSignature } from "./signature.ts";
 import type { CodeNode, Graph, LineRange, ModuleNode, NodeId } from "./graph.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached tours are not reused. */
-export const TOUR_PROMPT_VERSION = "tour-v3";
+export const TOUR_PROMPT_VERSION = "tour-v4";
 
 /**
  * A place a stop may point at: a changed file, or a changed class, method or top-level function

@@ -6,7 +6,7 @@ import { promptBase, promptEffect } from "./prompt-safe.ts";
 import { promptSignature } from "./signature.ts";
 
 /** Bumped whenever the prompt or the schema changes, so older cached narrations are not reused. */
-export const NARRATION_PROMPT_VERSION = "narration-v2";
+export const NARRATION_PROMPT_VERSION = "narration-v3";
 
 const lines = (range: LineRange): string => (range.start === range.end ? `L${range.start}` : `L${range.start}-${range.end}`);
 

@@ -107,6 +107,39 @@ test("a computed member id is aliased in the tour prompt and maps back when the 
   expect(tour.stops[0]!.sentences).toEqual([{ text: "Second member.", id: second.id, range }]);
 });
 
+test("a literal in a callback's or a string key's name never reaches the tour or narration prompt, and maps back", () => {
+  const source = [
+    'import { readFile } from "node:fs";',
+    `readFile("${KEY}", () => {});`,
+    "export function run() {",
+    `  readFile("${KEY}", () => {});`,
+    `  const o = { "${AWS}": () => 1, "Content-Type": () => 2 };`,
+    '  describe("parser", () => {});',
+    "  return o;",
+    "}",
+    "",
+  ].join("\n");
+  const files = tree({ "package.json": "{}\n", "src/a.ts": source });
+  const graph = extract(files);
+  const places = placesOf(compare(base, graph), graph);
+  const user = tourPrompt([], places).user;
+  expect(user).not.toContain("sk-proj");
+  expect(user).not.toContain("AKIA");
+  expect(user).toContain('readFile("…") callback');
+  const run = graph.nodes.find((candidate): candidate is CodeNode => isCodeNode(candidate) && candidate.id === ("function:src/a.ts#run" as NodeId))!;
+  const outline = pseudocode(graph, files, run.id)!;
+  const narration = narrationPrompt(run, outline).user;
+  expect(narration).not.toContain("sk-proj");
+  expect(narration).not.toContain("AKIA");
+  expect(narration).toContain('readFile("…") callback');
+  // The alias maps back to the real node.
+  const shown = places.find((place) => place.promptId.includes('readFile("…") callback'))!;
+  const range = shown.range!;
+  const tour = validateTour({ stops: [{ title: "t", ids: [shown.promptId], claims: [], narration: [{ text: "Reads.", id: shown.promptId, start: range.start, end: range.end }] }] }, 0, places);
+  expect(tour.stops[0]!.ids).toEqual([shown.id]);
+  expect(shown.id).toContain(KEY);
+});
+
 test("a computed member is aliased in the narration prompt too", () => {
   const outer = 'export function f() {\n  const g = { ["SECRET_KEY"]() { return 1; } };\n  return g;\n}\n';
   const files = tree({ "package.json": "{}\n", "src/f.ts": outer });
