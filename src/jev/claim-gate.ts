@@ -67,7 +67,7 @@ const DATA_NOTE =
 
 export const claimGate: Gate<ClaimInput> = {
   id: CLAIM_GATE_ID,
-  version: "claim-v1",
+  version: "claim-v2",
   questions: {
     shown: {
       type: "yes-no",

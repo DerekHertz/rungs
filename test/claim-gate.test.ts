@@ -7,7 +7,7 @@ import { extract } from "../src/extract/extract.ts";
 import type { FileTree, NodeId } from "../src/graph.ts";
 import { CLAIM_THRESHOLDS, MAX_CHANGED_LINES, MAX_CLAIM_CHARS, MAX_FACTS, MAX_PLACES, MAX_STATE_CHARS, claimGate } from "../src/jev/claim-gate.ts";
 import type { ClaimInput } from "../src/jev/claim-gate.ts";
-import { claimItems, ownersOf } from "../src/jev/claim-source.ts";
+import { claimItems, ownersOf, withholdSecrets } from "../src/jev/claim-source.ts";
 import { requestFor } from "../src/jev/gate.ts";
 import { judgedSource } from "../src/jev/source.ts";
 import type { JudgedRecord } from "../src/jev/store.ts";
@@ -147,7 +147,7 @@ test("streets compare with judging on writes one judged record per linked claim,
   const records: JudgedRecord[] = document.sets.flatMap((set) => set.records);
   expect(records.map((record) => record.about)).toEqual([{ claim: 0 }, { claim: 1 }]);
   expect(client.requests).toHaveLength(2);
-  expect(records[0]).toMatchObject({ tier: "judged", key: "claim:0", question: { id: "claim", version: "claim-v1" }, verdict: "settled", thresholds: CLAIM_THRESHOLDS, model: "fake-1", inputTokens: 1000 });
+  expect(records[0]).toMatchObject({ tier: "judged", key: "claim:0", question: { id: "claim", version: "claim-v2" }, verdict: "settled", thresholds: CLAIM_THRESHOLDS, model: "fake-1", inputTokens: 1000 });
   expect(records[0]!.answers).toEqual({ shown: yes(0.97), contradicted: yes(0.02) });
   expect(records[0]!.shown.state.claim).toBe("Adds fresh.");
   expect(records[0]!.shown.state["place 1"]).toContain("+5: export function fresh() {");
@@ -230,7 +230,7 @@ test("an effect whose arguments changed is a fact of its place, in the page's +/
   const trees = { base: reset("--soft"), head: reset("--hard") };
   const state = claimGate.state(claimItems(subjectOf([{ index: 0, text: "reset is harder.", ids: ["file:src/a.ts#extra.ts" as NodeId] }], trees))[0]!.input);
   expect(state["place 1"]).toMatch(/altered function run/);
-  expect(state["place 1"]).toMatch(/effect call changed: process child_process execFileSync "git".*\+ "--hard".*− "--soft"/);
+  expect(state["place 1"]).toMatch(/effect call changed: process child_process execFileSync git.*\+ "--hard".*− "--soft"/);
 });
 
 test("facts are resolved to a file by node identity: a file whose name holds a # does not lend its facts to another file", () => {
@@ -240,4 +240,64 @@ test("facts are resolved to a file by node identity: a file whose name holds a #
   expect(a).toMatch(/^altered src\/a\.ts/);
   expect(a).not.toMatch(/effect|execFileSync|function run/);
   expect(extra).toMatch(/effect call changed/);
+});
+
+// A key shaped like a secret, written in pieces so this file holds none.
+const AKIA = ["AKIA", "IOSFODNN7", "EXAMPLE"].join("");
+
+const placeFor = (headSource: string, baseSource = "export const x = 0;\n"): ClaimInput["places"][number] => {
+  const trees = { base: new Map([["package.json", "{}\n"], ["src/x.ts", baseSource]]), head: new Map([["package.json", "{}\n"], ["src/x.ts", headSource]]) };
+  return claimItems(subjectOf([{ index: 0, text: "x changed.", ids: ["file:src/x.ts" as NodeId] }], trees))[0]!.input.places[0]!;
+};
+
+test("a URL target with a token in its query reaches the gate as its host only", () => {
+  const place = placeFor('export function load() {\n  return fetch("https://api.example.com/v1/users?token=abc123&user=bob");\n}\n');
+  const facts = place.facts.join("\n");
+  expect(facts).toMatch(/effect call added: network fetch https:\/\/api\.example\.com$/m);
+  expect(facts).not.toMatch(/token|users|abc123/);
+});
+
+test("a plain effect target is kept as its host, command name or file name, not the full literal", () => {
+  const place = placeFor('import { execFileSync } from "node:child_process";\nexport function run() {\n  execFileSync("/usr/bin/git", ["status"]);\n}\n');
+  const added = place.facts.find((fact) => fact.startsWith("effect call added"))!;
+  expect(added).toBe("effect call added: process child_process execFileSync git");
+});
+
+test("an AKIA key in a changed line is withheld; the rest of the line is kept", () => {
+  const place = placeFor(`export const config = {\n  region: "us-east-1",\n  key: "${AKIA}",\n};\n`);
+  const line = place.lines.find((one) => one.includes("key:"))!;
+  expect(line).toBe('+3:   key: "withheld",');
+  expect(place.lines).toContain('+2:   region: "us-east-1",');
+  expect(JSON.stringify(place)).not.toContain(AKIA);
+});
+
+test("a bare secret-shaped token in a changed line, and in a removed line, is withheld", () => {
+  const place = placeFor(`export const a = 1; // ${AKIA} rotate\n`, `// old ghp_${"A1b2C3d4E5f6G7h8"} value\nexport const a = 1;\n`);
+  const text = place.lines.join("\n");
+  expect(text).toContain("withheld rotate");
+  expect(text).toContain("// old withheld value");
+  expect(text).not.toMatch(/AKIA|ghp_/);
+});
+
+test("the claim question version moved, so records and bench fingerprints of the old input are not reused", () => {
+  expect(claimGate.version).toBe("claim-v2");
+});
+
+test("a URL in a changed line, quoted or bare, reaches the gate as scheme and host only; no path, query or user info", () => {
+  const place = placeFor('export function load() {\n  // see https://bob:pw@docs.example.com/guide?token=abc123#top for the rules\n  return fetch("https://api.example.com/v1/users?token=abc123&user=bob");\n}\n');
+  const text = place.lines.join("\n");
+  expect(text).toContain('return fetch("https://api.example.com");');
+  expect(text).toContain("// see https://docs.example.com for the rules");
+  expect(JSON.stringify(place)).not.toMatch(/token|abc123|users|bob|guide/);
+});
+
+test("a quoted URL without a scheme, and one in a signature, is reduced to its host too", () => {
+  expect(withholdSecrets("const u = 'api.example.com/v1/users?token=abc123';")).toBe("const u = 'https://api.example.com';");
+  expect(withholdSecrets("export function f(url = 'https://x.example/a?k=v'): void")).toBe("export function f(url = 'https://x.example'): void");
+});
+
+test("a name that holds a secret-shaped literal reaches the facts withheld: a class method written as a quoted name", () => {
+  const place = placeFor(`export class C {\n  ["${AKIA}"]() {\n    return 1;\n  }\n}\n`);
+  expect(JSON.stringify(place)).not.toContain(AKIA);
+  expect(place.facts.some((fact) => fact.startsWith("added "))).toBe(true);
 });

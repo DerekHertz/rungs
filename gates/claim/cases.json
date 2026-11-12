@@ -79,18 +79,18 @@
      {
       "label": "added test/force-color.js",
       "facts": [
-       "added function \"test(\\\"`FORCE_COLOR=0` disables color\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` is an exact level, not a minimum\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` overrides CI detection\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` overrides TERM detection\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=2` is an exact level, not a minimum\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=3` enables truecolor\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=false` disables color\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=true` only enables color and lets the level be detected\\\") callback\"",
-       "added function \"test(\\\"a `FORCE_COLOR` above 3 is clamped to 3\\\") callback\"",
-       "added function \"test(\\\"a non-numeric `FORCE_COLOR` is treated as unset, not as disabled\\\") callback\"",
-       "added function \"test(\\\"an empty `FORCE_COLOR` behaves like `FORCE_COLOR=true`\\\") callback\"",
-       "added function \"test(\\\"the `--color=256` and `--color=16m` flags take precedence over a numeric `FORCE_COLOR`\\\") callback\"",
+       "added function test(\"`FORCE_COLOR=0` disables color\") callback",
+       "added function test(\"`FORCE_COLOR=1` is an exact level, not a minimum\") callback",
+       "added function test(\"`FORCE_COLOR=1` overrides CI detection\") callback",
+       "added function test(\"`FORCE_COLOR=1` overrides TERM detection\") callback",
+       "added function test(\"`FORCE_COLOR=2` is an exact level, not a minimum\") callback",
+       "added function test(\"`FORCE_COLOR=3` enables truecolor\") callback",
+       "added function test(\"`FORCE_COLOR=false` disables color\") callback",
+       "added function test(\"`FORCE_COLOR=true` only enables color and lets the level be detected\") callback",
+       "added function test(\"a `FORCE_COLOR` above 3 is clamped to 3\") callback",
+       "added function test(\"a non-numeric `FORCE_COLOR` is treated as unset, not as disabled\") callback",
+       "added function test(\"an empty `FORCE_COLOR` behaves like `FORCE_COLOR=true`\") callback",
+       "added function test(\"the `--color=256` and `--co…` flags take precedence over a numeric `FORCE_COLOR`\") callback",
        "added function detectLevel"
       ],
       "lines": [
@@ -272,11 +272,11 @@
      {
       "label": "altered tests/options.optsWithGlobals.test.js",
       "facts": [
-       "altered function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\"",
-       "moved function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program default value then source is defined by global\\\") callback\"",
-       "moved function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program default value then source is defined by global\\\") callback\".\"action() callback\"",
-       "added function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program set value then source is defined by global\\\") callback\"",
-       "added function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program set value then source is defined by global\\\") callback\".\"action() callback\""
+       "altered function describe(\"getOptionValueSourceWithGlobals\") callback",
+       "moved function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…ogram default value then source is defined by global\") callback",
+       "moved function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…ogram default value then source is defined by global\") callback.\"action() callback\"",
+       "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback",
+       "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback.\"action() callback\""
       ],
       "lines": [
        "-103:   test('when same named option in sub and program then source is defined by global', () => {",
@@ -344,9 +344,9 @@
      {
       "label": "altered tests/helpGroup.test.js",
       "facts": [
-       "altered function \"describe(\\\"Command.optionsGroup\\\") callback\"",
-       "added function \"describe(\\\"Command.optionsGroup\\\") callback\".\"test(\\\"when help long flag conflicts then help option keeps its group\\\") callback\"",
-       "added function \"describe(\\\"Command.optionsGroup\\\") callback\".\"test(\\\"when help short flag conflicts then help option keeps its group\\\") callback\""
+       "altered function describe(\"Command.optionsGroup\") callback",
+       "added function describe(\"Command.optionsGroup\") callback.test(\"when help long flag conflicts then help option keeps its group\") callback",
+       "added function describe(\"Command.optionsGroup\") callback.test(\"when help short flag conflicts then help option keeps its group\") callback"
       ],
       "lines": [
        "+118:   test('when help short flag conflicts then help option keeps its group', () => {",
@@ -407,7 +407,7 @@
        "+2725:   //",
        "+2726:   // Host can be an IP literal encapsulated within square brackets (e.g. [::1]),",
        "+2727:   // an IPv4 address in dotted-decimal form (e.g. 192.168.0.1), or a registered name.",
-       "+2728:   // https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2",
+       "+2728:   // https://www.rfc-editor.org",
        "-2737:       (match = arg.match(/^(--inspect(-brk|-port|-wait)?)=([^:]+)$/)) !== null",
        "+2741:       (match = arg.match(",
        "+2742:         /^(--inspect(-brk|-port|-wait)?)=(\\[[^\\]]+\\]|[^:]+)$/,",
@@ -431,9 +431,9 @@
      {
       "label": "altered tests/incrementNodeInspectorPort.test.cjs",
       "facts": [
-       "altered function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect=[::1] then bump port\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect=[::1]:100 then bump port\\\") callback\""
+       "altered function describe(\"increment node inspector port in executable subcommands\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1] then bump port\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1]:100 then bump port\") callback"
       ],
       "lines": [
        "+75:   test('when --inspect=[::1] then bump port', (t) => {",
@@ -502,11 +502,11 @@
      {
       "label": "altered tests/incrementNodeInspectorPort.test.cjs",
       "facts": [
-       "altered function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect-wait then bump port\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect-wait=1.2.3.4 then bump port\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect-wait=1.2.3.4:100 then bump port\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect-wait=100 then bump port\\\") callback\""
+       "altered function describe(\"increment node inspector port in executable subcommands\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect-wait then bump port\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect-wait=1.2.3.4 then bump port\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect-wait=1.2.3.4:100 then bump port\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect-wait=100 then bump port\") callback"
       ],
       "lines": [
        "+111:   test('when --inspect-wait then bump port', (t) => {",
@@ -575,12 +575,12 @@
      {
       "label": "altered tests/command.configureOutput.test.js",
       "facts": [
-       "altered function \"describe(\\\"Command.configureOutput()\\\") callback\"",
-       "altered function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\"",
-       "added function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\".\"afterEach() callback\"",
-       "added function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\".\"beforeEach() callback\"",
-       "added function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\".\"map() callback\"",
-       "altered function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\".\"test() callback\""
+       "altered function describe(\"Command.configureOutput()\") callback",
+       "altered function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback",
+       "added function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"afterEach() callback\"",
+       "added function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"beforeEach() callback\"",
+       "added function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"map() callback\"",
+       "altered function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"test() callback\""
       ],
       "lines": [
        "+345:     const envvars = testCases.map(([envvar]) => envvar);",
@@ -651,10 +651,10 @@
      {
       "label": "altered test/res.send.js",
       "facts": [
-       "altered function \"describe(\\\"res\\\") callback\"",
-       "altered function \"describe(\\\"res\\\") callback\".\"describe(\\\"when Transfer-Encoding header is present\\\") callback\"",
-       "added function \"describe(\\\"res\\\") callback\".\"describe(\\\"when Transfer-Encoding header is present\\\") callback\".\"it(\\\"should still generate an ETag\\\") callback\"",
-       "added function \"describe(\\\"res\\\") callback\".\"describe(\\\"when Transfer-Encoding header is present\\\") callback\".\"it(\\\"should still generate an ETag\\\") callback\".\"use() callback\""
+       "altered function describe(\"res\") callback",
+       "altered function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback",
+       "added function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback.it(\"should still generate an ETag\") callback",
+       "added function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback.it(\"should still generate an ETag\") callback.\"use() callback\""
       ],
       "lines": [
        "+619: ",
@@ -669,7 +669,7 @@
        "+628:         .get('/')",
        "+629:         .expect(utils.shouldNotHaveHeader('Content-Length'))",
        "+630:         .expect(utils.shouldHaveHeader('Transfer-Encoding'))",
-       "+631:         .expect('ETag', 'W/\"5-qvTGHdzF6KLavt4PO0gs2a6pQ00\"')",
+       "+631:         .expect('ETag', 'withheld')",
        "+632:         .expect(200, 'hello', done);",
        "+633:     })"
       ],
@@ -767,12 +767,12 @@
      {
       "label": "altered test/req.fresh.js",
       "facts": [
-       "altered function \"describe(\\\"req\\\") callback\"",
-       "altered function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return false for a QUERY request with a body when the resource is modified\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return false for a QUERY request with a body when the resource is modified\\\") callback\".\"use() callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return true for a QUERY request with a body when the resource is not modified\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return true for a QUERY request with a body when the resource is not modified\\\") callback\".\"use() callback\""
+       "altered function describe(\"req\") callback",
+       "altered function describe(\"req\") callback.describe(\".fresh\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return false for a Q…RY request with a body when the resource is modified\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return false for a Q…RY request with a body when the resource is modified\") callback.\"use() callback\"",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback.\"use() callback\""
       ],
       "lines": [
        "+5: var shouldSkipQuery = require('./support/utils').shouldSkipQuery",
@@ -859,13 +859,13 @@
      {
       "label": "altered test/decorator.test.js",
       "facts": [
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\"",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".getter",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".getter.\"<function>\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\".getter"
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.\"after() callback\"",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.getter",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.getter.\"<function>\"",
+       "added function test(\"getDecorator should evaluate a getter once\") callback",
+       "added function test(\"getDecorator should evaluate a getter once\") callback.\"after() callback\"",
+       "added function test(\"getDecorator should evaluate a getter once\") callback.getter"
       ],
       "lines": [
        "+1331: ",
@@ -940,11 +940,11 @@
      {
       "label": "altered test/internals/reply.test.js",
       "facts": [
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".\"get(\\\"/headers\\\") callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".removeHeader",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".setHeader",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.\"after() callback\"",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.get(\"…\") callback",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.removeHeader",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.setHeader",
        "effect call added: network fetch (target unknown)",
        "effect call added: network fetch (target unknown)"
       ],
@@ -1008,12 +1008,12 @@
      {
       "label": "altered src/utils/jwt/jwt.test.ts",
       "facts": [
-       "altered function \"describe(\\\"JWT\\\") callback\"",
-       "added function \"describe(\\\"JWT\\\") callback\".\"it(\\\"JwtHeaderInvalid for a header with crit\\\") callback\"",
-       "added function \"describe(\\\"JWT\\\") callback\".\"it(\\\"JwtHeaderInvalid for a header with crit\\\") callback\".\"catch() callback\"",
-       "added function \"describe(\\\"JWT\\\") callback\".\"it(\\\"JwtHeaderInvalid for a header with crit\\\") callback\".encode",
-       "added function \"describe(\\\"JWT\\\") callback\".\"it(\\\"JwtTokenInvalid for a signature containing whitespace\\\") callback\"",
-       "added function \"describe(\\\"JWT\\\") callback\".\"it(\\\"JwtTokenInvalid for a signature containing whitespace\\\") callback\".\"catch() callback\""
+       "altered function describe(\"JWT\") callback",
+       "added function describe(\"JWT\") callback.it(\"JwtHeaderInvalid for a header with crit\") callback",
+       "added function describe(\"JWT\") callback.it(\"JwtHeaderInvalid for a header with crit\") callback.\"catch() callback\"",
+       "added function describe(\"JWT\") callback.it(\"JwtHeaderInvalid for a header with crit\") callback.encode",
+       "added function describe(\"JWT\") callback.it(\"JwtTokenInvalid for a signature containing whitespace\") callback",
+       "added function describe(\"JWT\") callback.it(\"JwtTokenInvalid for a signature containing whitespace\") callback.\"catch() callback\""
       ],
       "lines": [
        "+14:   JwtHeaderInvalid,",
@@ -1090,8 +1090,8 @@
      {
       "label": "altered src/context.test.ts",
       "facts": [
-       "altered function \"describe(\\\"Context header\\\") callback\"",
-       "added function \"describe(\\\"Context header\\\") callback\".\"it(\\\"Should be able to set headers after the response body is consumed\\\") callback\""
+       "altered function describe(\"Context header\") callback",
+       "added function describe(\"Context header\") callback.it(\"Should be able to set headers after the response body is consumed\") callback"
       ],
       "lines": [
        "+497:   it('Should be able to set headers after the response body is consumed', async () => {",
@@ -1147,9 +1147,9 @@
       "label": "altered src/router/common.case.test.ts",
       "facts": [
        "altered function runTest",
-       "altered function runTest.\"describe(\\\"Common\\\") callback\"",
-       "altered function runTest.\"describe(\\\"Common\\\") callback\".\"describe(\\\"Including slashes\\\") callback\"",
-       "added function runTest.\"describe(\\\"Common\\\") callback\".\"describe(\\\"Including slashes\\\") callback\".\"it(\\\"GET /x/aa/b/x with a quantifier before a slash\\\") callback\""
+       "altered function runTest.describe(\"Common\") callback",
+       "altered function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback",
+       "added function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback.it(\"GET /x/aa/b/x with a quantifier before a slash\") callback"
       ],
       "lines": [
        "+834: ",
@@ -1179,8 +1179,8 @@
      {
       "label": "altered src/utils/url.test.ts",
       "facts": [
-       "altered function \"describe(\\\"url\\\") callback\"",
-       "added function \"describe(\\\"url\\\") callback\".\"<function>\""
+       "altered function describe(\"url\") callback",
+       "added function describe(\"url\") callback.\"<function>\""
       ],
       "lines": [
        "+51:   it.each([",
@@ -1252,7 +1252,7 @@
      {
       "label": "altered test/arguments.ts",
       "facts": [
-       "added function \"test(\\\"throws if an invalid argument is passed\\\") callback\""
+       "added function test(\"throws if an invalid argument is passed\") callback"
       ],
       "lines": [
        "+45: test('throws if an invalid argument is passed', async t => {",
@@ -1349,8 +1349,8 @@
       "label": "altered readme.md",
       "facts": [],
       "lines": [
-       "-377: [InstallSizeOfTheDependencies]: https://packagephobia.com/result?p=@sindresorhus/is@6.3.1,@szmarczak/http-timer@5.0.1,cacheable-lookup@7.0.0,cacheable-request@12.0.1,decompress-response@6.0.0,form-dat...",
-       "+377: [InstallSizeOfTheDependencies]: https://packagephobia.com/result?p=@sindresorhus/is@7.0.0,@szmarczak/http-timer@5.0.1,cacheable-lookup@7.0.0,cacheable-request@12.0.1,decompress-response@6.0.0,form-dat..."
+       "-377: [InstallSizeOfTheDependencies]: https://packagephobia.com,@szmarczak/http-timer@5.0.1,cacheable-lookup@7.0.0,cacheable-request@12.0.1,decompress-response@6.0.0,form-data-encoder@4.0.2,get-stream@8.0.1...",
+       "+377: [InstallSizeOfTheDependencies]: https://packagephobia.com,@szmarczak/http-timer@5.0.1,cacheable-lookup@7.0.0,cacheable-request@12.0.1,decompress-response@6.0.0,form-data-encoder@4.0.2,http2-wrapper@2...."
       ],
       "cutLines": 0
      },
@@ -1407,7 +1407,7 @@
       ],
       "lines": [
        "-267: \t\t\t\tthis.destroy(new AbortError(this));",
-       "+267: \t\t\t\t// See https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static#return_value",
+       "+267: \t\t\t\t// See https://developer.mozilla.org",
        "+268: \t\t\t\tif (this.options.signal?.reason?.name === 'TimeoutError') {",
        "+269: \t\t\t\t\tthis.destroy(new TimeoutError(this.options.signal.reason, this.timings!, this));",
        "+270: \t\t\t\t} else {",
@@ -1419,16 +1419,16 @@
      {
       "label": "altered test/abort.ts",
       "facts": [
-       "added function \"test(\\\"support AbortSignal.timeout() with user abort\\\") callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout() with user abort\\\") callback\".\"setTimeout() callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout() without user abort\\\") callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout()\\\") callback\"",
+       "added function test(\"support AbortSignal.timeout() with user abort\") callback",
+       "added function test(\"support AbortSignal.timeout() with user abort\") callback.\"setTimeout() callback\"",
+       "added function test(\"support AbortSignal.timeout() without user abort\") callback",
+       "added function test(\"support AbortSignal.timeout()\") callback",
        "effect call added: timer setTimeout"
       ],
       "lines": [
        "+327: ",
        "+328: const timeoutErrorCode = 23;",
-       "+329: // See https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static",
+       "+329: // See https://developer.mozilla.org",
        "+330: test('support AbortSignal.timeout()', async t => {",
        "+331: \tconst signal = AbortSignal.timeout(1);",
        "+332: ",
@@ -1521,11 +1521,11 @@
      {
       "label": "altered test/internals/reply.test.js",
       "facts": [
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".\"get(\\\"/headers\\\") callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".removeHeader",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".setHeader",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.\"after() callback\"",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.get(\"…\") callback",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.removeHeader",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.setHeader",
        "effect call added: network fetch (target unknown)",
        "effect call added: network fetch (target unknown)"
       ],
@@ -1596,7 +1596,7 @@
        "+2725:   //",
        "+2726:   // Host can be an IP literal encapsulated within square brackets (e.g. [::1]),",
        "+2727:   // an IPv4 address in dotted-decimal form (e.g. 192.168.0.1), or a registered name.",
-       "+2728:   // https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2",
+       "+2728:   // https://www.rfc-editor.org",
        "-2737:       (match = arg.match(/^(--inspect(-brk|-port|-wait)?)=([^:]+)$/)) !== null",
        "+2741:       (match = arg.match(",
        "+2742:         /^(--inspect(-brk|-port|-wait)?)=(\\[[^\\]]+\\]|[^:]+)$/,",
@@ -1620,9 +1620,9 @@
      {
       "label": "altered tests/incrementNodeInspectorPort.test.cjs",
       "facts": [
-       "altered function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect=[::1] then bump port\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect=[::1]:100 then bump port\\\") callback\""
+       "altered function describe(\"increment node inspector port in executable subcommands\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1] then bump port\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1]:100 then bump port\") callback"
       ],
       "lines": [
        "+75:   test('when --inspect=[::1] then bump port', (t) => {",
@@ -1755,8 +1755,8 @@
      {
       "label": "altered src/context.test.ts",
       "facts": [
-       "altered function \"describe(\\\"Context header\\\") callback\"",
-       "added function \"describe(\\\"Context header\\\") callback\".\"it(\\\"Should be able to set headers after the response body is consumed\\\") callback\""
+       "altered function describe(\"Context header\") callback",
+       "added function describe(\"Context header\") callback.it(\"Should be able to set headers after the response body is consumed\") callback"
       ],
       "lines": [
        "+497:   it('Should be able to set headers after the response body is consumed', async () => {",
@@ -1827,13 +1827,13 @@
      {
       "label": "altered test/decorator.test.js",
       "facts": [
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\"",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".getter",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".getter.\"<function>\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\".getter"
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.\"after() callback\"",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.getter",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.getter.\"<function>\"",
+       "added function test(\"getDecorator should evaluate a getter once\") callback",
+       "added function test(\"getDecorator should evaluate a getter once\") callback.\"after() callback\"",
+       "added function test(\"getDecorator should evaluate a getter once\") callback.getter"
       ],
       "lines": [
        "+1331: ",
@@ -1944,18 +1944,18 @@
      {
       "label": "added test/force-color.js",
       "facts": [
-       "added function \"test(\\\"`FORCE_COLOR=0` disables color\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` is an exact level, not a minimum\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` overrides CI detection\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` overrides TERM detection\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=2` is an exact level, not a minimum\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=3` enables truecolor\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=false` disables color\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=true` only enables color and lets the level be detected\\\") callback\"",
-       "added function \"test(\\\"a `FORCE_COLOR` above 3 is clamped to 3\\\") callback\"",
-       "added function \"test(\\\"a non-numeric `FORCE_COLOR` is treated as unset, not as disabled\\\") callback\"",
-       "added function \"test(\\\"an empty `FORCE_COLOR` behaves like `FORCE_COLOR=true`\\\") callback\"",
-       "added function \"test(\\\"the `--color=256` and `--color=16m` flags take precedence over a numeric `FORCE_COLOR`\\\") callback\"",
+       "added function test(\"`FORCE_COLOR=0` disables color\") callback",
+       "added function test(\"`FORCE_COLOR=1` is an exact level, not a minimum\") callback",
+       "added function test(\"`FORCE_COLOR=1` overrides CI detection\") callback",
+       "added function test(\"`FORCE_COLOR=1` overrides TERM detection\") callback",
+       "added function test(\"`FORCE_COLOR=2` is an exact level, not a minimum\") callback",
+       "added function test(\"`FORCE_COLOR=3` enables truecolor\") callback",
+       "added function test(\"`FORCE_COLOR=false` disables color\") callback",
+       "added function test(\"`FORCE_COLOR=true` only enables color and lets the level be detected\") callback",
+       "added function test(\"a `FORCE_COLOR` above 3 is clamped to 3\") callback",
+       "added function test(\"a non-numeric `FORCE_COLOR` is treated as unset, not as disabled\") callback",
+       "added function test(\"an empty `FORCE_COLOR` behaves like `FORCE_COLOR=true`\") callback",
+       "added function test(\"the `--color=256` and `--co…` flags take precedence over a numeric `FORCE_COLOR`\") callback",
        "added function detectLevel"
       ],
       "lines": [
@@ -2050,9 +2050,9 @@
       "label": "altered src/router/common.case.test.ts",
       "facts": [
        "altered function runTest",
-       "altered function runTest.\"describe(\\\"Common\\\") callback\"",
-       "altered function runTest.\"describe(\\\"Common\\\") callback\".\"describe(\\\"Including slashes\\\") callback\"",
-       "added function runTest.\"describe(\\\"Common\\\") callback\".\"describe(\\\"Including slashes\\\") callback\".\"it(\\\"GET /x/aa/b/x with a quantifier before a slash\\\") callback\""
+       "altered function runTest.describe(\"Common\") callback",
+       "altered function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback",
+       "added function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback.it(\"GET /x/aa/b/x with a quantifier before a slash\") callback"
       ],
       "lines": [
        "+834: ",
@@ -2082,8 +2082,8 @@
      {
       "label": "altered src/utils/url.test.ts",
       "facts": [
-       "altered function \"describe(\\\"url\\\") callback\"",
-       "added function \"describe(\\\"url\\\") callback\".\"<function>\""
+       "altered function describe(\"url\") callback",
+       "added function describe(\"url\") callback.\"<function>\""
       ],
       "lines": [
        "+51:   it.each([",
@@ -2167,12 +2167,12 @@
      {
       "label": "altered test/req.fresh.js",
       "facts": [
-       "altered function \"describe(\\\"req\\\") callback\"",
-       "altered function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return false for a QUERY request with a body when the resource is modified\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return false for a QUERY request with a body when the resource is modified\\\") callback\".\"use() callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return true for a QUERY request with a body when the resource is not modified\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return true for a QUERY request with a body when the resource is not modified\\\") callback\".\"use() callback\""
+       "altered function describe(\"req\") callback",
+       "altered function describe(\"req\") callback.describe(\".fresh\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return false for a Q…RY request with a body when the resource is modified\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return false for a Q…RY request with a body when the resource is modified\") callback.\"use() callback\"",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback.\"use() callback\""
       ],
       "lines": [
        "+5: var shouldSkipQuery = require('./support/utils').shouldSkipQuery",
@@ -2249,7 +2249,7 @@
       ],
       "lines": [
        "-267: \t\t\t\tthis.destroy(new AbortError(this));",
-       "+267: \t\t\t\t// See https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static#return_value",
+       "+267: \t\t\t\t// See https://developer.mozilla.org",
        "+268: \t\t\t\tif (this.options.signal?.reason?.name === 'TimeoutError') {",
        "+269: \t\t\t\t\tthis.destroy(new TimeoutError(this.options.signal.reason, this.timings!, this));",
        "+270: \t\t\t\t} else {",
@@ -2261,16 +2261,16 @@
      {
       "label": "altered test/abort.ts",
       "facts": [
-       "added function \"test(\\\"support AbortSignal.timeout() with user abort\\\") callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout() with user abort\\\") callback\".\"setTimeout() callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout() without user abort\\\") callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout()\\\") callback\"",
+       "added function test(\"support AbortSignal.timeout() with user abort\") callback",
+       "added function test(\"support AbortSignal.timeout() with user abort\") callback.\"setTimeout() callback\"",
+       "added function test(\"support AbortSignal.timeout() without user abort\") callback",
+       "added function test(\"support AbortSignal.timeout()\") callback",
        "effect call added: timer setTimeout"
       ],
       "lines": [
        "+327: ",
        "+328: const timeoutErrorCode = 23;",
-       "+329: // See https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static",
+       "+329: // See https://developer.mozilla.org",
        "+330: test('support AbortSignal.timeout()', async t => {",
        "+331: \tconst signal = AbortSignal.timeout(1);",
        "+332: ",
@@ -2399,18 +2399,18 @@
      {
       "label": "added test/force-color.js",
       "facts": [
-       "added function \"test(\\\"`FORCE_COLOR=0` disables color\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` is an exact level, not a minimum\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` overrides CI detection\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` overrides TERM detection\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=2` is an exact level, not a minimum\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=3` enables truecolor\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=false` disables color\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=true` only enables color and lets the level be detected\\\") callback\"",
-       "added function \"test(\\\"a `FORCE_COLOR` above 3 is clamped to 3\\\") callback\"",
-       "added function \"test(\\\"a non-numeric `FORCE_COLOR` is treated as unset, not as disabled\\\") callback\"",
-       "added function \"test(\\\"an empty `FORCE_COLOR` behaves like `FORCE_COLOR=true`\\\") callback\"",
-       "added function \"test(\\\"the `--color=256` and `--color=16m` flags take precedence over a numeric `FORCE_COLOR`\\\") callback\"",
+       "added function test(\"`FORCE_COLOR=0` disables color\") callback",
+       "added function test(\"`FORCE_COLOR=1` is an exact level, not a minimum\") callback",
+       "added function test(\"`FORCE_COLOR=1` overrides CI detection\") callback",
+       "added function test(\"`FORCE_COLOR=1` overrides TERM detection\") callback",
+       "added function test(\"`FORCE_COLOR=2` is an exact level, not a minimum\") callback",
+       "added function test(\"`FORCE_COLOR=3` enables truecolor\") callback",
+       "added function test(\"`FORCE_COLOR=false` disables color\") callback",
+       "added function test(\"`FORCE_COLOR=true` only enables color and lets the level be detected\") callback",
+       "added function test(\"a `FORCE_COLOR` above 3 is clamped to 3\") callback",
+       "added function test(\"a non-numeric `FORCE_COLOR` is treated as unset, not as disabled\") callback",
+       "added function test(\"an empty `FORCE_COLOR` behaves like `FORCE_COLOR=true`\") callback",
+       "added function test(\"the `--color=256` and `--co…` flags take precedence over a numeric `FORCE_COLOR`\") callback",
        "added function detectLevel"
       ],
       "lines": [
@@ -2555,11 +2555,11 @@
      {
       "label": "altered tests/options.optsWithGlobals.test.js",
       "facts": [
-       "altered function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\"",
-       "moved function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program default value then source is defined by global\\\") callback\"",
-       "moved function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program default value then source is defined by global\\\") callback\".\"action() callback\"",
-       "added function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program set value then source is defined by global\\\") callback\"",
-       "added function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program set value then source is defined by global\\\") callback\".\"action() callback\""
+       "altered function describe(\"getOptionValueSourceWithGlobals\") callback",
+       "moved function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…ogram default value then source is defined by global\") callback",
+       "moved function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…ogram default value then source is defined by global\") callback.\"action() callback\"",
+       "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback",
+       "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback.\"action() callback\""
       ],
       "lines": [
        "-103:   test('when same named option in sub and program then source is defined by global', () => {",
@@ -2609,12 +2609,12 @@
      {
       "label": "altered tests/command.configureOutput.test.js",
       "facts": [
-       "altered function \"describe(\\\"Command.configureOutput()\\\") callback\"",
-       "altered function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\"",
-       "added function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\".\"afterEach() callback\"",
-       "added function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\".\"beforeEach() callback\"",
-       "added function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\".\"map() callback\"",
-       "altered function \"describe(\\\"Command.configureOutput()\\\") callback\".\"test(\\\"environment variable tests\\\") callback\".\"test() callback\""
+       "altered function describe(\"Command.configureOutput()\") callback",
+       "altered function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback",
+       "added function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"afterEach() callback\"",
+       "added function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"beforeEach() callback\"",
+       "added function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"map() callback\"",
+       "altered function describe(\"Command.configureOutput()\") callback.test(\"environment variable tests\") callback.\"test() callback\""
       ],
       "lines": [
        "+345:     const envvars = testCases.map(([envvar]) => envvar);",
@@ -2685,10 +2685,10 @@
      {
       "label": "altered test/res.send.js",
       "facts": [
-       "altered function \"describe(\\\"res\\\") callback\"",
-       "altered function \"describe(\\\"res\\\") callback\".\"describe(\\\"when Transfer-Encoding header is present\\\") callback\"",
-       "added function \"describe(\\\"res\\\") callback\".\"describe(\\\"when Transfer-Encoding header is present\\\") callback\".\"it(\\\"should still generate an ETag\\\") callback\"",
-       "added function \"describe(\\\"res\\\") callback\".\"describe(\\\"when Transfer-Encoding header is present\\\") callback\".\"it(\\\"should still generate an ETag\\\") callback\".\"use() callback\""
+       "altered function describe(\"res\") callback",
+       "altered function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback",
+       "added function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback.it(\"should still generate an ETag\") callback",
+       "added function describe(\"res\") callback.describe(\"when Transfer-Encoding header is present\") callback.it(\"should still generate an ETag\") callback.\"use() callback\""
       ],
       "lines": [
        "+619: ",
@@ -2703,7 +2703,7 @@
        "+628:         .get('/')",
        "+629:         .expect(utils.shouldNotHaveHeader('Content-Length'))",
        "+630:         .expect(utils.shouldHaveHeader('Transfer-Encoding'))",
-       "+631:         .expect('ETag', 'W/\"5-qvTGHdzF6KLavt4PO0gs2a6pQ00\"')",
+       "+631:         .expect('ETag', 'withheld')",
        "+632:         .expect(200, 'hello', done);",
        "+633:     })"
       ],
@@ -2784,11 +2784,11 @@
      {
       "label": "altered test/internals/reply.test.js",
       "facts": [
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".\"get(\\\"/headers\\\") callback\"",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".removeHeader",
-       "added function \"test(\\\"reply.header does not mutate a set-cookie array passed by the caller\\\") callback\".setHeader",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.\"after() callback\"",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.get(\"…\") callback",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.removeHeader",
+       "added function test(\"reply.header does not mutate a set-cookie array passed by the caller\") callback.setHeader",
        "effect call added: network fetch (target unknown)",
        "effect call added: network fetch (target unknown)"
       ],
@@ -2852,8 +2852,8 @@
      {
       "label": "altered src/context.test.ts",
       "facts": [
-       "altered function \"describe(\\\"Context header\\\") callback\"",
-       "added function \"describe(\\\"Context header\\\") callback\".\"it(\\\"Should be able to set headers after the response body is consumed\\\") callback\""
+       "altered function describe(\"Context header\") callback",
+       "added function describe(\"Context header\") callback.it(\"Should be able to set headers after the response body is consumed\") callback"
       ],
       "lines": [
        "+497:   it('Should be able to set headers after the response body is consumed', async () => {",
@@ -2958,7 +2958,7 @@
       ],
       "lines": [
        "-267: \t\t\t\tthis.destroy(new AbortError(this));",
-       "+267: \t\t\t\t// See https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static#return_value",
+       "+267: \t\t\t\t// See https://developer.mozilla.org",
        "+268: \t\t\t\tif (this.options.signal?.reason?.name === 'TimeoutError') {",
        "+269: \t\t\t\t\tthis.destroy(new TimeoutError(this.options.signal.reason, this.timings!, this));",
        "+270: \t\t\t\t} else {",
@@ -2970,16 +2970,16 @@
      {
       "label": "altered test/abort.ts",
       "facts": [
-       "added function \"test(\\\"support AbortSignal.timeout() with user abort\\\") callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout() with user abort\\\") callback\".\"setTimeout() callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout() without user abort\\\") callback\"",
-       "added function \"test(\\\"support AbortSignal.timeout()\\\") callback\"",
+       "added function test(\"support AbortSignal.timeout() with user abort\") callback",
+       "added function test(\"support AbortSignal.timeout() with user abort\") callback.\"setTimeout() callback\"",
+       "added function test(\"support AbortSignal.timeout() without user abort\") callback",
+       "added function test(\"support AbortSignal.timeout()\") callback",
        "effect call added: timer setTimeout"
       ],
       "lines": [
        "+327: ",
        "+328: const timeoutErrorCode = 23;",
-       "+329: // See https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static",
+       "+329: // See https://developer.mozilla.org",
        "+330: test('support AbortSignal.timeout()', async t => {",
        "+331: \tconst signal = AbortSignal.timeout(1);",
        "+332: ",
@@ -3228,7 +3228,7 @@
        "+2725:   //",
        "+2726:   // Host can be an IP literal encapsulated within square brackets (e.g. [::1]),",
        "+2727:   // an IPv4 address in dotted-decimal form (e.g. 192.168.0.1), or a registered name.",
-       "+2728:   // https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2",
+       "+2728:   // https://www.rfc-editor.org",
        "-2737:       (match = arg.match(/^(--inspect(-brk|-port|-wait)?)=([^:]+)$/)) !== null",
        "+2741:       (match = arg.match(",
        "+2742:         /^(--inspect(-brk|-port|-wait)?)=(\\[[^\\]]+\\]|[^:]+)$/,",
@@ -3252,9 +3252,9 @@
      {
       "label": "altered tests/incrementNodeInspectorPort.test.cjs",
       "facts": [
-       "altered function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect=[::1] then bump port\\\") callback\"",
-       "added function \"describe(\\\"increment node inspector port in executable subcommands\\\") callback\".\"test(\\\"when --inspect=[::1]:100 then bump port\\\") callback\""
+       "altered function describe(\"increment node inspector port in executable subcommands\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1] then bump port\") callback",
+       "added function describe(\"increment node inspector port in executable subcommands\") callback.test(\"when --inspect=[::1]:100 then bump port\") callback"
       ],
       "lines": [
        "+75:   test('when --inspect=[::1] then bump port', (t) => {",
@@ -3318,11 +3318,11 @@
      {
       "label": "altered tests/options.optsWithGlobals.test.js",
       "facts": [
-       "altered function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\"",
-       "moved function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program default value then source is defined by global\\\") callback\"",
-       "moved function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program default value then source is defined by global\\\") callback\".\"action() callback\"",
-       "added function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program set value then source is defined by global\\\") callback\"",
-       "added function \"describe(\\\"getOptionValueSourceWithGlobals\\\") callback\".\"test(\\\"when same named option used in sub CLI and program set value then source is defined by global\\\") callback\".\"action() callback\""
+       "altered function describe(\"getOptionValueSourceWithGlobals\") callback",
+       "moved function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…ogram default value then source is defined by global\") callback",
+       "moved function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…ogram default value then source is defined by global\") callback.\"action() callback\"",
+       "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback",
+       "added function describe(\"getOptionValueSourceWithGlobals\") callback.test(\"when same named option used…d program set value then source is defined by global\") callback.\"action() callback\""
       ],
       "lines": [
        "-103:   test('when same named option in sub and program then source is defined by global', () => {",
@@ -3411,9 +3411,9 @@
       "label": "altered src/router/common.case.test.ts",
       "facts": [
        "altered function runTest",
-       "altered function runTest.\"describe(\\\"Common\\\") callback\"",
-       "altered function runTest.\"describe(\\\"Common\\\") callback\".\"describe(\\\"Including slashes\\\") callback\"",
-       "added function runTest.\"describe(\\\"Common\\\") callback\".\"describe(\\\"Including slashes\\\") callback\".\"it(\\\"GET /x/aa/b/x with a quantifier before a slash\\\") callback\""
+       "altered function runTest.describe(\"Common\") callback",
+       "altered function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback",
+       "added function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback.it(\"GET /x/aa/b/x with a quantifier before a slash\") callback"
       ],
       "lines": [
        "+834: ",
@@ -3443,8 +3443,8 @@
      {
       "label": "altered src/utils/url.test.ts",
       "facts": [
-       "altered function \"describe(\\\"url\\\") callback\"",
-       "added function \"describe(\\\"url\\\") callback\".\"<function>\""
+       "altered function describe(\"url\") callback",
+       "added function describe(\"url\") callback.\"<function>\""
       ],
       "lines": [
        "+51:   it.each([",
@@ -3514,13 +3514,13 @@
      {
       "label": "altered test/decorator.test.js",
       "facts": [
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\"",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".getter",
-       "added function \"test(\\\"getDecorator should bind the function returned by a getter once\\\") callback\".getter.\"<function>\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\".\"after() callback\"",
-       "added function \"test(\\\"getDecorator should evaluate a getter once\\\") callback\".getter"
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.\"after() callback\"",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.getter",
+       "added function test(\"getDecorator should bind the function returned by a getter once\") callback.getter.\"<function>\"",
+       "added function test(\"getDecorator should evaluate a getter once\") callback",
+       "added function test(\"getDecorator should evaluate a getter once\") callback.\"after() callback\"",
+       "added function test(\"getDecorator should evaluate a getter once\") callback.getter"
       ],
       "lines": [
        "+1331: ",
@@ -3612,12 +3612,12 @@
      {
       "label": "altered test/req.fresh.js",
       "facts": [
-       "altered function \"describe(\\\"req\\\") callback\"",
-       "altered function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return false for a QUERY request with a body when the resource is modified\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return false for a QUERY request with a body when the resource is modified\\\") callback\".\"use() callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return true for a QUERY request with a body when the resource is not modified\\\") callback\"",
-       "added function \"describe(\\\"req\\\") callback\".\"describe(\\\".fresh\\\") callback\".\"it(\\\"should return true for a QUERY request with a body when the resource is not modified\\\") callback\".\"use() callback\""
+       "altered function describe(\"req\") callback",
+       "altered function describe(\"req\") callback.describe(\".fresh\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return false for a Q…RY request with a body when the resource is modified\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return false for a Q…RY request with a body when the resource is modified\") callback.\"use() callback\"",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback",
+       "added function describe(\"req\") callback.describe(\".fresh\") callback.it(\"should return true for a QU…equest with a body when the resource is not modified\") callback.\"use() callback\""
       ],
       "lines": [
        "+5: var shouldSkipQuery = require('./support/utils').shouldSkipQuery",
@@ -3773,8 +3773,8 @@
      {
       "label": "altered src/context.test.ts",
       "facts": [
-       "altered function \"describe(\\\"Context header\\\") callback\"",
-       "added function \"describe(\\\"Context header\\\") callback\".\"it(\\\"Should be able to set headers after the response body is consumed\\\") callback\""
+       "altered function describe(\"Context header\") callback",
+       "added function describe(\"Context header\") callback.it(\"Should be able to set headers after the response body is consumed\") callback"
       ],
       "lines": [
        "+497:   it('Should be able to set headers after the response body is consumed', async () => {",
@@ -3831,9 +3831,9 @@
       "label": "altered src/router/common.case.test.ts",
       "facts": [
        "altered function runTest",
-       "altered function runTest.\"describe(\\\"Common\\\") callback\"",
-       "altered function runTest.\"describe(\\\"Common\\\") callback\".\"describe(\\\"Including slashes\\\") callback\"",
-       "added function runTest.\"describe(\\\"Common\\\") callback\".\"describe(\\\"Including slashes\\\") callback\".\"it(\\\"GET /x/aa/b/x with a quantifier before a slash\\\") callback\""
+       "altered function runTest.describe(\"Common\") callback",
+       "altered function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback",
+       "added function runTest.describe(\"Common\") callback.describe(\"Including slashes\") callback.it(\"GET /x/aa/b/x with a quantifier before a slash\") callback"
       ],
       "lines": [
        "+834: ",
@@ -3863,8 +3863,8 @@
      {
       "label": "altered src/utils/url.test.ts",
       "facts": [
-       "altered function \"describe(\\\"url\\\") callback\"",
-       "added function \"describe(\\\"url\\\") callback\".\"<function>\""
+       "altered function describe(\"url\") callback",
+       "added function describe(\"url\") callback.\"<function>\""
       ],
       "lines": [
        "+51:   it.each([",
@@ -3968,18 +3968,18 @@
      {
       "label": "added test/force-color.js",
       "facts": [
-       "added function \"test(\\\"`FORCE_COLOR=0` disables color\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` is an exact level, not a minimum\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` overrides CI detection\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=1` overrides TERM detection\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=2` is an exact level, not a minimum\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=3` enables truecolor\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=false` disables color\\\") callback\"",
-       "added function \"test(\\\"`FORCE_COLOR=true` only enables color and lets the level be detected\\\") callback\"",
-       "added function \"test(\\\"a `FORCE_COLOR` above 3 is clamped to 3\\\") callback\"",
-       "added function \"test(\\\"a non-numeric `FORCE_COLOR` is treated as unset, not as disabled\\\") callback\"",
-       "added function \"test(\\\"an empty `FORCE_COLOR` behaves like `FORCE_COLOR=true`\\\") callback\"",
-       "added function \"test(\\\"the `--color=256` and `--color=16m` flags take precedence over a numeric `FORCE_COLOR`\\\") callback\"",
+       "added function test(\"`FORCE_COLOR=0` disables color\") callback",
+       "added function test(\"`FORCE_COLOR=1` is an exact level, not a minimum\") callback",
+       "added function test(\"`FORCE_COLOR=1` overrides CI detection\") callback",
+       "added function test(\"`FORCE_COLOR=1` overrides TERM detection\") callback",
+       "added function test(\"`FORCE_COLOR=2` is an exact level, not a minimum\") callback",
+       "added function test(\"`FORCE_COLOR=3` enables truecolor\") callback",
+       "added function test(\"`FORCE_COLOR=false` disables color\") callback",
+       "added function test(\"`FORCE_COLOR=true` only enables color and lets the level be detected\") callback",
+       "added function test(\"a `FORCE_COLOR` above 3 is clamped to 3\") callback",
+       "added function test(\"a non-numeric `FORCE_COLOR` is treated as unset, not as disabled\") callback",
+       "added function test(\"an empty `FORCE_COLOR` behaves like `FORCE_COLOR=true`\") callback",
+       "added function test(\"the `--color=256` and `--co…` flags take precedence over a numeric `FORCE_COLOR`\") callback",
        "added function detectLevel"
       ],
       "lines": [
