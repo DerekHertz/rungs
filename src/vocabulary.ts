@@ -1,12 +1,14 @@
 import { posix } from "node:path";
-import type { CodeNode, FileNode, LineRange, ModuleNode, NodeId, SectionNode } from "./graph.ts";
+import ts from "typescript";
+import { scriptKind } from "./extract/javascript.ts";
+import type { FileNode, LineRange, SectionNode } from "./graph.ts";
 import { isCodeNode } from "./graph.ts";
 import { splitLines } from "./lines.ts";
 import { roleOf } from "./extract/roles.ts";
 import { looksSecret } from "./prompt-safe.ts";
 import { isTestFile } from "./test-files.ts";
 import type { BaseSide } from "./standards.ts";
-import { GENERIC_PHRASES, GENERIC_WORDS, MAX_PHRASE_WORDS, MAX_WORD_CHARS, MIN_KEY_CHARS, NON_CODE_EXTENSIONS, STOP_WORDS, VOCABULARY_TABLE_VERSION } from "./vocabulary-table.ts";
+import { GENERIC_PHRASES, GENERIC_WORDS, MAX_PHRASE_WORDS, MAX_WORD_CHARS, MIN_KEY_CHARS, NON_CODE_EXTENSIONS, NON_CODE_NAMES, STOP_WORDS, VOCABULARY_TABLE_VERSION } from "./vocabulary-table.ts";
 
 export { VOCABULARY_TABLE_VERSION } from "./vocabulary-table.ts";
 
@@ -85,10 +87,12 @@ export interface Vocabulary {
     readonly generated: number;
     /** Test calls whose title is not a string literal (a variable, a template with a hole): its words cannot be read. */
     readonly notLiteral: number;
+    /** Wildcard re-exports (`export * from "x"`): they name no export, so no term is made from the path. */
+    readonly wildcard: number;
   };
   /** Files whose words could not be read, with why, sorted by path. */
   readonly unread: readonly Unread[];
-  /** Text files no language adapter reads, in a role that could hold code (none, or tests: a Python file): their exported names and tests are not collected. */
+  /** Text files no language adapter reads, in any role (a Python file under docs or tests too), other than data and plain repository files: their exported names and tests are not collected. */
   readonly notAnalysed: number;
   /** Why the status is "unknown", for display. */
   readonly reason?: string;
@@ -196,46 +200,41 @@ function chunks(prose: string): string[] {
   return found;
 }
 
-/**
- * What a test runner's callback is called, read from the last segment of its qualified name: its
- * title, "not literal" when the title is no string literal (`it() callback`), or undefined for any
- * other name.
- */
-function testTitle(qualified: string): { readonly title: string } | "not literal" | undefined {
-  let last: string | undefined;
-  let at = 0;
-  while (at < qualified.length) {
-    let end = at;
-    if (qualified[at] === '"') {
-      end = at + 1;
-      while (end < qualified.length && qualified[end] !== '"') end += qualified[end] === "\\" ? 2 : 1;
-      end = Math.min(end + 1, qualified.length);
-      last = qualified.slice(at, end);
-    } else {
-      while (end < qualified.length && qualified[end] !== "." && qualified[end] !== "@") end++;
-      last = undefined;
-    }
-    let after = end;
-    if (qualified[after] === "@") {
-      after++;
-      while (after < qualified.length && qualified[after]! >= "0" && qualified[after]! <= "9") after++;
-    }
-    at = qualified[after] === "." ? after + 1 : after;
-  }
-  if (last === undefined) return undefined;
-  try {
-    const call = /^(?:test|it|describe|suite|context|skip|only|todo)\((?:("(?:[^"\\]|\\.)*"))?\) callback$/.exec(JSON.parse(last) as string);
-    if (call === null) return undefined;
-    return call[1] === undefined ? "not literal" : { title: JSON.parse(call[1]) as string };
-  } catch {
-    return undefined;
-  }
+const TEST_CALLEES: ReadonlySet<string> = new Set(["test", "it", "describe", "suite", "context"]);
+const TEST_MODIFIERS: ReadonlySet<string> = new Set(["only", "skip", "todo", "fails", "concurrent", "sequential"]);
+
+/** `test`, `it.only`, `describe.skip`, `it.concurrent.skip`: a test runner's name for a test or a group. */
+function isTestCallee(expression: ts.Expression): boolean {
+  if (ts.isIdentifier(expression)) return TEST_CALLEES.has(expression.text);
+  return ts.isPropertyAccessExpression(expression) && TEST_MODIFIERS.has(expression.name.text) && isTestCallee(expression.expression);
 }
 
-/** A test call with no callback (`test.todo("x")`, `it.skip("x")`): the graph has no node for it, so the text is read. */
-const BARE_TEST_CALL = /\b(?:test|it|describe|suite|context)\.(?:todo|skip|fails)\(\s*("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`$\\]*`)\s*,?\s*\)/g;
-/** The same with a title that is not a literal: a name, or a template with a hole. */
-const BARE_TEST_CALL_NOT_LITERAL = /\b(?:test|it|describe|suite|context)\.(?:todo|skip|fails)\(\s*(?:[^\s"'`(),]+|`[^`]*\$\{[^`]*`)\s*\)/g;
+/** One call of a test runner: its title when the first argument is a string literal, else undefined (a name, a template with a hole). */
+interface TestCall {
+  readonly title: string | undefined;
+  readonly range: LineRange;
+}
+
+/**
+ * The test calls of a script, read from its syntax tree, so a call written in a comment or a
+ * string is not one, and the title is the call's own first argument whatever its callback is (or
+ * whether it has one: `test.todo("x")`).
+ */
+function testCalls(path: string, text: string): TestCall[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKind(path));
+  const found: TestCall[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.arguments.length > 0 && isTestCallee(node.expression)) {
+      const arg = node.arguments[0]!;
+      const start = arg.getStart(file);
+      const range = { start: file.getLineAndCharacterOfPosition(start).line + 1, end: file.getLineAndCharacterOfPosition(Math.max(start, arg.getEnd() - 1)).line + 1 };
+      found.push({ title: ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg) ? arg.text : undefined, range });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return found;
+}
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -286,16 +285,12 @@ function topLevelKey(text: string, key: string): LineRange | null {
 /** Every term the repository's own words give, pinned, with what could not be read counted. `undefined` is a base that could not be read: unknown, never none. */
 export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
   const empty = { count: 0, terms: [] };
-  const skipped = { tooLong: 0, withheld: 0, notAWord: 0, hiddenFolders: 0, generated: 0, notLiteral: 0 };
+  const skipped = { tooLong: 0, withheld: 0, notAWord: 0, hiddenFolders: 0, generated: 0, notLiteral: 0, wildcard: 0 };
   if (base === undefined) return { tableVersion: VOCABULARY_TABLE_VERSION, status: "unknown", terms: [], dropped: empty, skipped, unread: [], notAnalysed: 0, reason: "the base tree could not be read" };
 
   const into: Builder = { pins: new Map(), skipped };
   const files = new Map<string, FileNode>();
-  const byId = new Map<NodeId, ModuleNode>();
-  for (const node of base.graph.nodes) {
-    byId.set(node.id, node);
-    if (node.level === "file") files.set(node.path, node);
-  }
+  for (const node of base.graph.nodes) if (node.level === "file") files.set(node.path, node);
   const unread = new Map<string, string>();
   const linesCache = new Map<string, string[]>();
   const linesOf = (path: string): string[] => {
@@ -304,6 +299,7 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
     return lines;
   };
   const nonCode: ReadonlySet<string> = new Set(NON_CODE_EXTENSIONS);
+  const plainNames: ReadonlySet<string> = new Set(NON_CODE_NAMES);
 
   // A file's words may be collected when it is in the graph and the tree, is text and is not generated. Why not is recorded once.
   const checked = new Map<string, boolean>();
@@ -334,7 +330,7 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
   for (const file of files.values()) {
     const extension = posix.extname(file.path).toLowerCase();
     if (extension === ".md" || (file.lines === null && !nonCode.has(extension)) || file.analysis === "not fully read") canRead(file.path, file.analysis === "not fully read");
-    else if (file.analysis === "not analysed" && file.lines !== null && (file.role === null || file.role === "tests") && !nonCode.has(extension)) notAnalysed++;
+    else if (file.analysis === "not analysed" && file.lines !== null && file.role !== "generated" && !nonCode.has(extension) && !plainNames.has(posix.basename(file.path).toLowerCase())) notAnalysed++;
   }
 
   // Folders and package directories: a folder has a name and no lines.
@@ -365,29 +361,10 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
     }
   }
 
-  // Exported names and test titles. A name is pinned to a line that writes it, and to none when no line does.
-  const siblings = new Map<NodeId, CodeNode[]>();
-  for (const node of base.graph.nodes) if (isCodeNode(node)) siblings.set(node.parent, [...(siblings.get(node.parent) ?? []), node]);
+  // Exported names, in any file. A name is pinned to a line that writes it, and to none when no line does.
   for (const node of base.graph.nodes) {
     if (!isCodeNode(node) || !canRead(node.path, true)) continue;
     const lines = linesOf(node.path);
-    if (isTestFile(node.path)) {
-      const named = node.level === "function" ? testTitle(node.qualifiedName) : undefined;
-      if (named === undefined) continue;
-      if (named === "not literal") {
-        skipped.notLiteral++;
-        continue;
-      }
-      // The title is written between the end of the call's previous sibling and the callback, which a wrapped call puts lines apart.
-      const parent = byId.get(node.parent);
-      const opens = parent !== undefined && isCodeNode(parent) ? parent.range.start + 1 : 1;
-      let before = 0;
-      for (const other of siblings.get(node.parent) ?? []) if (other !== node && other.range.start < node.range.start && other.range.end <= node.range.start) before = Math.max(before, other.range.end + 1);
-      const quoted = ['"', "'", "`"].map((quote) => `${quote}${named.title}${quote}`);
-      const line = firstLine(lines, Math.min(Math.max(before, opens), node.range.start), node.range.start, (text) => quoted.some((one) => text.includes(one)));
-      add(into, named.title, { source: "test", path: node.path, range: oneLine(line) });
-      continue;
-    }
     if (!node.exported) continue;
     const names = new Set((node.exportedAs ?? []).filter((name) => name !== "*" && name !== "default"));
     if (node.exportedAs === undefined || node.exportedAs.includes("default") || node.exportedAs.includes("*")) names.add(node.name);
@@ -406,6 +383,11 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
     for (const type of file.types) {
       if (type.kind === "re-export") {
         if (type.name === "default") continue;
+        // `export * from "x"` names no export, and the graph writes it as `* from "x"`: no term from a path.
+        if (type.name.startsWith("* ")) {
+          skipped.wildcard++;
+          continue;
+        }
         const holds = new RegExp(`(?<![\\w$])${escapeRegExp(type.name)}(?![\\w$])`);
         const edge = base.graph.imports.find((one) => one.from === file.id && one.reexports !== undefined && one.reexports !== "star" && one.reexports.some((entry) => entry.as === type.name));
         const line = firstLine(lines, edge?.range.start ?? 1, edge?.range.end ?? lines.length, (text) => holds.test(text));
@@ -416,23 +398,13 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
       add(into, type.name, { source: "export", path: file.path, range: oneLine(firstLine(lines, 1, lines.length, (text) => declared.test(text))) });
     }
   }
-  // Test calls with no callback have no node: read from the text, and counted when the title is no literal.
+  // Test titles, read from the test calls themselves: the call's literal first argument, whatever its callback; one that is no literal is counted.
   for (const file of files.values()) {
     if (!isTestFile(file.path) || file.analysis !== "analysed" || !canRead(file.path, true)) continue;
-    const text = base.tree.get(file.path)!;
-    const lineAt = (offset: number): number => text.slice(0, offset).split("\n").length;
-    for (const call of text.matchAll(BARE_TEST_CALL)) {
-      const literal = call[1]!;
-      let title: string | undefined;
-      try {
-        title = literal.startsWith('"') ? (JSON.parse(literal) as string) : literal.includes("\\") ? undefined : literal.slice(1, -1);
-      } catch {
-        title = undefined;
-      }
-      if (title === undefined) skipped.notLiteral++;
-      else add(into, title, { source: "test", path: file.path, range: oneLine(lineAt(call.index + call[0].indexOf(literal))) });
+    for (const call of testCalls(file.path, base.tree.get(file.path)!)) {
+      if (call.title === undefined) skipped.notLiteral++;
+      else add(into, call.title, { source: "test", path: file.path, range: call.range });
     }
-    skipped.notLiteral += [...text.matchAll(BARE_TEST_CALL_NOT_LITERAL)].length;
   }
 
   // Package descriptions: prose, cut into chunks at stop words and punctuation.
@@ -481,5 +453,6 @@ export function collectVocabulary(base: BaseSide | undefined): Vocabulary {
   if (terms.length > 0) return { ...result, status: "found" };
   if (unreadList.length > 0) return { ...result, status: "unknown", reason: `a file could not be read: ${unreadList.map((one) => one.path).join(", ")}` };
   if (notAnalysed > 0) return { ...result, status: "unknown", reason: `${notAnalysed} text file${notAnalysed === 1 ? " is" : "s are"} in a language no adapter reads` };
+  if (skipped.notLiteral > 0) return { ...result, status: "unknown", reason: `${skipped.notLiteral} test title${skipped.notLiteral === 1 ? " is" : "s are"} not a string literal, so its words could not be read` };
   return { ...result, status: "none" };
 }

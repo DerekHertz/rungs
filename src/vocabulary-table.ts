@@ -4,7 +4,7 @@
  * (see vocabulary.ts: `wordsOf`, `stem`) and raise VOCABULARY_TABLE_VERSION, so a stored
  * vocabulary says which rules built it.
  */
-export const VOCABULARY_TABLE_VERSION = 2;
+export const VOCABULARY_TABLE_VERSION = 3;
 
 /** A phrase of more words than this is a sentence, not a term: it is skipped and counted. */
 export const MAX_PHRASE_WORDS = 5;
@@ -38,8 +38,11 @@ export const GENERIC_WORDS: readonly string[] = [
 export const NON_CODE_EXTENSIONS: readonly string[] = [
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico", ".svg", ".pdf", ".woff", ".woff2", ".ttf", ".otf", ".eot",
   ".zip", ".gz", ".tgz", ".tar", ".7z", ".mp3", ".mp4", ".mov", ".wav", ".ogg", ".webm", ".wasm", ".map",
-  ".json", ".txt", ".snap", ".csv", ".lock", ".log",
+  ".json", ".txt", ".snap", ".csv", ".lock", ".log", ".yml", ".yaml", ".toml", ".ini",
 ];
+
+/** File names (lower case) that are plain repository files, not code in a language no adapter reads: they are not counted as not analysed. */
+export const NON_CODE_NAMES: readonly string[] = [".gitignore", ".gitattributes", ".npmrc", ".nvmrc", ".editorconfig", "license", "licence", "notice", "codeowners"];
 
 /** Whole phrases (as a term key) that are boilerplate though their words are not generic alone. */
 export const GENERIC_PHRASES: readonly string[] = ["getting started", "table of content", "quick start"];

@@ -296,9 +296,9 @@ test("a test title in a wrapped call is pinned to the line that writes it, and n
     }),
   );
   expect(termOf(vocabulary, "same").pins.map((pin) => pin.range)).toEqual([{ start: 3, end: 3 }, { start: 5, end: 5 }]);
-  // Written with an escape the text does not show as the title: no line is guessed.
+  // Written with escapes: pinned to the literal that writes it, which is the title's own line.
   const escaped = collectVocabulary(baseOf({ "test/b.test.ts": lines('import { it } from "vitest";', 'it("say \\"billing\\"", () => {});') }));
-  expect(termOf(escaped, "say billing").pins[0]!.range).toBeNull();
+  expect(termOf(escaped, "say billing").pins[0]!.range).toEqual({ start: 2, end: 2 });
 });
 
 test("the description is the top-level key, not the first one in nested JSON; a heading of several lines pins every line", () => {
@@ -347,6 +347,61 @@ test("a test call with no callback is collected, and a title that is not a liter
   expect(termOf(vocabulary, "billing").pins).toEqual([{ source: "test", path: "test/a.test.ts", range: { start: 3, end: 3 }, written: "billing" }]);
   expect(termOf(vocabulary, "ledger entry").pins[0]!.range).toEqual({ start: 5, end: 5 });
   expect(vocabulary.skipped.notLiteral).toBe(3);
+});
+
+// Round 2 of the Codex review of PR 276.
+
+test("a test call in a comment or a string is not a test call", () => {
+  const vocabulary = collectVocabulary(
+    baseOf({ "a.test.ts": lines('// test.todo("phantom billing");', "/* it.skip('phantom ledger') */", "const text = 'test.todo(\"phantom invoice\")';", "const more = `it.skip(\"phantom payment\")`;") }),
+  );
+  expect(vocabulary).toMatchObject({ status: "none", terms: [] });
+  expect(vocabulary.skipped.notLiteral).toBe(0);
+});
+
+test("a test title is the call's literal first argument, whatever its callback is", () => {
+  const vocabulary = collectVocabulary(
+    baseOf({
+      "a.test.ts": lines(
+        'import { test, it } from "vitest";',
+        'test("billing", function check() {});',
+        "function run() {}",
+        'it.only("ledger", run);',
+        "test(",
+        '  "payment"',
+        ", async () => {});",
+        "test.concurrent(`invoice`, () => {});",
+      ),
+    }),
+  );
+  expect(keys(vocabulary)).toEqual(want("billing", "ledger", "payment", "invoice"));
+  expect(termOf(vocabulary, "billing").pins).toEqual([{ source: "test", path: "a.test.ts", range: { start: 2, end: 2 }, written: "billing" }]);
+  expect(termOf(vocabulary, "ledger").pins[0]!.range).toEqual({ start: 4, end: 4 });
+  expect(termOf(vocabulary, "payment").pins[0]!.range).toEqual({ start: 6, end: 6 });
+});
+
+test("a test file's exports are collected like any other file's", () => {
+  const vocabulary = collectVocabulary(baseOf({ "test/helpers.ts": "export function billing() {}\n" }));
+  expect(termOf(vocabulary, "billing").pins).toEqual([{ source: "export", path: "test/helpers.ts", range: { start: 1, end: 1 }, written: "billing" }]);
+});
+
+test("a code file no adapter reads is counted in any role; data, media and plain repository files are not", () => {
+  expect(collectVocabulary(baseOf({ "docs/worker.py": "def billing(): pass\n" }))).toMatchObject({ status: "unknown", terms: [], notAnalysed: 1 });
+  expect(collectVocabulary(baseOf({ "tests/worker.rb": "def billing; end\n" }))).toMatchObject({ status: "unknown", notAnalysed: 1 });
+  expect(collectVocabulary(baseOf({ ".gitignore": "dist\n", LICENSE: "MIT\n", "ci.yml": "name: ci\n", "package.json": "{}\n" }))).toMatchObject({ status: "none", notAnalysed: 0 });
+});
+
+test("a test title that cannot be read makes no term unknown, never none", () => {
+  const vocabulary = collectVocabulary(baseOf({ "a.test.ts": lines('import { test } from "vitest";', "const title = getTitle();", "test(title, () => {});") }));
+  expect(vocabulary).toMatchObject({ status: "unknown", terms: [] });
+  expect(vocabulary.skipped.notLiteral).toBe(1);
+  expect(vocabulary.reason).toMatch(/title/);
+});
+
+test("a wildcard re-export names nothing, and a namespace re-export keeps its name", () => {
+  const vocabulary = collectVocabulary(baseOf({ "a.ts": lines('export * from "./billing";', 'export type * from "./ledger";', 'export * as Ledger from "./c";') }));
+  expect(keys(vocabulary)).toEqual(want("ledger"));
+  expect(vocabulary.skipped.wildcard).toBe(2);
 });
 
 test("a test title is a secret by its shape, not because the word withheld is in it", () => {
