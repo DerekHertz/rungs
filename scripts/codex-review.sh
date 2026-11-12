@@ -1,20 +1,21 @@
 #!/bin/bash
-# Codex review of one pull request: scripts/codex-review.sh <pr> <branch> <round> "<contract>"
-# Reviews a fresh detached worktree of origin/<branch> against origin/main and writes the
+# Codex review of one pull request: scripts/codex-review.sh <pr> <branch> <round> "<contract>" [base]
+# Reviews a fresh detached worktree of origin/<branch> against origin/<base> (default main;
+# a stacked PR passes the branch it sits on) and writes the
 # findings to $REVIEW_DIR/<pr>-r<round>.md (default: ${TMPDIR:-/tmp}/streets-reviews).
 set -euo pipefail
-pr=$1 branch=$2 round=$3 contract=$4
+pr=$1 branch=$2 round=$3 contract=$4 base=${5:-main}
 repo=$(git rev-parse --show-toplevel)
 out=${REVIEW_DIR:-${TMPDIR:-/tmp}/streets-reviews}
 mkdir -p "$out"
-git -C "$repo" fetch -q origin "$branch" main
+git -C "$repo" fetch -q origin "$branch" "$base"
 tree=$(mktemp -d)
 # Cleanup is set before the worktree exists, and no hook from the reviewed branch runs.
 trap 'git -C "$repo" -c core.hooksPath=/dev/null worktree remove --force "$tree" 2>/dev/null; rm -rf "$tree"; git -C "$repo" worktree prune' EXIT
 git -C "$repo" -c core.hooksPath=/dev/null worktree add -q --detach "$tree" "origin/$branch"
 standards=$(cat "$repo/CODING_STANDARDS.md" 2>/dev/null || true)
 (cd "$tree" && codex exec --sandbox read-only -m gpt-6-astra -c model_reasoning_effort=high -o "$out/$pr-r$round.md" \
-  "Review the diff between origin/main and HEAD in this repo (git diff origin/main...HEAD). Read SPEC.md and AGENTS.md for the product's rules. Contract: $contract
+  "Review the diff between origin/$base and HEAD in this repo (git diff origin/$base...HEAD). Read SPEC.md and AGENTS.md for the product's rules. Contract: $contract
 
 Coding standards for this repo:
 $standards
