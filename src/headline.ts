@@ -61,6 +61,7 @@ export function headline(comparison: Comparison, testChanges: TestChanges, obser
   const imported = comparison.imports.filter((change) => change.kind === "added").length;
   const unimported = comparison.imports.length - imported;
   if (imported + unimported > 0) parts.push(`imports ${[imported > 0 ? `+${imported}` : "", unimported > 0 ? `−${unimported}` : ""].filter((part) => part !== "").join(" ")}`);
+  if (comparison.unread.length > 0) parts.push(`${plural(comparison.unread.length, "file")} could not be read`);
   if (comparison.dependencies.length > 0) parts.push(`${plural(comparison.dependencies.length, "dependency", "dependencies")} changed`);
   const lostNames = testChanges.removedTests.length;
   if (lostNames > 0) parts.push(`${plural(lostNames, "test name")} removed`);

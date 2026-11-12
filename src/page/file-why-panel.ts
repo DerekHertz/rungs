@@ -1,5 +1,5 @@
 import { activatable } from "./activatable.ts";
-import { count, effectStepsOf, restsOnIt, whyLine } from "../defining.ts";
+import { count, definingHeading, effectStepsOf, restsOnIt, whyLine } from "../defining.ts";
 import type { Block, CallList, CallRef, FileWhy, Step } from "../defining.ts";
 import type { Graph, LineRange, NodeId } from "../graph.ts";
 
@@ -20,6 +20,8 @@ export interface WhyActions {
   readonly pickNode: (id: NodeId, marked?: LineRange) => void;
   /** The callers and callees of one block, asked for when a step is opened one step further. */
   readonly neighbours: (id: NodeId) => Promise<Neighbours | undefined>;
+  /** Files that could not be read may import or call into the file: a caller list that is empty is empty of the readable ones. */
+  readonly unknownCallers?: boolean;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = ""): HTMLElementTagNameMap[K] => {
@@ -84,7 +86,7 @@ function refRow(ref: CallRef, direction: "callers" | "callees", actions: WhyActi
 
 function callersList(refs: readonly CallRef[], actions: WhyActions): HTMLElement {
   const list = el("div", "why-steps");
-  if (refs.length === 0) list.append(el("div", "why-step unresolved", "no caller found in this file or the files that import it"));
+  if (refs.length === 0) list.append(el("div", "why-step unresolved", actions.unknownCallers === true ? "no caller found in the files that could be read: a file that could not be read may call it" : "no caller found in this file or the files that import it"));
   for (const ref of refs) list.append(refRow(ref, "callers", actions));
   return list;
 }
@@ -114,7 +116,7 @@ function blockRow(block: Block, actions: WhyActions): HTMLElement {
   const head = activatable(el("div", "why-block-head"));
   head.append(el("span", "why-block-name", `${block.level} ${block.label}`));
   if (block.reasons.length > 0) head.append(el("span", "why-block-reasons", block.reasons.join(" · ")));
-  if (block.rests !== undefined) head.append(el("span", "why-block-rests", restsOnIt(block.rests.length)));
+  if (block.rests !== undefined) head.append(el("span", "why-block-rests", restsOnIt(block.rests.length, block.restsUnknown ?? 0)));
   head.append(el("span", "why-block-at", `L${block.range.start}-${block.range.end}`));
   head.addEventListener("click", () => actions.pickBlock(block));
   row.append(head);
@@ -145,7 +147,8 @@ function blockRow(block: Block, actions: WhyActions): HTMLElement {
  * Draws the why-line and the block list into `pane`: defining blocks first, then the other
  * changed ones, with what is folded away named. Shown only for a file the comparison knows.
  */
-export function renderFileWhy(pane: HTMLElement, found: FileWhy, actions: WhyActions): void {
+export function renderFileWhy(pane: HTMLElement, found: FileWhy, given: WhyActions): void {
+  const actions: WhyActions = { ...given, unknownCallers: found.why.unknownDependents > 0 };
   const line = el("div", "why-line", whyLine(found));
   pane.replaceChildren(line);
   if (found.why.contracts.length + found.why.effects.length > 0) {
@@ -153,7 +156,7 @@ export function renderFileWhy(pane: HTMLElement, found: FileWhy, actions: WhyAct
     for (const text of [...found.why.contracts, ...found.why.effects]) facts.append(el("div", "", text));
     pane.append(facts);
   }
-  pane.append(el("div", "why-heading", found.defining.length === 0 ? "Defining blocks: none (no changed block is exported, moved a contract, gained an effect or has the most callers)" : `Defining blocks (${found.defining.length})`));
+  pane.append(el("div", "why-heading", definingHeading(found)));
   for (const block of found.defining) pane.append(blockRow(block, actions));
   if (found.other.length > 0) {
     pane.append(el("div", "why-heading", `Other changed blocks (${found.other.length})`));

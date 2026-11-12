@@ -1,5 +1,5 @@
 {
-  "extractorVersion": "22",
+  "extractorVersion": "23",
   "changes": [
     {
       "kind": "added",
@@ -124,6 +124,31 @@
         "role": "source",
         "digest": "5f37fb85de8baea81d217c3ed30f0dbd",
         "types": []
+      }
+    },
+    {
+      "kind": "altered",
+      "node": {
+        "id": "file:src/flaky.ts",
+        "level": "file",
+        "path": "src/flaky.ts",
+        "name": "flaky.ts",
+        "parent": "folder:src",
+        "lines": 8,
+        "analysis": "not fully read",
+        "role": "source",
+        "digest": "6517d7a7146a0c32866ccc132744004a"
+      },
+      "before": {
+        "id": "file:src/flaky.ts",
+        "level": "file",
+        "path": "src/flaky.ts",
+        "name": "flaky.ts",
+        "parent": "folder:src",
+        "lines": 9,
+        "analysis": "not fully read",
+        "role": "source",
+        "digest": "85751b8c3fb97201f5b591cfeeddab84"
       }
     },
     {
@@ -754,5 +779,15 @@
   ],
   "sections": [],
   "dependencies": [],
-  "dependencyOnlyManifests": []
+  "dependencyOnlyManifests": [],
+  "unread": [
+    {
+      "path": "src/broken.ts",
+      "side": "both"
+    },
+    {
+      "path": "src/flaky.ts",
+      "side": "head"
+    }
+  ]
 }

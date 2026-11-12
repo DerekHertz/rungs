@@ -7,9 +7,10 @@ import { build } from "esbuild";
 import { CallResolver } from "./calls.ts";
 import type { Base } from "./checkout.ts";
 import type { PullRequestName } from "./arrival.ts";
-import { compare, contractsMoved, serializeComparison } from "./compare.ts";
+import { contractsMoved, serializeComparison } from "./compare.ts";
 import type { Comparison } from "./compare.ts";
 import { extract } from "./extract/extract.ts";
+import { readableComparison } from "./readable.ts";
 import { canonicalEdge, isCodeNode, serializeGraph } from "./graph.ts";
 import type { FileTree, Graph, ModuleNode, NodeId } from "./graph.ts";
 import { changeCounts, diffText, rowsInRange } from "./diff.ts";
@@ -164,10 +165,12 @@ export async function createSnapshot(
   judged?: JudgedSource,
 ): Promise<Snapshot> {
   const tree: FileTree = new Map(given);
-  const graph = extract(tree);
   const baseTree = base === undefined ? undefined : new Map(base.tree);
-  const baseGraph = baseTree === undefined ? undefined : extract(baseTree);
-  const comparison = baseGraph === undefined || baseTree === undefined ? undefined : compare(baseGraph, graph, { base: baseTree, head: tree });
+  // A file that fails to parse is withheld on both sides, so nothing recovered from it can read as a change.
+  const readable = baseTree === undefined ? undefined : readableComparison(baseTree, tree);
+  const graph = readable?.graph ?? extract(tree);
+  const baseGraph = readable?.baseGraph;
+  const comparison = readable?.comparison;
   const removed = new Map<NodeId, ModuleNode>();
   for (const change of comparison?.changes ?? []) {
     if (change.kind === "removed") removed.set(change.node.id, change.node);
@@ -241,9 +244,9 @@ export async function createSnapshot(
     };
     const contracts = `${JSON.stringify({ tier: "derived", moves, effectsChanged: comparison.changedEffects }, null, 2)}\n`;
     resources.set("/contracts.json", { contentType: "application/json; charset=utf-8", body: contracts });
-    const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(baseTree ?? new Map(), tree, { places: true }) }, null, 2)}\n`;
+    const testsChanged = `${JSON.stringify({ tier: "derived", ...testChanges(readable?.baseTree ?? new Map(), readable?.headTree ?? tree, { places: true }) }, null, 2)}\n`;
     resources.set("/test-changes.json", { contentType: "application/json; charset=utf-8", body: testsChanged });
-    const risks = `${JSON.stringify({ tier: "derived", risks: risksOf(comparison, baseGraph, graph, testChanges(baseTree ?? new Map(), tree), isTestFile) }, null, 2)}\n`;
+    const risks = `${JSON.stringify({ tier: "derived", risks: risksOf(comparison, baseGraph, graph, testChanges(readable?.baseTree ?? new Map(), readable?.headTree ?? tree), isTestFile) }, null, 2)}\n`;
     resources.set("/risks.json", { contentType: "application/json; charset=utf-8", body: risks });
   }
 

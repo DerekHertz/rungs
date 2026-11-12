@@ -1,6 +1,24 @@
 {
-  "extractorVersion": "22",
+  "extractorVersion": "23",
   "nodes": [
+    {
+      "id": "class:src/flaky.ts#Counter",
+      "level": "class",
+      "path": "src/flaky.ts",
+      "name": "Counter",
+      "parent": "file:src/flaky.ts",
+      "qualifiedName": "Counter",
+      "range": {
+        "start": 5,
+        "end": 9
+      },
+      "digest": "ac9e9532a3c3835df35b96835727ca73",
+      "exported": true,
+      "exportedAs": [
+        "Counter"
+      ],
+      "signature": "{ next(): number }"
+    },
     {
       "id": "class:src/shapes.ts#Circle",
       "level": "class",
@@ -206,6 +224,17 @@
       "types": []
     },
     {
+      "id": "file:src/broken.ts",
+      "level": "file",
+      "path": "src/broken.ts",
+      "name": "broken.ts",
+      "parent": "folder:src",
+      "lines": 1,
+      "analysis": "not fully read",
+      "role": "source",
+      "digest": "a771ed4e736347007a71648d0ed8eeaf"
+    },
+    {
       "id": "file:src/default.js",
       "level": "file",
       "path": "src/default.js",
@@ -239,6 +268,18 @@
       "analysis": "analysed",
       "role": "source",
       "digest": "5f37fb85de8baea81d217c3ed30f0dbd",
+      "types": []
+    },
+    {
+      "id": "file:src/flaky.ts",
+      "level": "file",
+      "path": "src/flaky.ts",
+      "name": "flaky.ts",
+      "parent": "folder:src",
+      "lines": 9,
+      "analysis": "analysed",
+      "role": "source",
+      "digest": "85751b8c3fb97201f5b591cfeeddab84",
       "types": []
     },
     {
@@ -369,7 +410,7 @@
       "path": "src",
       "name": "src",
       "parent": "package:",
-      "lines": 145
+      "lines": 155
     },
     {
       "id": "folder:src/util",
@@ -674,6 +715,39 @@
         "version"
       ],
       "signature": "()"
+    },
+    {
+      "id": "function:src/flaky.ts#Counter.next",
+      "level": "function",
+      "path": "src/flaky.ts",
+      "name": "next",
+      "parent": "class:src/flaky.ts#Counter",
+      "qualifiedName": "Counter.next",
+      "range": {
+        "start": 6,
+        "end": 8
+      },
+      "digest": "9c44fd937940d5a8aa5403bb68c30118",
+      "exported": false,
+      "signature": "(): number"
+    },
+    {
+      "id": "function:src/flaky.ts#steady",
+      "level": "function",
+      "path": "src/flaky.ts",
+      "name": "steady",
+      "parent": "file:src/flaky.ts",
+      "qualifiedName": "steady",
+      "range": {
+        "start": 1,
+        "end": 3
+      },
+      "digest": "baf5db35a9e026a52c26966ad9f4da82",
+      "exported": true,
+      "exportedAs": [
+        "steady"
+      ],
+      "signature": "(count: number): number"
     },
     {
       "id": "function:src/index.ts#main",
@@ -1086,7 +1160,7 @@
       "path": "",
       "name": "",
       "parent": null,
-      "lines": 172
+      "lines": 182
     },
     {
       "id": "package:packages/widget",

@@ -155,6 +155,13 @@ export function claimGroups<T extends { readonly ids: readonly string[] }>(claim
 
 const plural = (count: number, one: string, many = `${one}s`): string => `${count} ${count === 1 ? one : many}`;
 
+/** A summary with the files that could not be read said beside it: a "none" is then of the readable files only. */
+export function qualifyUnread(summary: string, unread: number): string {
+  if (unread === 0) return summary;
+  const said = `${plural(unread, "file")} could not be read`;
+  return /^(none|nothing)( found)?$/.test(summary) ? `${summary} in readable files · ${said}` : `${summary} · ${said}`;
+}
+
 export function claimsSummary(description: string | null, claims: readonly { readonly ids: readonly string[] }[], link: "ok" | "off" | "failed", context = 0, judged = ""): string {
   if (description === null) return "no description";
   if (claims.length === 0) return context > 0 ? `no claims · ${plural(context, "context line")}` : "no claims read";
@@ -187,8 +194,10 @@ export function unmentionedSummary(found: { files: number | null; calls: number;
 }
 
 /** The empty state of the uncovered new calls out. Calls only an agent links stay counted, so it never says no call exists then. */
-export function noNewCallsText(agentOnly: number): string {
-  return agentOnly > 0 ? "Every other new call out is mentioned." : "No new call reaches a process, the network, the file system, a timer or code loaded at run time.";
+export function noNewCallsText(agentOnly: number, unread = 0): string {
+  if (agentOnly > 0) return "Every other new call out is mentioned.";
+  const none = "No new call reaches a process, the network, the file system, a timer or code loaded at run time";
+  return unread === 0 ? `${none}.` : `${none} in the files that could be read; ${plural(unread, "file")} could not be read.`;
 }
 
 const CONTRACT_KINDS: readonly ContractMoveKind[] = ["changed", "effects", "removed", "unexported", "exposed", "moved", "added"];

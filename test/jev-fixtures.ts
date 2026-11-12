@@ -64,7 +64,7 @@ export function gullibleClient(): JevClient {
 
 /** A comparison with nothing in it, for tests of the judged document that name no claim. */
 export const emptySubject: JudgeSubject = {
-  comparison: { extractorVersion: "", changes: [], effects: [], changedEffects: [], imports: [], sections: [], dependencies: [] },
+  comparison: { extractorVersion: "", changes: [], effects: [], changedEffects: [], imports: [], sections: [], dependencies: [], unread: [] },
   contracts: [],
   claims: [],
   baseTree: new Map(),

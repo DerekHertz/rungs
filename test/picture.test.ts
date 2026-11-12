@@ -81,9 +81,9 @@ describe("pictureOf under the small fixture's comparison", () => {
 
   test("a district counts the files changed below it, ghosts included, and a file counts its code", () => {
     const tally = picture.overlay!.tally;
-    expect(tally(rootOf(head))).toEqual({ added: 7, altered: 3, removed: 3, moved: 1 });
+    expect(tally(rootOf(head))).toEqual({ added: 7, altered: 4, removed: 3, moved: 1 });
     expect(tally(id("folder:test"))).toEqual({ added: 0, altered: 0, removed: 1, moved: 0 });
-    expect(tally(id("folder:src"))).toEqual({ added: 3, altered: 3, removed: 1, moved: 1 });
+    expect(tally(id("folder:src"))).toEqual({ added: 3, altered: 4, removed: 1, moved: 1 });
     expect(tally(id("file:src/util/math.ts"))).toEqual({ added: 1, altered: 1, removed: 0, moved: 0 });
     expect(tally(id("file:src/index.ts"))).toEqual({ added: 0, altered: 0, removed: 1, moved: 0 });
     expect(tally(id("file:src/compat/legacy.js"))).toEqual({ added: 0, altered: 0, removed: 0, moved: 1 });

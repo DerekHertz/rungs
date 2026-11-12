@@ -1,7 +1,7 @@
 import type { Comparison } from "./compare.ts";
 import { resourcesOf } from "./graph.ts";
 import type { ContainerNode, FileNode, Graph, ModuleNode, NodeId, ResourceKind, Role } from "./graph.ts";
-import { importanceOf, reachedFrom } from "./importance.ts";
+import { importanceOf, possiblyReachedFrom, reachedFrom } from "./importance.ts";
 import type { WayIn } from "./importance.ts";
 
 /*
@@ -148,10 +148,14 @@ export interface Lot {
   readonly gate: boolean;
   /** Some way in reaches it through imports (a way in reaches itself). A file nothing reaches has no footpath. */
   readonly reached: boolean;
+  /** Not known reached, but a way in may reach it through a file that could not be read: its reach is unknown. */
+  readonly reachUnknown: boolean;
   /** The change this lot shows; "unchanged" when nothing is compared. */
   readonly change: LotChange;
   /** The scaffolding over an altered file's building, when the sheet has one for its size. */
   readonly overlay: string | null;
+  /** The file's parse failed: it stands as a building, drawn apart, with no count of functions to show. */
+  readonly unread: boolean;
   /** True for an altered file: a crane stands beside it. */
   readonly crane: boolean;
   /** Whether the file is named at near zoom: every file with no comparison, only altered files under one. */
@@ -319,8 +323,10 @@ export interface Town {
   readonly counts: { readonly fewest: number; readonly most: number };
   /** The fewest and most files resting on a file that has any: the ends of the plinth scale. */
   readonly importance: { readonly fewest: number; readonly most: number };
-  /** How many files nothing reaches. */
+  /** How many files nothing is known to reach and no unread file may reach. */
   readonly unreached: number;
+  /** How many code files a way in may reach only through a file that could not be read. */
+  readonly reachUnknown: number;
   /** True under a comparison: names, marks and counts follow the change. */
   readonly comparing: boolean;
   /** The repository's root folder: a camera sent there frames the whole town, not the block of loose root files. */
@@ -378,6 +384,7 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
   // Importance and reach are the head's alone: a ghost has no place in them.
   const rests = importanceOf(head);
   const fromWays = reachedFrom(head, waysIn.map((way) => way.id));
+  const maybeFromWays = possiblyReachedFrom(head, waysIn.map((way) => way.id));
   const wayById = new Map(waysIn.map((way) => [way.id, way]));
   const idPaths = new Map(graph.nodes.map((node) => [node.id, node.path]));
   const weights = [...rests.values()].map((list) => list.length);
@@ -614,10 +621,12 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
       wayIn: way?.reasons ?? [],
       gate: way !== undefined && file.role !== "tests" && sprites.has("gate"),
       reached: ghosts.has(file.id) || fromWays.has(file.id),
+      reachUnknown: !ghosts.has(file.id) && !fromWays.has(file.id) && maybeFromWays.has(file.id),
       change,
+      unread: file.analysis === "not fully read",
       overlay: change === "altered" ? scaffoldOf(sprites.has(`${kind}-${step}`) ? `${kind}-${step}` : kind, sprites) : null,
       crane: change === "altered" && sprites.has("crane"),
-      named: comparison === null || change === "altered",
+      named: comparison === null || change === "altered" || file.analysis === "not fully read",
       movedTo: movedTo.get(file.id) ?? null,
       X,
       Y,
@@ -714,7 +723,8 @@ export function townOf(head: Graph, sprites: ReadonlySet<string>, comparison: Co
     quay,
     counts: { fewest, most },
     importance: { fewest: fewestRests, most: mostRests },
-    unreached: lots.filter((lot) => !lot.reached).length,
+    unreached: lots.filter((lot) => !lot.reached && !lot.reachUnknown).length,
+    reachUnknown: lots.filter((lot) => lot.reachUnknown).length,
     comparing: comparison !== null,
     root: root?.id ?? null,
   };

@@ -1,5 +1,5 @@
-import { compare, contractsMoved } from "../compare.ts";
-import { extract } from "../extract/extract.ts";
+import { contractsMoved } from "../compare.ts";
+import { readableComparison } from "../readable.ts";
 import type { FileTree, NodeId } from "../graph.ts";
 import type { ClaimInput } from "./claim-gate.ts";
 import { claimItems, ownersOf } from "./claim-source.ts";
@@ -13,9 +13,7 @@ import type { JudgeSubject } from "./subject.ts";
  * file is linked. Files that are not a changed file of the comparison are ignored.
  */
 export function claimInputFor(baseTree: FileTree, headTree: FileTree, claim: string, files?: readonly string[]): ClaimInput {
-  const baseGraph = extract(baseTree);
-  const graph = extract(headTree);
-  const comparison = compare(baseGraph, graph, { base: baseTree, head: headTree });
+  const { baseGraph, graph, comparison } = readableComparison(baseTree, headTree);
   const ids: NodeId[] = [];
   for (const change of comparison.changes) {
     if (change.node.level !== "file") continue;

@@ -19,6 +19,6 @@ test("/risks.json serves the ranked risks as a derived fact, and is 404 without 
   const body = (await (await fetch(`${comparing.url}risks.json`)).json()) as { tier: string; risks: { label: string; blast: { count: number; files: string[] } }[] };
   expect(body.tier).toBe("derived");
   expect(body.risks.map((risk) => risk.label)).toEqual(["f signature changed"]);
-  expect(body.risks[0]!.blast).toEqual({ count: 1, files: ["src/b.ts"] });
+  expect(body.risks[0]!.blast).toEqual({ count: 1, files: ["src/b.ts"], unknown: 0 });
   expect((await fetch(`${plain.url}risks.json`)).status).toBe(404);
 });

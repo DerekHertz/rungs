@@ -34,7 +34,7 @@ test("a moved contract carries the files resting on its file, directly or not, a
   const found = risks(base, { ...base, "src/core.ts": exp("core", "a, b") + exp("other"), "src/leaf.ts": exp("leaf", "a, b") });
   const contracts = found.filter((item) => item.kind === "contract");
   expect(contracts.map((item) => item.label)).toEqual(["core signature changed", "leaf signature changed"]);
-  expect(contracts[0]!.blast).toEqual({ count: 3, files: ["src/mid.ts", "src/top.ts", "src/top2.ts"] });
+  expect(contracts[0]!.blast).toEqual({ count: 3, files: ["src/mid.ts", "src/top.ts", "src/top2.ts"], unknown: 0 });
   expect(contracts[0]!.ids).toEqual(["function:src/core.ts#core"]);
   expect(contracts[1]!.blast.count).toBe(0);
 });

@@ -65,8 +65,39 @@ export function reachedFrom(graph: Graph, waysIn: readonly NodeId[]): Set<NodeId
   const { forward } = fileEdges(graph);
   const reached = closure(waysIn, forward);
   for (const id of waysIn) reached.add(id);
-  for (const node of graph.nodes) if (node.level === "file" && node.analysis !== "analysed") reached.add(node.id);
+  // A file that could not be fully read is code: it has a footpath only when a way in reaches it.
+  for (const node of graph.nodes) if (node.level === "file" && node.analysis === "not analysed") reached.add(node.id);
   return reached;
+}
+
+/**
+ * The code files no way in is known to reach, but that a way in may reach through a file that
+ * could not be fully read: its imports are unknown, so once a way in reaches one, any other file
+ * may be reached through it. Reach of these is unknown, not known and not known absent.
+ */
+export function possiblyReachedFrom(graph: Graph, waysIn: readonly NodeId[]): Set<NodeId> {
+  const reached = reachedFrom(graph, waysIn);
+  const possible = new Set<NodeId>();
+  if (!graph.nodes.some((node) => node.level === "file" && node.analysis === "not fully read" && reached.has(node.id))) return possible;
+  for (const node of graph.nodes) if (node.level === "file" && !reached.has(node.id)) possible.add(node.id);
+  return possible;
+}
+
+/** "1 file rests on it", "N files rest on it"; with files that could not be read, "at least N files rest on it, plus unknown via K unread files". */
+export function restsText(known: number, unread = 0): string {
+  const base = `${known} ${known === 1 ? "file rests" : "files rest"} on it`;
+  return unread === 0 ? base : `at least ${base}, plus unknown via ${unread} unread ${unread === 1 ? "file" : "files"}`;
+}
+
+/**
+ * The files that could not be fully read and are not already known to rest on `file`: each may
+ * import it, so they are the "plus unknown" of any count of what rests on it. `known` is the
+ * files counted; `file` itself and the files at `also` (its other path) are never one.
+ */
+export function unknownRestOf(graph: Graph, file: NodeId, known: Iterable<NodeId>, also: readonly string[] = []): NodeId[] {
+  const counted = new Set<NodeId>([file, ...known]);
+  const paths = new Set(also);
+  return graph.nodes.flatMap((node) => (node.level === "file" && node.analysis === "not fully read" && !counted.has(node.id) && !paths.has(node.path) ? [node.id] : []));
 }
 
 /** The files that rest on `file` through the names `of` it, or through any name when `of` is "all". Never the file itself. */

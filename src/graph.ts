@@ -16,7 +16,11 @@ export interface LineRange {
   readonly end: number;
 }
 
-export type Analysis = "analysed" | "not analysed";
+/**
+ * "not analysed": no language adapter reads the file. "not fully read": an adapter's parse reported
+ * syntax errors, so the file is shown as exactly that, with no code nodes, contract or calls (SPEC rule 5).
+ */
+export type Analysis = "analysed" | "not analysed" | "not fully read";
 
 /** What a file is for. A file the extractor's role table does not recognise has none. */
 export type Role = "source" | "tests" | "config" | "docs" | "generated";
