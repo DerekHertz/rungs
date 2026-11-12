@@ -513,6 +513,8 @@ export async function runTests(
   registry: string = NPM_REGISTRY,
   /** Called when the head's run is done and the control run starts. */
   onControl: () => void = () => {},
+  /** The base tree's own executable files, for the control run; the head's set is the head's. */
+  baseExecutable: ReadonlySet<string> = executable,
 ): Promise<TestRun> {
   const detection = detectRunner(base);
   if ("unsupported" in detection) return { status: "unsupported", why: detection.unsupported };
@@ -543,7 +545,7 @@ export async function runTests(
     written = { files: writtenFiles, seconds: took, outcome };
   }
   onControl();
-  const control = await controlRun(base, executable, isolation, timeoutMs, registry, [...detection.flags, ...detection.files], baseTests);
+  const control = await controlRun(base, baseExecutable, isolation, timeoutMs, registry, [...detection.flags, ...detection.files], baseTests);
   return {
     control,
     status: "ran",

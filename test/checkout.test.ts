@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, test } from "vitest";
@@ -144,6 +144,17 @@ test("reads a clean checkout exactly as readCheckout does, line endings, symlink
   expect(base.tree).toEqual(checkout);
   expect([...base.tree.keys()]).toEqual([...checkout.keys()]);
   expect(base.commit).toBe(gitIn(dir, "rev-parse", "HEAD"));
+});
+
+test("the base's own executable files are read from git's modes, never a symlink, whatever the working tree says now", async () => {
+  const { dir, git } = newRepo();
+  write(dir, "bin/run.sh", "#!/bin/sh\n");
+  write(dir, "plain.txt", "x\n");
+  chmodSync(join(dir, "bin/run.sh"), 0o755);
+  symlinkSync("bin/run.sh", join(dir, "link"));
+  commitAll(git, "base");
+  chmodSync(join(dir, "bin/run.sh"), 0o644);
+  expect((await readBase(dir, "HEAD")).executable).toEqual(new Set(["bin/run.sh"]));
 });
 
 test("reads the merge base of HEAD and the ref, not the ref's tip", async () => {

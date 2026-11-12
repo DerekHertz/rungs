@@ -47,7 +47,7 @@ export const AHEAD_LIMIT = 30;
 const AHEAD_PARALLEL = 3;
 
 /** What the checkout is compared against: the merge base's tree and commit, and the ref the user wrote. */
-export interface Against extends Base {
+export interface Against extends Pick<Base, "commit" | "tree"> {
   readonly ref: string;
   /** Set when the run was opened with `--pr`: the page header names the pull request. */
   readonly pr?: PullRequestName;

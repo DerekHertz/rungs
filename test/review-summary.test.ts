@@ -129,6 +129,10 @@ test("the tests row says fail of total, or why there is no run", () => {
   const controlled = { ...ran, control: { status: "ran", seconds: 1, counts, baseOnly: [] } };
   expect(testsSummary(controlled as never, 0)).toBe("2 regressions · 21 environment of 210");
   expect(testsSummary({ ...controlled, control: { ...controlled.control, counts: { ...counts, regression: 0, environment: 23 } } } as never, 0)).toBe("no regressions · 23 environment of 210");
+  // With a control run the counts are the verdicts': skipped, one-sided and ambiguous tests are not passes.
+  const clean = { ...controlled, counts: { pass: 10, fail: 0, skip: 0 } };
+  expect(testsSummary({ ...clean, control: { ...controlled.control, counts: { ...counts, regression: 0, environment: 0, passes: 8, skipped: 1, "head only": 1 } } } as never, 0)).toBe("no regressions · 2 not compared of 10");
+  expect(testsSummary({ ...clean, control: { ...controlled.control, counts: { ...counts, regression: 0, environment: 0, passes: 10 } } } as never, 0)).toBe("10 pass");
   expect(testsSummary({ tier: "observed", tree: "t", status: "running", stage: "control" }, 0)).toBe("running the control run…");
   expect(testsSummary({ tier: "observed", tree: "t", status: "running", stage: "tests" }, 0)).toBe("running tests…");
   expect(testsSummary({ tier: "observed", tree: "t", status: "stopped", why: "x" }, 0)).toBe("not run");

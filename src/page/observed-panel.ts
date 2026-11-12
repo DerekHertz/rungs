@@ -2,7 +2,7 @@ import type { NodeId } from "../graph.ts";
 import { EVIDENCE_LINE, UNSANDBOXED_LINE, VERDICT_WORD, runningText } from "../observed-types.ts";
 import type { ControlDocument, Counts, ObservedDocument, UnmatchedTest } from "../observed-types.ts";
 import { failingHeading } from "../arrival.ts";
-import { unreliableText } from "../observed-report.ts";
+import { rowOutcome, unreliableText } from "../observed-report.ts";
 import type { FailingTest, FileResults, ObservedReport, WrittenReport } from "../observed-report.ts";
 import { element, markPick, markSpan } from "./review-panel.ts";
 import { OUTCOME_GLYPH, OUTCOME_WORD } from "../mark-text.ts";
@@ -195,7 +195,10 @@ function failingRow(test: FailingTest, pickNode: (id: NodeId) => void, dim = fal
   pick.title = test.message === undefined ? `${test.name} (${test.file})` : `${test.name} (${test.file}): ${test.message}`;
   const text = element("span", "contract-text");
   text.append(element("span", "review-label", test.name), element("span", "contract-where", test.file));
-  pick.append(outcomeMark("fail"), text);
+  // A row of the other results says what it is and why, without a click.
+  if (dim && test.verdict !== undefined) text.append(element("span", "contract-where", VERDICT_WORD[test.verdict]));
+  if (dim && test.message !== undefined) text.append(element("span", "observed-message", test.message.split("\n")[0] ?? ""));
+  pick.append(outcomeMark(rowOutcome(test)), text);
   item.append(pick);
   if (detail.childElementCount > 0) item.append(detail);
   return item;

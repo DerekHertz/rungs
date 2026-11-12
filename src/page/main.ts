@@ -819,6 +819,10 @@ followTestRun(pictureTree, observed, (document) => {
   // A test that is already selected gets its failure now.
   const open = selected === undefined ? undefined : nodes.get(selected);
   if (open !== undefined) showFailure(open);
+}, (document) => {
+  // The head run is done and the control run goes: the headline, the entry and the Tests row say so now, with no verdict yet.
+  observed = document;
+  reviewSink?.observedEnded(document, null);
 });
 
 /** A test function that failed in the run: what the runner gave of the failure, and the line its stack named marked in the source. */

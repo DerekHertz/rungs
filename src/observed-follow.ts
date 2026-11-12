@@ -13,7 +13,16 @@ export function ofPicture(document: ObservedDocument | null, pictureTree: string
  * not `running`. The reader and clock are handed in. Five failed reads in a row end the wait with
  * the tests "not run" and why: a run the page cannot see is never shown as passing or as zero failures.
  */
-export async function followObserved(pictureTree: string, read: () => Promise<ObservedDocument | null>, sleep: (ms: number) => Promise<void>, show: (document: ObservedDocument) => void): Promise<void> {
+export async function followObserved(
+  pictureTree: string,
+  read: () => Promise<ObservedDocument | null>,
+  sleep: (ms: number) => Promise<void>,
+  show: (document: ObservedDocument) => void,
+  /** Called with a `running` document of this picture's tree whose stage differs from the last one seen, so an open page can say which run is going. */
+  staged: (document: ObservedDocument) => void = () => {},
+  /** The stage the page already shows. */
+  stage: "tests" | "control" = "tests",
+): Promise<void> {
   let wait = POLL_FIRST_MS;
   let failures = 0;
   for (;;) {
@@ -31,6 +40,10 @@ export async function followObserved(pictureTree: string, read: () => Promise<Ob
     if (mine !== document || document.status !== "running") {
       show(mine ?? document);
       return;
+    }
+    if (document.stage !== stage) {
+      stage = document.stage;
+      staged(document);
     }
   }
 }

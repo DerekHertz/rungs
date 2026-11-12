@@ -6,7 +6,7 @@ import type { FileTree } from "../src/graph.ts";
 import { observedDocument } from "../src/observed.ts";
 import type { TestReport } from "../src/observed.ts";
 import type { Outcome, RanObserved } from "../src/observed-types.ts";
-import { observedReport } from "../src/observed-report.ts";
+import { observedReport, rowOutcome } from "../src/observed-report.ts";
 
 const at = (path: string[], outcome: Outcome, message?: string): TestReport => ({ file: "test/a.test.mjs", path, outcome, ms: 1, ...(message ? { message } : {}) });
 
@@ -31,6 +31,30 @@ test("a file that fails outside any test only on the PR is a regression; failing
   expect(classify([file("fail")], [other()]).verdicts).toEqual(["regression"]);
   expect(classify([file("fail")], [file("fail")]).verdicts).toEqual(["environment"]);
   expect(classify([file("fail")], []).verdicts).toEqual(["head only"]);
+});
+
+test("a crash of a whole file on the PR, reported as a test named after the file, is a regression when main's tests in that file passed", () => {
+  const crash = (): TestReport => ({ file: "test/b.test.mjs", path: ["test/b.test.mjs"], outcome: "fail", ms: 1, message: "Cannot find module" });
+  const passing = [{ file: "test/b.test.mjs", path: ["x"], outcome: "pass", ms: 1 }, { file: "test/b.test.mjs", path: ["y"], outcome: "pass", ms: 1 }] as const;
+  expect(classify([crash()], passing).verdicts).toEqual(["regression"]);
+  // Main's file had a failure of its own: the crash cannot be paired, so it is said so, never a pass or a regression.
+  expect(classify([crash()], [{ ...passing[0], outcome: "fail" }]).verdicts).toEqual(["head only"]);
+});
+
+test("a head failure that cannot be paired stays in the report as failed and not compared", () => {
+  const document = observedDocument({ ...ran, reports: [at(["surprise"], "fail", "boom")], control: { status: "ran", seconds: 1, reports: [at(["broke"], "fail")] } }, graph, "t") as RanObserved;
+  const report = observedReport(document, graph, comparison);
+  expect(report.failing).toEqual([]);
+  expect(report.others.map((test) => [test.name, test.verdict, test.outcome])).toEqual([["surprise", "head only", "fail"]]);
+});
+
+test("each row of the other results is marked by what it is: fixed passes, an environment failure fails, skipped is skipped", () => {
+  expect(rowOutcome({ verdict: "fixed", outcome: "pass" })).toBe("pass");
+  expect(rowOutcome({ verdict: "environment", outcome: "fail" })).toBe("fail");
+  expect(rowOutcome({ verdict: "skipped", outcome: "skip" })).toBe("skip");
+  expect(rowOutcome({ verdict: "head only", outcome: "fail" })).toBe("fail");
+  expect(rowOutcome({ verdict: "unclear", outcome: "pass" })).toBe("pass");
+  expect(rowOutcome({ outcome: "fail" })).toBe("fail");
 });
 
 const base: FileTree = new Map([["test/a.test.mjs", 'import { test } from "node:test";\ntest("broke", () => {});\ntest("env", () => {});\ntest("good", () => {});\n']]);

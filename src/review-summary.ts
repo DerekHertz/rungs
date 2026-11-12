@@ -1,5 +1,5 @@
 import type { ContractMoveKind } from "./compare.ts";
-import { runningText } from "./observed-types.ts";
+import { runningText, verdictParts } from "./observed-types.ts";
 import type { ObservedDocument } from "./observed-types.ts";
 import { signatureDiff } from "./review.ts";
 import type { ContractRow, EffectGroup } from "./review.ts";
@@ -217,11 +217,19 @@ export function testsSummary(observed: ObservedDocument | null, weakened: number
       const { pass, fail, skip } = observed.counts;
       const total = pass + fail + skip;
       const { control } = observed;
-      const failed =
-        control.status !== "ran"
-          ? `${fail} fail of ${total} (no control run)`
-          : `${control.counts.regression > 0 ? `${control.counts.regression} ${control.counts.regression === 1 ? "regression" : "regressions"}` : "no regressions"}${control.counts.environment > 0 ? ` · ${control.counts.environment} environment` : ""} of ${total}`;
-      run = total === 0 ? "no results" : fail > 0 ? failed : [pass > 0 ? `${pass} pass` : "", skip > 0 ? `${skip} skip` : ""].filter((part) => part !== "").join(" · ");
+      // With a control run the counts are the verdicts': a test skipped on a side, one-sided or named twice is not a pass.
+      const verdicts = control.status === "ran" ? verdictParts(control.counts) : [];
+      const failed = control.status !== "ran" ? `${fail} fail of ${total} (no control run)` : `${verdicts.join(" · ")} of ${total}`;
+      run =
+        total === 0
+          ? "no results"
+          : control.status === "ran"
+            ? verdicts.length > 0
+              ? failed
+              : `${control.counts.passes} pass`
+            : fail > 0
+              ? failed
+              : [pass > 0 ? `${pass} pass` : "", skip > 0 ? `${skip} skip` : ""].filter((part) => part !== "").join(" · ");
     } else if (observed.status === "unreliable") run = "results unreliable";
     else if (observed.status === "failed") run = "run failed";
     else run = "not run";

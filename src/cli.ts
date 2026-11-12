@@ -34,7 +34,7 @@ const TOUR_TIMEOUT_MS = 10 * 60 * 1000;
 /** How long one run of the tests, install included, may take. */
 const TEST_TIMEOUT_MS = 10 * 60 * 1000;
 
-async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUnsandboxed: boolean, onControl: () => void): Promise<TestRun> {
+async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUnsandboxed: boolean, onControl: () => void, baseExecutable: ReadonlySet<string>): Promise<TestRun> {
   const choice = chooseIsolation(await detectSandbox(), allowUnsandboxed);
   if ("refused" in choice) {
     console.error(`streets: tests not run: ${choice.refused}`);
@@ -48,7 +48,7 @@ async function observeTests(dir: string, base: FileTree, tree: FileTree, allowUn
   const run = await runTests(base, tree, await readExecutables(dir, tree), choice.isolation, TEST_TIMEOUT_MS, undefined, () => {
     console.error("streets: running the control run: the same tests against main's own code");
     onControl();
-  });
+  }, baseExecutable);
   const label = choice.isolation.kind === "bwrap" ? "" : ` (${UNSANDBOXED_LINE})`;
   if (run.status === "ran") {
     const count = (outcome: string) => run.reports.filter((report) => report.outcome === outcome).length;
@@ -153,7 +153,7 @@ async function prepare(dir: string, baseRef: string, from: OpenedPullRequest | u
         return outcome;
       }
     : undefined;
-  const observed = tests === "off" ? undefined : (onControl: () => void) => observeTests(dir, base.tree, tree, tests === "unsandboxed allowed", onControl);
+  const observed = tests === "off" ? undefined : (onControl: () => void) => observeTests(dir, base.tree, tree, tests === "unsandboxed allowed", onControl, base.executable);
   const walk = options.walkthrough
     ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
         const places = placesOf(comparison, graph);

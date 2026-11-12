@@ -353,6 +353,16 @@ test("the control run runs the same base tests on the base's own code: what the 
   expect(verdicts).toEqual(expect.arrayContaining([["adds", "regression"], ["needs a browser", "environment"]]));
 });
 
+test("the control run keeps the base's own executable files: a script the PR deleted is a regression, not environment", async () => {
+  const script = "#!/bin/sh\nexit 0\n";
+  const test_ = `import { test } from "node:test";\nimport { execFileSync } from "node:child_process";\ntest("runs the tool", () => { execFileSync("./bin/tool.sh"); });\n`;
+  const base = new Map([["package.json", manifest], ["bin/tool.sh", script], ["test/tool.test.mjs", test_]]);
+  const head = new Map([["package.json", manifest], ["test/tool.test.mjs", test_]]);
+  const run = await runTests(base, head, new Set(), bwrap, 60_000, undefined, undefined, new Set(["bin/tool.sh"]));
+  expect(run).toMatchObject({ status: "ran", control: { status: "ran", reports: [{ outcome: "pass" }] } });
+  expect(document(run, head)).toMatchObject({ control: { status: "ran", counts: { regression: 1, environment: 0 } } });
+});
+
 test("a control run that cannot finish leaves the head run's failures with the reason, never a verdict", async () => {
   const base = new Map(baseTree);
   base.set("src/math.mjs", `export const add = () => { for (;;) {} };\n`);

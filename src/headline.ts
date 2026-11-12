@@ -1,6 +1,6 @@
 import type { Comparison } from "./compare.ts";
 import { isCodeNode } from "./graph.ts";
-import { UNSANDBOXED_LINE, runningText } from "./observed-types.ts";
+import { UNSANDBOXED_LINE, runningText, verdictParts } from "./observed-types.ts";
 import type { ObservedDocument } from "./observed-types.ts";
 import type { TestChanges } from "./test-changes-types.ts";
 
@@ -32,17 +32,7 @@ function testsPart(observed: ObservedDocument | null): string {
     const { control } = observed;
     let result = `main's tests: ${pass} passed`;
     if (fail > 0 && control.status !== "ran") result = `main's tests: ${fail} failed, ${pass} passed (no control run: ${control.why})`;
-    else if (fail > 0 && control.status === "ran") {
-      const { regression, environment } = control.counts;
-      const unclear = fail - regression - environment;
-      const parts = [
-        regression > 0 ? `${regression} ${regression === 1 ? "regression" : "regressions"}` : "no regressions",
-        ...(environment > 0 ? [`${environment} environment`] : []),
-        ...(unclear > 0 ? [`${unclear} not compared`] : []),
-        `${pass} passed`,
-      ];
-      result = `main's tests: ${parts.join(", ")}`;
-    }
+    else if (control.status === "ran") result = `main's tests: ${[...verdictParts(control.counts), `${control.counts.passes} passed`].join(", ")}`;
     return observed.sandbox === "unsandboxed" ? `${result} (ran without a sandbox)` : result;
   }
   if (observed.status === "running") return observed.stage === "control" ? runningText("control") : "tests running…";

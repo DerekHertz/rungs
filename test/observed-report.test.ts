@@ -50,9 +50,9 @@ test("each changed test file gets the counts of main's tests in it, failing firs
 test("every failing test is listed, attached or not, and its file is marked on the picture", () => {
   const report = observedReport(document, graph, comparison);
   expect(report.failing).toEqual([
-    { id: 'function:test/kept.test.mjs#"test(\\"kept\\") callback"', file: "test/kept.test.mjs", name: "kept" },
-    { id: "file:test/old.test.mjs", file: "test/old.test.mjs", name: "made at run time", why: "main's version of this file ran; this PR edited it" },
-    { id: "file:test/gone.test.mjs", file: "test/gone.test.mjs", name: "deleted one", why: "main's test, run against this PR's code; this PR deleted the file" },
+    { id: 'function:test/kept.test.mjs#"test(\\"kept\\") callback"', file: "test/kept.test.mjs", name: "kept", outcome: "fail" },
+    { id: "file:test/old.test.mjs", file: "test/old.test.mjs", name: "made at run time", outcome: "fail", why: "main's version of this file ran; this PR edited it" },
+    { id: "file:test/gone.test.mjs", file: "test/gone.test.mjs", name: "deleted one", outcome: "fail", why: "main's test, run against this PR's code; this PR deleted the file" },
   ]);
   // The graph given is the head's, which has no deleted file; the page gives the picture's graph, which has its ghost.
   expect(report.failingFiles).toEqual(new Set(["file:test/old.test.mjs", "file:test/kept.test.mjs"]));

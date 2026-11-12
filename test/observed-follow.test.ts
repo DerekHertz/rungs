@@ -24,6 +24,21 @@ test("the control run's running document keeps the wait going: only the finished
   expect(shown).toEqual([done]);
 });
 
+test("a change of stage is handed on once, so an open page can say the control run is going; the tree is still checked", async () => {
+  const control: ObservedDocument = { tier: "observed", tree: "t", status: "running", stage: "control" };
+  const answers = [running, control, control, done];
+  const staged: ObservedDocument[] = [];
+  const shown: ObservedDocument[] = [];
+  await followObserved("t", () => Promise.resolve(answers.shift() ?? null), quick, (document) => shown.push(document), (document) => staged.push(document), "tests");
+  expect(staged).toEqual([control]);
+  expect(shown).toEqual([done]);
+  const other: ObservedDocument[] = [];
+  const stagedOther: ObservedDocument[] = [];
+  await followObserved("t", () => Promise.resolve({ ...control, tree: "head-B" }), quick, (document) => other.push(document), (document) => stagedOther.push(document), "tests");
+  expect(stagedOther).toEqual([]);
+  expect(other).toEqual([another]);
+});
+
 test("five failed reads in a row leave the tests not run, with why", async () => {
   const shown: ObservedDocument[] = [];
   await followObserved("t", () => Promise.resolve(null), quick, (document) => shown.push(document));

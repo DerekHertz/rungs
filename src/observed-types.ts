@@ -37,6 +37,22 @@ export type Verdict = "regression" | "environment" | "fixed" | "passes" | "skipp
 
 export type VerdictCounts = Readonly<Record<Verdict, number>>;
 
+/**
+ * What a control run says of the head's tests, as the parts of a line: regressions (or "no regressions"
+ * when something else is worth saying), environment, fixed, and the tests not compared (skipped on a
+ * side, one-sided, or named twice). Empty when every test passed on both. `passes` counts only those.
+ */
+export function verdictParts(counts: VerdictCounts): string[] {
+  const notCompared = counts.skipped + counts["head only"] + counts.unclear;
+  const others = [
+    ...(counts.environment > 0 ? [`${counts.environment} environment`] : []),
+    ...(counts.fixed > 0 ? [`${counts.fixed} fixed`] : []),
+    ...(notCompared > 0 ? [`${notCompared} not compared`] : []),
+  ];
+  if (counts.regression > 0) return [`${counts.regression} ${counts.regression === 1 ? "regression" : "regressions"}`, ...others];
+  return others.length > 0 ? ["no regressions", ...others] : [];
+}
+
 /** What each verdict says in the lists. */
 export const VERDICT_WORD: Readonly<Record<Verdict, string>> = {
   regression: "regression: passes on main, fails with this PR",

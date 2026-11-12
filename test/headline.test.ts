@@ -8,7 +8,7 @@ const none = { extractorVersion: "x", changes: [], effects: [], changedEffects: 
 const noTests = { deletedFiles: [], removedTests: [], renamed: [], markers: [], weakened: [] } as TestChanges;
 const change = (level: string, kind = "altered") => ({ kind, node: { level } });
 const nothing = { regression: 0, environment: 0, fixed: 0, passes: 0, skipped: 0, "head only": 0, "base only": 0, unclear: 0 };
-const ran = (pass: number, fail: number, control: unknown = { status: "ran", seconds: 1, counts: { ...nothing, regression: fail }, baseOnly: [] }): ObservedDocument =>
+const ran = (pass: number, fail: number, control: unknown = { status: "ran", seconds: 1, counts: { ...nothing, regression: fail, passes: pass }, baseOnly: [] }): ObservedDocument =>
   ({ tier: "observed", tree: "t", status: "ran", counts: { pass, fail, skip: 0 }, control }) as unknown as ObservedDocument;
 const doc = (status: string): ObservedDocument => ({ tier: "observed", tree: "t", status, why: "x" }) as unknown as ObservedDocument;
 
@@ -46,11 +46,14 @@ test("failing, unfinished and unreliable runs are said as what they are, and no 
 });
 
 test("with a control run the tests part counts regressions only, and says what else failed", () => {
-  const control = (over: object) => ({ status: "ran", seconds: 1, counts: { ...nothing, ...over }, baseOnly: [] });
+  const control = (over: object) => ({ status: "ran", seconds: 1, counts: { ...nothing, passes: 130, ...over }, baseOnly: [] });
   expect(headline(none, noTests, ran(130, 8, control({ regression: 2, environment: 6 })))).toContain("main's tests: 2 regressions, 6 environment, 130 passed");
   expect(headline(none, noTests, ran(130, 6, control({ environment: 6 })))).toContain("main's tests: no regressions, 6 environment, 130 passed");
   expect(headline(none, noTests, ran(130, 1, control({ regression: 1 })))).toContain("main's tests: 1 regression, 130 passed");
   expect(headline(none, noTests, ran(130, 3, control({ environment: 1, skipped: 2 })))).toContain("main's tests: no regressions, 1 environment, 2 not compared, 130 passed");
+  // Counts come from the verdicts: a test skipped on main, one only the PR reported, or one named twice did not pass on both.
+  expect(headline(none, noTests, ran(130, 0, control({ passes: 127, skipped: 1, "head only": 1, unclear: 1 })))).toContain("main's tests: no regressions, 3 not compared, 127 passed");
+  expect(headline(none, noTests, ran(130, 0, control({ passes: 129, fixed: 1 })))).toContain("main's tests: no regressions, 1 fixed, 129 passed");
 });
 
 test("a control run that gave no results leaves the head's failures, labelled, and never says zero regressions", () => {

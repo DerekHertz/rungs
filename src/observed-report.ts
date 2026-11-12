@@ -1,7 +1,7 @@
 import type { ChangeKind, Comparison } from "./compare.ts";
 import type { Graph, NodeId } from "./graph.ts";
 import { countsAsFailing } from "./observed-types.ts";
-import type { Counts, ObservedDocument, ObservedTest, RanObserved, Verdict } from "./observed-types.ts";
+import type { Counts, ObservedDocument, ObservedTest, Outcome, RanObserved, Verdict } from "./observed-types.ts";
 
 export type RanDocument = RanObserved;
 
@@ -31,8 +31,14 @@ export interface FailingTest {
   readonly message?: string;
   /** Why the test is not attached to a test function, when it is not. */
   readonly why?: string;
+  readonly outcome: Outcome;
   /** Against the control run; absent when there is none. */
   readonly verdict?: Verdict;
+}
+
+/** The mark of a row of the lists: a fixed test passes now, every other row is what the PR's run made of it. */
+export function rowOutcome(test: { readonly outcome: Outcome; readonly verdict?: Verdict }): Outcome {
+  return test.verdict === "fixed" ? "pass" : test.outcome;
 }
 
 export interface ObservedReport {
@@ -78,12 +84,12 @@ export function observedReport(document: RanDocument, graph: Graph, comparison: 
     const file = paths.get(id as NodeId) ?? "";
     for (const result of results) {
       tally(file, result);
-      sort(result, { id: id as NodeId, file, name: result.name, ...(result.message ? { message: result.message } : {}), ...(result.verdict ? { verdict: result.verdict } : {}) });
+      sort(result, { id: id as NodeId, file, name: result.name, outcome: result.outcome, ...(result.message ? { message: result.message } : {}), ...(result.verdict ? { verdict: result.verdict } : {}) });
     }
   }
   for (const result of document.unmatched) {
     tally(result.file, result);
-    sort(result, { id: fileId(result.file), file: result.file, name: result.name, ...(result.message ? { message: result.message } : {}), why: result.why, ...(result.verdict ? { verdict: result.verdict } : {}) });
+    sort(result, { id: fileId(result.file), file: result.file, name: result.name, outcome: result.outcome, ...(result.message ? { message: result.message } : {}), why: result.why, ...(result.verdict ? { verdict: result.verdict } : {}) });
   }
   const deleted = new Set(document.deleted);
   const files: FileResults[] = [];
