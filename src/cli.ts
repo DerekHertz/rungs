@@ -7,6 +7,8 @@ import { basename, resolve } from "node:path";
 import { readBase, readCheckout, readExecutables } from "./checkout.ts";
 import { cacheDirectory, candidatesOf, claudeRunner, linkClaims } from "./link.ts";
 import { parseOptions, USAGE } from "./options.ts";
+import { openPullRequest } from "./pull-request.ts";
+import type { OpenedPullRequest } from "./pull-request.ts";
 import { narrate } from "./narrate.ts";
 import { runTests } from "./observed.ts";
 import type { TestRun } from "./observed.ts";
@@ -84,17 +86,35 @@ if (typeof options === "string") {
   process.exit(2);
 }
 
+/** The scratch worktree of `--pr`, removed however this process ends. */
+let opened: OpenedPullRequest | undefined;
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.on(signal, () => {
+    opened?.removeSync();
+    process.exit(128 + { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 }[signal]);
+  });
+}
+process.on("exit", () => opened?.removeSync());
+
 try {
-  const tree = await readCheckout(options.dir);
-  if (options.base === undefined) {
+  if (options.pr !== undefined) {
+    opened = await openPullRequest({ number: options.pr, cwd: options.dir, cacheDir: cacheDirectory(process.env, homedir()) });
+    if (opened.note !== undefined) console.error(`streets: ${opened.note}`);
+  }
+  const dir = opened?.dir ?? options.dir;
+  const baseRef = opened === undefined ? options.base : opened.baseTip;
+  const tree = await readCheckout(dir);
+  if (baseRef === undefined) {
     const server = await serve(tree, options.port, undefined, undefined, undefined, undefined, undefined, undefined, basename(resolve(options.dir)));
     console.log(`Systems to Streets is showing ${tree.size} files from ${options.dir} at ${server.url}`);
     if (options.open) openBrowser(server.url);
   } else {
-    const base = await readBase(options.dir, options.base);
-    const against = { ...base, ref: options.base };
+    const base = await readBase(dir, baseRef);
+    const against = { ...base, ref: opened?.baseRef ?? baseRef, ...(opened === undefined ? {} : { pr: { number: opened.pr.number, title: opened.pr.title, head: opened.pr.head } }) };
     const description =
-      options.description === undefined
+      opened !== undefined
+        ? opened.description
+        : options.description === undefined
         ? undefined
         : options.description === "-"
           ? await text(process.stdin)
@@ -121,7 +141,7 @@ try {
           return outcome;
         }
       : undefined;
-    const tests = options.tests === "off" ? undefined : await observeTests(options.dir, base.tree, tree, options.tests === "unsandboxed allowed");
+    const tests = options.tests === "off" ? undefined : await observeTests(dir, base.tree, tree, options.tests === "unsandboxed allowed");
     const walk = options.walkthrough
       ? async (comparison: Comparison, claims: readonly Claim[], graph: Graph) => {
           const places = placesOf(comparison, graph);
@@ -163,18 +183,23 @@ try {
       : undefined;
     const judged = judgedSource({ judge: options.judge, env: process.env, baseTree: base.tree, headTree: tree, cacheDir: cacheDirectory(process.env, homedir()) });
     if (options.judge && judged.status === "off") console.error(`streets: ${judged.reason}`);
-    const server = await serve(tree, options.port, against, description, link, walk, narrator, tests, basename(resolve(options.dir)), judged);
+    const server = await serve(tree, options.port, against, description, link, walk, narrator, tests, opened?.repo ?? basename(resolve(options.dir)), judged);
     const counts = { added: 0, altered: 0, removed: 0, moved: 0 };
     for (const change of server.comparison?.changes ?? []) {
       if (change.node.level === "file") counts[change.kind] += 1;
     }
+    const where =
+      opened === undefined
+        ? `in ${options.dir} (uncommitted changes included) against ${options.base}`
+        : `of PR #${opened.pr.number} (${opened.pr.title}) at head ${opened.pr.head.slice(0, 7)} against ${opened.baseRef}`;
     console.log(
-      `Systems to Streets is comparing ${tree.size.toLocaleString("en-US")} files in ${options.dir} (uncommitted changes included) against ${options.base} at ${base.commit.slice(0, 7)} (merge base): ${counts.added} files added, ${counts.altered} altered, ${counts.removed} removed, ${counts.moved} moved`,
+      `Systems to Streets is comparing ${tree.size.toLocaleString("en-US")} files ${where} at ${base.commit.slice(0, 7)} (merge base): ${counts.added} files added, ${counts.altered} altered, ${counts.removed} removed, ${counts.moved} moved`,
     );
     console.log(server.url);
     if (options.open) openBrowser(server.url);
   }
 } catch (error) {
   console.error(`streets: ${(error as Error).message}`);
+  opened?.removeSync();
   process.exit(1);
 }

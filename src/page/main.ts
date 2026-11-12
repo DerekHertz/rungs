@@ -34,6 +34,7 @@ import type { RiskItem } from "../risks.ts";
 import { NO_TEST_MARKS, testMarks } from "../test-marks.ts";
 import type { TestMark } from "../test-marks.ts";
 import { comparedLine, failingEntry, walkEntry } from "../arrival.ts";
+import type { PullRequestName } from "../arrival.ts";
 import { renderArrival } from "./arrival-panel.ts";
 import { renderReview } from "./review-panel.ts";
 import type { ClaimRow, LinkNote, ReviewHandle, ReviewSnapshot } from "./review-panel.ts";
@@ -81,7 +82,7 @@ const narrowScreen = window.matchMedia("(max-width: 700px)");
 const graph = (await (await fetch("/graph.json")).json()) as Graph;
 const comparisonResponse = await fetch("/comparison.json");
 const comparison = comparisonResponse.ok
-  ? ((await comparisonResponse.json()) as Comparison & { against: { ref: string; commit: string } })
+  ? ((await comparisonResponse.json()) as Comparison & { against: { ref: string; commit: string; pr?: PullRequestName } })
   : null;
 /** Narration is on offer only when the server was started with --narrate. */
 const narrating = (await fetch("/narrate.json")).ok;

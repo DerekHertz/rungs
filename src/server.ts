@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { CallResolver } from "./calls.ts";
 import type { Base } from "./checkout.ts";
+import type { PullRequestName } from "./arrival.ts";
 import { compare, contractsMoved, serializeComparison } from "./compare.ts";
 import type { Comparison } from "./compare.ts";
 import { extract } from "./extract/extract.ts";
@@ -44,6 +45,8 @@ const AHEAD_PARALLEL = 3;
 /** What the checkout is compared against: the merge base's tree and commit, and the ref the user wrote. */
 export interface Against extends Base {
   readonly ref: string;
+  /** Set when the run was opened with `--pr`: the page header names the pull request. */
+  readonly pr?: PullRequestName;
 }
 
 export interface RunningServer {
@@ -149,7 +152,7 @@ export async function serve(
   ]);
   let judgeSubject: JudgeSubject | undefined;
   if (base !== undefined && baseGraph !== undefined && comparison !== undefined) {
-    const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit } }, null, 2)}\n`;
+    const body = `${JSON.stringify({ ...JSON.parse(serializeComparison(comparison)), against: { ref: base.ref, commit: base.commit, ...(base.pr === undefined ? {} : { pr: base.pr }) } }, null, 2)}\n`;
     resources.set("/comparison.json", { contentType: "application/json; charset=utf-8", body });
     // The base's outside calls in files the change removed, so a ghost's inside has its objects. Derived from the base graph alone.
     const removedPaths = new Set(comparison.changes.flatMap((change) => (change.kind === "removed" && change.node.level === "file" ? [change.node.path] : [])));
