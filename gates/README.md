@@ -9,12 +9,25 @@ One folder per gate, named by the gate's id:
 ```
 gates/<id>/
   bar.md        the bar for adoption, written BEFORE the gate's first run
-  cases.json    labelled cases: { "gate", "bar", "cases": [ { id, label, input, steering?, note? } ] }
-  results/      one plain JSON report per run (the bench's BenchReport), named by date
+  cases.json    labelled cases: { "gate", "bar", "cases": [ { id, label, input, steering?, note?, source? } ] }
+  results/      one plain JSON report per run (the bench's BenchReport) and its text, named <date>-<model>
 ```
 
 `src/jev/bench.ts` runs a gate over `cases.json` twice and reports wrong passes, wrong flags,
 undecided, decisions changed between the two runs, and cost.
+
+`npm run bench -- <gate>` runs it against the real Jev (needs `TYPESAFE_API_KEY`) and writes the
+result into `results/`. The newest result of each gate is what the page shows beside the gate's
+marks (`/gate-rates.json`): adopted only if it met the bar; otherwise the gate stays off and its
+settled marks are drawn as not trusted. A new run is committed with its cases; thresholds are never
+tuned on the cases they are scored on.
+
+`gates/claim/` also holds `sources.json` (each case's label, claim text and the merged pull
+request it is judged against) and `build.ts`, which fetches the pull requests' trees with `gh` and
+writes `cases.json` through `claimInputFor`, the code the page uses to build the gate's input. A
+case stores the gate's input (the claim and each place's derived facts and changed lines), never
+a rendered state, so a change to the state's format re-renders every case. `source` records the
+repo, pull request and commits of the claim's words and of its changes, so a case can be re-checked.
 
 ## Cases
 
