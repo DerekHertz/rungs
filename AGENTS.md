@@ -19,6 +19,8 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created when
 
 ## Working rules
 
+**Building a PR.** Steps, review and merge: `docs/agents/building.md`.
+
 **North star.** Every issue names the north-star question it moves: claims, unmentioned, contracts moved, or base map. Work that moves none waits behind work that does.
 
 **Review rounds.** A finding that would make the picture or a review answer wrong blocks a merge. Edge cases found after the second review round become issues instead of more rounds.
