@@ -2,9 +2,11 @@
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { formatReport, loadCases, rescore, runBench } from "./jev/bench.ts";
-import type { BenchReport, SavedAnswer } from "./jev/bench.ts";
+import type { BenchReport, CaseFile, SavedAnswer } from "./jev/bench.ts";
 import { createJevClient } from "./jev/client.ts";
 import { BENCH_GATES, GATES_DIR, compareRuns } from "./jev/results.ts";
+import { formatKinds, kindsOf } from "./jev/stakes-adoption.ts";
+import type { StakesInput } from "./jev/stakes-gate.ts";
 
 /**
  * `npm run bench -- <gate> [--repeat] [--rescore <results file>]`
@@ -54,15 +56,21 @@ if (rescoreFile !== undefined) {
   console.error(`bench: ${file.cases.length} cases of gate ${id}, ${repeat ? "two fresh runs" : "one run, reusing saved answers whose state is unchanged"}, on ${client.model}`);
   report = await runBench({ gate: entry.gate, file, client, thresholds: entry.thresholds, repeat, ...(saved === undefined ? {} : { saved }) });
 }
-const text = formatReport(report);
-console.log(text);
 await mkdir(dir, { recursive: true });
 const day = new Date().toISOString().slice(0, 10);
 let name = `${day}-${report.model}`;
 for (let n = 2; await exists(join(dir, `${name}.json`)); n++) name = `${day}-${report.model}-${n}`;
+// The stakes gate is also scored over each kind's own cases, with the same bar and no call to Jev: a kind that misses is "not judged".
+const kinds = id === "stakes" ? kindsOf(file as CaseFile<StakesInput>, report, name) : undefined;
+const text = kinds === undefined ? formatReport(report) : `${formatReport(report)}\n${formatKinds(kinds)}`;
+console.log(text);
 await writeFile(join(dir, `${name}.json`), `${JSON.stringify(report, null, 1)}\n`);
 await writeFile(join(dir, `${name}.txt`), `${text}\n`);
 console.error(`bench: wrote gates/${id}/results/${name}.json and .txt`);
+if (kinds !== undefined) {
+  await writeFile(join(GATES_DIR, id, "kinds.json"), `${JSON.stringify(kinds, null, 1)}\n`);
+  console.error(`bench: wrote gates/${id}/kinds.json`);
+}
 
 async function exists(path: string): Promise<boolean> {
   try {

@@ -13,6 +13,12 @@ import { MAX_PAIRS, judgeMemberships, narrow, pairKey, unitsOf } from "./jev/mem
 import type { Coverage, JudgingNote, MembershipRecord, StoredMemberships } from "./memberships.ts";
 import { coverageOf, memberships as buildMemberships, membershipLines, problemWithMemberships, reconcile } from "./memberships.ts";
 import { standIn, storedPath } from "./stored-names.ts";
+import { effectSets } from "./effects.ts";
+import { HARM_CATALOGUE } from "./harm-catalogue.ts";
+import { kindChoice as chosenKinds, readKindsFile } from "./jev/stakes-adoption.ts";
+import { MAX_STAKES_PAIRS, judgeStakes, stakePairKey, termMembers } from "./jev/stakes-source.ts";
+import type { KindChoice, StakeRecord, StakesNote, StoredStakes } from "./stakes.ts";
+import { problemWithStakes, reconcileStakes, stakes as buildStakes, stakesAreCurrent, stakesLines } from "./stakes.ts";
 import { collectVocabulary, VOCABULARY_TABLE_VERSION } from "./vocabulary.ts";
 import type { Vocabulary } from "./vocabulary.ts";
 
@@ -56,6 +62,8 @@ export interface StoredVocabulary {
   readonly vocabulary: Vocabulary;
   /** Judged: which function, class or constant belongs to which term. Absent until `streets setup --judge` has run. */
   readonly memberships?: StoredMemberships;
+  /** Judged: whether a mistake in each term's code could cause each kind of harm. Absent until `streets setup --judge` has run. */
+  readonly stakes?: StoredStakes;
 }
 
 export type SetupWork = "first setup" | "unchanged" | "rebuilt" | "rules changed" | "replaced unreadable";
@@ -75,6 +83,8 @@ export interface SetupResult {
   readonly previousCommit?: string;
   /** What this run's judging did; absent when it did not judge. */
   readonly judging?: JudgingNote;
+  /** What this run's stakes judging did; absent when it did not judge. */
+  readonly judgingStakes?: StakesNote;
 }
 
 /** What a test may swap to see that no work was done. */
@@ -83,6 +93,10 @@ export interface SetupDeps {
   readonly graphOf?: typeof extract;
   /** The most (function, term) pairs asked in one run; MAX_PAIRS when left out. */
   readonly maxPairs?: number;
+  /** The most (term, kind) pairs asked of the stakes gate in one run; MAX_STAKES_PAIRS when left out. */
+  readonly maxStakePairs?: number;
+  /** The kinds of harm that may be asked about; what the stakes gate's bench result allows (gates/stakes/kinds.json) when left out. */
+  readonly kindChoice?: KindChoice;
 }
 
 export interface SetupRequest {
@@ -167,6 +181,7 @@ function problemWith(whole: Record<string, unknown>): string | undefined {
     ["coverage", hasFields(whole.coverage, { of: isCount, mapped: isCount, measured: (one) => typeof one === "boolean", unjudged: (one) => one === undefined || isCount(one), stale: (one) => one === undefined || isCount(one), unknownUnits: (one) => one === undefined || isCount(one), reason: (one) => one === undefined || isText(one) })],
     ["vocabulary", isRecord(whole.vocabulary)],
     ["memberships", whole.memberships === undefined || problemWithMemberships(whole.memberships) === undefined],
+    ["stakes", whole.stakes === undefined || problemWithStakes(whole.stakes) === undefined],
   ];
   const failed = checks.find(([, ok]) => !ok);
   if (failed !== undefined) return failed[0];
@@ -299,7 +314,8 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     } else {
       const changes = countChanges(before, files);
       // Nothing to redo, and no model to ask: nothing is built or written.
-      if (changes.added + changes.changed + changes.removed === 0 && request.judge === undefined) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
+      // A catalogue, question or threshold change under stored stakes is work to do even then: they go stale.
+      if (changes.added + changes.changed + changes.removed === 0 && request.judge === undefined && (stored.stakes === undefined || stakesAreCurrent(stored.stakes))) return { work: "unchanged", file, ref, stored, previousCommit: stored.base.commit };
       work = changes.added + changes.changed + changes.removed === 0 ? "unchanged" : "rebuilt";
     }
   }
@@ -309,6 +325,9 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
   const prior = previous.kind === "ok" ? previous.stored.memberships : undefined;
   let held: StoredMemberships | undefined;
   let judging: JudgingNote | undefined;
+  const priorStakes = previous.kind === "ok" ? previous.stored.stakes : undefined;
+  let heldStakes: StoredStakes | undefined;
+  let judgingStakes: StakesNote | undefined;
   if (request.judge !== undefined || prior !== undefined) {
     // Which pairs are asked is decided by code alone (see narrow); a model is asked only about those.
     const units = unitsOf(graph, base.tree);
@@ -319,6 +338,26 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
       const outcome = await judgeMemberships({ pairs: narrowed.pairs, tree: base.tree, previous: new Map<string, MembershipRecord>((prior?.records ?? []).map((record) => [pairKey(record.unit, record.term), record])), client: request.judge, maxPairs });
       held = buildMemberships(units, narrowed, outcome, request.judge.model);
       judging = { status: "judged", asked: outcome.asked, reused: outcome.reused, notJudged: outcome.notJudged.length, ...(outcome.notJudged[0] === undefined ? {} : { firstFailure: outcome.notJudged[0].reason }), overLimit: outcome.overLimit, maxPairs, usd: outcome.usd, costUnknown: outcome.costUnknown };
+    }
+    // Stakes are judged over the memberships just made: a term's code is the functions mapped to it now.
+    if (request.judge !== undefined || priorStakes !== undefined) {
+      const entries = termMembers(held!, units, vocabulary.terms);
+      const choice = deps.kindChoice ?? chosenKinds(await readKindsFile());
+      if (request.judge === undefined) heldStakes = reconcileStakes(priorStakes!, entries, base.tree, choice);
+      else {
+        const maxStakePairs = deps.maxStakePairs ?? MAX_STAKES_PAIRS;
+        const outcome = await judgeStakes({
+          terms: entries,
+          tree: base.tree,
+          effects: effectSets(graph),
+          previous: new Map<string, StakeRecord>((priorStakes?.records ?? []).map((record) => [stakePairKey(record.term, record.kind), record])),
+          client: request.judge,
+          maxPairs: maxStakePairs,
+          kinds: HARM_CATALOGUE.filter((kind) => choice.asked.includes(kind.id)),
+        });
+        heldStakes = buildStakes(entries, outcome, choice, request.judge.model, maxStakePairs);
+        judgingStakes = { asked: outcome.asked, reused: outcome.reused, notJudged: outcome.notJudged.length, ...(outcome.notJudged[0] === undefined ? {} : { firstFailure: outcome.notJudged[0].reason }), overLimit: outcome.overLimit, maxPairs: maxStakePairs, usd: outcome.usd, costUnknown: outcome.costUnknown };
+      }
     }
   }
   const stored: StoredVocabulary = {
@@ -333,10 +372,11 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     coverage: coverageOf(graph.nodes.filter((node) => node.level === "file" && node.analysis === "analysed" && node.role !== "generated").length, held),
     vocabulary: storable(vocabulary),
     ...(held === undefined ? {} : { memberships: held }),
+    ...(heldStakes === undefined ? {} : { stakes: heldStakes }),
   };
   // A judged run over a repository nothing changed in, whose answers are all current, has nothing to write.
-  if (work === "unchanged" && previous.kind === "ok" && JSON.stringify([stored.memberships, stored.coverage]) === JSON.stringify([previous.stored.memberships, previous.stored.coverage])) {
-    return { work, file, ref, stored: previous.stored, previousCommit: previous.stored.base.commit, ...(judging === undefined ? {} : { judging }) };
+  if (work === "unchanged" && previous.kind === "ok" && JSON.stringify([stored.memberships, stored.stakes, stored.coverage]) === JSON.stringify([previous.stored.memberships, previous.stored.stakes, previous.stored.coverage])) {
+    return { work, file, ref, stored: previous.stored, previousCommit: previous.stored.base.commit, ...(judging === undefined ? {} : { judging }), ...(judgingStakes === undefined ? {} : { judgingStakes }) };
   }
   await mkdir(dirname(file), { recursive: true });
   // A whole file or none: another run, or a reader, never sees half of one.
@@ -356,6 +396,7 @@ export async function setUp(request: SetupRequest): Promise<SetupResult> {
     ...(why === undefined ? {} : { why }),
     ...(previous.kind === "ok" ? { previousCommit: previous.stored.base.commit, ...(work === "rebuilt" ? { files: countChanges(before, files) } : {}) } : {}),
     ...(judging === undefined ? {} : { judging }),
+    ...(judgingStakes === undefined ? {} : { judgingStakes }),
   };
 }
 
@@ -413,6 +454,7 @@ export function reportLines(result: SetupResult): string[] {
   lines.push(`  not analysed: ${vocabulary.notAnalysed} text files in a language no adapter reads`);
   if (stored.pathsWithheld > 0) lines.push(`  paths withheld: ${stored.pathsWithheld} (a part of the path is shaped like a secret, so the path is not stored)`);
   lines.push(...membershipLines(stored.memberships, stored.coverage, vocabulary.terms, result.judging, vocabulary.notAnalysed + vocabulary.unread.length, codeFilesUnread(vocabulary)));
+  lines.push(...stakesLines(stored.stakes, vocabulary.terms, result.judgingStakes, stored.memberships !== undefined));
   return lines;
 }
 

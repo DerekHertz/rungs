@@ -83,16 +83,16 @@ const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /* ---- reading ---- */
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const isCount = (value: unknown): boolean => typeof value === "number" && Number.isInteger(value) && value >= 0;
-const isText = (value: unknown): boolean => typeof value === "string";
-const isList = (value: unknown, each: (one: unknown) => boolean): boolean => Array.isArray(value) && value.every(each);
-const hasFields = (value: unknown, fields: Readonly<Record<string, (field: unknown) => boolean>>): boolean => isRecord(value) && Object.entries(fields).every(([name, holds]) => holds(value[name]));
-const isNumberMap = (value: unknown): boolean => isRecord(value) && Object.values(value).every((one) => typeof one === "number");
+export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+export const isCount = (value: unknown): boolean => typeof value === "number" && Number.isInteger(value) && value >= 0;
+export const isText = (value: unknown): boolean => typeof value === "string";
+export const isList = (value: unknown, each: (one: unknown) => boolean): boolean => Array.isArray(value) && value.every(each);
+export const hasFields = (value: unknown, fields: Readonly<Record<string, (field: unknown) => boolean>>): boolean => isRecord(value) && Object.entries(fields).every(([name, holds]) => holds(value[name]));
+export const isNumberMap = (value: unknown): boolean => isRecord(value) && Object.values(value).every((one) => typeof one === "number");
 const LEVELS: readonly string[] = ["function", "class", "constant"];
 const VERDICTS: readonly string[] = ["settled", "flagged", "undecided"];
 
-function isAnswer(value: unknown): boolean {
+export function isAnswer(value: unknown): boolean {
   if (!isRecord(value)) return false;
   if (value.type === "yes-no") return typeof value.yes === "number";
   if (value.type === "unreadable") return isText(value.why) && isText(value.raw);
