@@ -126,7 +126,21 @@ export interface Base {
 
 export async function readBase(dir: string, ref: string): Promise<Base> {
   const prefix = await prefixOf(dir);
-  const commit = await mergeBase(dir, ref);
+  return readCommit(dir, await mergeBase(dir, ref), prefix);
+}
+
+/**
+ * What `ref` itself holds, not the merge base `readBase` finds: the tip of a branch. For what is
+ * stored once per repository rather than compared against a head.
+ */
+export async function readRef(dir: string, ref: string): Promise<Base> {
+  const prefix = await prefixOf(dir);
+  const tip = await git(dir, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`]);
+  if (tip === undefined) throw new BaseUnavailable("unknown-ref", `unknown base "${ref}": not a commit in ${dir}`);
+  return readCommit(dir, tip.trim(), prefix);
+}
+
+async function readCommit(dir: string, commit: string, prefix: string): Promise<Base> {
   const entries = await listCommit(dir, commit, prefix);
   const tree = new Map<string, string>();
   await withCheckout(dir, commit, entries, async (root) => {
