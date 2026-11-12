@@ -9,8 +9,11 @@
   },
   "scripts": {
     "streets": "node src/cli.ts",
+    "prelint": "node scripts/ensure-deps.mjs",
     "lint": "eslint .",
+    "pretypecheck": "node scripts/ensure-deps.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/page",
+    "pretest": "node scripts/ensure-deps.mjs",
     "test": "vitest run",
     "bench": "node src/bench-cli.ts",
     "perf": "node perf/extract.ts"

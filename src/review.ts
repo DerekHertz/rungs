@@ -75,6 +75,8 @@ export type ReviewEntry =
       readonly renamedFrom?: string;
       /** A renamed test that asserts less than before. */
       readonly weakened?: true;
+      /** A class's or function's qualified name, read from its node. */
+      readonly qualifiedName?: string;
     })
   /** A folder or package whose changed files are all unmentioned, rolled up. `children` are its files. */
   | (EntryBase & { readonly level: "district"; readonly files: number; readonly kinds: Tally })
@@ -473,6 +475,7 @@ export function unmentioned(
       id: node.id,
       level: node.level,
       label: renamed !== undefined ? testLabelOf(node) : eachLabel(change) ?? labelOf(node),
+      qualifiedName: node.qualifiedName,
       change: renamed === undefined || change.kind === "moved" ? change.kind : "altered",
       lines: sizeOf(node),
       children: [],

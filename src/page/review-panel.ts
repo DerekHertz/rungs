@@ -448,7 +448,7 @@ export function renderReview(host: HTMLElement, input: ReviewInput): ReviewHandl
     pick.append(kind === undefined ? element("span", "review-mark") : markSpan(`review-mark ${kind}`, MARK[kind], CHANGE_WORD[kind]));
     const label = element("span", "review-label", entry.label);
     if (entry.level === "file" && entry.from !== undefined) label.title = `moved from ${entry.from}`;
-    else if (entry.level === "class" || entry.level === "function") label.title = entry.id.slice(entry.id.indexOf("#") + 1);
+    else if ((entry.level === "class" || entry.level === "function") && entry.qualifiedName !== undefined) label.title = entry.qualifiedName;
     pick.append(label);
     if ((entry.level === "function" || entry.level === "class") && entry.renamedFrom !== undefined) {
       const detail = `renamed from ${entry.renamedFrom}${entry.weakened === true ? " · weakened" : ""}`;
