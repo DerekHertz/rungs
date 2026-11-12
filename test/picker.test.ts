@@ -25,18 +25,25 @@ interface Gh {
   listCalls: number;
   /** Set to make every gh call fail with this. */
   fail?: Error;
+  /** What `pr view` says the state is. */
+  state?: string;
+  /** Fails only `pr view`. */
+  failView?: Error;
+  /** The list holds only some other PR, not #7. */
+  listOther?: boolean;
 }
 const ghFor = (f: Fixture, state: Gh): Runner => async (args) => {
   if (state.fail !== undefined) throw state.fail;
   if (args[0] === "pr" && args[1] === "list") {
     state.listCalls += 1;
-    return listing(f);
+    return state.listOther === true ? listing(f, [{ number: 99, headRefOid: "9".repeat(40) }]) : listing(f);
   }
   state.viewCalls += 1;
-  return view(f, { headRefOid: state.head });
+  if (state.failView !== undefined) throw state.failView;
+  return view(f, { headRefOid: state.head, state: state.state ?? "OPEN" });
 };
 
-async function start(f: Fixture, state: Gh, over: { headTtlMs?: number } = {}): Promise<RunningPicker> {
+async function start(f: Fixture, state: Gh, over: { headTtlMs?: number; listLimit?: number } = {}): Promise<RunningPicker> {
   const build = async (opened: OpenedPullRequest) => {
     const base = await readBase(opened.dir, opened.baseTip);
     return createSnapshot(await readCheckout(opened.dir), { ...base, ref: opened.baseRef, pr: { number: opened.pr.number, title: opened.pr.title, head: opened.pr.head } }, opened.description);
@@ -117,7 +124,7 @@ test("picking a PR serves the comparison of that PR and leaves the user's checko
     const comparison = (await (await fetch(`${picker.url}comparison.json`)).json()) as { against: { ref: string; pr: { number: number; head: string } } };
     expect(comparison.against.ref).toBe("main");
     expect(comparison.against.pr).toMatchObject({ number: 7, head: f.head });
-    expect((await json(await fetch(`${picker.url}pull-requests.json`))).current).toEqual({ number: 7, head: f.head });
+    expect((await json(await fetch(`${picker.url}pull-requests.json`))).current).toEqual({ number: 7, head: f.head, open: true });
     expect(worktrees(f.user)).not.toBe(listBefore);
     expect(snapshot(f.user)).toBe(before);
   } finally {
@@ -159,7 +166,7 @@ test("a pick that fails keeps the current PR and leaves no worktree behind", asy
     expect(failed.status).toBe(502);
     expect(String((await json(failed)).why)).not.toContain("\n");
     expect(scratchDirs(f)).toHaveLength(1);
-    expect((await json(await fetch(`${picker.url}pull-requests.json`))).current).toEqual({ number: 7, head: f.head });
+    expect((await json(await fetch(`${picker.url}pull-requests.json`))).current).toEqual({ number: 7, head: f.head, open: true });
   } finally {
     await picker.close();
   }
@@ -298,3 +305,52 @@ test("without gh on the PATH the picker says so in one line and the plain page s
     await picker.stop();
   }
 }, 60000);
+
+test("every picture's answers carry the snapshot they belong to, and a request naming an older snapshot is refused with 409", async () => {
+  const f = fixture();
+  const picker = await start(f, { head: f.head, viewCalls: 0, listCalls: 0 });
+  try {
+    const plain = (await fetch(`${picker.url}graph.json`)).headers.get("x-snapshot");
+    expect(plain).not.toBeNull();
+    await post(picker, "pull-request?number=7");
+    const first = (await fetch(`${picker.url}graph.json`)).headers.get("x-snapshot");
+    expect(first).not.toBe(plain);
+    expect((await fetch(`${picker.url}source?id=file:src/a.ts&gen=${first}`)).status).toBe(200);
+    // A tab still showing the plain page, or an earlier pick, asks for this picture's data: refused.
+    expect((await fetch(`${picker.url}source?id=file:src/a.ts&gen=${plain}`)).status).toBe(409);
+    await post(picker, "pull-request?reload=1");
+    const second = (await fetch(`${picker.url}graph.json`)).headers.get("x-snapshot");
+    expect(second).not.toBe(first);
+    expect((await fetch(`${picker.url}source?id=file:src/a.ts&gen=${first}`)).status).toBe(409);
+    expect((await fetch(`${picker.url}changes?id=file:src/a.ts&gen=${first}`)).status).toBe(409);
+    expect((await fetch(`${picker.url}source?id=file:src/a.ts&gen=${second}`)).status).toBe(200);
+  } finally {
+    await picker.close();
+  }
+});
+
+test("the current PR is called no longer open only when gh says so or the list was complete", async () => {
+  const f = fixture();
+  const openOf = async (state: Gh, limit: number, afterPick?: () => void): Promise<{ open: boolean | null; truncated: unknown }> => {
+    const picker = await start(f, state, { listLimit: limit });
+    try {
+      await post(picker, "pull-request?number=7");
+      afterPick?.();
+      const answer = await json(await fetch(`${picker.url}pull-requests.json`));
+      return { open: (answer.current as { open: boolean | null }).open, truncated: answer.truncated };
+    } finally {
+      await picker.close();
+    }
+  };
+  // Listed: open.
+  expect(await openOf({ head: f.head, viewCalls: 0, listCalls: 0 }, 100)).toEqual({ open: true, truncated: false });
+  // Complete list that lacks the PR: not open, without asking gh.
+  const lacking: Gh = { head: f.head, viewCalls: 0, listCalls: 0, listOther: true };
+  expect(await openOf(lacking, 100)).toEqual({ open: false, truncated: false });
+  // A full list that lacks it proves nothing: gh is asked about that PR.
+  expect(await openOf({ head: f.head, viewCalls: 0, listCalls: 0, listOther: true, state: "CLOSED" }, 1)).toEqual({ open: false, truncated: true });
+  expect(await openOf({ head: f.head, viewCalls: 0, listCalls: 0, listOther: true, state: "OPEN" }, 1)).toEqual({ open: true, truncated: true });
+  // gh cannot say: unknown, never "no longer open".
+  const broken: Gh = { head: f.head, viewCalls: 0, listCalls: 0, listOther: true };
+  expect(await openOf(broken, 1, () => (broken.failView = failure("HTTP 502")))).toEqual({ open: null, truncated: true });
+});

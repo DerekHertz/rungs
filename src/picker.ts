@@ -23,6 +23,8 @@ export interface PickerOptions {
   /** Draws an opened pull request exactly as `streets compare --pr N` does. It never runs the PR's tests. */
   readonly build: (opened: OpenedPullRequest) => Promise<Snapshot>;
   readonly headTtlMs?: number;
+  /** How many open pull requests the list asks gh for (100 by default). */
+  readonly listLimit?: number;
 }
 
 export interface RunningPicker {
@@ -87,6 +89,7 @@ function parseList(out: string): Listed[] | undefined {
  *
  * `GET /pull-requests.json` is `{status: "ok", prs, truncated, current}` or, when gh cannot answer,
  * `{status: "unavailable", why}` with no list: an unknown list is never an empty one.
+ * Every other answer carries `x-snapshot`, the picture it belongs to; a request with `gen=` naming another one is 409.
  * `GET /pull-request-head.json` asks gh whether the current PR's head moved: `moved` is null when
  * gh could not say. gh is asked at most once per window.
  */
@@ -94,7 +97,10 @@ export async function servePicker(options: PickerOptions): Promise<RunningPicker
   const runners = options.runners ?? systemRunners;
   const gh: Runner = runners.gh;
   const ttl = options.headTtlMs ?? HEAD_TTL_MS;
+  const limit = options.listLimit ?? LIST_LIMIT;
   let active: Snapshot = options.plain;
+  /** Names the snapshot being served. Every answer carries it, and a request naming an older one is refused, so a page never mixes two pictures' answers. */
+  let generation = 0;
   let current: { readonly opened: OpenedPullRequest } | undefined;
   let picking = false;
   /** Every scratch worktree's synchronous remover, from before it exists until the end. */
@@ -112,14 +118,28 @@ export async function servePicker(options: PickerOptions): Promise<RunningPicker
   async function listing(): Promise<Record<string, unknown>> {
     try {
       const where = await top();
-      const out = await gh(["pr", "list", "--state", "open", "--limit", String(LIST_LIMIT), "--json", "number,title,url,headRefOid,isDraft,author"], where);
+      const out = await gh(["pr", "list", "--state", "open", "--limit", String(limit), "--json", "number,title,url,headRefOid,isDraft,author"], where);
       const prs = parseList(out);
       if (prs === undefined) return { tier: "claimed", status: "unavailable", why: "gh gave a pull request list that is not readable: nothing is shown" };
-      const head = current === undefined ? null : { number: current.opened.pr.number, head: current.opened.pr.head };
-      return { tier: "claimed", status: "ok", prs, truncated: prs.length >= LIST_LIMIT, current: head };
+      const truncated = prs.length >= limit;
+      const head = current === undefined ? null : { number: current.opened.pr.number, head: current.opened.pr.head, open: await stillOpen(current.opened, prs, truncated, where) };
+      return { tier: "claimed", status: "ok", prs, truncated, current: head };
     } catch (error) {
       if (error instanceof PullRequestUnavailable) return { tier: "claimed", status: "unavailable", why: error.message };
       return { tier: "claimed", status: "unavailable", why: ghLine(error, "list pull requests") };
+    }
+  }
+
+  /** Whether the picked PR is open: true when listed, false when a complete list lacks it, else gh's word about that PR, null when gh cannot say. A cut list proves nothing. */
+  async function stillOpen(opened: OpenedPullRequest, prs: readonly Listed[], truncated: boolean, where: string): Promise<boolean | null> {
+    if (prs.some((pr) => pr.number === opened.pr.number)) return true;
+    if (!truncated) return false;
+    try {
+      const out = await gh(["pr", "view", String(opened.pr.number), "--json", "state"], where);
+      const said = (JSON.parse(out) as { state?: unknown }).state;
+      return typeof said === "string" ? said === "OPEN" : null;
+    } catch {
+      return null;
     }
   }
 
@@ -152,9 +172,10 @@ export async function servePicker(options: PickerOptions): Promise<RunningPicker
       active = snapshot;
       current = { opened };
       headAnswer = undefined;
+      generation += 1;
       snapshot.begin();
       if (previous !== undefined) await previous.opened.remove();
-      return { status: 200, body: { ok: true, number, head: opened.pr.head, ...(opened.note === undefined ? {} : { note: opened.note }) } };
+      return { status: 200, body: { ok: true, snapshot: generation, number, head: opened.pr.head, ...(opened.note === undefined ? {} : { note: opened.note }) } };
     } catch (error) {
       if (opened !== undefined && current?.opened !== opened) await opened.remove();
       const why = error instanceof PullRequestUnavailable ? error.message : `pull request #${number} could not be drawn: ${(error as Error).message.split("\n")[0]}`;
@@ -172,6 +193,12 @@ export async function servePicker(options: PickerOptions): Promise<RunningPicker
     const url = new URL(request.url ?? "/", "http://localhost");
     const mine = url.pathname === "/pull-requests.json" || url.pathname === "/pull-request-head.json" || url.pathname === "/pull-request";
     if (!mine) {
+      const named = url.searchParams.get("gen");
+      if (named !== null && named !== String(generation)) {
+        response.writeHead(409).end();
+        return;
+      }
+      response.setHeader("x-snapshot", String(generation));
       active.handle(request, response, port);
       return;
     }

@@ -1,3 +1,4 @@
+import "./snapshot-guard.ts";
 import { reachMap } from "../reach.ts";
 import { pictureOf } from "../compare.ts";
 import type { Comparison } from "../compare.ts";

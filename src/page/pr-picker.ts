@@ -7,7 +7,7 @@ interface Listed {
   readonly draft: boolean;
 }
 type Listing =
-  | { readonly status: "ok"; readonly prs: readonly Listed[]; readonly truncated: boolean; readonly current: { readonly number: number; readonly head: string } | null }
+  | { readonly status: "ok"; readonly prs: readonly Listed[]; readonly truncated: boolean; readonly current: { readonly number: number; readonly head: string; readonly open: boolean | null } | null }
   | { readonly status: "unavailable"; readonly why: string };
 interface HeadAnswer {
   readonly moved: boolean | null;
@@ -59,10 +59,11 @@ export async function mountPicker(host: HTMLElement): Promise<void> {
     option.textContent = `#${pr.number} ${pr.draft ? "[draft] " : ""}${pr.title}${pr.author === null ? "" : ` (${pr.author})`}`;
     select.append(option);
   }
+  // "No longer open" only when the server says so: a cut list cannot prove a pull request closed.
   if (listing.current !== null && !listed.has(listing.current.number)) {
     const option = document.createElement("option");
     option.value = String(listing.current.number);
-    option.textContent = `#${listing.current.number} (no longer open)`;
+    option.textContent = listing.current.open === false ? `#${listing.current.number} (no longer open)` : `#${listing.current.number}`;
     select.append(option);
   }
   if (listing.current !== null) select.value = String(listing.current.number);
